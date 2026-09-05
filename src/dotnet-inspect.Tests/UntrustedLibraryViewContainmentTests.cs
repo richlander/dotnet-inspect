@@ -241,7 +241,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
     public async Task TypeView_WithHostileTypeSpelling_RendersNoHazard(string typeName)
     {
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(new ApiOptions
+            () => TypeCommand.ExecuteAsync(new TypeOptions
             {
                 AssemblyPath = _path,
                 TypeName = typeName,
@@ -282,7 +282,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
     public async Task TypeInfoSection_WithHostileTypeParameterName_RendersNoHazard()
     {
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(new ApiOptions
+            () => TypeCommand.ExecuteAsync(new TypeOptions
             {
                 AssemblyPath = _path,
                 TypeName = "GenericType",
@@ -304,7 +304,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
     public async Task TypeNotFoundSuggestions_WithHostileTypeNames_RenderNoHazard()
     {
         var (_, _, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(new ApiOptions
+            () => TypeCommand.ExecuteAsync(new TypeOptions
             {
                 AssemblyPath = _path,
                 TypeName = "HostileINJECTE",
@@ -1493,6 +1493,7 @@ public class LibraryViewShapeDerivedContainmentTests
     private static readonly string[] OutOfReach =
     [
         "ApiJsonSerializableRoot.Type (ApiTypeShape): no public constructor",
+        "ApiMember.DeclaringTypeDefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
         "ApiSignature.ReturnTypeShape (ApiTypeShape): no public constructor",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",

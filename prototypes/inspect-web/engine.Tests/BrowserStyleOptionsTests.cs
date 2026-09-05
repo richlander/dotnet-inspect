@@ -3,6 +3,9 @@ using System.Text.Json;
 using ILInspector.Decompiler;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
+using InspectWeb.Engine.CatalogFacade;
+using InspectWeb.Engine.SourceFacade;
+
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
@@ -12,7 +15,7 @@ public sealed class BrowserStyleOptionsTests
     public void ListVocabulary_ProjectsProductOwnedStyleChoices()
     {
         using JsonDocument document = JsonDocument.Parse(
-            InspectionEngine.ListVocabulary());
+            CatalogExports.ListVocabulary());
         Assert.Equal(1, document.RootElement.GetProperty("schema_version").GetInt32());
         JsonElement actual = document.RootElement
             .GetProperty("sections")
@@ -50,7 +53,7 @@ public sealed class BrowserStyleOptionsTests
     public void ListVocabulary_ProjectsProductOwnedBodyKinds()
     {
         using JsonDocument document = JsonDocument.Parse(
-            InspectionEngine.ListVocabulary());
+            CatalogExports.ListVocabulary());
         JsonElement actual = document.RootElement
             .GetProperty("sections")
             .EnumerateArray()
@@ -80,7 +83,7 @@ public sealed class BrowserStyleOptionsTests
         ];
         string json = JsonSerializer.Serialize(
             selected,
-            BrowserJsonContext.Default.StringArray);
+            BrowserCatalogJsonContext.Default.StringArray);
 
         Assert.Equal(
             Pipeline.StyleOptionCatalog.ResolveChoices(selected),
@@ -95,7 +98,7 @@ public sealed class BrowserStyleOptionsTests
                 "guarded-boolean-return-style:conditional-expression",
                 "guarded-boolean-return-style:branchless",
             },
-            BrowserJsonContext.Default.StringArray);
+            BrowserCatalogJsonContext.Default.StringArray);
         ArgumentException failure = Assert.Throws<ArgumentException>(
             () => BrowserStyleOptions.Resolve(conflict));
         Assert.Contains("conflict", failure.Message, StringComparison.Ordinal);

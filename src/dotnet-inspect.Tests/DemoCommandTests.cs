@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
@@ -35,16 +36,16 @@ public class DemoCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Home demos", output, StringComparison.Ordinal);
-        foreach (var entry in ProductInspectionDemos.Entries)
+        foreach (var entry in ProductDemos)
         {
-            Assert.Contains(entry.Id, output, StringComparison.Ordinal);
+            Assert.Contains(entry.ScenarioId, output, StringComparison.Ordinal);
             Assert.Contains(entry.Title, output, StringComparison.Ordinal);
             Assert.Contains(entry.Summary, output, StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public async Task ExecuteList_Json_EmitsCatalogRows()
+    public async Task ListUsesCatalogDescriptorMetadata()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(DemoCommand.ExecuteList(OutputFormat.Json)));
@@ -52,12 +53,28 @@ public class DemoCommandTests
         Assert.Equal(0, exitCode);
         using var document = JsonDocument.Parse(output);
         Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-        Assert.Equal(ProductInspectionDemos.Entries.Count, document.RootElement.GetArrayLength());
+        Assert.Equal(ProductDemos.Count, document.RootElement.GetArrayLength());
 
-        string[] ids = document.RootElement.EnumerateArray()
-            .Select(element => element.GetProperty("id").GetString()!)
-            .ToArray();
-        Assert.Equal(ProductInspectionDemos.HomeScenarioIds, ids);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        for (int index = 0; index < ProductDemos.Count; index++)
+        {
+            EcosystemDemoDescriptor descriptor = ProductDemos[index];
+            Assert.Equal(
+                descriptor.ScenarioId,
+                rows[index].GetProperty("id").GetString());
+            Assert.Equal(
+                descriptor.Title,
+                rows[index].GetProperty("title").GetString());
+            Assert.Equal(
+                descriptor.Summary,
+                rows[index].GetProperty("summary").GetString());
+        }
+
+        EcosystemDemoSelection aspire = Assert.IsType<EcosystemDemoSelectionResult.Known>(
+            EcosystemPackCatalog.SelectDemo(
+                ProductDemoIds.AspirePostgresCallGraph)).Selection;
+        Assert.NotEqual(aspire.Descriptor.Title, aspire.Scenario.Title);
+        Assert.NotEqual(aspire.Descriptor.Summary, aspire.Scenario.Description);
     }
 
     [Fact]
@@ -117,7 +134,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_LowersStjToTypeMethodsSection()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.StjSerializerScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.StjSerializer);
         Assert.True(DemoScenarioRunner.TryCreateOptions(resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
         var type = Assert.IsType<TypeOptions>(options);
         Assert.Equal("System.Text.Json.JsonSerializer", type.TypeName);
@@ -132,7 +149,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_LowersCallGraphToMemberSectionWithCallerPackages()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.ExtensionsCallGraph);
         Assert.True(DemoScenarioRunner.TryCreateOptions(resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
         var member = Assert.IsType<MemberOptions>(options);
         Assert.Equal(
@@ -158,8 +175,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_LowersSinglePackageCallGraphWithoutCallerPackages()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.StjSerializeCallGraph);
         Assert.True(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Mermaid, noHeader: false, out var options, out var error),
@@ -179,8 +195,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_SinglePackageCallGraph_Table_UsesCallGraphSection()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.StjSerializeCallGraph);
         Assert.True(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Table, noHeader: false, out var options, out var error),
@@ -198,7 +213,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_Mermaid_SetsMermaidOutputAndSingleGraphSection()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.ExtensionsCallGraph);
         Assert.True(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Mermaid, noHeader: false, out var options, out var error),
@@ -215,7 +230,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_MethodsDemo_RejectsStandaloneMermaid()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.StjSerializerScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.StjSerializer);
         Assert.False(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Mermaid, noHeader: false, out _, out var error));
@@ -226,7 +241,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_CallGraph_Table_UsesCallersSingleSection()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.ExtensionsCallGraph);
         Assert.True(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Table, noHeader: false, out var options, out var error),
@@ -244,7 +259,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_CallGraph_Json_FailsClosed()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.ExtensionsCallGraph);
         Assert.False(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Json, noHeader: false, out _, out var error));
@@ -254,7 +269,7 @@ public class DemoCommandTests
     [Fact]
     public void Runner_MethodsDemo_SetsSelectForSectionQuery()
     {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.StjSerializerScenarioId);
+        var resolved = ResolveDemo(ProductDemoIds.StjSerializer);
         Assert.True(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error),
@@ -272,7 +287,7 @@ public class DemoCommandTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
-        Assert.Equal(ProductInspectionDemos.Entries.Count, document.RootElement.GetArrayLength());
+        Assert.Equal(ProductDemos.Count, document.RootElement.GetArrayLength());
         Assert.Contains(
             document.RootElement.EnumerateArray(),
             element => element.GetProperty("id").GetString() == "stj-serializer");
@@ -283,7 +298,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
             () => DemoCommand.ExecuteScenarioAsync(
-                ProductInspectionDemos.StjSerializerScenarioId,
+                ProductDemoIds.StjSerializer,
                 OutputFormat.Markdown));
 
         Assert.True(exitCode == 0, error + "\n" + output);
@@ -297,7 +312,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
             () => DemoCommand.ExecuteScenarioAsync(
-                ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+                ProductDemoIds.ExtensionsCallGraph,
                 OutputFormat.Markdown));
 
         Assert.True(exitCode == 0, error + "\n" + output);
@@ -307,15 +322,18 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public async Task Cli_DemoCallGraph_Mermaid_EmitsGraph()
+    public async Task Cli_DemoCallGraph_Mermaid_ReportsIncompleteWorkspaceBinding()
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            ProductDemoIds.ExtensionsCallGraph,
             "--mermaid");
 
         Assert.True(exitCode == 0, error + "\n" + output);
-        Assert.Empty(error);
+        Assert.Contains(
+            "Warning: Call graph results are incomplete because",
+            error,
+            StringComparison.Ordinal);
         Assert.Contains("graph TD", output, StringComparison.Ordinal);
         Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
     }
@@ -325,7 +343,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.StjSerializerScenarioId,
+            ProductDemoIds.StjSerializer,
             "--mermaid");
 
         Assert.Equal(1, exitCode);
@@ -338,7 +356,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.StjSerializerScenarioId,
+            ProductDemoIds.StjSerializer,
             "--markdown",
             "--mermaid");
 
@@ -396,7 +414,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.StjSerializerScenarioId,
+            ProductDemoIds.StjSerializer,
             "--json",
             "--mermaid");
 
@@ -410,7 +428,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            ProductDemoIds.ExtensionsCallGraph,
             "--plaintext",
             "--mermaid");
 
@@ -424,7 +442,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            ProductDemoIds.ExtensionsCallGraph,
             "--table");
 
         Assert.True(exitCode == 0, error + "\n" + output);
@@ -438,9 +456,9 @@ public class DemoCommandTests
     [Fact]
     public async Task Cli_EveryCallGraphDemo_Mermaid_EmitsNonEmptyGraph()
     {
-        foreach (var entry in ProductInspectionDemos.Entries)
+        foreach (var entry in ProductDemos)
         {
-            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
+            var resolved = ResolveDemo(entry.ScenarioId);
             if (!string.Equals(
                     resolved.View?.Section,
                     ProductDemoSections.CallGraph,
@@ -449,21 +467,21 @@ public class DemoCommandTests
                 continue;
             }
 
-            var (exitCode, output, error) = await RunCliAsync("demo", entry.Id, "--mermaid");
-            Assert.True(exitCode == 0, $"{entry.Id}: {error}\n{output}");
+            var (exitCode, output, error) = await RunCliAsync("demo", entry.ScenarioId, "--mermaid");
+            Assert.True(exitCode == 0, $"{entry.ScenarioId}: {error}\n{output}");
             Assert.Contains("graph TD", output, StringComparison.Ordinal);
             Assert.True(
                 output.Length > 80,
-                $"{entry.Id}: mermaid output too short ({output.Length} bytes).");
+                $"{entry.ScenarioId}: mermaid output too short ({output.Length} bytes).");
         }
     }
 
     [Fact]
     public async Task Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows()
     {
-        foreach (var entry in ProductInspectionDemos.Entries)
+        foreach (var entry in ProductDemos)
         {
-            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
+            var resolved = ResolveDemo(entry.ScenarioId);
             if (!string.Equals(
                     resolved.View?.Section,
                     ProductDemoSections.CallGraph,
@@ -472,11 +490,11 @@ public class DemoCommandTests
                 continue;
             }
 
-            var (exitCode, output, error) = await RunCliAsync("demo", entry.Id, "--table");
-            Assert.True(exitCode == 0, $"{entry.Id}: {error}\n{output}");
+            var (exitCode, output, error) = await RunCliAsync("demo", entry.ScenarioId, "--table");
+            Assert.True(exitCode == 0, $"{entry.ScenarioId}: {error}\n{output}");
             Assert.False(
                 string.IsNullOrWhiteSpace(output),
-                $"{entry.Id}: tabular Call Graph demo produced empty stdout.");
+                $"{entry.ScenarioId}: tabular Call Graph demo produced empty stdout.");
             // Must not fall through to the member inventory Kind/Name table.
             Assert.DoesNotContain("Return Type", output, StringComparison.Ordinal);
         }
@@ -487,7 +505,7 @@ public class DemoCommandTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
-            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            ProductDemoIds.ExtensionsCallGraph,
             "--json");
 
         Assert.Equal(1, exitCode);
@@ -500,4 +518,11 @@ public class DemoCommandTests
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
             .ToArray();
+
+    private static IReadOnlyList<EcosystemDemoDescriptor> ProductDemos =>
+        EcosystemPackCatalog.DiscoverDemos();
+
+    private static ResolvedScenario ResolveDemo(string scenarioId) =>
+        Assert.IsType<EcosystemDemoSelectionResult.Known>(
+            EcosystemPackCatalog.SelectDemo(scenarioId)).Selection.Scenario;
 }

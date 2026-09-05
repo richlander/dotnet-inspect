@@ -3,6 +3,8 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
 
+using DotnetInspector.Artifacts;
+using DotnetInspector.Artifacts.Workspaces;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -430,21 +432,34 @@ public sealed class PackageAssemblyContextRealizationTests
             PackagePayloadOrigin.Download);
 
         PackageRootBinding binding =
-            PackageRootBinding.CreateFromResolved(payload, "net10.0");
+            PackageRootBinding.CreateFromResolved(
+                payload,
+                "net10.0",
+                "Resolved.Sample");
 
+        Assert.Equal("Resolved.Sample", binding.Root.PackageId);
         Assert.Equal("net11.0", binding.Coordinate.Framework);
         Assert.Equal("linux-x64", binding.Coordinate.RuntimeIdentifier);
         Assert.Equal("net10.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
-            ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
+            ["lib/net10.0/Net10.dll"],
             binding.Root.AssetSelection.Assets.Select(asset => asset.Path));
         Assert.Equal(
             ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
             binding.Root.AssetSelection.ImplementationAssets.Select(
                 asset => asset.Path));
         Assert.Equal(
+            "runtimes/linux-x64/lib/net10.0/Net10.dll",
+            binding.Root.AssetSelection.FindImplementationAsset(
+                Assert.Single(binding.Root.AssetSelection.Assets))!.Path);
+        Assert.Equal(
             "linux-x64",
             binding.Root.RequestedRuntimeIdentifier);
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromResolved(
+                payload,
+                "net10.0",
+                "Different.Package"));
     }
 
     [Fact]
@@ -567,6 +582,52 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageAssemblyRoleParticipant implementation =
             Assert.Single(realization.ImplementationParticipants);
         Assert.Same(surface.Participant, implementation.Participant);
+        Assert.Same(
+            implementation,
+            realization.ImplementationParticipant(surface));
+    }
+
+    [Fact]
+    public void RidSpecificImplementation_UsesSeparateNeutralCompileRole()
+    {
+        byte[] selectedImage =
+            IntegrationAssembly("Rid.Sample", "SelectedType");
+        byte[] unrelatedImage =
+            IntegrationAssembly("Unrelated.Rid.Sample", "UnrelatedType");
+        PackageRootRealization package = new(
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net11.0/Rid.Sample.dll", selectedImage),
+                    ("lib/net11.0/shadow/Rid.Sample.dll", unrelatedImage),
+                    ("runtimes/linux-x64/lib/net11.0/Rid.Sample.dll", selectedImage)),
+                fromCache: false,
+                producerKey: "tests"),
+            "Rid.Sample",
+            "1.0.0",
+            Framework,
+            "linux-x64");
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(realization.SharesGroup);
+        PackageAssemblyRoleParticipant surface =
+            Assert.Single(realization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant implementation =
+            realization.ImplementationParticipants.Single(candidate =>
+                candidate.Asset.Path
+                    == "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll");
+        Assert.Equal("lib/net11.0/Rid.Sample.dll", surface.Asset.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll",
+            implementation.Asset.Path);
+        Assert.Contains(
+            realization.ImplementationParticipants,
+            candidate =>
+                candidate.Asset.Path
+                    == "lib/net11.0/shadow/Rid.Sample.dll");
         Assert.Same(
             implementation,
             realization.ImplementationParticipant(surface));
@@ -895,6 +956,180 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public async Task ArtifactBackedPackageRealization_PreservesMixedParticipantsAndExactLifetime()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] valid =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealizationTests)
+                    .Assembly.Location);
+        byte[] malformed = new byte[valid.Length];
+        var content = new TrackingPackageContent(
+            ("ref/net11.0/Artifact.Mixed.Sample.dll", valid),
+            ("lib/net11.0/Artifact.Mixed.Sample.dll", malformed));
+        PackageRootBinding binding =
+            Binding(
+                "artifact.mixed.sample",
+                content,
+                displayPackageId: "Artifact.Mixed.Sample");
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        using PackageAssemblyContextRealization realization =
+            await workspace.RealizePackageAssemblyContextRolesAsync(
+                binding,
+                new PackageAssemblyContextRealizationOptions
+                {
+                    MaxAggregateRetainedImageBytes =
+                        2 * (valid.LongLength + malformed.LongLength),
+                    MaxAssemblyEntryBytes = valid.LongLength,
+                },
+                cancellationToken);
+
+        Assert.Equal(2, content.EntryOpenRequests);
+        PackageAssemblyRoleParticipant surfaceParticipant =
+            Assert.Single(realization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant implementationParticipant =
+            Assert.Single(realization.ImplementationParticipants);
+        Assert.Equal(
+            "artifact.mixed.sample",
+            binding.Coordinate.PackageId);
+        Assert.Equal(
+            "Artifact.Mixed.Sample",
+            surfaceParticipant.Package.PackageId);
+        Assert.Same(
+            surfaceParticipant.Package,
+            implementationParticipant.Package);
+        Assert.NotSame(
+            realization.SurfaceGroup,
+            realization.ImplementationGroup);
+        ArtifactAcquisitionRegistration[] registrations =
+        [
+            Assert.IsType<ArtifactAcquisitionRegistration>(
+                surfaceParticipant.Participant.Assembly.Registration
+                    .ArtifactRegistration),
+            Assert.IsType<ArtifactAcquisitionRegistration>(
+                implementationParticipant.Participant.Assembly.Registration
+                    .ArtifactRegistration),
+        ];
+        Assert.Same(
+            registrations[0].Generation,
+            registrations[1].Generation);
+        Assert.All(
+            registrations,
+            registration =>
+            {
+                PackageAssemblyArtifactProvenance provenance =
+                    Assert.IsType<PackageAssemblyArtifactProvenance>(
+                        registration.Provenance);
+                Assert.Equal(binding.Coordinate, provenance.Coordinate);
+                Assert.Same(
+                    binding.ContentGenerationIdentity,
+                    provenance.ContentGenerationIdentity);
+                Assert.Same(
+                    binding.SelectionIdentity,
+                    provenance.SelectionIdentity);
+            });
+
+        AssemblyContextApiSurfaceResult surfaceResult =
+            AssemblyContextApiSurfaceQuery.Execute(
+                realization.SurfaceGroup);
+        Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            Assert.Single(surfaceResult.Assemblies.Assemblies));
+        AssemblyContextApiSurfaceResult implementationResult =
+            AssemblyContextApiSurfaceQuery.Execute(
+                realization.ImplementationGroup!);
+        Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
+            Assert.Single(implementationResult.Assemblies.Assemblies));
+        Assert.Equal(2, content.EntryOpenRequests);
+
+        Assert.Equal(
+            typeof(PackageAssemblyContextRealizationTests)
+                .Assembly.GetName().Name,
+            surfaceParticipant.Participant.Assembly.Identity.Name);
+        var callbackEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackResume = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<AssemblyImageAccessResult<int>> operation =
+            realization.SurfaceGroup.UseAndReleaseAssemblySessionAsync(
+                surfaceParticipant.Participant.Assembly,
+                async (_, _) =>
+                {
+                    callbackEntered.SetResult();
+                    await callbackResume.Task.WaitAsync(
+                        cancellationToken);
+                    return 1;
+                });
+        await callbackEntered.Task.WaitAsync(cancellationToken);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+
+        Assert.False(close.IsCompleted);
+        realization.Dispose();
+        long retainedArtifactLength = 0;
+        try
+        {
+            using Stream retainedArtifact =
+                surfaceParticipant.Participant.Assembly.OpenRead();
+            retainedArtifactLength = retainedArtifact.Length;
+        }
+        finally
+        {
+            callbackResume.SetResult();
+        }
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            await operation);
+        InspectionWorkspaceCloseReport report = await close;
+        Assert.Equal(valid.LongLength, retainedArtifactLength);
+        Assert.Empty(report.ArtifactSessionCleanupFailures);
+        Assert.Equal(2, content.EntryOpenRequests);
+        Assert.Throws<ObjectDisposedException>(
+            () => surfaceParticipant.Participant.Assembly.OpenRead());
+    }
+
+    [Fact]
+    public async Task ArtifactBackedPackageRealization_RejectsAggregateBudgetWithoutPartialGroup()
+    {
+        var content = new TrackingPackageContent(
+            ("lib/net11.0/First.dll", new byte[] { 1, 2 }),
+            ("lib/net11.0/Second.dll", new byte[] { 3, 4 }));
+        PackageRootBinding binding =
+            Binding("Artifact.Budget.Sample", content);
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await workspace.RealizePackageAssemblyContextRolesAsync(
+                        binding,
+                        new PackageAssemblyContextRealizationOptions
+                        {
+                            MaxAggregateRetainedImageBytes = 6,
+                            MaxAssemblyEntryBytes = 2,
+                        },
+                        TestContext.Current.CancellationToken));
+
+        IReadOnlyList<ArtifactSetAdmissionFailure> admissionFailures =
+            Assert.IsAssignableFrom<
+                IReadOnlyList<ArtifactSetAdmissionFailure>>(
+                    failure.Data[
+                        "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"]);
+        ArtifactSetAdmissionFailure admissionFailure =
+            Assert.Single(admissionFailures);
+        Assert.Equal(
+            ArtifactSetAdmissionFailureKind.Rejected,
+            admissionFailure.Kind);
+        Assert.Equal(
+            "artifact.session.byte-limit",
+            admissionFailure.Diagnostic.Code);
+        Assert.Equal(2, content.EntryOpenRequests);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public void MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
     {
         PackageRootRealization package = Selection(
@@ -991,8 +1226,8 @@ public sealed class PackageAssemblyContextRealizationTests
             ("lib/net11.0/Mismatch\u202e.Sample.dll", implementation));
         using var workspace = new InspectionWorkspace();
 
-        InvalidOperationException failure =
-            Assert.Throws<InvalidOperationException>(
+        PackageAssemblyRoleCorrespondenceException failure =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
                 () => workspace.RealizePackageAssemblyContextRoles(
                     [package],
                     cancellationToken: TestContext.Current.CancellationToken));
@@ -1210,6 +1445,24 @@ public sealed class PackageAssemblyContextRealizationTests
             "1.0.0",
             targetFramework);
 
+    static PackageRootBinding Binding(
+        string packageId,
+        IPackageContent content,
+        string? displayPackageId = null)
+    {
+        const string version = "1.0.0";
+        const string producer = "tests";
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, version),
+            content,
+            producer,
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSource(
+            payload,
+            Framework,
+            displayPackageId: displayPackageId);
+    }
+
     static byte[] IntegrationAssembly(
         string assemblyName,
         string typeName)
@@ -1347,6 +1600,48 @@ public sealed class PackageAssemblyContextRealizationTests
         [
             .. paths.Select(path => new PackageContentEntry(path, 0)),
         ];
+    }
+
+    sealed class TrackingPackageContent(
+        params (string Path, byte[] Content)[] entries)
+        : IPackageContent
+    {
+        readonly (string Path, byte[] Content)[] _entries = entries;
+
+        public int EntryOpenRequests { get; private set; }
+        public string? RootPath => null;
+        public string? NupkgPath => null;
+        public bool FromCache => false;
+        public string ProducerKey => "tests";
+        public bool RequiresArchiveTreeMatch => false;
+
+        public bool TryOpenArchive(
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            stream = null;
+            return false;
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            foreach ((string path, byte[] content) in _entries)
+            {
+                if (!relativePath.Equals(path, StringComparison.Ordinal))
+                    continue;
+
+                EntryOpenRequests++;
+                stream = new MemoryStream(content, writable: false);
+                return true;
+            }
+
+            stream = null;
+            return false;
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+            _entries.Select(entry => entry.Path);
     }
 
     sealed class UnderreportingLengthStream(

@@ -19,7 +19,9 @@ public sealed class PackageCoordinateResolverTests
     public async Task TypedExactPin_DoesNotEscapeExpiredOperationContext()
     {
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(new FailingHandler());
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(1),
@@ -1418,9 +1420,14 @@ public sealed class PackageCoordinateResolverTests
             StringComparison.Ordinal);
     }
 
+    public static TheoryData<string> NonHttpSources() => new()
+    {
+        Path.Combine(Path.GetTempPath(), "packages"),
+        new Uri(Path.Combine(Path.GetTempPath(), "packages")).AbsoluteUri,
+    };
+
     [Theory]
-    [InlineData("/tmp/packages")]
-    [InlineData("file:///tmp/packages")]
+    [MemberData(nameof(NonHttpSources))]
     public async Task ListVersions_SkipsNonHttpSource(
         string localSourceUrl)
     {
@@ -1446,8 +1453,7 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
-    [InlineData("/tmp/packages")]
-    [InlineData("file:///tmp/packages")]
+    [MemberData(nameof(NonHttpSources))]
     public async Task FloatingCoordinate_SkipsNonHttpSource(
         string localSourceUrl)
     {

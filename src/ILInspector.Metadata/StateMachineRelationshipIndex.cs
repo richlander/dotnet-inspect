@@ -14,7 +14,9 @@ namespace ILInspector.Metadata;
 /// </summary>
 /// <remarks>
 /// <c>StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations</c>
-/// gates exact role selection and
+/// gates exact role selection,
+/// <c>StateMachineRelationshipIndex_ResolvesClassicAsyncWithAbsentSupportRole</c>
+/// gates the admitted classic support-role absence, and
 /// <c>StateMachineRelationshipIndex_PropagatesTypedBudgetFailure</c>,
 /// <c>StateMachineRelationshipIndex_MergesEveryOverlappingRejection</c>, and
 /// <c>StateMachineRelationshipIndex_RejectsInvalidImplementationShapes</c>
@@ -183,22 +185,6 @@ public sealed class StateMachineRelationshipIndex
             or InvalidOperationException
             or OverflowException;
 
-    static Guid ReadModuleVersionId(MetadataReader reader)
-    {
-        GuidHandle handle = reader.GetModuleDefinition().Mvid;
-        int index = MetadataTokens.GetHeapOffset(handle);
-        int heapSize = reader.GetHeapSize(HeapIndex.Guid);
-        if (handle.IsNil
-            || index <= 0
-            || (long)index * 16 > heapSize)
-        {
-            throw new BadImageFormatException(
-                "The module MVID does not reference a complete GUID heap entry.");
-        }
-
-        return reader.GetGuid(handle);
-    }
-
     static StateMachineRelationshipIndex Failed(
         MetadataReader reader,
         StateMachineRelationshipFailureKind kind,
@@ -209,7 +195,7 @@ public sealed class StateMachineRelationshipIndex
         int typeRows = 0;
         try
         {
-            moduleVersionId = ReadModuleVersionId(reader);
+            moduleVersionId = MetadataModuleIdentity.ReadVersionId(reader);
         }
         catch (Exception ex) when (
             IsRecoverableMetadataFailure(ex))
@@ -303,7 +289,7 @@ public sealed class StateMachineRelationshipIndex
             _remainingNameWork = nameWorkBudget;
             _remainingSignatureWork = signatureWorkBudget;
             _rejectionWorkObserved = rejectionWorkObserved;
-            _moduleVersionId = ReadModuleVersionId(reader);
+            _moduleVersionId = MetadataModuleIdentity.ReadVersionId(reader);
             _typeDefinitions =
                 MetadataTypeDefinitionIndex.Create(
                     reader,
@@ -945,7 +931,7 @@ public sealed class StateMachineRelationshipIndex
                         previous.StateMachineType.Definition.Value,
                         stateMachineAddress.Definition.Value,
                     ],
-                    [.. previous.Methods.Select(
+                    [.. PresentRoles(previous).Select(
                         method => method.Method.Token)]);
                 return;
             }
@@ -964,38 +950,22 @@ public sealed class StateMachineRelationshipIndex
                 return;
             }
 
-            RoleSpec[] roles = claim.Kind switch
-            {
-                StateMachineClaimKind.ClassicAsync =>
-                [
-                    RoleSpec.AsyncMoveNext,
-                    RoleSpec.SetStateMachine,
-                ],
-                StateMachineClaimKind.AsyncIterator =>
-                [
-                    RoleSpec.AsyncMoveNext,
-                    RoleSpec.SetStateMachine,
-                    RoleSpec.MoveNextAsync,
-                    RoleSpec.DisposeAsync,
-                ],
-                StateMachineClaimKind.Iterator =>
-                [
-                    RoleSpec.IteratorMoveNext,
-                    RoleSpec.Dispose,
-                ],
-                _ => throw new InvalidOperationException(
-                    "Unknown state-machine claim kind."),
-            };
-
-            var methods =
+            ReadOnlySpan<StateMachineMethodRole> roles =
+                StateMachineRelationship.RolesFor(claim.Kind);
+            var dispositions =
                 ImmutableArray.CreateBuilder<
-                    StateMachineMethodRelationship>(
-                        roles.Length);
-            foreach (RoleSpec role in roles)
+                    StateMachineRoleDisposition>(roles.Length);
+            foreach (StateMachineMethodRole roleKind in roles)
             {
+                RoleSpec role = RoleSpec.For(claim.Kind, roleKind);
                 RoleResolution resolution =
-                    ResolveRole(stateMachine, role);
-                if (resolution.Method.IsNil)
+                    ResolveRole(
+                        stateMachine,
+                        role,
+                        StateMachineRelationship.CanBeAbsent(
+                            claim.Kind,
+                            roleKind));
+                if (resolution.Kind == RoleResolutionKind.Rejected)
                 {
                     PublishRejection(
                         resolution.Failure,
@@ -1009,10 +979,13 @@ public sealed class StateMachineRelationshipIndex
                     return;
                 }
 
-                methods.Add(
-                    new(
+                dispositions.Add(
+                    resolution.Kind == RoleResolutionKind.Present
+                    ? new StateMachineRoleDisposition.Present(
                         role.Role,
-                        Address(resolution.Method)));
+                        Address(resolution.Method))
+                    : new StateMachineRoleDisposition.AbsentFromArtifact(
+                        role.Role));
             }
 
             var relationship =
@@ -1021,14 +994,14 @@ public sealed class StateMachineRelationshipIndex
                     stateMachineAddress,
                     claim.StateMachineName,
                     claim.Kind,
-                    methods.ToImmutable());
+                    dispositions.ToImmutable());
             var resolved =
                 new StateMachineRelationshipResult.Resolved(
                     relationship);
 
             var implementationTokens = new HashSet<int>();
-            foreach (StateMachineMethodRelationship method
-                in relationship.Methods)
+            foreach (StateMachineRoleDisposition.Present method
+                in PresentRoles(relationship))
             {
                 if (!implementationTokens.Add(method.Method.Token))
                 {
@@ -1064,8 +1037,8 @@ public sealed class StateMachineRelationshipIndex
                 resolvedEntry;
             _byStateMachine[MetadataTokens.GetToken(stateMachine)] =
                 resolvedEntry;
-            foreach (StateMachineMethodRelationship method
-                in relationship.Methods)
+            foreach (StateMachineRoleDisposition.Present method
+                in PresentRoles(relationship))
             {
                 int token = method.Method.Token;
                 _byImplementation[token] = resolvedEntry;
@@ -1078,7 +1051,7 @@ public sealed class StateMachineRelationshipIndex
             int implementationToken)
         {
             ImmutableArray<int> currentImplementations =
-                [.. relationship.Methods.Select(
+                [.. PresentRoles(relationship).Select(
                     method => method.Method.Token)];
             if (existing.Rejection is not null)
             {
@@ -1114,7 +1087,7 @@ public sealed class StateMachineRelationshipIndex
                     previous.StateMachineType.Definition.Value,
                     relationship.StateMachineType.Definition.Value,
                 ],
-                [.. previous.Methods
+                [.. PresentRoles(previous)
                     .Select(method => method.Method.Token)
                     .Concat(currentImplementations)
                     .Append(implementationToken)
@@ -1127,16 +1100,22 @@ public sealed class StateMachineRelationshipIndex
             _byKickoff.Remove(relationship.Kickoff.Token);
             _byStateMachine.Remove(
                 relationship.StateMachineType.Definition.Value);
-            foreach (StateMachineMethodRelationship method
-                in relationship.Methods)
+            foreach (StateMachineRoleDisposition.Present method
+                in PresentRoles(relationship))
             {
                 _byImplementation.Remove(method.Method.Token);
             }
         }
 
+        static IEnumerable<StateMachineRoleDisposition.Present> PresentRoles(
+            StateMachineRelationship relationship) =>
+            relationship.Roles.OfType<
+                StateMachineRoleDisposition.Present>();
+
         RoleResolution ResolveRole(
             TypeDefinitionHandle stateMachine,
-            RoleSpec role)
+            RoleSpec role,
+            bool allowAbsent)
         {
             TypeDefinition type =
                 _reader.GetTypeDefinition(stateMachine);
@@ -1156,6 +1135,20 @@ public sealed class StateMachineRelationshipIndex
                 Charge();
                 MethodImplementation implementation =
                     _reader.GetMethodImplementation(handle);
+                DeclarationCandidateKind candidateKind =
+                    allowAbsent
+                        ? _signatures.ClassifyDeclarationCandidate(
+                            implementation.MethodDeclaration,
+                            role)
+                        : DeclarationCandidateKind.NotCandidate;
+                if (candidateKind
+                    == DeclarationCandidateKind.Rejected)
+                {
+                    return RoleResolution.Rejected(
+                        StateMachineRelationshipFailureKind.Malformed,
+                        "A state-machine MethodImpl declaration type could not be read.");
+                }
+
                 if (!_signatures.MatchesDeclaration(
                         implementation.MethodDeclaration,
                         role,
@@ -1166,6 +1159,14 @@ public sealed class StateMachineRelationshipIndex
                             implementedInterface,
                             declaredInterface))
                 {
+                    if (candidateKind
+                        == DeclarationCandidateKind.Candidate)
+                    {
+                        return RoleResolution.Rejected(
+                            StateMachineRelationshipFailureKind.Unresolved,
+                            "A state-machine MethodImpl declaration names an optional role but does not match its signature.");
+                    }
+
                     continue;
                 }
                 if (!explicitMethod.IsNil
@@ -1192,7 +1193,7 @@ public sealed class StateMachineRelationshipIndex
                 explicitMethod = body;
             }
             if (!explicitMethod.IsNil)
-                return RoleResolution.Resolved(explicitMethod);
+                return RoleResolution.Present(explicitMethod);
 
             MethodDefinitionHandle implicitMethod = default;
             foreach (MethodDefinitionHandle handle in type.GetMethods())
@@ -1200,15 +1201,21 @@ public sealed class StateMachineRelationshipIndex
                 Charge();
                 MethodDefinition method =
                     _reader.GetMethodDefinition(handle);
-                if (!_reader.StringComparer.Equals(
-                        method.Name,
-                        role.Name)
-                    || !IsImplementationCandidate(
+                if (!_reader.StringComparer.Equals(method.Name, role.Name))
+                    continue;
+                if (!IsImplementationCandidate(
                         handle,
                         stateMachine,
                         role,
                         requireImplicitVisibility: true))
                 {
+                    if (allowAbsent)
+                    {
+                        return RoleResolution.Rejected(
+                            StateMachineRelationshipFailureKind.Unresolved,
+                            "A state-machine MethodDef names an optional role but does not match its required shape.");
+                    }
+
                     continue;
                 }
                 if (!implicitMethod.IsNil)
@@ -1220,11 +1227,14 @@ public sealed class StateMachineRelationshipIndex
                 implicitMethod = handle;
             }
 
-            return implicitMethod.IsNil
-                ? RoleResolution.Rejected(
-                    StateMachineRelationshipFailureKind.Unresolved,
-                    "A required state-machine interface role could not be resolved.")
-                : RoleResolution.Resolved(implicitMethod);
+            if (!implicitMethod.IsNil)
+                return RoleResolution.Present(implicitMethod);
+            if (allowAbsent)
+                return RoleResolution.AbsentFromArtifact();
+
+            return RoleResolution.Rejected(
+                StateMachineRelationshipFailureKind.Unresolved,
+                "A required state-machine interface role could not be resolved.");
         }
 
         EntityHandle FindImplementedInterface(
@@ -1843,6 +1853,47 @@ public sealed class StateMachineRelationshipIndex
                 && Matches(value, role);
         }
 
+        internal DeclarationCandidateKind ClassifyDeclarationCandidate(
+            EntityHandle declaration,
+            RoleSpec role)
+        {
+            StringHandle name;
+            EntityHandle declaringType;
+            if (declaration.Kind == HandleKind.MemberReference)
+            {
+                MemberReference member =
+                    _reader.GetMemberReference(
+                        (MemberReferenceHandle)declaration);
+                declaringType = member.Parent;
+                name = member.Name;
+            }
+            else if (declaration.Kind
+                == HandleKind.MethodDefinition)
+            {
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)declaration);
+                declaringType = method.GetDeclaringType();
+                name = method.Name;
+            }
+            else
+            {
+                return DeclarationCandidateKind.NotCandidate;
+            }
+
+            if (!_reader.StringComparer.Equals(name, role.Name))
+                return DeclarationCandidateKind.NotCandidate;
+
+            SignatureType type =
+                DecodeType(declaringType, ClassTypeCode);
+            if (type.TypeNameFailure is not null)
+                return DeclarationCandidateKind.Rejected;
+
+            return type.Type == role.Interface
+                ? DeclarationCandidateKind.Candidate
+                : DeclarationCandidateKind.NotCandidate;
+        }
+
         internal bool MatchesMethod(
             MethodDefinition method,
             RoleSpec role)
@@ -2331,6 +2382,13 @@ public sealed class StateMachineRelationshipIndex
         ValueType,
     }
 
+    enum DeclarationCandidateKind
+    {
+        NotCandidate,
+        Candidate,
+        Rejected,
+    }
+
     enum KnownStateMachineType
     {
         Unknown,
@@ -2371,6 +2429,39 @@ public sealed class StateMachineRelationshipIndex
         KnownStateMachineType Return,
         ImmutableArray<KnownStateMachineType> Parameters)
     {
+        internal static RoleSpec For(
+            StateMachineClaimKind kind,
+            StateMachineMethodRole role) =>
+            (kind, role) switch
+            {
+                (
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineMethodRole.MoveNext) => AsyncMoveNext,
+                (
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineMethodRole.SetStateMachine) => SetStateMachine,
+                (
+                    StateMachineClaimKind.AsyncIterator,
+                    StateMachineMethodRole.MoveNext) => AsyncMoveNext,
+                (
+                    StateMachineClaimKind.AsyncIterator,
+                    StateMachineMethodRole.SetStateMachine) => SetStateMachine,
+                (
+                    StateMachineClaimKind.AsyncIterator,
+                    StateMachineMethodRole.MoveNextAsync) => MoveNextAsync,
+                (
+                    StateMachineClaimKind.AsyncIterator,
+                    StateMachineMethodRole.DisposeAsync) => DisposeAsync,
+                (
+                    StateMachineClaimKind.Iterator,
+                    StateMachineMethodRole.MoveNext) => IteratorMoveNext,
+                (
+                    StateMachineClaimKind.Iterator,
+                    StateMachineMethodRole.Dispose) => Dispose,
+                _ => throw new InvalidOperationException(
+                    "Unknown state-machine role."),
+            };
+
         internal static RoleSpec AsyncMoveNext { get; } =
             new(
                 StateMachineMethodRole.MoveNext,
@@ -2452,22 +2543,42 @@ public sealed class StateMachineRelationshipIndex
                 detail);
     }
 
+    enum RoleResolutionKind
+    {
+        Present,
+        AbsentFromArtifact,
+        Rejected,
+    }
+
     readonly record struct RoleResolution(
+        RoleResolutionKind Kind,
         MethodDefinitionHandle Method,
         StateMachineRelationshipFailureKind Failure,
         string Detail)
     {
-        internal static RoleResolution Resolved(
+        internal static RoleResolution Present(
             MethodDefinitionHandle method) =>
             new(
+                RoleResolutionKind.Present,
                 method,
+                StateMachineRelationshipFailureKind.Unresolved,
+                "");
+
+        internal static RoleResolution AbsentFromArtifact() =>
+            new(
+                RoleResolutionKind.AbsentFromArtifact,
+                default,
                 StateMachineRelationshipFailureKind.Unresolved,
                 "");
 
         internal static RoleResolution Rejected(
             StateMachineRelationshipFailureKind failure,
             string detail) =>
-            new(default, failure, detail);
+            new(
+                RoleResolutionKind.Rejected,
+                default,
+                failure,
+                detail);
     }
 
     sealed class RelationshipBudgetException : Exception;

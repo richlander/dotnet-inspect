@@ -8,9 +8,11 @@ The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
 the remaining source-policy boundaries are tracked by the
 [package source model](package-source-model.md).
-Result-limit and short-selector examples use the approved target contract from
-[Item and line limits](item-and-line-limits.md); those spellings remain
-unreleased until its implementation lands.
+Result-limit and short-selector examples use spellings from the retired #4677
+umbrella design. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; those spellings are historical proposals, not
+implementation-ready syntax.
 
 ## Four modes
 
@@ -227,6 +229,14 @@ each endpoint.
 
 ## Listed vs. unlisted versions
 
+The online CLI metadata-only version queries now adopt typed configured
+authority results under
+[Package Source Model](package-source-model.md#metadata-only-version-queries).
+They bypass the legacy caches described below, disclose partial raw listings,
+and require complete evidence for latest and range selection. Payload-selecting
+resolution and offline queries retain the legacy behavior in this section
+until their separately tracked adoption.
+
 NuGet lets a publisher **unlist** a version: it stays restorable by exact
 coordinate but is hidden from discovery on nuget.org. The flat-container
 `index.json` that drives version enumeration lists **every** published version
@@ -338,6 +348,9 @@ feed.
 Network calls use the cache behavior below. Negative cache entries are written
 only for definitive 404/not-found responses; transient failures, timeouts,
 offline mode, and unsupported local feed URLs are not cached as misses.
+Package-metadata absence is a time-bounded observation rather than a permanent
+coordinate fact; its target semantics are owned by
+[package metadata persistence](package-metadata-persistence.md).
 
 | Download or check | Cache behavior |
 | --- | --- |
@@ -349,8 +362,8 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
 | Package index scan | Cached permanently for extracted package contents. |
-| Package metadata | Cached for 1 hour in the metadata cache. |
-| Dependency publish dates | Reuses the package metadata cache, so dependency-age audit does not refetch known publish dates. |
+| Package metadata | Present or authoritative-absence observations are cached for no more than 1 hour under the [package metadata persistence](package-metadata-persistence.md) contract. |
+| Dependency publish dates | Reuses an eligible package metadata observation; an authority without persistent or process-local reuse is refetched. |
 | Successful symbol-server PDB downloads | Cached permanently under `packages/symbols/servers/`. |
 | Symbol-server PDB 404s | Cached as misses for 1 day, so detailed audit does not retry unavailable PDBs on every run. |
 | Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
@@ -410,8 +423,9 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed. Under the target item-limit contract, its declared row is one
-`(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
+one feed. The historical #4677 target treated one `(version, feed)` observation
+as its declared row, so its proposed `--versions-with-feed -n N` selected N
+rows. This behavior awaits focused CLI ownership and is not released.
 This differs from the released count-valued lens option, which selects N
 distinct versions and then emits every carrying feed. The primary version order
 is the containing Vector's order: newest-first for a bare package and caller

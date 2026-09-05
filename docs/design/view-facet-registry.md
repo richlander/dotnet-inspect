@@ -5,7 +5,9 @@ facets. It gives navigation, portable-definition owners, and other hosts one
 stable identity and descriptor space without turning a browser label, CLI
 section name, or command flag into a contract.
 
-This is a target contract. The registry is not implemented yet.
+The registry contract and initial inspection-lens catalog are implemented in
+`DotnetInspector.Queries`. Adjacent Navigation, workspace-definition, and host
+consumers remain separate work.
 
 ## Why this is a separate owner
 
@@ -86,16 +88,18 @@ outcomes, reconciliation, and retained-session behavior. Issue
 focused recommendation residual exposed while designing this registry.
 
 [Workspace definitions](workspace-definitions.md) consumes canonical IDs and
-owns persisted registry binding. Issue
-[#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns which
-portable fields carry them, version migration, combination validation,
-projection, and complete restoration.
+owns persisted registry binding. It also owns which portable fields carry
+them, version migration, combination validation, projection, and complete
+restoration, tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 
-[Inspect Web UI](inspect-web-ui.md) consumes the descriptors returned through
-Navigation. It owns rendering, accessibility, focus, interaction, and the
-removal of current browser-local catalogs. Issue
-[#4917](https://github.com/richlander/dotnet-inspect/issues/4917) owns that
-consumer contract.
+[Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
+consumes the descriptors returned through Navigation. It owns rendering,
+accessibility, and the removal of current browser-local catalogs. [Inspect
+Web Navigation Consumer](inspect-web-navigation-consumer.md) owns post-result
+effect-authority validation, snapshot/history commitment, and
+result-authorized focus/announcement ordering, with the migration historically
+tracked by [#4917](https://github.com/richlander/dotnet-inspect/issues/4917).
 
 [Section selection](section-model.md), query owners, and renderer owners define
 facet content and execution. A facet may project one section, several sections,
@@ -301,8 +305,10 @@ own surface. It must not slug a label or accept an ambiguous mapping.
 
 This owner does not decide the Workspace Definitions or canonical-packet
 version boundary, whether `lens` and `section` survive as separate fields, or
-which combinations are valid. #4787 owns those decisions and consumes this
-canonical ID space.
+which combinations are valid. [Workspace Definitions](workspace-definitions.md)
+owns those decisions, tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787), and
+consumes this canonical ID space.
 
 ## Host and platform contract
 
@@ -379,7 +385,23 @@ restoration own stateful interactions.
 
 ## Implementation status
 
-The registry and gates are not implemented.
+The immutable registry, initial 16-facet catalog, private execution bindings,
+typed applicability and availability inputs, exact resolution outcomes, and
+append-only compatibility manifest are implemented by
+`ViewFacetRegistry.cs`, `InspectionViewFacetCatalog.cs`, and
+`eng/view-facet-compatibility.json`.
+
+The required contract is enforced by
+`ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`,
+`ViewFacetRegistryCompatibilityTests.ShippedFacets_RetainIdentityKindAndPurpose`,
+`ViewFacetRegistryTests.RegistrationsAndBindingsAgree`,
+`ViewFacetRegistryTests.Tombstone_PreservesApplicabilityAndReturnsRetired`,
+`ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`,
+`ViewFacetRegistryTests.TargetDiscovery_PreservesOrderAndFailureEvidence`,
+`ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome`,
+`ViewFacetRegistryTests.RootApplicability_PartitionsPackageAndNonPackageFacets`,
+and
+`ViewFacetRegistryTests.InitialInspectionLensInventory_MatchesContract`.
 
 Current transitional surfaces are:
 

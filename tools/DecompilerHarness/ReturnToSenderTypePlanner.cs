@@ -35,7 +35,7 @@ internal abstract record ArtifactRequest(
     internal RoundTripBodyPolicy BodyPolicy { get; init; } = RoundTripBodyPolicy.Selected;
     internal MetadataSource? BodySource { get; init; }
     internal ReturnToSender.CompilationClosure? CompilationClosure
-        { get; set; }
+    { get; set; }
 }
 
 internal sealed record MethodArtifactRequest(
@@ -2238,23 +2238,31 @@ public static class CompileBackSourceComposer
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
         {
-            if (request.Target
-                    is AssemblyBindingTarget.AssemblyReference reference)
-            {
-                return _references.TryGetValue(
-                    reference.Identity.Name,
-                    out ResolvedAssemblyReference? selected)
-                        ? AssemblyBindingSelection.Found(selected)
-                        : AssemblyBindingSelection.NotFound();
-            }
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
 
-            return _resolver.Select(
-                new AssemblyBindingRequest(
-                    request.Target,
-                    request.Origin,
-                    AssemblyResolutionScope.Any));
+            AssemblyBindingSelection SelectCore()
+            {
+                if (request.Target
+                        is AssemblyBindingTarget.AssemblyReference reference)
+                {
+                    return _references.TryGetValue(
+                        reference.Identity.Name,
+                        out ResolvedAssemblyReference? selected)
+                            ? AssemblyBindingSelection.Found(selected)
+                            : AssemblyBindingSelection.NotFound();
+                }
+
+                return _resolver.Select(
+                    new AssemblyBindingRequest(
+                        request.Target,
+                        request.Origin,
+                        AssemblyResolutionScope.Any)).Selection;
+
+            }
         }
     }
 
@@ -2859,8 +2867,7 @@ public static class CompileBackSourceComposer
                 IsOverride: false,
                 IsSealed: false,
                 IsAsync: !isConstructor
-                    && (function.RequiresAsyncBodyModifier
-                        || function.IsRuntimeAsync == MetadataFactState.Yes),
+                    && function.RequiresAsyncMethodContext,
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
@@ -3039,7 +3046,7 @@ public static class CompileBackSourceComposer
     static CompileBackSourceResult ComposeCompilationUnit(CompileBackReconstructionPlan plan)
     {
         const string typeNamePlanningLayer = "type name planning";
-        var rendered = new CSharpTypePrinter().PrintBatch(
+        var printOutcome = new CSharpTypePrinter().PrintBatch(
             plan.PrintRequests,
             new CSharpTypePrintOptions
             {
@@ -3049,6 +3056,12 @@ public static class CompileBackSourceComposer
                 ModuleAttributes = plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
                 Usings = plan.Module.Usings,
             });
+        if (printOutcome is CSharpTypePrintOutcome.NotRendered notRendered)
+        {
+            throw new NotSupportedException(
+                $"C# type printing refused {notRendered.SelfNameFailures.Length} exact declared-type self-name(s).");
+        }
+        var rendered = ((CSharpTypePrintOutcome.Printed)printOutcome).Result;
         var enrichedPlan = plan with
         {
             Diagnostics = plan.Diagnostics

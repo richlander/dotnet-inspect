@@ -253,11 +253,19 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
-            => AssemblyBindingSelection.CannotSelect(
+
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 }
 

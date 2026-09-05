@@ -1,5 +1,6 @@
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -19,7 +20,60 @@ internal static class ApiServices
         ApiSurface Api,
         string ApiDllPath,
         string PdbLookupPath,
-        bool IsSummary = false);
+        IReadOnlyDictionary<
+            ApiType,
+            ResolvedAssemblyReference> SourceAssemblies,
+        bool IsSummary = false)
+    {
+        internal ResolvedAssemblyReference GetSourceAssembly(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (SourceAssemblies.TryGetValue(type, out var assembly))
+                return assembly;
+
+            throw new InvalidOperationException(
+                $"No acquisition descriptor was retained for selected type '{type.FullName}'.");
+        }
+
+        internal ResolvedAssemblyReference? TryGetSourceAssembly(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return SourceAssemblies.TryGetValue(
+                type,
+                out var assembly)
+                ? assembly
+                : null;
+        }
+    }
+
+    internal static LoadedApiSurface? LoadTypeApi(
+        ApiSourceResult source,
+        ApiOptions options,
+        bool summaryOnly = false) =>
+        summaryOnly
+            ? LoadPlatformApiSummary(
+                source.SearchPath,
+                source.RuntimeAssemblyPath!,
+                source.ApiSource,
+                source.ApiVersion,
+                source.SelectedTfm,
+                source.Context.Logger,
+                source.PlatformFramework)
+            : LoadFullApi(
+                source.SearchPath,
+                source.RuntimeAssemblyPath,
+                source.ResolvedPackagePath,
+                source.PackageName,
+                source.ApiSource,
+                source.ApiVersion,
+                source.SelectedTfm,
+                source.Context.Logger,
+                options,
+                source.PackageExtractPath,
+                useTypedSelection: true,
+                platformFramework: source.PlatformFramework);
 
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
@@ -30,19 +84,54 @@ internal static class ApiServices
         string? apiVersion,
         string? selectedTfm,
         VerboseLogger logger,
-        ApiOptions options)
+        ApiOptions options,
+        string? packageExtractPath = null,
+        bool usePackageSourcePolicy = false,
+        bool useTypedSelection = false,
+        string? platformFramework = null)
     {
         string? apiDllPath = FindApiDll(searchPath, logger);
         if (apiDllPath is null)
             return null;
 
+        var provenance = CreateRootProvenance(
+            apiSource,
+            apiVersion,
+            packageName,
+            selectedTfm,
+            options,
+            platformFramework);
+        bool isPlatformAssembly = runtimeAssemblyPath is not null
+            || useTypedSelection && apiSource == SourceKind.Platform;
+        ResolvedAssemblyReference? rootAssembly =
+            useTypedSelection
+                ? SelectRootAssembly(apiDllPath, provenance)
+                : TryCreateRootAssembly(apiDllPath, provenance);
         using TypeDefinitionResolutionSession? resolution =
-            TryCreateResolutionSession(
-                apiDllPath,
-                isPlatformAssembly: runtimeAssemblyPath is not null,
-                options.ProjectAssetsPath,
-                options.Tfm ?? selectedTfm,
-                options.PlatformFramework);
+            rootAssembly is null
+                ? null
+                : useTypedSelection
+                ? new TypeDefinitionResolutionSession(
+                    rootAssembly,
+                    isPlatformAssembly,
+                    options.ProjectAssetsPath,
+                    options.Tfm ?? selectedTfm,
+                    platformFramework ?? options.PlatformFramework,
+                    packageExtractPath,
+                    options.SourceOptions,
+                    usePackageSourcePolicy:
+                        usePackageSourcePolicy || packageExtractPath is not null)
+                : TryCreateResolutionSession(
+                    rootAssembly,
+                    isPlatformAssembly:
+                        runtimeAssemblyPath is not null,
+                    options.ProjectAssetsPath,
+                    options.Tfm ?? selectedTfm,
+                    options.PlatformFramework,
+                    packageExtractPath,
+                    options.SourceOptions,
+                    usePackageSourcePolicy:
+                        usePackageSourcePolicy || packageExtractPath is not null);
         ApiSurface? api =
             resolution is not null
                 ? resolution.ExtractApiSurface(
@@ -53,6 +142,15 @@ internal static class ApiServices
         if (api is null)
             return null;
 
+        var sourceAssemblies =
+            new Dictionary<ApiType, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        if (rootAssembly is not null)
+        {
+            foreach (ApiType type in api.Types)
+                sourceAssemblies.Add(type, rootAssembly);
+        }
+
         if (resolution is not null)
         {
             ResolveForwardedTypes(
@@ -60,9 +158,9 @@ internal static class ApiServices
                 apiDllPath,
                 logger,
                 options.IncludeAll,
-                isPlatformAssembly:
-                    runtimeAssemblyPath is not null,
-                resolution: resolution);
+                isPlatformAssembly,
+                resolution: resolution,
+                sourceAssemblies);
         }
 
         if (!string.IsNullOrEmpty(packagePath))
@@ -80,24 +178,50 @@ internal static class ApiServices
         api.Version = apiVersion;
         api.Library = Path.GetFileName(apiDllPath);
 
-        return new LoadedApiSurface(api, apiDllPath, runtimeAssemblyPath ?? apiDllPath);
+        return new LoadedApiSurface(
+            api,
+            apiDllPath,
+            runtimeAssemblyPath ?? apiDllPath,
+            sourceAssemblies);
     }
 
-    static TypeDefinitionResolutionSession? TryCreateResolutionSession(
+    static ResolvedAssemblyReference? SelectRootAssembly(
         string assemblyPath,
+        AssemblyResolutionProvenance provenance) =>
+        ResolvedAssemblyReference.SelectFromPath(assemblyPath, provenance)
+            switch
+            {
+                AssemblyDescriptorSelectionResult.Ready ready =>
+                    ready.Reference,
+                AssemblyDescriptorSelectionResult.Descriptorless => null,
+                AssemblyDescriptorSelectionResult.Rejected rejected =>
+                    throw new BadImageFormatException(
+                        $"Could not select API assembly '{assemblyPath}': "
+                        + $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
+                _ => throw new System.Diagnostics.UnreachableException(),
+            };
+
+    static TypeDefinitionResolutionSession? TryCreateResolutionSession(
+        ResolvedAssemblyReference rootAssembly,
         bool isPlatformAssembly,
         string? projectAssetsPath,
         string? targetFramework,
-        string? platformFramework)
+        string? platformFramework,
+        string? packageExtractPath,
+        NuGetSourceOptions? sourceOptions,
+        bool usePackageSourcePolicy)
     {
         try
         {
             return new TypeDefinitionResolutionSession(
-                assemblyPath,
+                rootAssembly,
                 isPlatformAssembly,
                 projectAssetsPath,
                 targetFramework,
-                platformFramework);
+                platformFramework,
+                packageExtractPath,
+                sourceOptions,
+                usePackageSourcePolicy);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -109,34 +233,134 @@ internal static class ApiServices
         }
     }
 
+    static ResolvedAssemblyReference? TryCreateRootAssembly(
+        string assemblyPath,
+        AssemblyResolutionProvenance provenance)
+    {
+        try
+        {
+            return ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                provenance);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    static AssemblyResolutionProvenance CreateRootProvenance(
+        string? apiSource,
+        string? apiVersion,
+        string? packageName,
+        string? selectedTfm,
+        ApiOptions options,
+        string? platformFramework = null)
+    {
+        if (string.Equals(
+                apiSource,
+                SourceKind.Platform,
+                StringComparison.Ordinal))
+        {
+            return AssemblyResolutionProvenance.Platform(
+                platformFramework ?? options.PlatformFramework ?? "InstalledPlatform",
+                apiVersion,
+                "ApiServices");
+        }
+
+        if (string.Equals(
+                apiSource,
+                SourceKind.NuGet,
+                StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(packageName)
+            && !string.IsNullOrWhiteSpace(apiVersion))
+        {
+            return AssemblyResolutionProvenance.Package(
+                packageName,
+                apiVersion,
+                selectedTfm,
+                rid: null);
+        }
+
+        if (string.Equals(
+                apiSource,
+                SourceKind.Project,
+                StringComparison.Ordinal))
+        {
+            return AssemblyResolutionProvenance.Project(
+                options.ProjectPath
+                    ?? options.ProjectAssetsPath
+                    ?? "ApiServices",
+                options.Tfm ?? selectedTfm,
+                rid: null);
+        }
+
+        return AssemblyResolutionProvenance.Local("ApiServices");
+    }
+
     internal static LoadedApiSurface? LoadPlatformApiSummary(
         string searchPath,
         string runtimeAssemblyPath,
         string? apiSource,
         string? apiVersion,
         string? selectedTfm,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        string? platformFramework = null)
     {
         logger.Log($"Extracting compact API summary from: {Path.GetFileName(searchPath)}");
-        var api = AssemblyReader.ExtractApiSummarySurface(searchPath);
+        ResolvedAssemblyReference? rootAssembly =
+            SelectRootAssembly(
+                searchPath,
+                AssemblyResolutionProvenance.Platform(
+                    platformFramework ?? "InstalledPlatform",
+                    apiVersion,
+                    "ApiServices"));
+        using Stream stream = rootAssembly is null
+            ? File.OpenRead(searchPath)
+            : rootAssembly.OpenRead();
+        var api = AssemblyReader.ExtractApiSummarySurface(stream);
         if (api == null)
             return null;
 
-        ResolveForwardedTypes(
-            api,
-            searchPath,
-            logger,
-            includeAll: false,
-            isPlatformAssembly: true,
-            targetFramework: selectedTfm,
-            summaryOnly: true);
+        api.SetInspectionSourceAssemblyPath(searchPath);
+        var sourceAssemblies =
+            new Dictionary<ApiType, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        if (rootAssembly is not null)
+        {
+            foreach (ApiType type in api.Types)
+                sourceAssemblies.Add(type, rootAssembly);
+        }
+
+        if (rootAssembly is not null)
+        {
+            ResolveForwardedTypes(
+                api,
+                searchPath,
+                logger,
+                includeAll: false,
+                isPlatformAssembly: true,
+                targetFramework: selectedTfm,
+                summaryOnly: true,
+                summaryRootAssembly: rootAssembly,
+                sourceAssemblies: sourceAssemblies);
+        }
 
         api.Name = Path.GetFileNameWithoutExtension(searchPath);
         api.Tfm = selectedTfm;
         api.Source = apiSource;
         api.Version = apiVersion;
         api.Library = Path.GetFileName(searchPath);
-        return new LoadedApiSurface(api, searchPath, runtimeAssemblyPath, IsSummary: true);
+        return new LoadedApiSurface(
+            api,
+            searchPath,
+            runtimeAssemblyPath,
+            sourceAssemblies,
+            IsSummary: true);
     }
 
     // ===== Type Lookup =====
@@ -242,7 +466,10 @@ internal static class ApiServices
         bool isPlatformAssembly = false,
         ApiOptions? options = null,
         string? targetFramework = null,
-        bool summaryOnly = false)
+        bool summaryOnly = false,
+        ResolvedAssemblyReference? summaryRootAssembly = null,
+        IDictionary<ApiType, ResolvedAssemblyReference>?
+            sourceAssemblies = null)
     {
         if (api.TypeForwarders.Count == 0)
             return;
@@ -255,7 +482,9 @@ internal static class ApiServices
                 logger,
                 isPlatformAssembly,
                 options,
-                targetFramework);
+                targetFramework,
+                summaryRootAssembly,
+                sourceAssemblies);
             return;
         }
 
@@ -280,7 +509,9 @@ internal static class ApiServices
         VerboseLogger logger,
         bool includeAll,
         bool isPlatformAssembly,
-        TypeDefinitionResolutionSession resolution)
+        TypeDefinitionResolutionSession resolution,
+        IDictionary<ApiType, ResolvedAssemblyReference>?
+            sourceAssemblies = null)
     {
         Dictionary<
             AssemblyAcquisitionRegistration,
@@ -358,7 +589,8 @@ internal static class ApiServices
                     targetApi,
                     group.Types,
                     group.Assembly,
-                    group.TypeTokens);
+                    group.TypeTokens,
+                    sourceAssemblies);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -417,7 +649,9 @@ internal static class ApiServices
         ApiSurface targetApi,
         IReadOnlySet<MetadataTypeDefinitionName> forwardedTypes,
         ResolvedAssemblyReference targetAssembly,
-        IReadOnlyCollection<int>? forwardedTypeTokens = null)
+        IReadOnlyCollection<int>? forwardedTypeTokens = null,
+        IDictionary<ApiType, ResolvedAssemblyReference>?
+            sourceAssemblies = null)
     {
         List<ApiType> copiedTypes =
         [
@@ -473,6 +707,7 @@ internal static class ApiServices
         {
             type.IsForwarded = true;
             type.SourceAssemblyPath = targetAssembly.Path;
+            sourceAssemblies?.Add(type, targetAssembly);
             api.Types.Add(type);
             api.PublicMethodCount +=
                 type.Members.Count(
@@ -576,23 +811,19 @@ internal static class ApiServices
         VerboseLogger logger,
         bool isPlatformAssembly,
         ApiOptions? options,
-        string? targetFramework)
+        string? targetFramework,
+        ResolvedAssemblyReference? rootAssembly,
+        IDictionary<ApiType, ResolvedAssemblyReference>?
+            sourceAssemblies)
     {
         TypeDefinitionResolutionSession? resolution = null;
-        var adjacentSummaries =
-            new Dictionary<string, ApiSurface?>(
-                StringComparer.OrdinalIgnoreCase);
-        HashSet<MetadataTypeDefinitionName> adjacentEligibleTypes =
-            api.TypeForwarders
-                .Where(forwarder => forwarder.DefinitionName is not null)
-                .GroupBy(forwarder => forwarder.DefinitionName!)
-                .Where(group => group.Count() == 1)
-                .Select(group => group.Key)
-                .ToHashSet();
         Dictionary<
             AssemblyAcquisitionRegistration,
             (ResolvedAssemblyReference Assembly,
                 HashSet<MetadataTypeDefinitionName> Types)> byAssembly = [];
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference> retainedAssemblies = [];
         int resolvedCount = 0;
 
         try
@@ -606,29 +837,20 @@ internal static class ApiServices
                     continue;
                 }
 
-                bool added = false;
-                bool handledAdjacent =
-                    adjacentEligibleTypes.Contains(forwarder.DefinitionName)
-                    && TryResolveAdjacentSummaryForwarder(
-                        api,
-                        dllPath,
-                        forwarder,
-                        adjacentSummaries,
-                        [],
-                        out added);
-                if (handledAdjacent)
-                {
-                    if (added)
-                        resolvedCount++;
-                    continue;
-                }
-
-                resolution ??= new TypeDefinitionResolutionSession(
-                    dllPath,
-                    isPlatformAssembly,
-                    options?.ProjectAssetsPath,
-                    options?.Tfm ?? targetFramework,
-                    options?.PlatformFramework);
+                resolution ??=
+                    rootAssembly is null
+                        ? new TypeDefinitionResolutionSession(
+                            dllPath,
+                            isPlatformAssembly,
+                            options?.ProjectAssetsPath,
+                            options?.Tfm ?? targetFramework,
+                            options?.PlatformFramework)
+                        : new TypeDefinitionResolutionSession(
+                            rootAssembly,
+                            isPlatformAssembly,
+                            options?.ProjectAssetsPath,
+                            options?.Tfm ?? targetFramework,
+                            options?.PlatformFramework);
                 TypeResolutionOutcome outcome =
                     resolution.Resolve(forwarder.DefinitionName);
                 if (outcome is not TypeResolutionOutcome.Resolved resolved
@@ -639,8 +861,20 @@ internal static class ApiServices
                     continue;
                 }
 
-                ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference resolvedAssembly =
                     resolved.Definition.Assembly.Assembly;
+                if (!retainedAssemblies.TryGetValue(
+                        resolvedAssembly.Registration,
+                        out ResolvedAssemblyReference? assembly))
+                {
+                    assembly =
+                        CreatePlatformSummarySupplierDescriptor(
+                            resolvedAssembly,
+                            rootAssembly);
+                    retainedAssemblies.Add(
+                        resolvedAssembly.Registration,
+                        assembly);
+                }
                 if (!byAssembly.TryGetValue(
                         assembly.Registration,
                         out var group))
@@ -672,6 +906,9 @@ internal static class ApiServices
                                 api,
                                 type,
                                 group.Assembly.Path);
+                            sourceAssemblies?.Add(
+                                type,
+                                group.Assembly);
                             resolvedCount++;
                         }
                     }
@@ -728,81 +965,31 @@ internal static class ApiServices
         }
     }
 
-    private static bool TryResolveAdjacentSummaryForwarder(
-        ApiSurface api,
-        string dllPath,
-        TypeForwarder forwarder,
-        Dictionary<string, ApiSurface?> adjacentSummaries,
-        HashSet<string> visitedPaths,
-        out bool added)
+    static ResolvedAssemblyReference
+        CreatePlatformSummarySupplierDescriptor(
+            ResolvedAssemblyReference assembly,
+            ResolvedAssemblyReference? rootAssembly)
     {
-        added = false;
-        if (!IsSafeAdjacentAssemblyName(forwarder.TargetAssembly))
-            return false;
-
-        string? directory = Path.GetDirectoryName(dllPath);
-        if (directory is null)
-            return false;
-
-        string targetPath = Path.Combine(directory, forwarder.TargetAssembly + ".dll");
-        if (!File.Exists(targetPath) || !visitedPaths.Add(targetPath))
-            return false;
-
-        if (!adjacentSummaries.TryGetValue(targetPath, out var targetApi))
+        if (rootAssembly?.Provenance
+                is not AssemblyResolutionProvenance.PlatformAsset
+                    platform
+            || assembly.Provenance
+                is not AssemblyResolutionProvenance.LocalAsset local
+            || !local.ResolverSource.Equals(
+                nameof(
+                    AssemblyDependencyProvenance.SiblingAssembly),
+                StringComparison.Ordinal))
         {
-            targetApi = AssemblyReader.ExtractApiSummarySurface(targetPath);
-            adjacentSummaries.Add(targetPath, targetApi);
+            return assembly;
         }
 
-        if (targetApi is null)
-            return false;
-
-        var matchingTypes = targetApi.Types
-            .Where(candidate => candidate.DefinitionName == forwarder.DefinitionName)
-            .Take(2)
-            .ToArray();
-        if (matchingTypes.Length == 1)
-        {
-            if (api.Types.Any(
-                candidate => candidate.DefinitionName == forwarder.DefinitionName))
-            {
-                return true;
-            }
-
-            AddForwardedType(api, matchingTypes[0], targetPath);
-            added = true;
-            return true;
-        }
-        if (matchingTypes.Length > 1)
-            return false;
-
-        var matchingForwarders = targetApi.TypeForwarders
-            .Where(candidate => candidate.DefinitionName == forwarder.DefinitionName)
-            .Take(2)
-            .ToArray();
-        if (matchingForwarders.Length == 1)
-        {
-            return TryResolveAdjacentSummaryForwarder(
-                api,
-                targetPath,
-                matchingForwarders[0],
-                adjacentSummaries,
-                visitedPaths,
-                out added);
-        }
-        if (matchingForwarders.Length > 1)
-            return false;
-
-        // The adjacent target was readable and contains neither a visible definition nor another
-        // hop. The full extractor would not add this forwarded type to the public surface either.
-        return true;
+        return ResolvedAssemblyReference.Create(
+            assembly.Identity,
+            assembly.Path,
+            assembly.OpenRead,
+            platform,
+            assembly.LastWriteTimeUtc);
     }
-
-    private static bool IsSafeAdjacentAssemblyName(string assemblyName) =>
-        !string.IsNullOrEmpty(assemblyName)
-        && assemblyName is not "." and not ".."
-        && assemblyName.IndexOfAny(['/', '\\']) < 0
-        && !Path.IsPathRooted(assemblyName);
 
     private static void AddForwardedType(
         ApiSurface api,

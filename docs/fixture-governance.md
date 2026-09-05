@@ -4,6 +4,29 @@ Fixtures are product inputs, not ad hoc test setup. They should be built by the
 normal solution graph, registered in `FixtureCatalog`, and consumed by stable
 fixture IDs rather than by test-local path arithmetic or one-off compiler calls.
 
+## Repository layout
+
+Independently compiled artifacts inspected by tests or harnesses live under
+`fixtures/<owner>/`. Test executables and shared test infrastructure live under
+`tests/`; product and reusable production code live under `src/`; contributor
+tools and harnesses live under `tools/`.
+
+Keep compiler-produced source that is compiled as part of a test assembly beside
+its owning tests. A corpus, platform probe, consumer canary, or
+negative-compilation project remains under `tests/` unless its built artifact is
+itself an inspected fixture.
+
+`tests/DotnetInspector.FixtureInfrastructure` owns fixture registration and
+resolution. It records repository-relative project directories explicitly;
+source location must not be inferred from a project or assembly name. Shared
+compiled specimen types live separately under
+`fixtures/shared/DotnetInspector.Fixtures`.
+
+Existing standalone fixtures are moving from `src/` and `tests/` into the
+top-level tree through owner-scoped slices tracked by
+[#5694](https://github.com/richlander/dotnet-inspect/issues/5694). New fixture
+projects and fixtures moved for other reasons use the target layout now.
+
 ## Project-boundary rule
 
 Prefer shared fixture projects when a project is only a source bucket. Keep a
@@ -22,6 +45,7 @@ Separate projects are justified for these semantic axes:
 | Framework reference | The fixture must reference a trusted framework assembly. |
 | Module attribute | The module-level metadata is the evidence. |
 | Output kind | The fixture must be an executable or otherwise non-library output. |
+| Post-build transformation | Publish, trimming, linking, or another post-build step changes the inspected artifact. |
 | Sidecar asset | A binary is coupled to a trace or other sidecar artifact. |
 | Target framework | The TFM changes emitted references or facade behavior. |
 | Untrusted text | The fixture carries attacker-chosen text, so its build must not contaminate a shared project's expected output. |
@@ -48,6 +72,8 @@ metadata just because consumers observe them from another assembly.
 
 - Use `FixtureCatalog.Get`, `AssemblyPath`, `AssetPath`, groups, or tags instead
   of hardcoded artifact paths.
+- Record each cataloged fixture project's repository-relative source directory;
+  do not reconstruct it as `src/<ProjectName>` or search the checkout by name.
 - Build fixtures through `dotnet build dotnet-inspect.slnx -c Release`; harnesses
   should assume inputs are already binaries.
 - Do not add scripts or dynamic compilation for fixture binaries. If a fixture

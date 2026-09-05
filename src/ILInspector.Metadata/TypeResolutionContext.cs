@@ -12,6 +12,25 @@ sealed record CachedBindingEvaluation(
     CandidateOpenFailure? OpenFailure = null,
     ImmutableArray<ResolvedAssemblyReference> Registrations = default);
 
+abstract record TypeResolutionContextBuildResult
+{
+    internal sealed record Completed(TypeResolutionContext Context)
+        : TypeResolutionContextBuildResult;
+
+    internal sealed record PolicyVersionChanged(
+        AssemblyBindingPolicyVersion Expected,
+        AssemblyBindingPolicyVersion? Observed)
+        : TypeResolutionContextBuildResult;
+}
+
+sealed class PolicyVersionChangedException(
+    AssemblyBindingPolicyVersion expected,
+    AssemblyBindingPolicyVersion? observed) : Exception
+{
+    internal AssemblyBindingPolicyVersion Expected { get; } = expected;
+    internal AssemblyBindingPolicyVersion? Observed { get; } = observed;
+}
+
 readonly record struct PolicyCacheKey(
     AssemblyBindingPolicyVersion PolicyVersion,
     object RequestKey);
@@ -514,7 +533,8 @@ public sealed class TypeResolutionCatalog : IDisposable
             lock (_gate)
                 ObjectDisposedException.ThrowIf(_disposed, this);
 
-            return TypeResolutionContext.Build(
+            TypeResolutionContextBuildResult result =
+                TypeResolutionContext.Build(
                 this,
                 policy,
                 roots,
@@ -524,6 +544,16 @@ public sealed class TypeResolutionCatalog : IDisposable
                 ownsCatalog,
                 allowRootAdjacencyDegradation,
                 cancellationToken);
+            return result switch
+            {
+                TypeResolutionContextBuildResult.Completed completed =>
+                    completed.Context,
+                TypeResolutionContextBuildResult.PolicyVersionChanged =>
+                    throw new InvalidOperationException(
+                        "The binding policy changed version during discovery."),
+                _ => throw new InvalidOperationException(
+                    "Unknown type-resolution context build result."),
+            };
         }
         finally
         {
@@ -980,7 +1010,7 @@ public sealed class TypeResolutionContext : IDisposable
         }
     }
 
-    internal static TypeResolutionContext Build(
+    internal static TypeResolutionContextBuildResult Build(
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy policy,
         IEnumerable<ResolvedAssemblyReference> roots,
@@ -991,35 +1021,44 @@ public sealed class TypeResolutionContext : IDisposable
         bool allowRootAdjacencyDegradation,
         CancellationToken cancellationToken)
     {
-        var builder = new Builder(
-            catalog,
-            policy,
-            options.MaxForwarderHops,
-            options.MaxCandidates,
-            options.MaxTypeResolutionRequests,
-            ownsCatalog,
-            cancellationToken);
-        foreach (ResolvedAssemblyReference root in roots)
+        try
         {
-            ArgumentNullException.ThrowIfNull(root);
-            builder.Register(
-                root,
-                allowRootAdjacencyDegradation);
-        }
+            var builder = new Builder(
+                catalog,
+                policy,
+                options.MaxForwarderHops,
+                options.MaxCandidates,
+                options.MaxTypeResolutionRequests,
+                ownsCatalog,
+                cancellationToken);
+            foreach (ResolvedAssemblyReference root in roots)
+            {
+                ArgumentNullException.ThrowIfNull(root);
+                builder.Register(
+                    root,
+                    allowRootAdjacencyDegradation);
+            }
 
-        foreach (AssemblyBindingRequest request in bindingRequests)
+            foreach (AssemblyBindingRequest request in bindingRequests)
+            {
+                ArgumentNullException.ThrowIfNull(request);
+                builder.Add(request);
+            }
+
+            foreach (TypeResolutionRequest request in requests)
+            {
+                ArgumentNullException.ThrowIfNull(request);
+                builder.Add(request);
+            }
+
+            return builder.Freeze();
+        }
+        catch (PolicyVersionChangedException changed)
         {
-            ArgumentNullException.ThrowIfNull(request);
-            builder.Add(request);
+            return new TypeResolutionContextBuildResult.PolicyVersionChanged(
+                changed.Expected,
+                changed.Observed);
         }
-
-        foreach (TypeResolutionRequest request in requests)
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            builder.Add(request);
-        }
-
-        return builder.Freeze();
     }
 
     /// <summary>
@@ -1089,8 +1128,10 @@ public sealed class TypeResolutionContext : IDisposable
                         is TypeResolutionFailure.UnregisteredAssembly
                         ? new AssemblyBindingOutcome.ExpansionRequired(request)
                         : new AssemblyBindingOutcome.Unavailable(
-                            new AssemblyBindingFailure(
-                                AssemblyBindingFailureKind.CandidateUnavailable));
+                            CandidateUnavailableBinding(
+                                ProjectedCandidateFailure(
+                                    request,
+                                    failure)));
                 }
 
                 return _bindings.TryGetValue(
@@ -1100,6 +1141,56 @@ public sealed class TypeResolutionContext : IDisposable
                     : new AssemblyBindingOutcome.ExpansionRequired(request);
             }
         }
+    }
+
+    static AssemblyBindingFailure CandidateUnavailableBinding(
+        CandidateOpenFailure? failure = null) =>
+        new(
+            AssemblyBindingFailureKind.CandidateUnavailable,
+            failure?.Kind)
+        {
+            MetadataRootReason = failure?.MetadataRootReason,
+        };
+
+    static bool ShouldReplaceCandidateFailure(
+        CandidateOpenFailure? retained,
+        CandidateOpenFailure candidate) =>
+        retained is null
+        || CandidateFailurePrecedence(candidate)
+            > CandidateFailurePrecedence(retained);
+
+    static int CandidateFailurePrecedence(
+        CandidateOpenFailure failure) =>
+        failure.Kind switch
+        {
+            CandidateOpenFailureKind.ResourceBudget => 2,
+            _ when IsMetadataFormatFailure(failure) => 1,
+            _ => 0,
+        };
+
+    static bool IsMetadataFormatFailure(
+        CandidateOpenFailure failure) =>
+        failure.Kind
+            is CandidateOpenFailureKind.UnsupportedMetadataFormat
+        || failure.MetadataRootReason is not null;
+
+    CandidateOpenFailure? ProjectedCandidateFailure(
+        AssemblyBindingRequest request,
+        TypeResolutionFailure? failure)
+    {
+        if (request.Origin
+                is AssemblyBindingOrigin.RequestingAssembly requesting
+            && _registrationFailures.TryGetValue(
+                requesting.Registration,
+                out CandidateOpenFailure? originFailure))
+        {
+            return originFailure;
+        }
+
+        return failure
+            is TypeResolutionFailure.CandidateOpenFailed candidate
+                ? candidate.Failure
+                : null;
     }
 
     bool TryProjectRequest(
@@ -1698,10 +1789,17 @@ public sealed class TypeResolutionContext : IDisposable
             }
         }
 
-        internal TypeResolutionContext Freeze()
+        internal TypeResolutionContextBuildResult Freeze()
         {
             _cancellationToken.ThrowIfCancellationRequested();
-            EnsurePolicyVersion();
+            AssemblyBindingPolicyVersion? observedVersion = _policy.Version;
+            if (!ReferenceEquals(_policyVersion, observedVersion))
+            {
+                return new TypeResolutionContextBuildResult
+                    .PolicyVersionChanged(
+                        _policyVersion,
+                        observedVersion);
+            }
 
             // Policy-dependent work is promoted only after the whole
             // generation completes under the policy version captured at its
@@ -1739,19 +1837,20 @@ public sealed class TypeResolutionContext : IDisposable
                 _generation,
                 _candidates,
                 _inventories);
-            return new TypeResolutionContext(
-                _catalog,
-                _ownsCatalog,
-                _generation,
-                _candidates,
-                _registrationFailures,
-                _descriptors,
-                _outcomes.ToImmutableDictionary(),
-                _projectionFailures.ToImmutableDictionary(),
-                _bindings.ToImmutableDictionary(
-                    static pair => pair.Key,
-                    static pair => pair.Value.Outcome),
-                _inventories.ToImmutableDictionary());
+            return new TypeResolutionContextBuildResult.Completed(
+                new TypeResolutionContext(
+                    _catalog,
+                    _ownsCatalog,
+                    _generation,
+                    _candidates,
+                    _registrationFailures,
+                    _descriptors,
+                    _outcomes.ToImmutableDictionary(),
+                    _projectionFailures.ToImmutableDictionary(),
+                    _bindings.ToImmutableDictionary(
+                        static pair => pair.Key,
+                        static pair => pair.Value.Outcome),
+                    _inventories.ToImmutableDictionary()));
         }
 
         bool TryProjectRequest(
@@ -2284,10 +2383,10 @@ public sealed class TypeResolutionContext : IDisposable
         {
             MetadataTypeDefinitionKind kind =
                 outcome is TypeResolutionOutcome.Resolved
-            {
-                Definition.Kind:
+                {
+                    Definition.Kind:
                     MetadataTypeDefinitionKind.Class,
-            } resolved
+                } resolved
                 && resolved.Definition.GenericParameterCount
                     == genericArgumentCount
                 && !(resolved.Definition
@@ -2451,11 +2550,39 @@ public sealed class TypeResolutionContext : IDisposable
             }
 
             _cancellationToken.ThrowIfCancellationRequested();
-            if (!HasPolicyVersion())
-                return CacheInvalidBinding(key);
-            AssemblyBindingSelection? selection = _policy.Select(request);
-            if (selection is null || !HasPolicyVersion())
-                return CacheInvalidBinding(key);
+            AssemblyBindingPolicyVersion? observedVersion =
+                _policy.Version;
+            if (!ReferenceEquals(_policyVersion, observedVersion))
+            {
+                throw new PolicyVersionChangedException(
+                    _policyVersion,
+                    observedVersion);
+            }
+
+            AssemblyBindingSelectionSnapshot? snapshot =
+                _policy.Select(request);
+            AssemblyBindingSelection selection;
+            if (snapshot is null)
+            {
+                selection = AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    selection: null);
+            }
+            else
+            {
+                if (!ReferenceEquals(
+                        _policyVersion,
+                        snapshot.Version))
+                {
+                    throw new PolicyVersionChangedException(
+                        _policyVersion,
+                        snapshot.Version);
+                }
+
+                selection = AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    snapshot.Selection);
+            }
 
             // Policy returns public descriptors. Registration turns those
             // selections into catalog candidates and a frozen Metadata-owned
@@ -2486,13 +2613,6 @@ public sealed class TypeResolutionContext : IDisposable
             return evaluation;
         }
 
-        CachedBindingEvaluation CacheInvalidBinding(BindingKey key)
-        {
-            CachedBindingEvaluation evaluation = InvalidBinding();
-            _bindings.Add(key, evaluation);
-            return evaluation;
-        }
-
         CachedBindingEvaluation SelectOne(
             ResolvedAssemblyReference assembly,
             ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
@@ -2504,8 +2624,7 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 return new(
                     new AssemblyBindingOutcome.Unavailable(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable),
+                        CandidateUnavailableBinding(strictFailure),
                         shadowedAssemblies),
                     assembly,
                     strictFailure,
@@ -2526,8 +2645,7 @@ public sealed class TypeResolutionContext : IDisposable
                 _registrationFailures[assembly.Registration];
             return new(
                 new AssemblyBindingOutcome.Unavailable(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable),
+                    CandidateUnavailableBinding(failure),
                     shadowedAssemblies),
                 assembly,
                 failure,
@@ -2552,8 +2670,13 @@ public sealed class TypeResolutionContext : IDisposable
                         assembly.Registration,
                         out failure))
                 {
-                    unavailableAssembly ??= assembly;
-                    unavailableFailure ??= failure;
+                    if (ShouldReplaceCandidateFailure(
+                            unavailableFailure,
+                            failure))
+                    {
+                        unavailableAssembly = assembly;
+                        unavailableFailure = failure;
+                    }
                     continue;
                 }
 
@@ -2574,8 +2697,7 @@ public sealed class TypeResolutionContext : IDisposable
             return unavailableFailure is not null
                 ? new(
                     new AssemblyBindingOutcome.Unavailable(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable)),
+                        CandidateUnavailableBinding(unavailableFailure)),
                     unavailableAssembly,
                     unavailableFailure,
                     assemblies)
@@ -2649,18 +2771,6 @@ public sealed class TypeResolutionContext : IDisposable
                 new TypeResolutionFailure.UnregisteredAssembly(registration);
             candidate = null!;
             return false;
-        }
-
-        bool HasPolicyVersion() =>
-            ReferenceEquals(_policyVersion, _policy.Version);
-
-        void EnsurePolicyVersion()
-        {
-            if (!HasPolicyVersion())
-            {
-                throw new InvalidOperationException(
-                    "The binding policy changed version during discovery.");
-            }
         }
 
         static AssemblyResolutionScope TightenScope(

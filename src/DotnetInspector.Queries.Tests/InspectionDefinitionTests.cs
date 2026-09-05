@@ -449,22 +449,6 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
-    public void ProductHomeDemos_CatalogSurfaces_AreMutationResistant()
-    {
-        Assert.ThrowsAny<Exception>(() =>
-        {
-            ((string[])ProductInspectionDemos.HomeScenarioIds)[0] = "mutated";
-        });
-        Assert.ThrowsAny<Exception>(() =>
-        {
-            ((ProductInspectionDemos.Entry[])(object)ProductInspectionDemos.Entries)[0] = default;
-        });
-        Assert.Equal("stj-serializer", ProductInspectionDemos.HomeScenarioIds[0]);
-        Assert.Equal("stj-serializer", ProductInspectionDemos.Entries[0].Id);
-    }
-
-
-    [Fact]
     public void Parse_RejectsExplicitNullForeignFieldsAndNonCanonicalKinds()
     {
         var nullForeign = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
@@ -616,6 +600,71 @@ public class InspectionDefinitionTests
         Assert.ThrowsAny<Exception>(() => mutable.Clear());
         Assert.Same(original, Assert.Single(resolved.Contexts));
         Assert.NotNull(resolved.SelectedContext);
+    }
+
+    [Fact]
+    public void WorkspaceContextAddress_UsesExactOrdinalValueEquality()
+    {
+        var first = new WorkspaceContextAddress("workspace", "context");
+        var equal = new WorkspaceContextAddress("workspace", "context");
+
+        Assert.Equal(first, equal);
+        Assert.NotEqual(
+            first,
+            new WorkspaceContextAddress("Workspace", "context"));
+        Assert.NotEqual(
+            first,
+            new WorkspaceContextAddress("workspace", "Context"));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceContextAddress("", "context"));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceContextAddress("workspace", " "));
+    }
+
+    [Fact]
+    public void ResolveScenario_IssuesContextAddressesAndDescriptors()
+    {
+        var member = new DefinitionMemberCoordinate.PackageCoordinate(
+            "P",
+            "1.0.0",
+            "net10.0");
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "first",
+                    framework: "net10.0",
+                    members: [member]),
+                new WorkspaceContextDefinition(
+                    "second",
+                    framework: "net10.0",
+                    runtimeIdentifier: "linux-x64",
+                    members: [member]),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            1,
+            "scenario",
+            workspace: "workspace",
+            context: "second"));
+
+        ResolvedScenario resolved = registry.ResolveScenario("scenario");
+
+        Assert.Equal(
+            [
+                new WorkspaceContextAddress("workspace", "first"),
+                new WorkspaceContextAddress("workspace", "second"),
+            ],
+            resolved.Contexts.Select(context => context.Address));
+        Assert.Equal("first", resolved.Contexts[0].Descriptor.Name);
+        Assert.Equal("net10.0", resolved.Contexts[0].Descriptor.Framework);
+        Assert.Null(resolved.Contexts[0].Descriptor.RuntimeIdentifier);
+        Assert.Equal("linux-x64", resolved.Contexts[1].Descriptor.RuntimeIdentifier);
+        Assert.Same(resolved.Contexts[1], resolved.SelectedContext);
+        Assert.Same(
+            resolved.Contexts[1].Descriptor,
+            resolved.SelectedContext!.Descriptor);
     }
 
     [Fact]
@@ -921,192 +970,6 @@ public class InspectionDefinitionTests
         var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(lone));
         Assert.Contains("UTF-16", ex.Message, StringComparison.Ordinal);
         Assert.IsType<EncoderFallbackException>(ex.InnerException);
-    }
-
-    [Fact]
-    public void ProductHomeDemos_ResolveCallGraphByMemberAnchor()
-    {
-        Assert.Equal(
-            [
-                "stj-serializer",
-                "extensions-callgraph",
-                "stj-serialize-callgraph",
-                "config-bind-callgraph",
-                "options-add-callgraph",
-                "di-tryadd-callgraph",
-                "http-addhttpclient-callgraph",
-                "stj-getdecimal-callgraph",
-            ],
-            ProductInspectionDemos.HomeScenarioIds);
-        Assert.Equal(8, ProductInspectionDemos.Entries.Count);
-        Assert.True(ProductInspectionDemos.HasScenario("extensions-callgraph"));
-        Assert.True(ProductInspectionDemos.HasScenario("stj-serialize-callgraph"));
-        Assert.True(ProductInspectionDemos.HasScenario("config-bind-callgraph"));
-        Assert.True(ProductInspectionDemos.HasScenario("options-add-callgraph"));
-        Assert.True(ProductInspectionDemos.HasScenario("di-tryadd-callgraph"));
-        Assert.True(ProductInspectionDemos.HasScenario("http-addhttpclient-callgraph"));
-        Assert.True(ProductInspectionDemos.HasScenario("stj-getdecimal-callgraph"));
-
-        // Per-demo resolve — does not require materializing the other home demos.
-        var callGraph = ProductInspectionDemos.ResolveHomeScenario("extensions-callgraph");
-        Assert.Equal("Cross-package call graph", callGraph.Title);
-        Assert.True(callGraph.CreatesAssemblyContextGroup);
-        Assert.Equal(3, callGraph.SelectedContext!.Members.Count);
-        Assert.All(
-            callGraph.SelectedContext.Members,
-            member => Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(member));
-
-        Assert.Equal(
-            "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
-            callGraph.View!.Type);
-        Assert.Equal("74b6b4b321", callGraph.View.MemberAnchor);
-        Assert.Equal("method:TryAddEnumerable", callGraph.View.MemberKey);
-        Assert.Equal(ProductDemoSections.CallGraph, callGraph.View.Section);
-        Assert.Null(callGraph.View.MemberSignature);
-
-        Assert.NotNull(callGraph.Navigation);
-        Assert.Equal(3, callGraph.Navigation!.Tabs.Count);
-        Assert.Equal("di", callGraph.Navigation.FocusTabId);
-        Assert.Equal(0, callGraph.Navigation.FocusIndex);
-        var focus = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
-            callGraph.Navigation.FocusTab.Coordinate);
-        Assert.Equal("Microsoft.Extensions.DependencyInjection.Abstractions", focus.PackageId);
-        Assert.Equal("10.0.0", focus.Version);
-
-        ProductDemoRunPlan run = ProductDemoRunPlan.Create(callGraph);
-        Assert.Same(callGraph.SelectedContext, run.Context);
-        Assert.Same(callGraph.Navigation.FocusTab, run.Focus);
-        Assert.Equal(callGraph.View.Type, run.TypeName);
-        Assert.Equal(ProductDemoSections.CallGraph, run.Section);
-        Assert.Equal("TryAddEnumerable", run.Member!.Name);
-        Assert.Equal("method", run.Member.Kind);
-        Assert.Equal("74b6b4b321", run.Member.Anchor);
-    }
-
-    [Fact]
-    public void ProductHomeDemos_StjSelection()
-    {
-        var stj = ProductInspectionDemos.ResolveHomeScenario("stj-serializer");
-        Assert.Equal("System.Text.Json.JsonSerializer", stj.View!.Type);
-        Assert.Equal(ProductDemoSections.Methods, stj.View.Section);
-        var stjPackage = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
-            stj.SelectedContext!.Members[0]);
-        Assert.Equal("System.Text.Json", stjPackage.PackageId);
-        Assert.Null(ProductDemoRunPlan.Create(stj).Member);
-        Assert.False(ProductInspectionDemos.HasScenario("platform-list"));
-    }
-
-    [Fact]
-    public void ProductHomeDemos_SinglePackageCallGraphShapes()
-    {
-        // Complementary Call Graph demos: dense outbound STJ Serialize, recursive
-        // ConfigurationBinder.Bind, inbound Options/TryAdd hubs, HttpClient
-        // factory registration, and STJ GetDecimal parse path.
-        var serialize = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
-        Assert.Equal(ProductDemoSections.CallGraph, serialize.View!.Section);
-        Assert.Equal("1dc14dd1fb", serialize.View.MemberAnchor);
-        Assert.Equal("method:Serialize", serialize.View.MemberKey);
-        Assert.Single(serialize.SelectedContext!.Members);
-        var serializePlan = ProductDemoRunPlan.Create(serialize);
-        Assert.Equal("Serialize", serializePlan.Member!.Name);
-        Assert.Equal("1dc14dd1fb", serializePlan.Member.Anchor);
-
-        var bind = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.ConfigBindCallGraphScenarioId);
-        Assert.Equal("Microsoft.Extensions.Configuration.ConfigurationBinder", bind.View!.Type);
-        Assert.Equal("a6a6257f65", bind.View.MemberAnchor);
-        Assert.Equal("method:Bind", bind.View.MemberKey);
-        Assert.Equal(
-            "Microsoft.Extensions.Configuration.Binder",
-            Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
-                bind.SelectedContext!.Members[0]).PackageId);
-
-        var options = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.OptionsAddCallGraphScenarioId);
-        Assert.Equal(
-            "Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions",
-            options.View!.Type);
-        Assert.Equal("1e6bfaf2ae", options.View.MemberAnchor);
-        Assert.Equal("method:AddOptions", options.View.MemberKey);
-        Assert.Single(options.SelectedContext!.Members);
-
-        var tryAdd = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.DiTryAddCallGraphScenarioId);
-        Assert.Equal(
-            "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
-            tryAdd.View!.Type);
-        Assert.Equal("6ce164c602", tryAdd.View.MemberAnchor);
-        Assert.Equal("method:TryAdd", tryAdd.View.MemberKey);
-        Assert.Single(tryAdd.SelectedContext!.Members);
-
-        var http = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.HttpAddHttpClientCallGraphScenarioId);
-        Assert.Equal(
-            "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
-            http.View!.Type);
-        Assert.Equal("5c44566d15", http.View.MemberAnchor);
-        Assert.Equal("method:AddHttpClient", http.View.MemberKey);
-        Assert.Single(http.SelectedContext!.Members);
-
-        var getDecimal = ProductInspectionDemos.ResolveHomeScenario(
-            ProductInspectionDemos.StjGetDecimalCallGraphScenarioId);
-        Assert.Equal("System.Text.Json.JsonElement", getDecimal.View!.Type);
-        Assert.Equal("cfd9980a6c", getDecimal.View.MemberAnchor);
-        Assert.Equal("method:GetDecimal", getDecimal.View.MemberKey);
-        Assert.Single(getDecimal.SelectedContext!.Members);
-    }
-
-    [Fact]
-    public void ProductHomeDemos_AllBindKnownProductSections()
-    {
-        foreach (var entry in ProductInspectionDemos.Entries)
-        {
-            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
-            Assert.True(
-                ProductDemoSections.IsKnown(resolved.View!.Section),
-                $"Home demo '{entry.Id}' section '{resolved.View.Section}' is outside ProductDemoSections.Known.");
-        }
-    }
-
-    [Fact]
-    public void ProductHomeDemos_FactoryRegistry_IsMetadataOnlyUntilResolved()
-    {
-        // Catalog surface is eight entries; factories are not invoked by listing.
-        Assert.Equal(8, ProductInspectionDemos.Entries.Count);
-        Assert.All(
-            ProductInspectionDemos.Entries,
-            entry =>
-            {
-                Assert.False(string.IsNullOrWhiteSpace(entry.Id));
-                Assert.False(string.IsNullOrWhiteSpace(entry.Title));
-                Assert.NotNull(entry.CreateRecords);
-            });
-
-        // Full materialization is opt-in (4 records × 8 demos).
-        var all = ProductInspectionDemos.CreateRegistry();
-        Assert.Equal(32, all.Records.Count);
-
-        // Each factory owns exactly one scenario composition.
-        foreach (var entry in ProductInspectionDemos.Entries)
-        {
-            var records = entry.CreateRecords();
-            Assert.Equal(4, records.Length);
-            Assert.Contains(records, record =>
-                record is ScenarioDefinition scenario && scenario.Id == entry.Id);
-
-            foreach (var record in records)
-            {
-                var json = InspectionDefinitionJson.Serialize(record);
-                var parsed = InspectionDefinitionJson.Parse(json);
-                Assert.Equal(record.Kind, parsed.Kind);
-                Assert.Equal(record.Id, parsed.Id);
-            }
-        }
-
-        Assert.False(ProductInspectionDemos.TryResolveHomeScenario("missing", out _));
-        Assert.True(ProductInspectionDemos.TryResolveHomeScenario("stj-serializer", out var resolved));
-        Assert.Equal("stj-serializer", resolved.ScenarioId);
     }
 
     private static void AssertDefinitionSemanticsEqual(

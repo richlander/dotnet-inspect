@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 
+using DotnetInspector.Artifacts;
+using DotnetInspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -867,21 +870,84 @@ sealed record AssemblyContextGroupReleaseResult(Exception? Failure);
 /// <summary>
 /// Terminal release result for one group admitted by an asynchronous workspace.
 /// </summary>
-public sealed class InspectionWorkspaceGroupCloseResult
+public abstract class InspectionWorkspaceGroupCloseResult
 {
     internal InspectionWorkspaceGroupCloseResult(
-        int registrationIndex,
-        Exception? failure)
+        int registrationIndex)
     {
         RegistrationIndex = registrationIndex;
-        Failure = failure;
     }
 
     public int RegistrationIndex { get; }
+}
+
+/// <summary>
+/// Terminal result for one workspace-owned direct group release.
+/// </summary>
+public sealed class InspectionWorkspaceDirectGroupCloseResult
+    : InspectionWorkspaceGroupCloseResult
+{
+    internal InspectionWorkspaceDirectGroupCloseResult(
+        int registrationIndex,
+        Exception? failure)
+        : base(registrationIndex)
+    {
+        Failure = failure;
+    }
 
     public bool Succeeded => Failure is null;
 
     public Exception? Failure { get; }
+}
+
+/// <summary>
+/// Terminal result retained from an adjacent coordinated release owner.
+/// </summary>
+public sealed class InspectionWorkspaceCoordinatedGroupCloseResult<TResult>
+    : InspectionWorkspaceGroupCloseResult
+{
+    internal InspectionWorkspaceCoordinatedGroupCloseResult(
+        int registrationIndex,
+        TResult result)
+        : base(registrationIndex)
+    {
+        Result = result;
+    }
+
+    public TResult Result { get; }
+}
+
+internal interface IWorkspaceCoordinatedGroupParticipation
+{
+    WorkspaceCoordinatedAdmissionGate WorkspaceAdmission { get; }
+
+    void RequestRelease();
+
+    Task<InspectionWorkspaceGroupCloseResult> GetCloseResultAsync(
+        int registrationIndex);
+}
+
+internal sealed class WorkspaceCoordinatedAdmissionGate
+{
+    readonly object _gate = new();
+    bool _closed;
+
+    internal TResult Admit<TResult>(Func<TResult> create)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _closed,
+                nameof(PackageAssemblyContextCompletion));
+            return create();
+        }
+    }
+
+    internal void Close()
+    {
+        lock (_gate)
+            _closed = true;
+    }
 }
 
 /// <summary>
@@ -890,12 +956,24 @@ public sealed class InspectionWorkspaceGroupCloseResult
 public sealed class InspectionWorkspaceCloseReport
 {
     internal InspectionWorkspaceCloseReport(
-        ImmutableArray<InspectionWorkspaceGroupCloseResult> groups)
+        ImmutableArray<InspectionWorkspaceGroupCloseResult> groups,
+        ImmutableArray<Exception> artifactSessionCleanupFailures)
     {
         Groups = groups;
+        ArtifactSessionCleanupFailures =
+            artifactSessionCleanupFailures;
     }
 
     public ImmutableArray<InspectionWorkspaceGroupCloseResult> Groups
+    {
+        get;
+    }
+
+    /// <summary>
+    /// Cleanup failures retained from artifact sessions after their exact
+    /// dependent groups reached terminal release.
+    /// </summary>
+    public ImmutableArray<Exception> ArtifactSessionCleanupFailures
     {
         get;
     }
@@ -911,9 +989,11 @@ public sealed partial class InspectionWorkspace :
     readonly object _gate = new();
     readonly List<AssemblyContextGroup> _groups = [];
     readonly List<WorkspaceGroupAdmission> _admissions = [];
+    readonly List<WorkspaceArtifactSessionRegistration>
+        _artifactSessions = [];
     readonly InspectionWorkspaceLifetimeMode _lifetimeMode;
     readonly TaskCompletionSource<
-        ImmutableArray<WorkspaceGroupAdmission>>? _closeStart;
+        WorkspaceClosePlan>? _closeStart;
     readonly Task<InspectionWorkspaceCloseReport>? _closeTask;
     InspectionWorkspaceCloseReport? _closeReport;
     InspectionWorkspaceState _state;
@@ -966,7 +1046,8 @@ public sealed partial class InspectionWorkspace :
                 == InspectionWorkspaceLifetimeMode.Asynchronous)
             {
                 admission = new WorkspaceGroupAdmission(
-                    _nextRegistrationIndex++);
+                    _nextRegistrationIndex++,
+                    coordinatedParticipation: null);
                 _admissions.Add(admission);
             }
         }
@@ -995,9 +1076,17 @@ public sealed partial class InspectionWorkspace :
                     admission.RegistrationIndex,
                     group);
         bool published;
+        bool artifactOwnershipConflict;
         lock (_gate)
         {
-            published = _state == InspectionWorkspaceState.Open;
+            artifactOwnershipConflict =
+                _state == InspectionWorkspaceState.Open
+                && _artifactSessions.Any(
+                    registration =>
+                        registration.DependsOn(group));
+            published =
+                _state == InspectionWorkspaceState.Open
+                && !artifactOwnershipConflict;
             if (published)
             {
                 _groups.Add(group);
@@ -1008,6 +1097,13 @@ public sealed partial class InspectionWorkspace :
         if (published)
             return group;
 
+        if (artifactOwnershipConflict)
+        {
+            group.Dispose();
+            admission?.Complete(registration: null);
+            throw new InvalidOperationException(
+                "A group projected from a transferred artifact session cannot be admitted later.");
+        }
         admission?.Complete(registration);
         if (_lifetimeMode
             == InspectionWorkspaceLifetimeMode.Synchronous)
@@ -1016,6 +1112,118 @@ public sealed partial class InspectionWorkspace :
         }
 
         throw new ObjectDisposedException(nameof(InspectionWorkspace));
+    }
+
+    /// <summary>
+    /// Transfers one published artifact session and query lease to this
+    /// workspace and binds their release to exact dependent groups.
+    /// </summary>
+    /// <remarks>
+    /// The supplied set must contain every current workspace group with at
+    /// least one participant projected from this session, and no other group.
+    /// A later group projected from a transferred session is rejected. The
+    /// workspace disposes the query lease and session only after every stored
+    /// admission reaches physical group-release settlement. These properties
+    /// are gated by
+    /// <c>RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet</c>,
+    /// <c>RegisterArtifactSession_RejectsLaterCoordinatedGroup</c>, and
+    /// <c>WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces</c>.
+    /// </remarks>
+    internal void RegisterArtifactSession(
+        ArtifactSetSession session,
+        ArtifactQueryLease queryLease,
+        IEnumerable<AssemblyContextGroup> dependentGroups)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(queryLease);
+        ArgumentNullException.ThrowIfNull(dependentGroups);
+        if (_lifetimeMode
+            != InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            throw new InvalidOperationException(
+                "Artifact sessions require a workspace created by CreateAsynchronous.");
+        }
+
+        ImmutableArray<AssemblyContextGroup> groups =
+            [.. dependentGroups];
+        if (groups.IsDefaultOrEmpty
+            || groups.Any(static group => group is null))
+        {
+            throw new ArgumentException(
+                "An artifact session requires at least one dependent group.",
+                nameof(dependentGroups));
+        }
+        if (groups.Distinct(ReferenceEqualityComparer.Instance).Count()
+            != groups.Length)
+        {
+            throw new ArgumentException(
+                "An artifact session cannot depend on the same group more than once.",
+                nameof(dependentGroups));
+        }
+
+        IReadOnlyList<ArtifactDescriptor> catalog =
+            session.GetCatalog(queryLease);
+        var registrations =
+            new HashSet<ArtifactAcquisitionRegistration>(
+                ReferenceEqualityComparer.Instance);
+        foreach (ArtifactDescriptor descriptor in catalog)
+        {
+            registrations.Add(
+                session.GetContentReference(
+                    descriptor.Identity,
+                    queryLease).Registration);
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _state != InspectionWorkspaceState.Open,
+                this);
+            var expectedGroups =
+                new HashSet<AssemblyContextGroup>(
+                    ReferenceEqualityComparer.Instance);
+            var dependentAdmissions =
+                ImmutableArray.CreateBuilder<
+                    WorkspaceGroupAdmission>();
+            foreach (WorkspaceGroupAdmission admission in _admissions)
+            {
+                if (!admission.TryGetCompletedGroup(out AssemblyContextGroup? group))
+                {
+                    throw new InvalidOperationException(
+                        "Artifact session ownership cannot transfer while a workspace group admission is incomplete.");
+                }
+                if (group is not null
+                    && group.Participants.Any(participant =>
+                        participant.Assembly.Registration
+                            .ArtifactRegistration is
+                                ArtifactAcquisitionRegistration registration
+                        && registrations.Contains(registration)))
+                {
+                    expectedGroups.Add(group);
+                    dependentAdmissions.Add(admission);
+                }
+            }
+            if (expectedGroups.Count == 0
+                || !expectedGroups.SetEquals(groups))
+            {
+                throw new ArgumentException(
+                    "The dependent groups must be the complete exact set of current workspace groups projected from this artifact session.",
+                    nameof(dependentGroups));
+            }
+            if (_artifactSessions.Any(registration =>
+                    ReferenceEquals(registration.Session, session)))
+            {
+                throw new InvalidOperationException(
+                    "The artifact session is already registered with this workspace.");
+            }
+
+            _artifactSessions.Add(
+                new WorkspaceArtifactSessionRegistration(
+                    session,
+                    queryLease,
+                    [.. registrations],
+                    dependentAdmissions.ToImmutable()));
+        }
     }
 
     public void Dispose()
@@ -1075,14 +1283,20 @@ public sealed partial class InspectionWorkspace :
                 "CloseAsync requires a workspace created by CreateAsynchronous.");
         }
 
-        ImmutableArray<WorkspaceGroupAdmission> admissions = default;
+        WorkspaceClosePlan plan = default;
         bool startClose = false;
         lock (_gate)
         {
             if (_state == InspectionWorkspaceState.Open)
             {
+                ImmutableArray<WorkspaceGroupAdmission> admissions =
+                    [.. _admissions];
+                foreach (WorkspaceGroupAdmission admission in admissions)
+                    admission.CloseWorkspaceAdmission();
+                plan = new WorkspaceClosePlan(
+                    admissions,
+                    [.. _artifactSessions]);
                 _state = InspectionWorkspaceState.Closing;
-                admissions = [.. _admissions];
                 foreach (AssemblyContextGroup group in _groups)
                 {
                     group.CloseAdmissionFromWorkspace(
@@ -1095,14 +1309,7 @@ public sealed partial class InspectionWorkspace :
         }
 
         if (startClose)
-        {
-            foreach (WorkspaceGroupAdmission admission in admissions)
-            {
-                admission.TryRequestRelease();
-            }
-
-            _closeStart!.SetResult(admissions);
-        }
+            _closeStart!.SetResult(plan);
 
         return _closeTask!;
     }
@@ -1125,22 +1332,169 @@ public sealed partial class InspectionWorkspace :
             _groups.Remove(group);
     }
 
-    async Task<InspectionWorkspaceCloseReport> CloseCoreAsync(
-        Task<ImmutableArray<WorkspaceGroupAdmission>> start)
+    internal ImmutableArray<WorkspaceCoordinatedGroupAdmission>
+        BeginCoordinatedGroupAdmissions(
+            ImmutableArray<IWorkspaceCoordinatedGroupParticipation>
+                participations)
     {
-        ImmutableArray<WorkspaceGroupAdmission> admissions =
+        if (_lifetimeMode
+            != InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            throw new InvalidOperationException(
+                "Coordinated package-role completion requires a workspace created by CreateAsynchronous.");
+        }
+        if (participations.IsDefaultOrEmpty
+            || participations.Any(
+                static participation => participation is null))
+        {
+            throw new ArgumentException(
+                "Coordinated group admission requires one participation handle per planned group.",
+                nameof(participations));
+        }
+
+        var admissions =
+            ImmutableArray.CreateBuilder<
+                WorkspaceCoordinatedGroupAdmission>(
+                participations.Length);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _state != InspectionWorkspaceState.Open,
+                this);
+            foreach (IWorkspaceCoordinatedGroupParticipation participation
+                in participations)
+            {
+                var admission = new WorkspaceGroupAdmission(
+                    _nextRegistrationIndex++,
+                    participation);
+                _admissions.Add(admission);
+                admissions.Add(
+                    new WorkspaceCoordinatedGroupAdmission(
+                        this,
+                        admission));
+            }
+        }
+
+        return admissions.MoveToImmutable();
+    }
+
+    internal bool CompleteCoordinatedGroupAdmissions(
+        ImmutableArray<WorkspaceCoordinatedGroupAdmission> admissions,
+        ImmutableArray<AssemblyContextGroup> groups)
+    {
+        if (admissions.IsDefaultOrEmpty
+            || admissions.Length != groups.Length)
+        {
+            throw new ArgumentException(
+                "Every coordinated admission must complete with one exact physical group.",
+                nameof(groups));
+        }
+        for (int index = 0; index < admissions.Length; index++)
+        {
+            ArgumentNullException.ThrowIfNull(admissions[index]);
+            ArgumentNullException.ThrowIfNull(groups[index]);
+            if (!ReferenceEquals(admissions[index]._workspace, this))
+            {
+                throw new InvalidOperationException(
+                    "A coordinated admission belongs to a different inspection workspace.");
+            }
+        }
+
+        bool published;
+        lock (_gate)
+        {
+            published =
+                _state == InspectionWorkspaceState.Open
+                && !groups.Any(group =>
+                    _artifactSessions.Any(
+                        registration =>
+                            registration.DependsOn(group)));
+            for (int index = 0; index < admissions.Length; index++)
+            {
+                WorkspaceCoordinatedGroupAdmission admission =
+                    admissions[index];
+                admission._admission.SetRegistration(
+                    new WorkspaceGroupRegistration(
+                        admission._admission.RegistrationIndex,
+                        groups[index],
+                        admission._admission.CoordinatedParticipation));
+            }
+        }
+
+        foreach (WorkspaceCoordinatedGroupAdmission admission in admissions)
+            admission._admission.FinishRegistration();
+
+        return published;
+    }
+
+    internal void CompleteCoordinatedGroupAdmissionsWithoutGroups(
+        ImmutableArray<WorkspaceCoordinatedGroupAdmission> admissions)
+    {
+        foreach (WorkspaceCoordinatedGroupAdmission admission in admissions)
+        {
+            if (!ReferenceEquals(admission._workspace, this))
+            {
+                throw new InvalidOperationException(
+                    "A coordinated admission belongs to a different inspection workspace.");
+            }
+            admission._admission.Complete(registration: null);
+        }
+    }
+
+    async Task<InspectionWorkspaceCloseReport> CloseCoreAsync(
+        Task<WorkspaceClosePlan> start)
+    {
+        WorkspaceClosePlan plan =
             await start.ConfigureAwait(false);
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
-                admissions.Length];
-        for (int index = 0; index < admissions.Length; index++)
+                plan.GroupAdmissions.Length];
+        for (int index = 0;
+            index < plan.GroupAdmissions.Length;
+            index++)
         {
             completionTasks[index] =
-                admissions[index].RequestReleaseAndGetResultAsync();
+                plan.GroupAdmissions[index]
+                    .RequestReleaseAndGetResultAsync();
         }
 
-        InspectionWorkspaceGroupCloseResult?[] completed =
-            await Task.WhenAll(completionTasks).ConfigureAwait(false);
+        var completed =
+            new InspectionWorkspaceGroupCloseResult?[
+                completionTasks.Length];
+        Exception? groupCloseFailure = null;
+        try
+        {
+            completed =
+                await Task.WhenAll(completionTasks).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            groupCloseFailure = exception;
+            for (int index = 0;
+                index < completionTasks.Length;
+                index++)
+            {
+                if (completionTasks[index].IsCompletedSuccessfully)
+                {
+                    completed[index] = completionTasks[index].Result;
+                }
+                else if (plan.GroupAdmissions[index]
+                    .TryGetTerminalResult(
+                        out InspectionWorkspaceGroupCloseResult?
+                            terminalResult))
+                {
+                    completed[index] = terminalResult;
+                }
+            }
+        }
+        ImmutableArray<Exception>.Builder artifactCleanupFailures =
+            ImmutableArray.CreateBuilder<Exception>();
+        foreach (WorkspaceArtifactSessionRegistration registration
+            in plan.ArtifactSessions)
+        {
+            artifactCleanupFailures.AddRange(
+                await registration.ReleaseAsync().ConfigureAwait(false));
+        }
         var reportGroups =
             ImmutableArray.CreateBuilder<
                 InspectionWorkspaceGroupCloseResult>();
@@ -1151,16 +1505,119 @@ public sealed partial class InspectionWorkspace :
         }
 
         var report = new InspectionWorkspaceCloseReport(
-            reportGroups.ToImmutable());
+            reportGroups.ToImmutable(),
+            artifactCleanupFailures.ToImmutable());
         lock (_gate)
         {
             _closeReport = report;
             _state = InspectionWorkspaceState.Closed;
         }
+        if (groupCloseFailure is not null)
+        {
+            return await Task.FromException<
+                    InspectionWorkspaceCloseReport>(
+                    groupCloseFailure)
+                .ConfigureAwait(false);
+        }
         return report;
     }
 
-    sealed class WorkspaceGroupAdmission(int registrationIndex)
+    internal sealed class WorkspaceArtifactSessionRegistration
+    {
+        internal WorkspaceArtifactSessionRegistration(
+            ArtifactSetSession session,
+            ArtifactQueryLease queryLease,
+            ImmutableArray<ArtifactAcquisitionRegistration>
+                artifactRegistrations,
+            ImmutableArray<WorkspaceGroupAdmission>
+                dependentGroupAdmissions)
+        {
+            Session = session;
+            QueryLease = queryLease;
+            ArtifactRegistrations = artifactRegistrations;
+            DependentGroupAdmissions = dependentGroupAdmissions;
+        }
+
+        internal ArtifactSetSession Session { get; }
+
+        ArtifactQueryLease QueryLease { get; }
+
+        ImmutableArray<ArtifactAcquisitionRegistration>
+            ArtifactRegistrations { get; }
+
+        ImmutableArray<WorkspaceGroupAdmission>
+            DependentGroupAdmissions { get; }
+
+        internal bool DependsOn(AssemblyContextGroup group) =>
+            group.Participants.Any(participant =>
+                participant.Assembly.Registration.ArtifactRegistration
+                    is ArtifactAcquisitionRegistration registration
+                && ArtifactRegistrations.Contains(
+                    registration,
+                    ReferenceEqualityComparer.Instance));
+
+        internal async Task<IReadOnlyList<Exception>> ReleaseAsync()
+        {
+            await Task.WhenAll(
+                    DependentGroupAdmissions.Select(
+                        static admission =>
+                            admission.TerminalSettlement))
+                .ConfigureAwait(false);
+            var failures = new List<Exception>();
+            try
+            {
+                QueryLease.Dispose();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            try
+            {
+                await Session.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            failures.AddRange(Session.CleanupFailures);
+            return failures;
+        }
+    }
+
+    readonly record struct WorkspaceClosePlan(
+        ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
+        ImmutableArray<WorkspaceArtifactSessionRegistration>
+            ArtifactSessions);
+
+    internal sealed class WorkspaceCoordinatedGroupAdmission
+    {
+        internal readonly InspectionWorkspace _workspace;
+        internal readonly WorkspaceGroupAdmission _admission;
+
+        internal WorkspaceCoordinatedGroupAdmission(
+            InspectionWorkspace workspace,
+            WorkspaceGroupAdmission admission)
+        {
+            _workspace = workspace;
+            _admission = admission;
+        }
+
+        internal AssemblyContextGroup CreateGroup(
+            IEnumerable<AssemblyContextParticipant> participants,
+            AssemblyContextGroupOptions? options) =>
+            new(
+                participants,
+                options,
+                _workspace.RemoveGroup,
+                captureReleaseFailuresByDefault: false);
+    }
+
+    internal sealed class WorkspaceGroupAdmission(
+        int registrationIndex,
+        IWorkspaceCoordinatedGroupParticipation? coordinatedParticipation)
     {
         readonly object _gate = new();
         readonly TaskCompletionSource _constructionCompletion =
@@ -1168,9 +1625,23 @@ public sealed partial class InspectionWorkspace :
         readonly TaskCompletionSource<
             InspectionWorkspaceGroupCloseResult?> _terminalCompletion =
                 new(TaskCreationOptions.RunContinuationsAsynchronously);
+        readonly TaskCompletionSource _terminalSettlement =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkspaceGroupRegistration? _registration;
+        AssemblyContextGroup? _completedGroup;
+        InspectionWorkspaceGroupCloseResult? _terminalResult;
 
         internal int RegistrationIndex { get; } = registrationIndex;
+
+        internal IWorkspaceCoordinatedGroupParticipation?
+            CoordinatedParticipation { get; } =
+                coordinatedParticipation;
+
+        internal Task TerminalSettlement =>
+            _terminalSettlement.Task;
+
+        internal void CloseWorkspaceAdmission() =>
+            CoordinatedParticipation?.WorkspaceAdmission.Close();
 
         internal void TryRequestRelease()
         {
@@ -1178,15 +1649,44 @@ public sealed partial class InspectionWorkspace :
             lock (_gate)
                 registration = _registration;
 
-            if (registration is not null)
+            if (CoordinatedParticipation is not null)
+            {
+                CoordinatedParticipation.RequestRelease();
+            }
+            else if (registration is not null)
+            {
                 _ = registration.Group.RequestReleaseAsync();
+            }
         }
 
         internal async Task<InspectionWorkspaceGroupCloseResult?>
             RequestReleaseAndGetResultAsync()
         {
             await _constructionCompletion.Task.ConfigureAwait(false);
-            TryRequestRelease();
+            Exception? requestFailure = null;
+            try
+            {
+                TryRequestRelease();
+            }
+            catch (Exception failure)
+            {
+                requestFailure = failure;
+            }
+
+            if (requestFailure is not null)
+            {
+                try
+                {
+                    _ = await _terminalCompletion.Task
+                        .ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // The release-request failure remains the primary close failure.
+                }
+                ExceptionDispatchInfo.Throw(requestFailure);
+            }
+
             return await _terminalCompletion.Task.ConfigureAwait(false);
         }
 
@@ -1196,21 +1696,104 @@ public sealed partial class InspectionWorkspace :
             if (registration is null)
             {
                 _terminalCompletion.SetResult(result: null);
+                _terminalSettlement.SetResult();
                 _constructionCompletion.SetResult();
                 return;
             }
 
             lock (_gate)
+            {
                 _registration = registration;
+                _completedGroup = registration.Group;
+            }
 
+            ObserveTerminalSettlement(registration.Group);
             ObserveRelease(registration);
 
             _constructionCompletion.SetResult();
         }
 
+        internal bool TryGetCompletedGroup(
+            out AssemblyContextGroup? group)
+        {
+            if (!_constructionCompletion.Task.IsCompleted)
+            {
+                group = null;
+                return false;
+            }
+
+            lock (_gate)
+            {
+                group = _completedGroup;
+                return true;
+            }
+        }
+
+        internal bool TryGetTerminalResult(
+            out InspectionWorkspaceGroupCloseResult? result)
+        {
+            lock (_gate)
+            {
+                result = _terminalResult;
+                return result is not null;
+            }
+        }
+
+        internal void SetRegistration(
+            WorkspaceGroupRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            lock (_gate)
+            {
+                if (_registration is not null)
+                {
+                    throw new InvalidOperationException(
+                        "A workspace group admission completed more than once.");
+                }
+                _registration = registration;
+                _completedGroup = registration.Group;
+            }
+        }
+
+        internal void FinishRegistration()
+        {
+            WorkspaceGroupRegistration registration;
+            lock (_gate)
+            {
+                registration =
+                    _registration
+                    ?? throw new InvalidOperationException(
+                        "A workspace group admission has no registration to finish.");
+            }
+
+            ObserveTerminalSettlement(registration.Group);
+            ObserveRelease(registration);
+            _constructionCompletion.SetResult();
+        }
+
+        void ObserveTerminalSettlement(
+            AssemblyContextGroup group)
+        {
+            _ = ObserveTerminalSettlementAsync(
+                group.ReleaseCompletion);
+        }
+
+        async Task ObserveTerminalSettlementAsync(
+            Task<AssemblyContextGroupReleaseResult> completion)
+        {
+            _ = await completion.ConfigureAwait(false);
+            _terminalSettlement.SetResult();
+        }
+
         void ObserveRelease(
             WorkspaceGroupRegistration registration)
         {
+            if (registration.CoordinatedParticipation is not null)
+            {
+                ObserveCoordinatedRelease(registration);
+                return;
+            }
+
             Task<AssemblyContextGroupReleaseResult> completion =
                 registration.Group.ReleaseCompletion;
             var awaiter =
@@ -1233,9 +1816,57 @@ public sealed partial class InspectionWorkspace :
             WorkspaceGroupRegistration registration,
             AssemblyContextGroupReleaseResult release)
         {
-            var result = new InspectionWorkspaceGroupCloseResult(
+            var result = new InspectionWorkspaceDirectGroupCloseResult(
                 registration.RegistrationIndex,
                 release.Failure);
+            CompleteRelease(registration, result);
+        }
+
+        void ObserveCoordinatedRelease(
+            WorkspaceGroupRegistration registration)
+        {
+            Task<InspectionWorkspaceGroupCloseResult> completion =
+                registration.CoordinatedParticipation!
+                    .GetCloseResultAsync(
+                        registration.RegistrationIndex);
+            _ = CompleteCoordinatedReleaseAsync(
+                registration,
+                completion);
+        }
+
+        async Task CompleteCoordinatedReleaseAsync(
+            WorkspaceGroupRegistration registration,
+            Task<InspectionWorkspaceGroupCloseResult> completion)
+        {
+            InspectionWorkspaceGroupCloseResult result;
+            try
+            {
+                result =
+                    await completion.ConfigureAwait(false);
+            }
+            catch (Exception failure)
+            {
+                lock (_gate)
+                {
+                    if (ReferenceEquals(
+                            _registration,
+                            registration))
+                    {
+                        _registration = null;
+                    }
+                }
+
+                _terminalCompletion.SetException(failure);
+                return;
+            }
+
+            CompleteRelease(registration, result);
+        }
+
+        void CompleteRelease(
+            WorkspaceGroupRegistration registration,
+            InspectionWorkspaceGroupCloseResult result)
+        {
             lock (_gate)
             {
                 if (ReferenceEquals(
@@ -1244,15 +1875,18 @@ public sealed partial class InspectionWorkspace :
                 {
                     _registration = null;
                 }
+                _terminalResult = result;
             }
 
             _terminalCompletion.SetResult(result);
         }
     }
 
-    sealed record WorkspaceGroupRegistration(
+    internal sealed record WorkspaceGroupRegistration(
         int RegistrationIndex,
-        AssemblyContextGroup Group);
+        AssemblyContextGroup Group,
+        IWorkspaceCoordinatedGroupParticipation?
+            CoordinatedParticipation = null);
 
     enum InspectionWorkspaceLifetimeMode
     {

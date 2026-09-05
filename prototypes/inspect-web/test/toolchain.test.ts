@@ -34,7 +34,12 @@ import {
   typeScriptSourceExtensions,
 } from "./project-source-inventory.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { auditedBuild, builtinPluginNames, bundlerReadFiles } from "./vite-audit.ts";
+import {
+  auditedBuild,
+  builtinPluginNames,
+  bundlerReadFiles,
+  shippedArtifacts,
+} from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -172,7 +177,10 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
-  assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  assert.deepEqual(
+    testTsconfig.include,
+    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts", "../playwright.worker.config.ts"],
+  );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
   // browser one. Without this project the Vite config would be checked by nothing: no
@@ -365,6 +373,25 @@ test("no source directory reaches content through a symbolic link", () => {
 // checked?" instead of "is every file I remembered to think of checked?" -- `.mts` was
 // Sol's finding: `scripts/probe.mts` with a type error in it passed every gate, because
 // `tsconfig.node.json` included `scripts/**/*.ts` and nothing considered `.mts` at all.
+// The production facade set, in the order `eng/generate-inspect-web-engine-facade.sh`
+// generates it. Every gate below that names a generated artifact is spelled from this one
+// inventory, so a facade added, removed or renamed moves all of them together and none of
+// them silently keeps covering a file that no longer exists.
+const facadeModules = [
+  "inspect-web-host",
+  "inspect-web-package",
+  "inspect-web-metadata",
+  "inspect-web-analysis",
+  "inspect-web-source",
+  "inspect-web-call-graph",
+  "inspect-web-catalog",
+] as const;
+const generatedFacadeSources =
+  facadeModules.map(module => `engine/facades/${module}.ts`);
+const publishedFacadeModules =
+  facadeModules.map(module => `engine/wwwroot/${module}.js`);
+const runtimeLoaderSource = "engine/wwwroot/runtime-loader.js";
+
 const typeScriptExtensions = typeScriptSourceExtensions;
 const javaScriptExtensions = javaScriptSourceExtensions;
 
@@ -374,9 +401,12 @@ test("no source file suppresses type checking", () => {
   // Round 3 (Sol) hid a suppression directive in `scripts/probe.mts`: the scan asked only
   // for `.ts` while the compiler happily reads all four TypeScript extensions, so a file
   // the program did type-check could turn that checking off and say nothing.
-  const files = projectFiles(typeScriptExtensions);
+  const files = [
+    ...projectFiles(typeScriptExtensions),
+    resolve(root, runtimeLoaderSource),
+  ];
 
-  assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
+  assert.ok(files.length > 50, `expected the checked sources, found ${files.length}`);
   const suppressionPattern = new RegExp(
     ["nocheck", "ignore"].map(directive => `@ts-${directive}`).join("|"),
   );
@@ -399,11 +429,9 @@ test("no source file suppresses type checking", () => {
 // exemption for free. Those files are TypeScript now, and the one remaining exemption is
 // the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
-// Rather than restate that file name twice, the two sets are asserted against each other:
-// the JavaScript actually present must be exactly the JavaScript actually exempted. A new
-// authored file fails, a widened exemption fails, and an exemption left behind by a
-// deleted file fails too.
-test("the only JavaScript is the file the lint exemption names", () => {
+// The authored runtime loader is checked against the SDK declaration in the facade
+// compiler program. Only the compiler-derived facades receive lint exemptions.
+test("JavaScript is either compiler-derived or the SDK-checked runtime loader", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const present = projectFiles(javaScriptExtensions)
     .map(file => projectRelative(root, file))
@@ -414,11 +442,11 @@ test("the only JavaScript is the file the lint exemption names", () => {
     .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
-  assert.deepEqual(present, ["engine/wwwroot/inspect-web-engine.js"],
+  assert.deepEqual(present, [...publishedFacadeModules, runtimeLoaderSource].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");
-  assert.deepEqual(exempted, present,
-    "the lint exemption and the JavaScript it covers must name the same files");
+  assert.deepEqual(exempted, [...publishedFacadeModules].sort(),
+    "only compiler-derived facades may receive the JavaScript lint exemption");
 });
 
 // Every gate in this file accounts for *files*: the compiler builds a program out of
@@ -909,7 +937,14 @@ test("no HTML document carries script the gates cannot read", () => {
 // code the lint had never seen.
 const compilerProjects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
 const separatelyCompiledTypeScript = new Set([
-  "engine/inspect-web-engine.ts",
+  ...generatedFacadeSources,
+  "multi-facade-canary/coordinator.ts",
+  "multi-facade-canary/exercise.ts",
+  "multi-facade-canary/facades/alpha.ts",
+  "multi-facade-canary/facades/beta.ts",
+  "managed-operation-bridge-canary/initialize.ts",
+  "managed-operation-bridge-canary/exercise.ts",
+  "managed-operation-bridge-canary/facades/bridge.ts",
 ]);
 
 function programFiles(): Set<string> {
@@ -995,26 +1030,146 @@ test("every TypeScript file belongs to a compiler project", () => {
       + "pinned separate compiler gate");
 });
 
-test("the generated engine TypeScript uses its SDK-owned compiler gate", () => {
-  const generationScript = readFileSync(
+test("the generated facade TypeScript uses its SDK-owned compiler gates", () => {
+  const engineGenerationScript = readFileSync(
     new URL("../../../eng/generate-inspect-web-engine-facade.sh", import.meta.url),
     "utf8");
+  const multiFacadeGenerationScript = readFileSync(
+    new URL(
+      "../../../eng/generate-inspect-web-multi-facade-canary.sh",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const managedBridgeGenerationScript = readFileSync(
+    new URL(
+      "../../../eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
   assert.deepEqual([...separatelyCompiledTypeScript], [
-    "engine/inspect-web-engine.ts",
+    ...generatedFacadeSources,
+    "multi-facade-canary/coordinator.ts",
+    "multi-facade-canary/exercise.ts",
+    "multi-facade-canary/facades/alpha.ts",
+    "multi-facade-canary/facades/beta.ts",
+    "managed-operation-bridge-canary/initialize.ts",
+    "managed-operation-bridge-canary/exercise.ts",
+    "managed-operation-bridge-canary/facades/bridge.ts",
   ]);
   assert.match(
-    generationScript,
-    /ts_output_file="\$repo_root\/prototypes\/inspect-web\/engine\/inspect-web-engine\.ts"/);
+    engineGenerationScript,
+    /ts_output_directory="\$inspect_web\/engine\/facades"/);
   assert.match(
-    generationScript,
+    engineGenerationScript,
+    /dts_output_directory="\$inspect_web\/src\/facades"/);
+  assert.match(
+    engineGenerationScript,
+    /js_output_directory="\$inspect_web\/engine\/wwwroot"/);
+  // The consumer map is the whole membership claim: its domain must be the exact set of
+  // canonical artifacts, and its range the exact set of public modules, in one place.
+  for (const module of facadeModules) {
+    assert.ok(engineGenerationScript.includes(`  "${module}"\n`),
+      `the generation script does not map ${module}`);
+  }
+  for (const artifact of [
+    "InspectWeb.Engine.ts",
+    "InspectWeb.Engine.PackageExports.ts",
+    "InspectWeb.Engine.MetadataExports.ts",
+    "InspectWeb.Engine.AnalysisExports.ts",
+    "InspectWeb.Engine.SourceExports.ts",
+    "InspectWeb.Engine.CallGraphExports.ts",
+    "InspectWeb.Engine.CatalogExports.ts",
+  ]) {
+    assert.ok(engineGenerationScript.includes(`  "${artifact}"\n`),
+      `the generation script does not root ${artifact}`);
+  }
+  assert.match(
+    engineGenerationScript,
+    /emitted_artifacts" != "\$expected_artifacts/);
+  assert.match(
+    engineGenerationScript,
+    /context_type="InspectWeb\.Engine\.InspectWebJsExportContext"/);
+  assert.match(
+    engineGenerationScript,
+    /--context "\$context_type"/);
+  assert.match(
+    engineGenerationScript,
+    /--assembly-search-path "\$source_assembly_directory"/);
+  assert.match(
+    engineGenerationScript,
+    /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
+  assert.match(
+    engineGenerationScript,
+    /-p:VersionPrefix="\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"/);
+  // `--contract` produces the complete declaration set into a directory, which is what the
+  // paired async deployment lanes compare against the checked-in declarations.
+  assert.match(
+    engineGenerationScript,
+    /--contract <assembly> <declaration-output-directory> <version-prefix>/);
+  assert.match(
+    engineGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
   assert.match(
-    generationScript,
+    engineGenerationScript,
     /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
-  assert.doesNotMatch(generationScript, /DOTNET_ROOT|sort -V/);
-  assert.match(generationScript, /"newLine": "lf"/);
-  assert.match(generationScript, /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+  assert.doesNotMatch(engineGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(engineGenerationScript, /"newLine": "lf"/);
+  assert.match(
+    engineGenerationScript,
+    /"\$tsc" -p "\$scratch\/sources\/tsconfig\.json"/);
+  assert.match(engineGenerationScript, /"allowJs": true/);
+  assert.match(engineGenerationScript, /"checkJs": true/);
+  assert.match(
+    engineGenerationScript,
+    /cp "\$js_output_directory\/runtime-loader\.js" "\$scratch\/sources\/runtime-loader\.js"/);
+  assert.match(
+    engineGenerationScript,
+    /printf ', "runtime-loader\.js"\]/);
+  // The whole set is compiled by one program built from an exact file inventory, not from a
+  // directory glob that would admit an unowned source.
+  assert.match(
+    engineGenerationScript,
+    /printf '"%s\.ts"' "\$\{facade_modules\[\$index\]\}"/);
+  assert.doesNotMatch(engineGenerationScript, /"include": \["\*/);
+
+  assert.match(
+    multiFacadeGenerationScript,
+    /canary="\$repo_root\/prototypes\/inspect-web\/multi-facade-canary"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
+  assert.doesNotMatch(multiFacadeGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(multiFacadeGenerationScript, /"newLine": "lf"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /"include": \["facades\/\*\.ts", "coordinator\.ts", "exercise\.ts"\]/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+
+  assert.match(
+    managedBridgeGenerationScript,
+    /canary="\$repo_root\/prototypes\/inspect-web\/managed-operation-bridge-canary"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
+  assert.doesNotMatch(managedBridgeGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(managedBridgeGenerationScript, /"newLine": "lf"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /"include": \["facades\/\*\.ts", "initialize\.ts", "exercise\.ts"\]/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
 });
 
 // And the same question for the lint, which is invoked on an explicit list of paths
@@ -1080,13 +1235,184 @@ test("every source file is covered by a lint target", () => {
 // into a chunk with no asset file, no manifest entry and no map entry at all. Either way
 // it ships and runs, and either way no source map ever names it.
 //
-// So the question moved from what the bundler emitted to what it read. `getWatchFiles`
-// is Rollup's own record of that, and it does not care how a file was referenced or what
-// it is called -- modules, entry HTML, assets emitted or inlined, plugin reads. Both
-// reviewers across both rounds proposed widening an enumeration instead: more extensions,
-// a ban on script shapes, an audit of asset `originalFileNames`. That is the move that
-// failed in rounds 3, 4 and 5, and the asset pipeline is exactly what it would have
-// missed again.
+// So the question moved from what the bundler emitted to what it took as input. Vite 8's
+// Rolldown graph accounts for modules, entry HTML and CSS, and a second build with asset
+// inlining disabled exposes every asset source through `originalFileNames`. Both answers
+// come from the real Vite build; neither parses source or guesses which extensions matter.
+// This fixture keeps the pathological small-asset case executable.
+test("the bundler input audit includes inlined asset sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'globalThis.asset = new URL("./payload.js", import.meta.url).href;',
+    );
+    writeFileSync(join(root, "payload.js"), "unchecked payload");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.js")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes query-bearing module sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'import payload from "./payload.txt?raw"; globalThis.payload = payload;',
+    );
+    writeFileSync(join(root, "payload.txt"), "unchecked payload");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.txt")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes worker module sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'new Worker(new URL("./worker-payload.js", import.meta.url), { type: "module" });',
+    );
+    writeFileSync(join(root, "worker-payload.js"), "self.postMessage('unchecked payload');");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "worker-payload.js")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes CSS imports and explicitly inlined assets", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<link rel="stylesheet" href="/styles.css">'
+        + '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(join(root, "main.js"), "globalThis.main = true;");
+    writeFileSync(
+      join(root, "styles.css"),
+      '@import "./more.css"; .asset { background: url("./payload.svg?inline"); }',
+    );
+    writeFileSync(join(root, "more.css"), ".imported { color: green; }");
+    writeFileSync(join(root, "payload.svg"), "<svg>unchecked payload</svg>");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "more.css")));
+    assert.ok(read.includes(resolve(root, "payload.svg")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes worker asset sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'new Worker(new URL("./worker.js", import.meta.url), { type: "module" });',
+    );
+    writeFileSync(
+      join(root, "worker.js"),
+      'import "./worker.css"; self.asset = new URL("./payload.svg", import.meta.url).href;',
+    );
+    writeFileSync(join(root, "payload.svg"), "<svg>unchecked payload</svg>");
+    writeFileSync(
+      join(root, "worker.css"),
+      '@import "./worker-more.css"; .asset { background: url("./worker-inline.svg?inline"); }',
+    );
+    writeFileSync(join(root, "worker-more.css"), ".imported { color: purple; }");
+    writeFileSync(join(root, "worker-inline.svg"), "<svg>worker inline payload</svg>");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.svg")));
+    assert.ok(read.includes(resolve(root, "worker-more.css")));
+    assert.ok(read.includes(resolve(root, "worker-inline.svg")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the shipped comparison includes HTML and non-JavaScript output", async () => {
+  const parent = fileURLToPath(new URL("../", import.meta.url));
+  const root = mkdtempSync(join(parent, ".vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ type: "module", scripts: { build: "vite build" } }),
+    );
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(join(root, "main.js"), "globalThis.main = true;");
+    writeFileSync(
+      join(root, "vite.config.js"),
+      "export default { plugins: process.env.npm_lifecycle_event === \"build\""
+        + " ? [{ name: \"conditional-html\", transformIndexHtml(html) {"
+        + " return html + \"<!-- conditional payload -->\"; } }] : [] };\n",
+    );
+
+    const audited = await auditedBuild(root);
+    const shipped = shippedArtifacts(root);
+    const auditedJavaScript = audited.artifacts
+      .filter(artifact => artifact.fileName.endsWith(".js"));
+    const shippedJavaScript = shipped
+      .filter(artifact => artifact.fileName.endsWith(".js"));
+    const auditedHtml = audited.artifacts
+      .find(artifact => artifact.fileName === "index.html");
+    const shippedHtml = shipped
+      .find(artifact => artifact.fileName === "index.html");
+
+    assert.deepEqual(shippedJavaScript, auditedJavaScript,
+      "the fixture must differ only outside JavaScript output");
+    assert.ok(auditedHtml !== undefined);
+    assert.ok(shippedHtml !== undefined,
+      "the shipped snapshot must include non-JavaScript output");
+    assert.ok(!auditedHtml.contents.includes("conditional payload"));
+    assert.ok(shippedHtml.contents.includes("conditional payload"),
+      "the shipped snapshot must expose the conditional HTML change");
+    assert.notDeepEqual(shipped, audited.artifacts,
+      "an HTML-only conditional plugin must change the complete shipped artifact");
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the lint covers every file the bundler reads", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -1171,7 +1497,7 @@ test("the lint covers every file the bundler reads", async () => {
     `expected the files the build reads, found ${read.length}; a build that reads almost `
       + "nothing would satisfy the assertion below without covering anything");
 
-  // Five files this build reads are not checked source, and each is already accounted
+  // Three graph inputs are not checked source, and each is already accounted
   // for elsewhere, so they are pinned as an exact list rather than filtered by a rule
   // that would also let a payload through.
   //
@@ -1185,8 +1511,7 @@ test("the lint covers every file the bundler reads", async () => {
   //
   // `../annotated-source-viewer/*` is the sibling prototype this project imports from.
   // Its `document-model.js` is in the TypeScript program but covered by no lint target,
-  // which is issue #4780, and its `package.json` is read for resolution. Both predate
-  // this branch.
+  // which is issue #4780.
   //
   // `index.html` is the entry document. It is read by the bundler and gated by neither
   // half of the test below -- oxlint reads script, and the compiler has no account of a
@@ -1197,12 +1522,10 @@ test("the lint covers every file the bundler reads", async () => {
   // remote URL carrying an `integrity` digest -- which that gate requires precisely
   // because no compiler or lint here reads those bytes.
   //
-  // `package.json` is read for dependency resolution rather than compiled, and the gates
-  // above already assert its contents field by field.
-  //
   // `src/styles.css` is style content. It sits under a lint target, but oxlint reads
   // script and the compiler has no account of a stylesheet at all, so it cannot clear
   // either half of the test below. A browser will not execute it either.
+  // The module Worker build also reads `tsconfig.json` as configuration, not source.
   //
   // Pinning the exact list is what makes this fail closed. Anything else the build reads
   // changes it and fails -- including a second stylesheet, which is a small cost for a
@@ -1210,11 +1533,10 @@ test("the lint covers every file the bundler reads", async () => {
   // it too, so the pin has to be deleted deliberately rather than quietly outliving the
   // gaps it describes.
   const knownReadButUngated = [
-    "../annotated-source-viewer/package.json",
     "../annotated-source-viewer/src/document-model.js",
     "index.html",
-    "package.json",
     "src/styles.css",
+    "tsconfig.json",
   ];
 
   const targets = lintTargets;
@@ -1283,17 +1605,17 @@ test("the bundler has no unread path into the shipped output", async () => {
       + "to the gate that audits what the build reads. Adding one means answering for "
       + "what it injects, so this gate has to be reckoned with rather than edited away");
   assert.deepStrictEqual(audited.unaccountedRollupPlugins, [],
-    "Rollup is running plugins Vite never resolved, so they are invisible to the plugin "
-      + "list above. `build.rollupOptions.plugins` is handed straight to Rollup and does "
-      + "this, and because such a plugin transforms both builds alike the gate below sees "
-      + "nothing to disagree about either");
+    "the resolved build config declares direct Rolldown plugins outside Vite's plugin "
+      + "list. `build.rollupOptions.plugins` is handed straight to Rolldown, and because "
+      + "such a plugin transforms both builds alike the gate below sees nothing to "
+      + "disagree about either");
   assert.deepStrictEqual(audited.rollupOutputPlugins, [],
-    "the build declares Rollup output plugins. Those run at generate time and can rewrite "
+    "the build declares Rolldown output plugins. Those run at generate time and can rewrite "
       + "a chunk after every gate above has read it, so this project keeps none");
   assert.equal(audited.workerPluginCount, 0,
-    "the build declares worker plugins. This project bundles no workers, and a worker "
-      + "plugin injects into a bundle these gates do not audit, so the two have to stay "
-      + "that way together");
+    "the build declares project worker plugins. The audit injects its own worker plugin "
+      + "to account for every nested worker graph; another plugin could add inputs outside "
+      + "that accounting, so project worker plugins remain forbidden");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies
@@ -1766,6 +2088,13 @@ test("the lint runs the categories, plugins and named rules it claims", () => {
 test("the oxlint configuration relaxes only the rules it documents", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const printed = printedOxlintConfig(root);
+  const generatedTypeScriptFacadeScope = [
+    ...generatedFacadeSources,
+    "multi-facade-canary/facades/alpha.ts",
+    "multi-facade-canary/facades/beta.ts",
+    "managed-operation-bridge-canary/facades/bridge.ts",
+  ].join(", ");
+  const publishedFacadeScope = publishedFacadeModules.join(", ");
 
   const relaxed = Object.entries(printed.rules)
     .filter(([, entry]) => severityOf(entry) === "allow")
@@ -1791,13 +2120,14 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       .sort(),
   ]);
 
-  // The scoped exceptions are the generated TypeScript handoff and its compiler-derived
-  // publish artifact. The source is compiled separately against the SDK-owned runtime
-  // declaration; the JavaScript import resolves only after Wasm publish. Authored source
-  // keeps the complete rule set held by the gates above.
+  // The scoped exceptions are the generated TypeScript handoffs and the production
+  // facade's compiler-derived publish artifact. The TypeScript sources are compiled
+  // separately against the SDK-owned runtime declaration; the JavaScript import resolves
+  // only after Wasm publish. Authored source keeps the complete rule set held by the
+  // gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
-    ["engine/wwwroot/inspect-web-engine.js", [
+    [publishedFacadeScope, [
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
       "typescript/no-unsafe-call",
@@ -1805,7 +2135,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/no-unsafe-return",
       "typescript/use-unknown-in-catch-callback-variable",
     ]],
-    ["engine/inspect-web-engine.ts", [
+    [generatedTypeScriptFacadeScope, [
       "typescript/no-redundant-type-constituents",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
@@ -1896,11 +2226,11 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       env: { browser: false, node: true },
       globals: {},
     },
-    "engine/wwwroot/inspect-web-engine.js": {
+    [publishedFacadeScope]: {
       env: {},
       globals: {},
     },
-    "engine/inspect-web-engine.ts": {
+    [generatedTypeScriptFacadeScope]: {
       env: {},
       globals: {},
     },
@@ -2350,16 +2680,12 @@ test("static hosting serves credits links through the application entry point", 
   const creditsRoutes = staticWebAppConfig.routes
     .filter(route => route.route === "/credits" || route.route === "/credits/");
 
+  // Azure Static Web Apps normalizes a trailing slash away when matching routes, so a
+  // separate "/credits/" rule collides with "/credits" and fails deployment (#4634,
+  // reintroduced by #5039 and refixed here). One rule covers both forms.
   assert.deepEqual(creditsRoutes, [
     {
       route: "/credits",
-      rewrite: "/index.html",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-      },
-    },
-    {
-      route: "/credits/",
       rewrite: "/index.html",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -2522,17 +2848,24 @@ test("the analysis host check matches locked native packages and lint wiring", (
   assert.equal(
     packageJson.scripts.lint,
     "node scripts/verify-analysis-host.ts && "
-      + "oxlint --no-ignore --disable-nested-config src test scripts "
-      + "engine/inspect-web-engine.ts engine/wwwroot/inspect-web-engine.js "
-      + "vite.config.ts && "
+      + "oxlint --no-ignore --disable-nested-config src test browser scripts "
+      + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
+      + "multi-facade-canary/facades "
+      + "managed-operation-bridge-canary/initialize.ts "
+      + "managed-operation-bridge-canary/exercise.ts "
+      + "managed-operation-bridge-canary/facades engine/facades "
+      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
+      + "playwright.config.ts playwright.worker.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
 
-test("the lint gate includes both compiler-derived facade artifacts", () => {
-  assert.ok(
-    !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
-  );
+test("the lint gate includes all compiler-derived facade artifacts", () => {
+  for (const module of facadeModules) {
+    assert.ok(
+      !(oxlintConfig.ignorePatterns ?? []).includes(`src/facades/${module}.d.ts`),
+    );
+  }
   // Reading the script through an index signature makes its absence a real possibility
   // rather than a silent `undefined` handed to `assert.match`, which would fail with a
   // type error about the argument instead of naming the missing script.
@@ -2541,8 +2874,20 @@ test("the lint gate includes both compiler-derived facade artifacts", () => {
   assert.match(lintScript, /(?:^| )src(?: |$)/);
   assert.match(
     lintScript,
-    /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,
+    /(?:^| )multi-facade-canary\/coordinator\.ts(?: |$)/,
   );
+  assert.match(
+    lintScript,
+    /(?:^| )multi-facade-canary\/exercise\.ts(?: |$)/,
+  );
+  assert.match(lintScript, /(?:^| )multi-facade-canary\/facades(?: |$)/);
+  assert.match(lintScript, /(?:^| )engine\/facades(?: |$)/);
+  for (const module of publishedFacadeModules) {
+    assert.ok(
+      new RegExp(`(?:^| )${module.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
+        .test(lintScript),
+      `the lint gate does not name ${module}`);
+  }
 });
 
 // The fixture below is mutated in place across the assertions, so it is typed rather than

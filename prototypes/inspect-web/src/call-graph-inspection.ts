@@ -1,9 +1,34 @@
-import type { BrowserCallGraph } from "./inspect-web-engine.d.ts";
+import type {
+  BrowserCallGraph as CallGraphFromCallGraphFacade,
+  BrowserCallGraphTarget as CallGraphTargetFromCallGraphFacade,
+} from "./facades/inspect-web-call-graph.d.ts";
+import type {
+  BrowserCallGraph as CallGraphFromCatalogFacade,
+  BrowserCallGraphTarget as CallGraphTargetFromCatalogFacade,
+} from "./facades/inspect-web-catalog.d.ts";
+import type {
+  BrowserCallGraphTarget as CallGraphTargetFromSourceFacade,
+} from "./facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import { mergeInspectionErrors } from "./data.ts";
 
+// Call graphs reach the application from two owners: the call-graph facade expands package
+// and platform topology, and the catalog facade returns the graph a product home demo
+// activates. Annotated source adds a third owner for graph targets, because the source
+// facade publishes its own invocation destinations. Each facade declares its own
+// structurally equal DTO; these aliases are the application's adaptation of all three
+// rather than one facade's declaration standing in as the others' owner.
+export type InspectedCallGraph =
+  | CallGraphFromCallGraphFacade
+  | CallGraphFromCatalogFacade;
+
+export type InspectedCallGraphTarget =
+  | CallGraphTargetFromCallGraphFacade
+  | CallGraphTargetFromCatalogFacade
+  | CallGraphTargetFromSourceFacade;
+
 export interface PlatformStackEntry {
-  graph: BrowserCallGraph;
+  graph: InspectedCallGraph;
   title: string;
 }
 
@@ -54,7 +79,7 @@ export interface PlatformDrillRequest {
 }
 
 export interface CallGraphInspectionState {
-  memberCallGraph: BrowserCallGraph | null;
+  memberCallGraph: InspectedCallGraph | null;
   memberCallGraphLoading: boolean;
   memberCallGraphError: string;
   graphMemberNavigationError: string;
@@ -79,7 +104,7 @@ export interface CallGraphInspectionDependencies {
   queryWorkspace(
     request: MemberCallGraphRequest,
     workspace: CallGraphWorkspacePackage[],
-  ): Promise<BrowserCallGraph>;
+  ): Promise<InspectedCallGraph>;
   queryPlatform(request: {
     framework: string;
     platformVersion: string;
@@ -92,7 +117,7 @@ export interface CallGraphInspectionDependencies {
     member: string;
     selectorKey: string;
     metadataToken: number;
-  }): Promise<BrowserCallGraph>;
+  }): Promise<InspectedCallGraph>;
   describeError(error: unknown): string;
   render(): void;
   renderPreservingMemberFocus(
@@ -114,6 +139,7 @@ export function createCallGraphInspectionCoordinator(
   dependencies: CallGraphInspectionDependencies,
 ): CallGraphInspectionCoordinator {
   const { state } = dependencies;
+  let loadGeneration = 0;
   const resetPlatformDrill = () => {
     state.platformStack = [];
     state.platformDrillLoading = false;
@@ -170,6 +196,7 @@ export function createCallGraphInspectionCoordinator(
         await dependencies.renderCallGraph();
         return;
       }
+      const generation = ++loadGeneration;
       state.memberCallGraphKey = request.signature;
       state.memberCallGraph = null;
       state.memberCallGraphError = "";
@@ -189,9 +216,12 @@ export function createCallGraphInspectionCoordinator(
         sequence === state.memberCallGraphSeq
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature;
-      let local: BrowserCallGraph | null = null;
+      let local: InspectedCallGraph | null = null;
+      // Platform descent may retain this expansion; a fresh load must not,
+      // even if its local query returns the same graph object.
       const canceledExpansionStillMatchesView = () =>
         local != null
+        && generation === loadGeneration
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature
         && state.memberCallGraph === local

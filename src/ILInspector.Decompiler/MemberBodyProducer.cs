@@ -123,12 +123,27 @@ public static class MemberBodyProducer
         MetadataMethodAddress address)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (!address.BelongsTo(source.Reader))
+        try
+        {
+            if (!address.BelongsTo(source.Reader))
+            {
+                return Failed(
+                    DiagnosticIds.ContextUnavailable,
+                    "method address belongs to a different metadata module");
+            }
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
         {
             return Failed(
                 DiagnosticIds.ContextUnavailable,
-                "method address belongs to a different metadata module");
+                "method address cannot be validated against this metadata "
+                    + $"source: {ex.Message}");
         }
+
         var methodHandle = address.Handle;
         if (methodHandle.IsNil)
         {
@@ -2217,8 +2232,7 @@ public static class MemberBodyProducer
             printerOptions,
             failOnDiagnostic);
         requiresAsyncContext = function is not null
-            && (function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+            && function.RequiresAsyncMethodContext;
         return body;
     }
 

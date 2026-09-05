@@ -72,6 +72,43 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
+    {
+        IPackageContent content = InMemory(
+            "lib/net8.0/Example.dll",
+            "lib/net8.0/Example.Companion.dll",
+            "lib/net8.0/shadow/Example.dll",
+            "runtimes/linux-x64/lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net8.0",
+                "linux-x64");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            ["lib/net8.0/Example.Companion.dll", "lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            [
+                "lib/net8.0/Example.Companion.dll",
+                "lib/net8.0/shadow/Example.dll",
+                "runtimes/linux-x64/lib/net8.0/Example.dll",
+            ],
+            selection.ImplementationAssets.Select(asset => asset.Path));
+        Assert.Equal("lib/net8.0/Example.dll", selection.DefaultAsset!.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net8.0/Example.dll",
+            selection.FindImplementationAsset(selection.DefaultAsset)!.Path);
+        PackageCompileAsset companion = selection.Assets[0];
+        Assert.Same(
+            companion,
+            selection.FindImplementationAsset(companion));
+    }
+
+    [Fact]
     public void ReferenceSelection_UsesSharedImplementationFrameworkReduction()
     {
         IPackageContent content = InMemory(
@@ -261,6 +298,28 @@ public class PackageCompileAssetSelectorTests : IDisposable
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             selection.Status);
         Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Empty(selection.Assets);
+        Assert.Null(selection.DefaultAsset);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.CandidateAssets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void EmptyReferenceGroup_AtRequestedFramework_SuppressesCompatibleLibraryFallback()
+    {
+        IPackageContent content = InMemory(
+            "ref/net10.0/_._",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net10.0");
+
+        Assert.False(selection.IsSelected);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            selection.Status);
+        Assert.Equal("net10.0", selection.TargetFramework);
         Assert.Empty(selection.Assets);
         Assert.Null(selection.DefaultAsset);
         Assert.Equal(

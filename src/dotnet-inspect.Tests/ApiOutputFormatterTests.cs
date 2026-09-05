@@ -81,10 +81,10 @@ public class ApiOutputFormatterTests
                 .Single(constructor =>
                     constructor.GetParameters() is
                     [
-                        {
-                            ParameterType:
+                    {
+                        ParameterType:
                             var parameterType
-                        },
+                    },
                     ]
                     && parameterType
                         == typeof(AssemblyReferenceIdentity))
@@ -2338,6 +2338,64 @@ public class ApiOutputFormatterTests
         Assert.Equal([0, 0], restored.IntroducedTypeParameterCounts);
     }
 
+    [Fact]
+    public void ApiTypeJson_RoundTripsProjectedMemberDeclaringTypeIdentity()
+    {
+        MetadataTypeDefinitionName receiver = Assert
+            .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Widget"]))
+            .Name;
+        MetadataTypeDefinitionName declaring = Assert
+            .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N`1",
+                    [
+                        "Outer+Literal`1",
+                        "Extensions.WithDot`2",
+                    ]))
+            .Name;
+        var type = new ApiType
+        {
+            Namespace = receiver.Namespace,
+            Name = receiver.Segments[0],
+            DefinitionName = receiver,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Extend",
+                    Kind = "extension-method",
+                    DeclaringType =
+                        "N`1.Outer+Literal<T>.Extensions.WithDot<T1, T2>",
+                    DeclaringTypeCanonicalName =
+                        @"N`1.Outer\+Literal`1.Extensions\.WithDot`2",
+                    DeclaringTypeDefinitionName = declaring,
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        ApiMember member = Assert.Single(restored.Members);
+        Assert.Equal(
+            declaring,
+            member.DeclaringTypeDefinitionName);
+        Assert.NotEqual(
+            restored.DefinitionName,
+            member.DeclaringTypeDefinitionName);
+        Assert.Contains(
+            "\"declaring_type_definition_name\"",
+            json,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The production API-type JSON context persists the directional
     /// <c>JsonIgnore</c> evidence instead of relying on the legacy derived
@@ -3253,22 +3311,36 @@ public class ApiOutputFormatterTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == assembly.Identity
                 ? AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class AmbiguousBindingPolicy(
@@ -3278,13 +3350,20 @@ public class ApiOutputFormatterTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == first.Identity
                 ? AssemblyBindingSelection.Multiple([first, second])
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }
 

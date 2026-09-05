@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   appendFailure,
+  appendProgress,
   appendRows,
   createPackageQueryController,
   createQueryRequest,
@@ -40,6 +41,35 @@ const NO_DEPENDENCIES_FACET: QueryFacetTerm = {
   selectionGroupId: "package.query.dependencies",
 };
 
+const SKILL_FACET: QueryFacetTerm = {
+  key: "package.query.embedded-skill",
+  label: "embedded SKILL.md",
+  tier: "package-content",
+};
+
+const ANY_TOOL_FACET: QueryFacetTerm = {
+  key: "package.query.dotnet-tool",
+  label: ".NET Tool",
+  tier: "nuspec",
+  selectionGroupId: "package.query.dotnet-tool-format",
+};
+
+const TOOL_V1_FACET: QueryFacetTerm = {
+  key: "package.query.dotnet-tool-v1",
+  label: "v1",
+  tier: "package-content",
+  selectionGroupId: "package.query.dotnet-tool-format",
+  combinesWithinSelectionGroup: true,
+};
+
+const TOOL_V2_FACET: QueryFacetTerm = {
+  key: "package.query.dotnet-tool-v2",
+  label: "v2",
+  tier: "package-content",
+  selectionGroupId: "package.query.dotnet-tool-format",
+  combinesWithinSelectionGroup: true,
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -68,6 +98,19 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
 });
 
+test("package-content facets lower the candidate bound until the last one is removed", () => {
+  const base = createQueryRequest("Microsoft.");
+  const withSkill = withFacet(base, SKILL_FACET);
+  const withSkillAndManifest = withFacet(withSkill, TFM_FACET);
+  const manifestOnly = withoutFacet(
+    withSkillAndManifest,
+    SKILL_FACET.key);
+
+  assert.equal(withSkill.requestedLimit, 20);
+  assert.equal(withSkillAndManifest.requestedLimit, 20);
+  assert.equal(manifestOnly.requestedLimit, 200);
+});
+
 test("withScopeQuery preserves facets and bounds while changing the prefix", () => {
   const request = {
     ...withFacet(createQueryRequest("Microsoft."), TFM_FACET),
@@ -94,6 +137,23 @@ test("toggleFacet replaces an active facet in the same producer-owned selection 
     [NO_DEPENDENCIES_FACET.key]);
 });
 
+test("toggleFacet unions combining tool versions while any-tool remains exclusive", () => {
+  const withV1 = toggleFacet(createQueryRequest("Microsoft."), TOOL_V1_FACET);
+  const withBoth = toggleFacet(withV1, TOOL_V2_FACET);
+  const withAny = toggleFacet(withBoth, ANY_TOOL_FACET);
+  const backToV2 = toggleFacet(withAny, TOOL_V2_FACET);
+
+  assert.deepEqual(
+    withBoth.facets.map(facet => facet.key),
+    [TOOL_V1_FACET.key, TOOL_V2_FACET.key]);
+  assert.deepEqual(
+    withAny.facets.map(facet => facet.key),
+    [ANY_TOOL_FACET.key]);
+  assert.deepEqual(
+    backToV2.facets.map(facet => facet.key),
+    [TOOL_V2_FACET.key]);
+});
+
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {
   const start = emptyOutcome();
   const withRows = appendRows(start, [row("A"), row("B")]);
@@ -103,6 +163,31 @@ test("appendRows and appendFailure accumulate without mutating prior outcome", (
   assert.equal(withRows.rows.length, 2);
   assert.equal(withBoth.failures.length, 1);
   assert.deepEqual(withBoth.rows.map(r => r.packageId), ["A", "B"]);
+});
+
+test("appendProgress replaces one phase while retaining rows and other phases", () => {
+  const start = appendRows(emptyOutcome(), [row("A")]);
+  const searched = appendProgress(start, {
+    phase: "search",
+    completed: 1,
+    limit: 1,
+  });
+  const evaluated = appendProgress(searched, {
+    phase: "manifest",
+    completed: 2,
+    limit: 20,
+  });
+  const advanced = appendProgress(evaluated, {
+    phase: "manifest",
+    completed: 3,
+    limit: 20,
+  });
+
+  assert.deepEqual(advanced.rows.map(item => item.packageId), ["A"]);
+  assert.deepEqual(advanced.progress, [
+    { phase: "search", completed: 1, limit: 1 },
+    { phase: "manifest", completed: 3, limit: 20 },
+  ]);
 });
 
 test("withCompletion sets the honesty label without touching rows", () => {
@@ -145,6 +230,93 @@ test("controller run() streams pages into state and applies final completion", a
   assert.ok(updates > 0);
 });
 
+test("controller replenishes only near the granted match-window edge", async () => {
+  const state = initialQueryState();
+  const requested: number[] = [];
+  let publish!: (rows: readonly QueryResultRow[]) => void;
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 20,
+    requestMore(additionalMatchCredit) {
+      requested.push(additionalMatchCredit);
+      return true;
+    },
+    async run(_request, onPage) {
+      publish = onPage;
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(createQueryRequest("Microsoft."));
+
+  publish(Array.from({ length: 14 }, (_, index) => row(`P${index}`)));
+  controller.requestMore();
+  assert.deepEqual(requested, []);
+
+  publish([row("P14")]);
+  controller.requestMore();
+  controller.requestMore();
+  assert.deepEqual(requested, [10]);
+
+  publish(Array.from({ length: 10 }, (_, index) => row(`Q${index}`)));
+  controller.requestMore();
+  assert.deepEqual(requested, [10, 10]);
+
+  finish({ kind: "exhausted" });
+  await running;
+  controller.requestMore();
+  assert.deepEqual(requested, [10, 10]);
+});
+
+test("controller does not count rejected replenishment as granted credit", async () => {
+  const state = initialQueryState();
+  let requests = 0;
+  let publish!: (rows: readonly QueryResultRow[]) => void;
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 20,
+    requestMore() {
+      requests++;
+      return false;
+    },
+    async run(_request, onPage) {
+      publish = onPage;
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(createQueryRequest("Microsoft."));
+
+  publish(Array.from({ length: 15 }, (_, index) => row(`P${index}`)));
+  controller.requestMore();
+  controller.requestMore();
+
+  assert.equal(requests, 2);
+  finish({ kind: "cancelled" });
+  await running;
+});
+
+test("controller publishes progress without clearing streamed rows", async () => {
+  const state = initialQueryState();
+  const source: PackageQueryDataSource = {
+    async run(_request, onPage, _onFailure, onProgress) {
+      onPage([row("A")]);
+      onProgress({ phase: "manifest", completed: 1, limit: 20 });
+      return { kind: "exhausted" };
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+
+  await controller.run(createQueryRequest("Microsoft."));
+
+  assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["A"]);
+  assert.deepEqual(state.outcome.progress, [
+    { phase: "manifest", completed: 1, limit: 20 },
+  ]);
+});
+
 test("a data source that rejects transitions to a visible 'failed' completion, not a stuck 'streaming' one", async () => {
   const state = initialQueryState();
   const rejectingSource: PackageQueryDataSource = {
@@ -178,7 +350,7 @@ test("starting a new run() aborts the previous generation's abortSignal, not jus
   const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
 
   const slowThenFast: PackageQueryDataSource = {
-    async run(request, onPage, _onFailure, abortSignal) {
+    async run(request, onPage, _onFailure, _onProgress, abortSignal) {
       if (request.scopeQuery === "slow") {
         abortSignal.addEventListener("abort", () => { firstAborted = true; });
         await firstGate;
@@ -207,7 +379,7 @@ test("each run() receives its own distinct abortSignal even when onUpdate() reen
   const slowGate = new Promise<void>(resolve => { releaseSlow = resolve; });
 
   const slowThenFast: PackageQueryDataSource = {
-    async run(request, onPage, _onFailure, abortSignal) {
+    async run(request, onPage, _onFailure, _onProgress, abortSignal) {
       signals.push(abortSignal);
       if (request.scopeQuery === "slow") {
         await slowGate;
@@ -331,6 +503,36 @@ test("a superseded run's late onFailure call never lands in the newer outcome", 
   assert.deepEqual(state.outcome.failures, []);
 });
 
+test("a superseded run's late progress never lands in the newer outcome", async () => {
+  const state = initialQueryState();
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const slowThenFast: PackageQueryDataSource = {
+    async run(request, onPage, _onFailure, onProgress) {
+      if (request.scopeQuery === "slow") {
+        await firstGate;
+        onProgress({ phase: "manifest", completed: 12, limit: 20 });
+        return { kind: "exhausted" };
+      }
+      onPage([row("fresh")]);
+      return { kind: "exhausted" };
+    },
+  };
+  const controller = createPackageQueryController(
+    state,
+    slowThenFast,
+    () => {});
+
+  const firstRun = controller.run(createQueryRequest("slow"));
+  await controller.run(createQueryRequest("fast"));
+  releaseFirst();
+  await firstRun;
+
+  assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["fresh"]);
+  assert.deepEqual(state.outcome.progress, []);
+  assert.equal(state.outcome.completion.kind, "exhausted");
+});
+
 test("cancel() marks a streaming completion cancelled without clearing already-streamed rows", async () => {
   const state = initialQueryState();
   let releaseGate!: () => void;
@@ -338,7 +540,7 @@ test("cancel() marks a streaming completion cancelled without clearing already-s
   const controller = createPackageQueryController(
     state,
     {
-      async run(_request, onPage, _onFailure, abortSignal) {
+      async run(_request, onPage, _onFailure, _onProgress, abortSignal) {
         onPage([row("A")]);
         await gate;
         if (abortSignal.aborted) return { kind: "cancelled" };
@@ -379,7 +581,7 @@ test("cancel() signals the data source's abortSignal so in-flight work can stop"
   const controller = createPackageQueryController(
     state,
     {
-      async run(_request, onPage, _onFailure, abortSignal) {
+      async run(_request, onPage, _onFailure, _onProgress, abortSignal) {
         onPage([row("A")]);
         await new Promise<void>(resolve => {
           abortSignal.addEventListener("abort", () => { observedAborted = true; resolve(); });

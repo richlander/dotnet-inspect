@@ -1,4 +1,5 @@
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -28,7 +29,10 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             isPlatformAssembly,
             options?.ProjectAssetsPath,
             options?.Tfm,
-            options?.PlatformFramework)
+            options?.PlatformFramework,
+            packageDirectory: null,
+            sourceOptions: options?.SourceOptions,
+            usePackageSourcePolicy: options?.PackagePath is not null)
     {
     }
 
@@ -37,23 +41,55 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         bool isPlatformAssembly,
         string? projectAssetsPath,
         string? targetFramework,
-        string? platformFramework = null)
+        string? platformFramework = null,
+        string? packageDirectory = null,
+        NuGetSourceOptions? sourceOptions = null,
+        bool usePackageSourcePolicy = false)
+        : this(
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                isPlatformAssembly
+                    ? AssemblyResolutionProvenance.Platform(
+                        platformFramework ?? "InstalledPlatform",
+                        frameworkVersion: null,
+                        "TypeDefinitionResolutionSession")
+                    : AssemblyResolutionProvenance.Local(
+                        "TypeDefinitionResolutionSession")),
+            isPlatformAssembly,
+            projectAssetsPath,
+            targetFramework,
+            platformFramework,
+            packageDirectory,
+            sourceOptions,
+            usePackageSourcePolicy)
     {
-        _root = ResolvedAssemblyReference.CreateFromPath(
-            assemblyPath,
-            isPlatformAssembly
-                ? AssemblyResolutionProvenance.Platform(
-                    platformFramework ?? "InstalledPlatform",
-                    frameworkVersion: null,
-                    "TypeDefinitionResolutionSession")
-                : AssemblyResolutionProvenance.Local(
-                    "TypeDefinitionResolutionSession"));
+    }
+
+    internal TypeDefinitionResolutionSession(
+        ResolvedAssemblyReference root,
+        bool isPlatformAssembly,
+        string? projectAssetsPath,
+        string? targetFramework,
+        string? platformFramework = null,
+        string? packageDirectory = null,
+        NuGetSourceOptions? sourceOptions = null,
+        bool usePackageSourcePolicy = false)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        if (root.Path is not { } assemblyPath)
+            throw new ArgumentException(
+                "The CLI resolution root must have a filesystem path.",
+                nameof(root));
+        _root = root;
 
         var resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(assemblyPath)
             {
                 ProjectAssetsPath = projectAssetsPath,
                 TargetFramework = targetFramework,
+                RootPackageDirectory = packageDirectory,
+                PackageSourceOptions = sourceOptions,
+                UsePackageSourcePolicy = usePackageSourcePolicy,
                 IncludeDepsJsonAssets = false,
                 IncludeAspNetCoreSharedFramework =
                     string.Equals(

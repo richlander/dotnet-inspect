@@ -1,7 +1,13 @@
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Net;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotnetInspector.Networking;
+using InertText;
+using NuGetFetch.Plugins;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -266,11 +272,8 @@ public sealed record PackageSourceDescriptor
 /// </summary>
 public interface IPackageSourceClient : IDisposable
 {
-    /// <summary>Gets the producer represented by this transport.</summary>
-    PackageSourceIdentity Identity { get; }
-
-    /// <summary>Gets the transport family.</summary>
-    PackageSourceKind Kind { get; }
+    /// <summary>Gets the complete identity bound to this runtime client.</summary>
+    PackageSourceResultIdentity Source { get; }
 
     /// <summary>Gets the operations implemented by this runtime client.</summary>
     PackageSourceCapabilities Capabilities { get; }
@@ -334,16 +337,38 @@ public sealed class PackageSourceClientUnavailableException(
 /// <summary>
 /// Creates runtime clients without exposing transport construction to consumers.
 /// </summary>
-public static class PackageSourceClientFactory
+public static partial class PackageSourceClientFactory
 {
+    private const string CanonicalNuGetOrgEndpoint =
+        "https://api.nuget.org/v3/index.json";
+    private static readonly object OwnerCapability = new();
+    private static readonly PackageProducerIdentity CanonicalNuGetOrgProducer =
+        CreateHttpProducerCore(
+            NuGetSourceRequest.ProjectEndpoint(
+                new Uri(CanonicalNuGetOrgEndpoint)));
+
+    internal static PackageProducerIdentity NuGetOrgProducer =>
+        CanonicalNuGetOrgProducer;
+
+    internal static void RequireOwnerCapability(object? capability)
+    {
+        if (!ReferenceEquals(capability, OwnerCapability))
+        {
+            throw new InvalidOperationException(
+                "NuGetFetch result construction requires its private owner capability.");
+        }
+    }
+
     /// <summary>
     /// Adapts the existing desktop source model to a typed runtime client.
     /// </summary>
     public static IPackageSourceClient Create(
         PackageSource source,
+        PackageSourceAssociation association,
         NuGetFetchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(association);
         if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
             || endpoint.IsFile)
         {
@@ -352,9 +377,48 @@ public static class PackageSourceClientFactory
         }
 
         return new NuGetV3PackageSourceClient(
-            PackageSourceIdentity.ForProducerEndpoint(endpoint),
+            CreateResultFactory(
+                endpoint,
+                association,
+                PackageSourceKind.NuGetV3),
             endpoint,
             CreateOwnedTransport(endpoint),
+            options ?? new NuGetFetchOptions(),
+            source.Credential);
+    }
+
+    /// <summary>
+    /// Adapts the existing desktop source model to a typed runtime client with
+    /// source-scoped plugin authentication.
+    /// </summary>
+    public static IPackageSourceClient CreateWithPluginAuthentication(
+        PackageSource source,
+        PackageSourceAssociation association,
+        PluginAuthenticationContext authenticationContext,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(association);
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+        RequireAuthenticationAssociation(
+            association,
+            authenticationContext,
+            endpoint);
+
+        return new NuGetV3PackageSourceClient(
+            CreateResultFactory(
+                endpoint,
+                association,
+                PackageSourceKind.NuGetV3),
+            endpoint,
+            CreateOwnedTransport(
+                endpoint,
+                authenticationContext: authenticationContext),
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
@@ -365,10 +429,12 @@ public static class PackageSourceClientFactory
     /// </summary>
     public static IPackageSourceClient Create(
         PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
         NuGetFetchOptions? options = null,
         PackageSourceCredential? credential = null)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(association);
         options ??= new NuGetFetchOptions();
         if (descriptor.Kind == PackageSourceKind.NuGetGallery)
         {
@@ -387,8 +453,49 @@ public static class PackageSourceClientFactory
         {
             PackageSourceKind.NuGetV3 when descriptor.Endpoint is not null =>
                 new NuGetV3PackageSourceClient(
-                    descriptor,
+                    CreateResultFactory(descriptor, association),
+                    descriptor.Endpoint,
                     CreateOwnedTransport(descriptor.Endpoint),
+                    options,
+                    credential),
+            _ => throw new PackageSourceClientUnavailableException(
+                descriptor.Kind),
+        };
+    }
+
+    /// <summary>
+    /// Creates a V3 runtime client with source-scoped plugin authentication.
+    /// </summary>
+    public static IPackageSourceClient CreateWithPluginAuthentication(
+        PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
+        PluginAuthenticationContext authenticationContext,
+        NuGetFetchOptions? options = null,
+        PackageSourceCredential? credential = null)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(association);
+        RequireAuthenticationAssociation(
+            association,
+            authenticationContext,
+            descriptor.Endpoint);
+        options ??= new NuGetFetchOptions();
+        if (descriptor.Kind == PackageSourceKind.NuGetGallery)
+        {
+            throw new InvalidOperationException(
+                "The NuGet Gallery source cannot use plugin authentication.");
+        }
+
+        return descriptor.Kind switch
+        {
+            PackageSourceKind.NuGetV3 when descriptor.Endpoint is not null =>
+                new NuGetV3PackageSourceClient(
+                    CreateResultFactory(descriptor, association),
+                    descriptor.Endpoint,
+                    CreateOwnedTransport(
+                        descriptor.Endpoint,
+                        authenticationContext:
+                            authenticationContext),
                     options,
                     credential),
             _ => throw new PackageSourceClientUnavailableException(
@@ -437,8 +544,13 @@ public static class PackageSourceClientFactory
     /// transport owned by the returned client.
     /// </summary>
     public static IPackageSourceClient CreateGallery(
+        PackageSourceAssociation association,
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
+            CreateResultFactory(
+                CanonicalNuGetOrgProducer,
+                association,
+                PackageSourceKind.NuGetGallery),
             CreateGalleryTransport(),
             options ?? new NuGetFetchOptions());
 
@@ -447,11 +559,17 @@ public static class PackageSourceClientFactory
     /// credential-free transport owned by the returned client.
     /// </summary>
     public static IPackageSourceClient CreateGallery(
+        PackageSourceAssociation association,
         HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions? options = null)
     {
+        ArgumentNullException.ThrowIfNull(association);
         ArgumentNullException.ThrowIfNull(ownedCredentialFreeTransport);
         return new NuGetGalleryPackageSourceClient(
+            CreateResultFactory(
+                CanonicalNuGetOrgProducer,
+                association,
+                PackageSourceKind.NuGetGallery),
             CreateGalleryTransport(
                 ownedCredentialFreeTransport,
                 OperatingSystem.IsBrowser()),
@@ -460,10 +578,13 @@ public static class PackageSourceClientFactory
 
     internal static IPackageSourceClient Create(
         PackageSource source,
+        PackageSourceAssociation association,
         HttpMessageHandler transport,
-        NuGetFetchOptions? options = null)
+        NuGetFetchOptions? options = null,
+        PluginAuthenticationContext? authenticationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(association);
         ArgumentNullException.ThrowIfNull(transport);
         if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
             || endpoint.IsFile)
@@ -472,21 +593,38 @@ public static class PackageSourceClientFactory
                 PackageSourceKind.LocalFolder);
         }
 
+        if (authenticationContext is not null)
+        {
+            RequireAuthenticationAssociation(
+                association,
+                authenticationContext,
+                endpoint);
+        }
+
         return new NuGetV3PackageSourceClient(
-            PackageSourceIdentity.ForProducerEndpoint(endpoint),
+            CreateResultFactory(
+                endpoint,
+                association,
+                PackageSourceKind.NuGetV3),
             endpoint,
-            CreateOwnedTransport(endpoint, transport),
+            CreateOwnedTransport(
+                endpoint,
+                transport,
+                authenticationContext),
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
 
     internal static IPackageSourceClient Create(
         PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
         HttpMessageHandler transport,
         NuGetFetchOptions? options = null,
-        PackageSourceCredential? credential = null)
+        PackageSourceCredential? credential = null,
+        PluginAuthenticationContext? authenticationContext = null)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(association);
         ArgumentNullException.ThrowIfNull(transport);
         options ??= new NuGetFetchOptions();
         if (descriptor.Kind == PackageSourceKind.NuGetGallery)
@@ -509,20 +647,92 @@ public static class PackageSourceClientFactory
                 descriptor.Kind);
         }
 
+        if (authenticationContext is not null)
+        {
+            RequireAuthenticationAssociation(
+                association,
+                authenticationContext,
+                descriptor.Endpoint);
+        }
+
         return new NuGetV3PackageSourceClient(
-            descriptor,
-            CreateOwnedTransport(descriptor.Endpoint!, transport),
+            CreateResultFactory(descriptor, association),
+            descriptor.Endpoint,
+            CreateOwnedTransport(
+                descriptor.Endpoint!,
+                transport,
+                authenticationContext),
             options,
             credential);
     }
 
+    /// <summary>
+    /// Registers a supported custom client against one owner-bound result
+    /// factory.
+    /// </summary>
+    public static IPackageSourceClient CreateCustom(
+        PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
+        Func<PackageSourceResultFactory, IPackageSourceClient> createClient)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(association);
+        ArgumentNullException.ThrowIfNull(createClient);
+
+        PackageSourceResultFactory resultFactory =
+            CreateResultFactory(descriptor, association);
+        IPackageSourceClient client = createClient(resultFactory)
+            ?? throw new InvalidOperationException(
+                "The custom package source callback returned no client.");
+        try
+        {
+            if (!ReferenceEquals(client.Source, resultFactory.Source))
+            {
+                throw new InvalidOperationException(
+                    "The custom package source client did not expose the bound source identity.");
+            }
+        }
+        catch (Exception validationFailure)
+        {
+            try
+            {
+                client.Dispose();
+            }
+            catch (Exception disposalFailure)
+            {
+                throw new AggregateException(
+                    validationFailure,
+                    disposalFailure);
+            }
+
+            ExceptionDispatchInfo.Capture(validationFailure).Throw();
+            throw;
+        }
+
+        return new CustomPackageSourceClientAdapter(
+            resultFactory,
+            client);
+    }
+
     private static HttpClient CreateOwnedTransport(
         Uri source,
-        HttpMessageHandler? transport = null)
+        HttpMessageHandler? transport = null,
+        PluginAuthenticationContext? authenticationContext = null)
     {
         bool isBrowser = OperatingSystem.IsBrowser();
+        if (isBrowser && authenticationContext is not null)
+        {
+            throw new PlatformNotSupportedException(
+                "NuGet credential-provider plugins are not supported in Browser/Wasm.");
+        }
+
         HttpMessageHandler handler = transport
             ?? CreateV3TransportHandler(source, isBrowser);
+        if (authenticationContext is not null)
+        {
+            handler = authenticationContext.Bind(handler);
+        }
+
         if (!isBrowser)
         {
             handler = new NuGetCredentialRedirectHandler(handler);
@@ -532,6 +742,32 @@ public static class PackageSourceClientFactory
         {
             Timeout = Timeout.InfiniteTimeSpan,
         };
+    }
+
+    private static void RequireAuthenticationAssociation(
+        PackageSourceAssociation association,
+        PluginAuthenticationContext authenticationContext,
+        Uri? endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(authenticationContext);
+        if (authenticationContext.IsRetired)
+        {
+            throw new InvalidOperationException(
+                "The plugin authentication context has retired.");
+        }
+
+        if (!authenticationContext.IsBoundTo(association))
+        {
+            throw new InvalidOperationException(
+                "The plugin authentication context belongs to another package source association.");
+        }
+
+        if (endpoint is not null
+            && !authenticationContext.IsResourceInScope(endpoint))
+        {
+            throw new InvalidOperationException(
+                "The V3 source endpoint is outside the plugin authentication context's resource scope.");
+        }
     }
 
     private static HttpClient CreateGalleryTransport()
@@ -586,11 +822,372 @@ public static class PackageSourceClientFactory
         handler.AllowAutoRedirect = false;
         return handler;
     }
+
+    private static PackageSourceResultFactory CreateResultFactory(
+        PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association)
+    {
+        return descriptor.Kind switch
+        {
+            PackageSourceKind.NuGetGallery
+                when descriptor.Endpoint is null
+                    && descriptor.Identity
+                        == PackageSourceIdentity.NuGetOrg =>
+                CreateResultFactory(
+                    CanonicalNuGetOrgProducer,
+                    association,
+                    PackageSourceKind.NuGetGallery),
+            PackageSourceKind.NuGetV3
+                when descriptor.Endpoint is not null =>
+                CreateResultFactory(
+                    descriptor.Endpoint,
+                    association,
+                    PackageSourceKind.NuGetV3),
+            _ => throw new PackageSourceClientUnavailableException(
+                descriptor.Kind),
+        };
+    }
+
+    private static PackageSourceResultFactory CreateResultFactory(
+        Uri endpoint,
+        PackageSourceAssociation association,
+        PackageSourceKind transportKind) =>
+        CreateResultFactory(
+            CreateHttpProducer(
+                NuGetSourceRequest.ProjectEndpoint(endpoint)),
+            association,
+            transportKind);
+
+    private static PackageSourceResultFactory CreateResultFactory(
+        PackageProducerIdentity producer,
+        PackageSourceAssociation association,
+        PackageSourceKind transportKind)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        ArgumentNullException.ThrowIfNull(association);
+        var source = new PackageSourceResultIdentity(
+            OwnerCapability,
+            producer,
+            association,
+            transportKind);
+        return new PackageSourceResultFactory(
+            OwnerCapability,
+            source);
+    }
+
+    private static PackageProducerIdentity CreateHttpProducer(
+        NuGetSourceRequest.EndpointProjection endpoint)
+    {
+        PackageProducerIdentity producer =
+            CreateHttpProducerCore(endpoint);
+        return producer == CanonicalNuGetOrgProducer
+            ? CanonicalNuGetOrgProducer
+            : producer;
+    }
+
+    private static PackageProducerIdentity CreateHttpProducerCore(
+        NuGetSourceRequest.EndpointProjection endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        string canonicalPath = CanonicalizeIdentityPath(
+            endpoint.EscapedPath);
+        InertString safePath =
+            UrlRedaction.ForPathComponent(canonicalPath);
+        byte[] host = endpoint.HostKind switch
+        {
+            NuGetSourceRequest.EndpointHostKind.Dns =>
+                Encoding.UTF8.GetBytes(endpoint.DnsHost),
+            NuGetSourceRequest.EndpointHostKind.IPv4
+                or NuGetSourceRequest.EndpointHostKind.IPv6 =>
+                endpoint.AddressBytes.ToArray(),
+            _ => throw new InvalidOperationException(
+                "Unknown normalized package-source host kind."),
+        };
+        string hostTag = endpoint.HostKind switch
+        {
+            NuGetSourceRequest.EndpointHostKind.Dns => "dns",
+            NuGetSourceRequest.EndpointHostKind.IPv4 => "ipv4",
+            NuGetSourceRequest.EndpointHostKind.IPv6 => "ipv6",
+            _ => throw new InvalidOperationException(
+                "Unknown normalized package-source host kind."),
+        };
+        byte[][] fields =
+        [
+            Encoding.UTF8.GetBytes(endpoint.Scheme),
+            Encoding.ASCII.GetBytes(hostTag),
+            host,
+            Encoding.UTF8.GetBytes(endpoint.Zone),
+            Encoding.UTF8.GetBytes(
+                endpoint.Port.ToString(CultureInfo.InvariantCulture)),
+            Encoding.UTF8.GetBytes(safePath.ToString()),
+        ];
+        int framedLength = fields.Sum(field => 4 + field.Length);
+        var framed = new byte[framedLength];
+        int offset = 0;
+        foreach (byte[] field in fields)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(
+                framed.AsSpan(offset, 4),
+                checked((uint)field.Length));
+            offset += 4;
+            field.CopyTo(framed, offset);
+            offset += field.Length;
+        }
+
+        string key = "nfs-http-1."
+            + Convert.ToBase64String(framed)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        string displayHost = endpoint.HostKind switch
+        {
+            NuGetSourceRequest.EndpointHostKind.Dns =>
+                endpoint.DnsHost,
+            NuGetSourceRequest.EndpointHostKind.IPv4 =>
+                new IPAddress(endpoint.AddressBytes).ToString(),
+            NuGetSourceRequest.EndpointHostKind.IPv6 =>
+                $"[{new IPAddress(endpoint.AddressBytes)}"
+                + (endpoint.Zone.Length == 0
+                    ? "]"
+                    : $"%25{endpoint.Zone}]"),
+            _ => throw new InvalidOperationException(
+                "Unknown normalized package-source host kind."),
+        };
+        var display = new InertString(
+            TextPolicy.Field,
+            $"{endpoint.Scheme}://{displayHost}:{endpoint.Port}"
+            + safePath.ToString());
+        return new PackageProducerIdentity(
+            OwnerCapability,
+            key,
+            display);
+    }
+
+    private static string CanonicalizeIdentityPath(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var normalized = new StringBuilder(path.Length);
+        for (int i = 0; i < path.Length; i++)
+        {
+            char character = path[i];
+            if (character == '%'
+                && i + 2 < path.Length
+                && IsAsciiHex(path[i + 1])
+                && IsAsciiHex(path[i + 2]))
+            {
+                normalized.Append('%');
+                normalized.Append(ToUpperAsciiHex(path[i + 1]));
+                normalized.Append(ToUpperAsciiHex(path[i + 2]));
+                i += 2;
+            }
+            else
+            {
+                normalized.Append(character);
+            }
+        }
+
+        if (normalized.Length > 0
+            && normalized[^1] == '/')
+        {
+            normalized.Length--;
+        }
+
+        return normalized.ToString();
+    }
+
+    private static bool IsAsciiHex(char value) =>
+        value is >= '0' and <= '9'
+            or >= 'A' and <= 'F'
+            or >= 'a' and <= 'f';
+
+    private static char ToUpperAsciiHex(char value) =>
+        value is >= 'a' and <= 'f'
+            ? (char)(value - ('a' - 'A'))
+            : value;
+}
+
+internal sealed class CustomPackageSourceClientAdapter
+    : IPackageSourceClient
+{
+    private readonly PackageSourceResultFactory _results;
+    private readonly IPackageSourceClient _client;
+    private int _disposeState;
+
+    internal CustomPackageSourceClientAdapter(
+        PackageSourceResultFactory results,
+        IPackageSourceClient client)
+    {
+        _results = results;
+        _client = client;
+    }
+
+    public PackageSourceResultIdentity Source => _results.Source;
+
+    public PackageSourceCapabilities Capabilities =>
+        _client.Capabilities;
+
+    public async Task<PackageSourceOperationResult<PackageSearchResult>>
+        SearchAsync(
+            string query,
+            int take = 20,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceOperationResult<PackageSearchResult> outcome =
+            await _client.SearchAsync(
+                query,
+                take,
+                prerelease,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        _results.ValidateSearchOutcome(outcome);
+        return outcome;
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceOperationResult<PackageSearchResult> outcome =
+            await _client.SearchByPrefixAsync(
+                prefix,
+                take,
+                prerelease,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        _results.ValidateSearchOutcome(outcome);
+        return outcome;
+    }
+
+    public async Task<PackageSourceOperationResult<PackageVersionResult>>
+        GetVersionsAsync(
+            string packageId,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceOperationResult<PackageVersionResult> outcome =
+            await _client.GetVersionsAsync(
+                packageId,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        _results.ValidateVersionsOutcome(outcome);
+        return outcome;
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourceManifest>>
+        GetManifestAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        PackageSourceOperationResult<PackageSourceManifest> outcome =
+            await _client.GetManifestAsync(
+                packageId,
+                version,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        _results.ValidateManifestOutcome(outcome, coordinate);
+        return outcome;
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourcePayload>>
+        GetPackageAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        PackageSourceOperationResult<PackageSourcePayload> outcome =
+            await _client.GetPackageAsync(
+                packageId,
+                version,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        return await ValidatePayloadOutcomeAsync(
+            outcome,
+            coordinate,
+            symbols: false).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourcePayload>>
+        TryGetSymbolsAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        PackageSourceOperationResult<PackageSourcePayload> outcome =
+            await _client.TryGetSymbolsAsync(
+                packageId,
+                version,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        return await ValidatePayloadOutcomeAsync(
+            outcome,
+            coordinate,
+            symbols: true).ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposeState, 1) == 0)
+            _client.Dispose();
+    }
+
+    private async Task<PackageSourceOperationResult<PackageSourcePayload>>
+        ValidatePayloadOutcomeAsync(
+            PackageSourceOperationResult<PackageSourcePayload> outcome,
+            PackageSourceCoordinate coordinate,
+            bool symbols)
+    {
+        try
+        {
+            if (symbols)
+                _results.ValidateSymbolsOutcome(outcome, coordinate);
+            else
+                _results.ValidatePackageOutcome(outcome, coordinate);
+            return outcome;
+        }
+        catch (Exception validationFailure)
+        {
+            if (outcome?.Value is not { } payload)
+            {
+                ExceptionDispatchInfo.Capture(validationFailure).Throw();
+                throw;
+            }
+
+            try
+            {
+                await payload.Content.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception disposalFailure)
+            {
+                throw new AggregateException(
+                    validationFailure,
+                    disposalFailure);
+            }
+
+            ExceptionDispatchInfo.Capture(validationFailure).Throw();
+            throw;
+        }
+    }
 }
 
 internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 {
-    private readonly PackageSourceIdentity _identity;
+    private readonly PackageSourceResultFactory _results;
     private readonly Uri _endpoint;
     private readonly PackageSourceCredential? _credential;
     private readonly HttpClient _client;
@@ -598,28 +1195,14 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     private readonly NuGetFetchOptions _options;
     private readonly TimeSpan _clientTimeout;
 
-    public NuGetV3PackageSourceClient(
-        PackageSourceDescriptor descriptor,
-        HttpClient client,
-        NuGetFetchOptions options,
-        PackageSourceCredential? credential)
-        : this(
-            descriptor.Identity,
-            descriptor.Endpoint!,
-            client,
-            options,
-            credential)
-    {
-    }
-
-    public NuGetV3PackageSourceClient(
-        PackageSourceIdentity identity,
+    internal NuGetV3PackageSourceClient(
+        PackageSourceResultFactory results,
         Uri endpoint,
         HttpClient client,
         NuGetFetchOptions options,
         PackageSourceCredential? credential)
     {
-        _identity = identity;
+        _results = results;
         _endpoint = endpoint;
         _credential = credential;
         _client = client;
@@ -628,8 +1211,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         _packageResources = new NuGetV3PackageResourceClient(client);
     }
 
-    public PackageSourceIdentity Identity => _identity;
-    public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
+    public PackageSourceResultIdentity Source => _results.Source;
     internal TimeSpan TransportTimeout => _client.Timeout;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.Search
@@ -642,17 +1224,16 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.Search,
+        NuGetOperationContext? operationContext = null)
+    {
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
+        return await PackageSourceOperation.CaptureSearchAsync(
+            _results,
             async () =>
             {
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 IReadOnlyList<string> endpoints =
                     await NuGetV3SearchResourceDiscovery
                         .GetSearchEndpointsAsync(
@@ -691,8 +1272,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                                     operation)
                                 .ConfigureAwait(false);
                         return PackageSourceProjection.ProjectSearch(
+                            _results,
                             results,
-                            Identity,
                             operation);
                     }
                     catch (Exception exception)
@@ -722,7 +1303,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 };
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
+    }
 
     public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
         string prefix,
@@ -730,9 +1313,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         bool prerelease = false,
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null) =>
-        Unsupported<PackageSearchResult>(
-            PackageSourceCapabilities.Search,
-            coordinate: null,
+        UnsupportedSearch(
             cancellationToken,
             operationContext);
 
@@ -744,16 +1325,14 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         PackageCoordinateValidation.ValidatePackageId(
             packageId,
             nameof(packageId));
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.VersionEnumeration,
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
+        return await PackageSourceOperation.CaptureVersionsAsync(
+            _results,
             async () =>
             {
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 IReadOnlyList<string> versions =
                     await _packageResources.GetVersionsAsync(
                         packageId,
@@ -763,16 +1342,17 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         operation,
                         useNuGetOrgShortcut: false).ConfigureAwait(false);
                 return PackageSourceProjection.ProjectVersions(
+                    _results,
                     packageId,
                     versions,
-                    Identity,
                     PackageDiscoveryContract.CompleteVersionEnumeration,
                     PackageListingState.Unknown,
                     hasAuthoritativeListingState: false,
                     operation);
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
     }
 
     public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
@@ -783,10 +1363,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.PackagePayload,
+        return await PackageSourceOperation.CapturePackageAsync(
+            _results,
+            coordinate,
             async () =>
             {
                 NuGetOperationDeadline operation =
@@ -804,10 +1383,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                             _options,
                             operation,
                             useNuGetOrgShortcut: false).ConfigureAwait(false);
-                    return new PackageSourcePayload(
+                    return _results.Payload(
                         coordinate,
-                        Identity,
-                        Kind,
                         PackageSourcePayloadKind.Package,
                         content,
                         advertisedLength);
@@ -819,7 +1396,6 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 }
             },
             cancellationToken,
-            coordinate,
             operationContext).ConfigureAwait(false);
     }
 
@@ -831,20 +1407,17 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.Manifest,
+        return await PackageSourceOperation.CaptureManifestAsync(
+            _results,
+            coordinate,
             async () =>
             {
                 using NuGetOperationDeadline operation =
                     CreateOperation(
                         cancellationToken,
                         operationContext);
-                return new PackageSourceManifest(
+                return _results.Manifest(
                     coordinate,
-                    Identity,
-                    Kind,
                     await _packageResources.GetManifestAsync(
                         coordinate.PackageId,
                         coordinate.Version,
@@ -855,7 +1428,6 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         useNuGetOrgShortcut: false).ConfigureAwait(false));
             },
             cancellationToken,
-            coordinate,
             operationContext).ConfigureAwait(false);
     }
 
@@ -867,8 +1439,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        return Unsupported<PackageSourcePayload>(
-            PackageSourceCapabilities.SymbolPayload,
+        return UnsupportedSymbols(
             coordinate,
             cancellationToken,
             operationContext);
@@ -902,44 +1473,64 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 _options,
                 _clientTimeout,
                 cancellationToken,
-                Identity,
-                Kind)
+                Source)
             : operationContext.CreateDeadline(
                 _clientTimeout,
                 cancellationToken,
-                Identity,
-                Kind);
+                Source);
 
-    private Task<PackageSourceOperationResult<T>> Unsupported<T>(
-        PackageSourceCapabilities capability,
-        PackageSourceCoordinate? coordinate,
+    private Task<PackageSourceOperationResult<PackageSearchResult>>
+        UnsupportedSearch(
         CancellationToken cancellationToken,
         NuGetOperationContext? operationContext)
     {
         if (operationContext is null)
         {
             return Task.FromResult(
-                PackageSourceOperation.Unsupported<T>(
-                    Identity,
-                    Kind,
-                    capability,
-                    coordinate));
+                _results.FailedSearch(
+                    PackageSourceFailureKind.Unsupported));
         }
 
-        return PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            capability,
+        return PackageSourceOperation.CaptureSearchAsync(
+            _results,
             () =>
             {
                 using NuGetOperationDeadline operation =
                     CreateOperation(cancellationToken, operationContext);
                 operation.ThrowIfExpired();
-                return Task.FromException<T>(
+                return Task.FromException<PackageSearchResult>(
                     new NuGetSourceCapabilityUnavailableException());
             },
             cancellationToken,
+            operationContext);
+    }
+
+    private Task<PackageSourceOperationResult<PackageSourcePayload>>
+        UnsupportedSymbols(
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext)
+    {
+        if (operationContext is null)
+        {
+            return Task.FromResult(
+                _results.FailedSymbols(
+                    coordinate,
+                    PackageSourceFailureKind.Unsupported));
+        }
+
+        return PackageSourceOperation.CaptureSymbolsAsync(
+            _results,
             coordinate,
+            () =>
+            {
+                using NuGetOperationDeadline operation =
+                    CreateOperation(cancellationToken, operationContext);
+                operation.ThrowIfExpired();
+                return Task.FromException<PackageSourcePayload>(
+                    new NuGetSourceCapabilityUnavailableException());
+            },
+            cancellationToken,
             operationContext);
     }
 }

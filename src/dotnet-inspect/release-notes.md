@@ -4,6 +4,11 @@
 
 ### Inspection and matching
 
+- Type API inspection now rejects unusable managed assembly identities with a
+  path-attributed error instead of falling back to path-only extraction.
+  Listing, compact platform summaries, and deferred type routing preserve the
+  selected API assembly's provenance; managed netmodules retain their existing
+  inspection behavior (#5853).
 - Adds the `match` command for identity-agnostic structural comparison of two
   selected methods in one retained assembly. It preserves exact, near,
   different, unsupported, failed, limit-reached, and
@@ -17,6 +22,11 @@
   (#4421).
 - Adds `demo` for listing and running closed product-home scenarios backed by
   real section output rather than separate demonstration logic (#4463).
+- **Breaking:** Removes the hidden deprecated `api` command and the direct
+  `ApiCommand.ExecuteAsync(ApiOptions)` compatibility entry point. Use `type`
+  to discover or inspect types and `member` to inspect members. The removed
+  `api` command token remains reserved so it cannot silently become an
+  implicit package lookup.
 - Fixes canonical metadata generic-arity handling across API identity,
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their
@@ -46,6 +56,10 @@
 
 ### Source and implementation evidence
 
+- Type source-file and portable-PDB acquisition now open the selected supplier
+  descriptor, preserving its opener as well as its symbol policy. Thrown
+  source-context failures are reported as command errors instead of appearing
+  as missing source or symbols; genuine absence remains best-effort (#5888).
 - Renames `Original Source` to `PDB Source` and the Implementation Diff
   `--authored-source` flag to `--pdb-source`, reflecting that checksum and
   SourceLink-origin evidence do not independently prove build provenance.
@@ -62,6 +76,16 @@
   uses a different runtime image (#4588).
 
 ### Package acquisition and audit
+
+- Online metadata-only package version queries now support configured folder
+  feeds for pinned verification, latest and range selection, listing status,
+  and per-feed rows. Payload inspection and offline local discovery remain
+  separate work (#5400).
+- **Breaking:** Online bare `--version`, `--latest-version`, and version ranges
+  now fail when an eligible source is unreadable instead of selecting from
+  incomplete evidence. Fix or exclude the failing source, or use raw
+  `--versions` to inspect explicitly partial results. Online version queries
+  bypass legacy producer-keyed caches; offline behavior is unchanged (#5400).
 
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify

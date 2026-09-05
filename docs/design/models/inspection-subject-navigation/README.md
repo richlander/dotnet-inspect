@@ -30,6 +30,13 @@ read that way:
 - **Identity ranking.** Initial subject recommendation, Type candidate tiers,
   Library declaration order, and lens preference are not modelled. Subjects
   and lenses appear only as opaque values.
+- **Workspace isolation and structural ancestry.** Workspace identity,
+  retained-coordinate occurrence identity, the
+  `Workspace -> (Package | Root) -> Library -> Type -> Member` grammar, and
+  complete descendant binding are not modelled. Each retained-session instance
+  assumes one exact Workspace boundary; implementation gates must reject
+  foreign-Workspace subject actions and restoration payloads and prevent
+  foreign evidence from entering a snapshot.
 - **Availability classification.** Descriptor classification and the
   reconciliation tables are not modelled. `NavigationSession.tla` does model
   the narrower rule that a completed `Unavailable` or `Failed` result advances
@@ -37,16 +44,35 @@ read that way:
   distinguishes Navigation preparation failure, which has no installable
   replacement snapshot, from a failed Registry or policy evaluation. It does
   not distinguish Registry failure from policy failure.
+- **External membership effects.** Artifact admission and Close, plus
+  Workspace Scope and Expansion removal, replacement, invalidation, and
+  scope-operation results, are outside this structural design and are not
+  modelled. The model's opaque `coordinate` intent represents Navigation-local
+  coordinate activation and variation. Protected Navigation consumption of
+  scope results remains #5584.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
-  history, and rendering belong to [Inspect Web UI](../../inspect-web-ui.md)
-  and appear here only as an abstract "consumer installs the complete current
-  snapshot under authority and executes a visible effect" step.
+  and rendering belong to [Inspect Web Navigation
+  Presentation](../../inspect-web-navigation-presentation.md); focus movement
+  and history belong to [Inspect Web Navigation
+  Consumer](../../inspect-web-navigation-consumer.md). Both appear here only
+  as an abstract "consumer installs the complete current snapshot under
+  authority and executes a visible effect" step.
 - **Implementation correctness.** Nothing here proves that a future C# or
   TypeScript implementation conforms to these specifications. Conformance is
   the job of the named implementation gates in the owning document.
 - **Complete restoration coordination.** `AtomicRestoration.tla` covers only
   the navigation participant's subject+lens preparation. Other participants,
-  transaction commit, and installation belong to issue #4787.
+  transaction commit, and installation belong to
+  [Workspace Definitions](../../workspace-definitions.md). #4787 established
+  the current version-2 shape; #5525 tracks Workspace/Package subject and
+  retained-context adoption.
+- **Retained occurrence context.** `AtomicRestoration.tla` does not model the
+  exact retained occurrence or descendant Library/Type/Member path supplied
+  independently from an active Workspace subject. It also does not model the
+  Type-inventory Library context Navigation derives from that path and current
+  realized facts. Implementation gates check internal context consistency and
+  reconciliation, active-subject/path compatibility, and distinct
+  same-occurrence Workspace restorations with different lower context.
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
 
@@ -75,8 +101,8 @@ back. The three models therefore carry three correlation currencies:
 One retained navigation session holding zero or one installed snapshot,
 consumer-installed state, and the complete snapshot revision last acknowledged
 by its retained consumer. The product issues monotonic explicit intent tokens
-for subject, lens, coordinate, and canonical-restoration work. The owner issues
-maintenance request numbers for standalone inventory refresh and
+for subject, lens, Navigation-local coordinate, and canonical-restoration work.
+The owner issues maintenance request numbers for standalone inventory refresh and
 reconciliation and retains the exact identities admitted. The bounded
 environment issues exact synchronization request numbers. Every admitted
 result returns four-part effect authority: session identity, snapshot state
@@ -253,11 +279,20 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Superseded maintenance results.** A newer explicit intent invalidates
   already gathered maintenance facts. The queued request remains, rebuilds
   from the replacement snapshot, and re-gathers before admission.
+- **Coordinate intent scope.** The model's coordinate kind covers
+  Navigation-local activation and variation with ordinary latest-admitted
+  supersession. It does not abstract Workspace-owner membership effects, whose
+  result contract is owned by Workspace Scope and Expansion and whose protected
+  consumption remains #5584. Structural implementation gates check exact
+  occurrence and Workspace containment.
 - **Optional restoration inputs.** Canonical restoration's subject and lens are
-  optional in the packet. The model always receives both resolved values
-  because the claim under test begins at the navigation participant boundary:
-  one exact pair is prepared and published together. It models neither other
-  restoration participants nor installation.
+  optional in the packet, and retained occurrence context is independently
+  optional. A subject-less request may carry root-only occurrence context but
+  not a retained Library/Type/Member path. The model always receives both
+  resolved subject and lens values because the claim under test begins at the
+  narrower pair-publication boundary: one exact pair is prepared and published
+  together. It models neither retained occurrence context, valid optional-input
+  combinations, other restoration participants, nor installation.
 - **Retained request payload.** `SnapshotAuthority.tla` instantiates exact
   retained-result correlation for a lens request. Exact subject-result
   correlation remains a named implementation gate; canonical preparation

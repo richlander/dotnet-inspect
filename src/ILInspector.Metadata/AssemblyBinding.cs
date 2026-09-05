@@ -53,6 +53,9 @@ public sealed record AssemblyBindingFailure
 
     public AssemblyBindingFailureKind Kind { get; }
     public CandidateOpenFailureKind? CandidateFailureKind { get; }
+
+    /// <summary>The exact malformed-root reason for an invalid candidate.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
 }
 
 /// <summary>
@@ -61,6 +64,29 @@ public sealed record AssemblyBindingFailure
 /// could return a different answer for the same request.
 /// </summary>
 public sealed class AssemblyBindingPolicyVersion;
+
+/// <summary>
+/// One immutable policy answer paired with the exact policy-state version that
+/// produced it.
+/// </summary>
+public sealed class AssemblyBindingSelectionSnapshot
+{
+    public AssemblyBindingSelectionSnapshot(
+        AssemblyBindingPolicyVersion version,
+        AssemblyBindingSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(selection);
+        Version = version;
+        Selection = selection;
+    }
+
+    /// <summary>Gets the policy-state version that produced the selection.</summary>
+    public AssemblyBindingPolicyVersion Version { get; }
+
+    /// <summary>Gets the structured selection produced by that state.</summary>
+    public AssemblyBindingSelection Selection { get; }
+}
 
 /// <summary>
 /// The thing a binding policy is asked to select. This is deliberately
@@ -270,6 +296,26 @@ public abstract class AssemblyBindingSelection
     }
 
     /// <summary>
+    /// Validates a policy answer against the original target before a wrapper
+    /// or Metadata adapter interprets it.
+    /// </summary>
+    public static AssemblyBindingSelection ValidateForRequest(
+        AssemblyBindingRequest request,
+        AssemblyBindingSelection? selection)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return selection is null
+            || selection is Missing
+            && request.Target
+                is not AssemblyBindingTarget.AssemblyReference
+            ? Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidPolicyResult))
+            : selection;
+    }
+
+    /// <summary>
     /// A policy selection containing one descriptor and inactive shadow
     /// evidence.
     /// </summary>
@@ -293,8 +339,13 @@ public abstract class AssemblyBindingSelection
     /// <summary>A policy selection with no matching descriptor.</summary>
     public sealed class Missing : AssemblyBindingSelection
     {
-        internal Missing(AssemblyBindingMissDisposition disposition) =>
+        internal Missing(AssemblyBindingMissDisposition disposition)
+        {
+            if (!Enum.IsDefined(disposition))
+                throw new ArgumentOutOfRangeException(nameof(disposition));
+
             Disposition = disposition;
+        }
 
         public AssemblyBindingMissDisposition Disposition { get; }
     }
@@ -339,15 +390,18 @@ public interface IAssemblyBindingPolicy
     /// <summary>Gets the identity of the policy snapshot in use.</summary>
     AssemblyBindingPolicyVersion Version { get; }
 
-    /// <summary>Selects descriptor candidates for one structured request.</summary>
-    AssemblyBindingSelection Select(AssemblyBindingRequest request);
+    /// <summary>
+    /// Selects descriptor candidates and atomically identifies the policy state
+    /// that produced the answer.
+    /// </summary>
+    AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request);
 }
 
 /// <summary>
-/// Migration policy that snapshots answers from an
-/// <see cref="IAssemblyReferenceResolver"/> for one inspection lifetime.
-/// New acquisition owners should implement <see cref="IAssemblyBindingPolicy"/>
-/// directly.
+/// Compatibility adapter for an <see cref="IAssemblyReferenceResolver"/>.
+/// Structured binding policies are forwarded transparently; nullable legacy
+/// resolvers are snapshotted for one inspection lifetime. New acquisition
+/// owners should implement <see cref="IAssemblyBindingPolicy"/> directly.
 /// </summary>
 public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 {
@@ -356,7 +410,7 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     readonly AssemblyBindingPolicyVersion _version = new();
     readonly ConcurrentDictionary<
         SelectionKey,
-        Lazy<AssemblyBindingSelection>> _selections = new();
+        Lazy<AssemblyBindingSelectionSnapshot>> _selections = new();
 
     public AssemblyReferenceBindingPolicy(IAssemblyReferenceResolver resolver)
     {
@@ -366,28 +420,35 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     }
 
     public AssemblyBindingPolicyVersion Version =>
-        _bindingPolicy?.Version ?? _version;
+        _bindingPolicy is { } bindingPolicy
+            ? bindingPolicy.Version
+            : _version;
 
-    public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+    public AssemblyBindingSelectionSnapshot Select(
+        AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var key = SelectionKey.From(request, Version);
+        if (_bindingPolicy is { } bindingPolicy)
+            return bindingPolicy.Select(request);
+
+        var key = SelectionKey.From(request);
         return _selections.GetOrAdd(
             key,
-            _ => new Lazy<AssemblyBindingSelection>(
-                () => SelectCore(request),
+            _ => new Lazy<AssemblyBindingSelectionSnapshot>(
+                () => new AssemblyBindingSelectionSnapshot(
+                    _version,
+                    SelectLegacy(request)),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
-    AssemblyBindingSelection SelectCore(AssemblyBindingRequest request)
+    AssemblyBindingSelection SelectLegacy(AssemblyBindingRequest request)
     {
         try
         {
             return request.Target switch
             {
                 AssemblyBindingTarget.AssemblyReference reference =>
-                    _bindingPolicy?.Select(request)
-                    ?? SelectReference(reference.Identity, request.Scope),
+                    SelectReference(reference.Identity, request.Scope),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
                     AssemblyBindingSelection.CannotSelect(
                         new AssemblyBindingFailure(
@@ -398,12 +459,14 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
             };
         }
         catch (Exception ex) when (
-            ex is IOException
+            ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException
+                and (IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
                 or InvalidOperationException
                 or NotSupportedException
-                or ArgumentException)
+                or ArgumentException))
         {
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
@@ -422,12 +485,9 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
         bool GlobalOrigin,
-        AssemblyResolutionScope Scope,
-        AssemblyBindingPolicyVersion PolicyVersion)
+        AssemblyResolutionScope Scope)
     {
-        internal static SelectionKey From(
-            AssemblyBindingRequest request,
-            AssemblyBindingPolicyVersion policyVersion) =>
+        internal static SelectionKey From(AssemblyBindingRequest request) =>
             request.Origin switch
             {
                 AssemblyBindingOrigin.GlobalOrigin =>
@@ -435,15 +495,13 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
                         request.Target,
                         null,
                         true,
-                        request.Scope,
-                        policyVersion),
+                        request.Scope),
                 AssemblyBindingOrigin.RequestingAssembly requesting =>
                     new(
                         request.Target,
                         requesting.Registration,
                         false,
-                        request.Scope,
-                        policyVersion),
+                        request.Scope),
                 _ => throw new InvalidOperationException(
                     "Unknown assembly-binding origin."),
             };
@@ -488,8 +546,13 @@ public abstract class AssemblyBindingOutcome
     /// <summary>The policy found no candidate.</summary>
     public sealed class Missing : AssemblyBindingOutcome
     {
-        internal Missing(AssemblyBindingMissDisposition disposition) =>
+        internal Missing(AssemblyBindingMissDisposition disposition)
+        {
+            if (!Enum.IsDefined(disposition))
+                throw new ArgumentOutOfRangeException(nameof(disposition));
+
             Disposition = disposition;
+        }
 
         public AssemblyBindingMissDisposition Disposition { get; }
     }

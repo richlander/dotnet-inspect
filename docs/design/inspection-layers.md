@@ -38,7 +38,7 @@ dotnet-inspect L3
   |
   v
 DotnetInspector.Sections --+----> DotnetInspector.RowSelection
-  L2                       |       shared dependency-free leaf
+  L2                       |       shared typed leaf
   |                        |
   v                        |
 DotnetInspector.Queries ---+
@@ -269,8 +269,23 @@ subsequent reads, and exactly 25 projected rows. Run it with:
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-  -method '*PackageProfileDefaultScale*'
+  --filter-method '*PackageProfileDefaultScale*'
 ```
+
+`RestoredProjectDependencyFactsQuery` implements the contract in
+[`restored-project-dependency-facts.md`](restored-project-dependency-facts.md)
+over exact caller-supplied `project.assets.json` bytes and an optional exact
+TFM/RID request, supporting assets schema versions 3 and 4. It projects one
+content provenance digest, one selection identity independent of JSON property
+order, one root, per-framework declaration groups with `InertString`-contained
+package identity and version-constraint spellings, and a package-resolving
+graph of direct/transitive edges reachable from root traversal — never a path,
+filesystem, cache, MSBuild evaluation, or output type. Declaration and graph
+projection fail independently, each as a closed `Available` (complete or
+incomplete)/`Unavailable`/`Failed` outcome with a typed, content-free failure
+reason. This query has no CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyFactsQueryTests` and the
+`restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
 
 L1 does not reference Markout.
 
@@ -418,8 +433,12 @@ consumer's convenience.
 
 ## Queries-to-Research population boundary
 
-**Status:** target design for #4711; unimplemented and unverified until the
-named gates in [Migration and gates](#migration-and-gates) land.
+**Status:** #5860 implements the #4711 population sealer and companion-internal
+projection, with the named Release gates in
+[Migration and gates](#migration-and-gates). Public comparison query execution
+has not migrated: that adoption is step 7 of #4706, after Queries publication
+can retain the receipt. Body-signal target-evidence migration still
+requires #4777.
 
 This boundary is owned by the L1 `DotnetInspector.Queries` component and this
 document. The component spans the core query assembly and the optional
@@ -433,7 +452,13 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
-### Current gap
+The later
+[workspace Research target composition](research-workspace-target-composition.md)
+consumes this receipt to associate Metadata's terminal forwarding definition
+with one exact existing Research attempt. That composition remains
+Queries-owned and does not change this population-sealing contract.
+
+### Legacy query execution seam
 
 `ImplementationComparisonInput` currently accepts independent old/new
 collections of Research-owned `ImplementationAssemblyInput` values.
@@ -448,6 +473,23 @@ binding-policy consistency for one live workspace group. That remains a
 workspace lifetime contract. A comparison may borrow its participant evidence,
 but the group does not become the comparison-population owner and its disposal
 rules do not move into this boundary.
+
+`QueryComparisonPopulationSealer.Execute` now accepts separately typed,
+Queries-owned implementation or body-signal population requests and returns a
+sealed `QueryComparisonPopulation<TBinding>` or typed rejection. The internal
+`QueryPopulationProjection.Execute` in the ResearchQueries companion admits the
+sealed inputs and returns `ProjectedQueryPopulation` with its inert
+`QueryToResearchPopulationReceipt`, or a typed projection/admission rejection.
+It uses Research-issued occurrence associations, not input order or borrowed
+value equality, to establish the input map. One sealing invocation has exactly
+one question; the question map identifies the unique admitted question, even
+when both sides are empty.
+
+The existing `ImplementationComparisonInput`, `BodySignalComparisonInput`, and
+their public `Execute` result contracts are unchanged in this slice. The new
+receipt is not discarded to adapt them prematurely. #4706 counts the shared
+population boundary as step 1, local CLI/browser adoption as steps 8/9, and
+final Queries/Research retirement as steps 16/17.
 
 ### Population contract
 
@@ -493,7 +535,7 @@ queries:
 | Body-signal comparison | one binding per submitted body index | exact `LibraryBodyIndex` |
 
 The profiles share identity and sealing rules, not an untyped input bag.
-Implementation must replace the Research-owned
+The public execution migration must replace the Research-owned
 `ImplementationAssemblyInput` at the public L1 input seam with a query-owned
 idless binding. Body-signal comparison likewise wraps each index in a
 query-owned idless binding instead of treating `LibraryBodyIndex.Path` or
@@ -575,7 +617,7 @@ Those later identities cannot appear in the population receipt.
 
 ### Migration and gates
 
-Implementation proceeds without reversing dependency direction:
+Implementation and adoption proceed without reversing dependency direction:
 
 1. Core Queries adds the query-owned ids, profile bindings, immutable
    populations, and sealing results. It does not reference Research.
@@ -592,8 +634,8 @@ Implementation proceeds without reversing dependency direction:
 5. The Research-owned body-index/content check and target matching remain in
    Research until their owning designs change them.
 
-The implementation must add these named non-vacuity gates before the target
-contract is described as implemented:
+`QueryComparisonPopulationTests` in `DotnetInspector.Queries.Tests` contains
+the named non-vacuity gates for the implemented boundary:
 
 - `ComparisonPopulation_SealsImmutableInputAndSelectionSnapshots`
 - `QueryPopulationBindings_AreIdlessBorrowedWrappers`
@@ -611,6 +653,12 @@ so both missing and stale entries fail.
 `CoreQueries_AcquireDecompilerButNotResearch` already gates the project-reference
 closure and remains the dependency-direction proof.
 
+`ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
+admission, and receipt validator over an existing compiled fixture. Repeated
+borrowed values remain three distinct input occurrences; an incomplete map is
+rejected without a partial receipt. This internal-projection demo does not
+replace #5676's public workspace file-based demo or claim host adoption.
+
 ### Population-boundary non-goals
 
 This boundary does not define:
@@ -619,7 +667,7 @@ This boundary does not define:
 - Research target requests, attempts, correspondence outcomes, work items,
   producer-specific inspection topology, producer execution, completion, or
   comparison semantics;
-- direct-member designation or comparison;
+- [direct-member designation or comparison](direct-member-comparison.md);
 - Source, PDB, network, or authored-source behavior;
 - outer result publication, failure composition, CLI projection, or output
   integrity; or
@@ -641,8 +689,9 @@ create a second architectural owner.
 artifact generations, identities, acquisition registrations and outcomes,
 diagnostics, guarded content access, and acquisition leases under
 [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).
-The package adapter owns package coordinates and asset selection. L1 consumes
-their owner-issued typed results; it does not mint an artifact identity,
+The package adapter owns package coordinates and
+[asset selection](../nuget-package-structure.md#assembly-asset-roles). L1
+consumes their owner-issued typed results; it does not mint an artifact identity,
 reinterpret a non-acquired outcome as an empty role, select package assets, or
 dispose a borrowed acquisition lease.
 
@@ -830,8 +879,10 @@ failed. Cleanup failure never selects or replaces the terminal primary.
 
 ### Shareable completion and demand projections
 
-**Status:** target design for #5122; unimplemented and unverified until the
-named gates below land.
+**Status:** implemented for #5122 and verified by the named
+`PackageAssemblyContextCompletionTests` Release gates below. Coordinated
+workspace adoption is implemented under #5185 and verified by the
+[workspace-close composition gates](../inspection-space.md#workspace-close-and-group-release-authority).
 
 One successfully opened package-role operation produces one
 workspace-owned `PackageAssemblyContextCompletion`. The completion owns the
@@ -930,7 +981,7 @@ Coordinated workspace registration, workspace-close signaling, late
 completion, and preservation of existing lease-holder access during workspace
 close remain owned by
 [Workspace close and group release authority](../inspection-space.md#workspace-close-and-group-release-authority)
-and are adopted separately by #5185.
+and were adopted separately under #5185.
 
 The adjacent exact-request admission and assembly-context group lifecycle
 models bound cache leases and group quiescence respectively. Neither model
@@ -1082,13 +1133,14 @@ This boundary does not define:
 
 ## Package-realization exact-request admission
 
-**Status:** target design, scoped independently of #4745; unimplemented. This
-is a separate responsibility of the same L1 owner, not an extension of the
+**Status:** target design, scoped independently of #4745; implementation
+deferred because no approved retained product caller exists. This is a separate
+responsibility of the same L1 owner, not an extension of the
 [Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
-plan/realize/cleanup contract or gate list. Admission decides whether one
-whole package-role operation starts or whether an exact earlier operation is
-joined or reused. The adjacent boundary still owns planning, group
-construction, binding, aggregate limit enforcement, quiescence, and cleanup.
+plan/realize/cleanup contract or gate list. Admission decides whether one whole
+package-role operation starts or whether an exact earlier operation is joined
+or reused. The adjacent boundary still owns planning, group construction,
+binding, aggregate limit enforcement, quiescence, and cleanup.
 
 This contract supersedes the earlier per-coordinate target. The current
 compatibility API does not produce independently composable per-coordinate
@@ -1110,7 +1162,12 @@ The API has no product caller today. Its only non-test consumer is the
 a higher registry boundary with its own exact-content check. It does not make
 a workspace-local admission hit reachable. Implementing this contract before a
 retained multi-call product workspace adopts it would add unreachable
-infrastructure rather than product value.
+infrastructure rather than product value. The workspace owner records the
+[retained-caller decision](../inspection-space.md#retained-package-realization-caller):
+the current prototype registry answers repeated exact requests before its
+workspace sees them, while replacing that registry with a session-wide
+projection-backed workspace would be a separately approved product-topology
+migration rather than a narrow admission caller.
 
 ### Why the whole exact request is the cache unit
 
@@ -1249,9 +1306,10 @@ does not release capacity still owned by the physical operation.
 If any reservation would exceed its workspace limit, that demand receives a
 typed capacity rejection before an operation id is minted or package-role work
 starts. Capacity rejection is not cached and does not disturb an existing
-entry. The retained caller in #5123 must choose explicit workspace limits; the
-admission implementation cannot inherit unbounded cardinality from caller
-input.
+entry. The
+[retained-caller decision](../inspection-space.md#retained-package-realization-caller)
+requires any approved caller to choose explicit workspace limits; the admission
+implementation cannot inherit unbounded cardinality from caller input.
 
 One operation publishes one combined result atomically. Every demand attached
 to that operation receives the same success and realization identity, or every
@@ -1317,9 +1375,9 @@ begin group access. A use that linearizes before return may finish after the
 lease is removed; package-role quiescence prevents terminal cleanup from
 completing until that already-started use ends. `AssemblyContextGroup`
 `RetainAssemblyReference` can create an independent non-pooled snapshot whose
-lifetime already outlives group disposal. #5122 must decide explicitly whether
-the projection exposes that capability; returning the lease ends access
-through the projection but cannot revoke an independently retained snapshot.
+lifetime already outlives group disposal. The #5122 projection does not expose
+that capability; returning the lease therefore ends all access through the
+projection without creating an independently retained snapshot.
 
 ### Shared-realization lifetime
 
@@ -1369,15 +1427,15 @@ Target workspace disposal is asynchronous. The
 [workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority),
 defined by #5156, owns sole terminal release authority, coordinated
 lease-draining access, late-completion cleanup, and non-blocking close. Its
-direct-group asynchronous foundation is implemented by #5192. Coordinated
-package-role registration and release remain unimplemented and are tracked by
-issue #5185; the current package-role path still disposes its groups
-independently.
-Admission implementation therefore depends on that coordinated adoption after
-issue #5122 and this contract supply their owner-issued completion, projection,
-and lease handoffs. The target may wait indefinitely for a lease whose holder
-never returns it; weak-fairness model results therefore state the explicit
-caller assumption that every issued lease is eventually returned.
+direct-group asynchronous foundation is implemented by #5192, and coordinated
+package-role registration and release are implemented by #5185. The synchronous
+caller-owned `PackageAssemblyContextRealization` compatibility path still
+disposes its groups independently and is not the admission result. Admission
+implementation depends on the landed coordinated adoption and uses the
+owner-issued completion, projection, and lease handoffs from #5122 and this
+contract. The target may wait indefinitely for a lease whose holder never
+returns it; weak-fairness model results therefore state the explicit caller
+assumption that every issued lease is eventually returned.
 
 Cleanup failure remains visible through the package-role completion and does
 not produce a ready entry. Once cleanup completes, successfully or with
@@ -1399,7 +1457,11 @@ Implementation of #4960 must not begin until:
   (#5185; the direct asynchronous foundation landed in #5192);
   and
 - an approved retained multi-call workspace caller makes exact-request join or
-  reuse reachable (#5123).
+  reuse reachable. This prerequisite is satisfied only when the workspace owner
+  names that caller and its lifetime. The
+  [current retained-caller decision](../inspection-space.md#retained-package-realization-caller)
+  records that no existing product topology satisfies this prerequisite, so
+  #4960 remains deferred.
 
 The target contract remains unimplemented until these named gates land:
 
@@ -1624,8 +1686,9 @@ The layering is closer to reality than it looks: the CLI's directories already
 declare `DotnetInspector.*` namespaces, and Markout coupling is already
 concentrated in the upper directories while the model and service directories
 are essentially free of it. The boundary is largely drawn; the metadata canary
-establishes the L1 project and structural pattern, but the remaining facets and
-the L2 project split still need migration.
+establishes the L1 project and structural pattern, and the first reusable L2
+Rows seam now exists, but the remaining facets and broader L2 migration are
+still incomplete.
 
 The structural fix is continuing L1 beyond the completed library section-query
 migration. Collection outside the typed query-bound library facets is still not
@@ -1649,8 +1712,9 @@ uniformly content-shaped or demand-driven:
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.
-L2 is close to a project move as query coverage expands; the descriptor contract is
-already Markout-free apart from its name binding.
+`DotnetInspector.Sections` currently contains the unresolved row-selection
+intent and Rows cohort seams; the descriptor contract remains in the CLI
+assembly and is already Markout-free apart from its name binding.
 
 ## Non-goals
 

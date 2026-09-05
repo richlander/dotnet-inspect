@@ -1576,7 +1576,9 @@ public static partial class AttributeReader
     enum FrameworkConstructorKind
     {
         Marker,
+        Int32,
         SystemType,
+        SystemTypeInt32,
         String,
         StringString,
         StringStringString,
@@ -1584,6 +1586,36 @@ public static partial class AttributeReader
         JsonNumberHandling,
         JsonObjectCreationHandling,
     }
+
+    internal static bool HasExpectedMarkerConstructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize = null)
+        => HasExpectedConstructor(
+            reader,
+            constructor,
+            FrameworkConstructorKind.Marker,
+            beforeMaterialize);
+
+    internal static bool HasExpectedInt32Constructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize = null)
+        => HasExpectedConstructor(
+            reader,
+            constructor,
+            FrameworkConstructorKind.Int32,
+            beforeMaterialize);
+
+    internal static bool HasExpectedSystemTypeInt32Constructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize = null)
+        => HasExpectedConstructor(
+            reader,
+            constructor,
+            FrameworkConstructorKind.SystemTypeInt32,
+            beforeMaterialize);
 
     static bool HasExpectedConstructor(
         MetadataReader reader,
@@ -1665,10 +1697,26 @@ public static partial class AttributeReader
             {
                 FrameworkConstructorKind.Marker =>
                     signature.ParameterTypes.Length == 0,
+                FrameworkConstructorKind.Int32 =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "int" },
+                    ],
                 FrameworkConstructorKind.SystemType =>
                     signature.ParameterTypes is
                     [
                         NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
+                FrameworkConstructorKind.SystemTypeInt32 =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode type,
+                        PrimitiveTypeNode { Name: "int" },
                     ]
                     && IsExpectedTopLevelSignatureType(
                         type,
@@ -1816,10 +1864,63 @@ public static partial class AttributeReader
             });
 
     /// <summary>
+    /// Resolves an attribute constructor's declaring type only when it is
+    /// exactly the top-level <paramref name="fullTypeName"/> definition, judged
+    /// by structured <see cref="MetadataTypeDefinitionName"/> identity rather
+    /// than by a flattened display spelling.
+    /// </summary>
+    static bool TryGetTopLevelAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize,
+        out EntityHandle declaringType)
+    {
+        declaringType = default;
+        if (ExpectedTopLevelName(fullTypeName) is not { } expected)
+            return false;
+
+        declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.IsNil)
+            return false;
+
+        // A locally defined attribute authenticates through either constructor
+        // spelling. ECMA-335 lets a MemberRef name a member of a TypeDef in the
+        // same module, so requiring a MethodDef token would read a well-formed
+        // marker as absent. Identity still comes from the declaring type's
+        // structured name, so a nested carrier stays rejected.
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            return MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    (TypeDefinitionHandle)declaringType,
+                    beforeMaterialize)
+                is MetadataTypeDefinitionNameReadResult.Read defined
+                && defined.Name.Equals(expected);
+        }
+
+        return declaringType.Kind == HandleKind.TypeReference
+            && MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    (TypeReferenceHandle)declaringType,
+                    beforeMaterialize)
+                is MetadataTypeDefinitionNameReadResult.Read referenced
+            && referenced.Name.Equals(expected);
+    }
+
+    /// <summary>
     /// Resolves the defining assembly of an attribute whose type is exactly the
-    /// top-level <paramref name="fullTypeName"/> definition, judged by
-    /// structured <see cref="MetadataTypeDefinitionName"/> identity rather than
-    /// by a flattened display spelling.
+    /// top-level <paramref name="fullTypeName"/> definition.
     /// </summary>
     /// <remarks>
     /// The flattened spelling of a nested <c>TypeRef</c> chain joins its
@@ -1839,59 +1940,27 @@ public static partial class AttributeReader
         [NotNullWhen(true)] out ApiAssemblyIdentity? identity)
     {
         identity = null;
-        if (ExpectedTopLevelName(fullTypeName) is not { } expected)
-            return false;
-
-        EntityHandle declaringType = constructor.Kind switch
+        if (!TryGetTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                out EntityHandle declaringType))
         {
-            HandleKind.MemberReference =>
-                reader.GetMemberReference(
-                    (MemberReferenceHandle)constructor).Parent,
-            HandleKind.MethodDefinition =>
-                reader.GetMethodDefinition(
-                    (MethodDefinitionHandle)constructor)
-                    .GetDeclaringType(),
-            _ => default,
-        };
-        if (declaringType.IsNil)
             return false;
+        }
 
-        // Parity with the resolution this replaced: a TypeDef-defined attribute
-        // authenticates only through a MethodDef constructor, never through a
-        // MemberRef whose parent happens to be a TypeDef.
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
-            if (constructor.Kind != HandleKind.MethodDefinition
-                || !reader.IsAssembly
-                || MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        (TypeDefinitionHandle)declaringType,
-                        beforeMaterialize)
-                    is not MetadataTypeDefinitionNameReadResult.Read defined
-                || !defined.Name.Equals(expected))
-            {
+            if (!reader.IsAssembly)
                 return false;
-            }
-
             identity = ApiAssemblyIdentity.FromDefinition(
                 reader,
                 beforeMaterialize);
             return true;
         }
 
-        if (declaringType.Kind != HandleKind.TypeReference)
-            return false;
-
         var typeReference = (TypeReferenceHandle)declaringType;
-        if (MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    typeReference,
-                    beforeMaterialize)
-                is not MetadataTypeDefinitionNameReadResult.Read referenced
-            || !referenced.Name.Equals(expected))
-        {
-            return false;
-        }
 
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[
@@ -1914,6 +1983,29 @@ public static partial class AttributeReader
             (AssemblyReferenceHandle)terminal,
             beforeMaterialize);
         return true;
+    }
+
+    internal static bool IsTopLevelAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            return TryGetTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                out _);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     static bool IsFrameworkAttributeType(
@@ -2086,7 +2178,7 @@ public static partial class AttributeReader
         return false;
     }
 
-    static bool IsPlatformAttributeType(
+    internal static bool IsPlatformAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
         string fullTypeName,
@@ -2109,6 +2201,54 @@ public static partial class AttributeReader
             return false;
         }
     }
+
+    /// <summary>
+    /// True when the attribute's declaring assembly is one of the core
+    /// contracts that can declare a compiler construct's marker attribute, and
+    /// carries a platform key.
+    /// </summary>
+    /// <remarks>
+    /// This is a fidelity filter rather than a trust anchor. A single-file
+    /// inspection cannot verify either the name or the key, since both are
+    /// artifact-authored; what it can do is require the shape the compiler
+    /// actually emits, so a marker reached through an unrelated library is not
+    /// read as the compiler construct it resembles.
+    /// </remarks>
+    internal static bool IsPlatformCoreContractAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            return TryGetAuthenticAttributeAssembly(
+                    reader,
+                    constructor,
+                    fullTypeName,
+                    beforeMaterialize,
+                    out ApiAssemblyIdentity? identity)
+                && IsCoreContractName(identity.Name)
+                && PlatformKeys.IsPlatform(identity.PublicKeyToken);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The core contracts through which a compiler emits a reference to a
+    /// marker attribute declared in the runtime's core library.
+    /// </summary>
+    internal static bool IsCoreContractName(string? assemblyName)
+        => assemblyName is
+            "System.Private.CoreLib"
+                or "System.Runtime"
+                or "mscorlib"
+                or "netstandard";
 
     static bool IsSupportedJsonStringEnumConverter(
         string serializedName,
@@ -2644,9 +2784,9 @@ public static partial class AttributeReader
     public static List<(string Name, string? Value)> GetMethodAttributes(
         PEReader peReader, string fullTypeName, string methodName, int overloadIndex, bool publicOnly = true)
     {
-        if (!peReader.HasMetadata) return [];
+        if (!MetadataFormatAdmission.AdmitImage(peReader)) return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return ReadMethodAttributes(reader, FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly));
     }
 

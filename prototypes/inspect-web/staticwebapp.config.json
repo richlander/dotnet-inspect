@@ -26,7 +26,7 @@
       }
     },
     {
-      "route": "/credits/",
+      "route": "/demos",
       "rewrite": "/index.html",
       "headers": {
         "Cache-Control": "no-cache, no-store, must-revalidate"
@@ -34,13 +34,6 @@
     },
     {
       "route": "/query",
-      "rewrite": "/index.html",
-      "headers": {
-        "Cache-Control": "no-cache, no-store, must-revalidate"
-      }
-    },
-    {
-      "route": "/query/",
       "rewrite": "/index.html",
       "headers": {
         "Cache-Control": "no-cache, no-store, must-revalidate"

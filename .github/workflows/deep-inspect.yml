@@ -25,6 +25,11 @@ on:
     # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -42,10 +47,10 @@ jobs:
       inputs.lane == 'package-sweep'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -106,10 +111,10 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -188,10 +193,10 @@ jobs:
     # lane gets the same larger budget until its runtime variance is known.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -240,17 +245,25 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run ecosystem registry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- -longRunning 60
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -284,10 +297,10 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -340,10 +353,10 @@ jobs:
     if: inputs.lane == 'census' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -375,7 +388,7 @@ jobs:
             --max-examples 3
 
       - name: Build classic state-machine corpus fixture
-        run: dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+        run: dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 
       - name: Run classic state-machine corpus sensor
         shell: bash
@@ -501,7 +514,7 @@ jobs:
       DOTNET_ROOT: ${{ github.workspace }}/.dotnet-nightly
       DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/.dotnetup
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install nightly .NET SDK with dotnetup
         shell: bash
@@ -682,10 +695,10 @@ jobs:
     # loose for restore and runner variance.
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'

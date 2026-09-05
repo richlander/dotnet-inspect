@@ -1659,7 +1659,9 @@ public partial class CommandExecutionTests
             IReadOnlyDictionary<string, string?>? environment,
             params string[] args)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        var startInfo = new ProcessStartInfo(
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+                ?? "dotnet")
         {
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
@@ -3312,114 +3314,45 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
-    // ── api command ──────────────────────────────────────────────────
+    // ── removed commands ─────────────────────────────────────────────
 
     [Fact]
-    public async Task ApiShim_BareSelect_ForwardsThePresetToTypeOptions()
+    public async Task ApiCommand_RemovedFromRoot()
     {
-        // ApiCommand.ExecuteAsync's `_ =>` arm rebuilds a TypeOptions field by field for direct
-        // callers (the CLI always constructs TypeOptions/MemberOptions itself, so it never lands
-        // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
-        // for free; a dedicated flag has to be copied deliberately, and omitting it silently
-        // downgrades the shim from the bare-select preset to the default tree view.
-        //
-        // The shim rebuilds a TypeOptions, so it renders whatever `type` renders for bare -S: that
-        // is now the fixed overview. What this test pins is that the flag survives the copy at all.
-        var options = new ApiOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializer",
-            SelectDefault = true
-        };
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        Assert.Contains("## Type Info", output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ApiShim_MultiSectionCount_ForwardsResolvedFormat()
-    {
-        var options = new ApiOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            IncludeSections = ["Classes", "Structs"],
-            Count = true,
-            Rows = RowWindow.Head(1),
-            JsonOutput = true,
-            Format = OutputFormat.Json,
-            FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
-        };
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
-        var rows = document.RootElement
-            .EnumerateArray()
-            .Select(row => (
-                Section: row.GetProperty("section").GetString()!,
-                Count: row.GetProperty("count").GetInt32()))
-            .ToArray();
-        Assert.Equal([("Classes", 1), ("Structs", 1)], rows);
-    }
-
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task ApiShim_MultiSectionCount_ForwardsPresentationFlags(
-        bool tree,
-        bool embeddedMermaid)
-    {
-        var options = new ApiOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            IncludeSections = ["Classes", "Structs"],
-            Count = true,
-            Tree = tree,
-            EmbeddedMermaid = embeddedMermaid,
-            Format = OutputFormat.Markdown,
-            TipLevel = TipLevel.Quiet,
-        };
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+        var (exit, output, error) = await RunAppAsync("api", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(
-            tree ? "exactly one selected shape" : "multiple sections as Mermaid",
-            error);
+        Assert.Contains("Unrecognized command or argument 'api'", error);
+        Assert.DoesNotContain("Package 'api' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
     }
 
+    // ── type command ─────────────────────────────────────────────────
+
     [Fact]
-    public async Task Api_PlatformLibrary_ListsTypes()
+    public async Task Type_PlatformLibrary_ListsTypes()
     {
-        var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
+        var options = new TypeOptions { PlatformAssembly = "System.Text.Json" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_WithTypeFilter_ShowsMembers()
+    public async Task Type_PlatformLibrary_WithTypeFilter_ShowsMembers()
     {
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer"
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize", output);
@@ -3427,16 +3360,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_JsonOutput()
+    public async Task Type_PlatformLibrary_JsonOutput()
     {
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             JsonOutput = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
 
@@ -3446,16 +3379,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_Table()
+    public async Task Type_PlatformLibrary_Table()
     {
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             Tabular = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -11124,7 +11057,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "--tips", "q");
+            "MaxDepth:2", "-S", "Source Diff", "-v:d", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -14284,6 +14217,83 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_DoesNotCertifyAbsenceWhenACandidateWasExcluded()
+    {
+        string unsupported = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-absent-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            unsupported,
+            TimelineCommandTests.BuildWindowsMetadataImage());
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "depends", "Totally.Absent.TypeName`9",
+                "--library", TestAssemblyPath,
+                "--library", unsupported,
+                "--count");
+
+            Assert.Equal(
+                DependsCommand.UncertifiedScanExitCode,
+                exit);
+            Assert.NotEqual(DependsCommand.TypeNotFoundExitCode, exit);
+            Assert.Contains(
+                Path.GetFileName(unsupported),
+                error,
+                StringComparison.Ordinal);
+
+            // Marking the scan uncertified must not swallow the diagnosis. An
+            // exit code that only says "uncertified" leaves the user with no
+            // statement of what happened to the type they asked about.
+            Assert.Contains(
+                "not found in the specified scope",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(unsupported);
+        }
+    }
+
+    [Fact]
+    public async Task Depends_NamesAnExcludedUnsupportedAssemblyInsteadOfReportingACleanPartialGraph()
+    {
+        string unsupported = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-unsupported-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            unsupported,
+            TimelineCommandTests.BuildWindowsMetadataImage());
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "depends", "SampleGenericClass`1",
+                "--library", TestAssemblyPath,
+                "--library", unsupported,
+                "--count");
+
+            Assert.Equal(DependsCommand.UncertifiedScanExitCode, exit);
+            Assert.True(
+                int.TryParse(output.Trim(), out var count) && count > 0,
+                $"expected the healthy neighbor to still resolve, got: {output}");
+            Assert.Contains(
+                Path.GetFileName(unsupported),
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "unsupported metadata format",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains("may be incomplete", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(unsupported);
+        }
+    }
+
+    [Fact]
     public async Task Depends_Count_ComposesWithJson()
     {
         // The type with dependencies matters: a type with none short-circuits before the
@@ -15151,7 +15161,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_CallGraph_VersionSkewedCallerScopeWarns()
+    public async Task Member_CallGraph_VersionSkewedCallerScopeIsCompleteAndEmpty()
     {
         string directory = Directory.CreateTempSubdirectory(
             "dotnet-inspect-version-skew-").FullName;
@@ -15186,9 +15196,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("## Call Graph", output);
             Assert.DoesNotContain("Shared.Entry.Run", output);
-            Assert.Contains(
-                "Warning: Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.",
-                error);
+            Assert.Empty(error);
         }
         finally
         {
@@ -16135,10 +16143,10 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(
         SourceChecksumVerification.Exact,
-        "# Integrity: PDB source document bytes match portable-PDB SHA256 checksum 0123456789ABCDEF.")]
+        "Integrity: PDB source document bytes match portable-PDB SHA256 checksum 0123456789ABCDEF.")]
     [InlineData(
         SourceChecksumVerification.LineEndingNormalized,
-        "# Integrity: PDB source document matches portable-PDB SHA256 checksum 0123456789ABCDEF after CR/LF normalization.")]
+        "Integrity: PDB source document matches portable-PDB SHA256 checksum 0123456789ABCDEF after CR/LF normalization.")]
     public async Task Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff(
         SourceChecksumVerification checksumVerification,
         string expectedIntegrity)
@@ -16158,6 +16166,7 @@ public partial class CommandExecutionTests
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { nameof(CommandExecutionSourceDiffFixture.AddOne) },
             OverloadIndex = member.DeclaringOverloadIndex ?? 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.SourceDiff },
+            Verbosity = Verbosity.Detailed,
             MethodSource = new MethodSourceContext(
                 """
                 public int AddOne(int value)
@@ -16179,7 +16188,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Source Diff", output);
         Assert.Contains("```diff", output);
         Assert.Contains(
-            "# PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
+            "PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
             output);
         Assert.Contains(expectedIntegrity, output);
         Assert.Contains("--- PDB Source", output);
@@ -16247,13 +16256,16 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, normalExit);
         Assert.Empty(normalError);
-        Assert.Contains("Source diff status: Partial", normalOutput);
-        Assert.Contains("use -v:d for complete line evidence", normalOutput);
+        Assert.Contains("Added lines", normalOutput);
+        Assert.Contains("Removed lines", normalOutput);
+        Assert.Contains("Changed lines", normalOutput);
+        Assert.Contains("Moved lines", normalOutput);
         Assert.DoesNotContain("-authored-line-60", normalOutput);
+        Assert.DoesNotContain("```diff", normalOutput);
 
         Assert.Equal(0, detailedExit);
         Assert.Empty(detailedError);
-        Assert.DoesNotContain("Source diff status: Partial", detailedOutput);
+        Assert.Contains("```diff", detailedOutput);
         Assert.Contains("-authored-line-60", detailedOutput);
     }
 
@@ -16266,7 +16278,7 @@ public partial class CommandExecutionTests
             "member",
             "DotnetInspector.Output.SourceTextDiffRenderer",
             "--library", productAssemblyPath,
-            "RenderReviewerDiff",
+            "CreateOutput",
             "--all",
             "-S", "Source Diff",
             "--tips", "q",
@@ -16279,16 +16291,54 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, normalExit);
         Assert.Empty(normalError);
-        Assert.Single(
-            normalOutput.Split('\n'),
-            line => line.StartsWith("# Source diff status: Partial", StringComparison.Ordinal));
+        Assert.Contains("Changed lines", normalOutput);
+        Assert.DoesNotContain("```diff", normalOutput);
 
         Assert.Equal(0, detailedExit);
         Assert.Empty(detailedError);
-        Assert.DoesNotContain(
-            detailedOutput.Split('\n'),
-            line => line.StartsWith("# Source diff status: Partial", StringComparison.Ordinal));
+        Assert.Contains("```diff", detailedOutput);
         Assert.NotEqual(normalOutput, detailedOutput);
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    public async Task Member_SourceDiff_TabularOutputKeepsMetadataAndSummaryStructured(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandExecutionSourceDiffFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(CommandExecutionSourceDiffFixture.AddOne),
+            "-S",
+            SectionNames.SourceDiff,
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("PDB source", output);
+        Assert.Contains("Integrity", output);
+        Assert.Contains("Added lines", output);
+        Assert.Contains("Removed lines", output);
+        Assert.Contains("Changed lines", output);
+        Assert.Contains("Moved lines", output);
+
+        if (format == "--jsonl")
+        {
+            foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+            }
+        }
+        else
+        {
+            Assert.Contains("field\tvalue", output);
+        }
     }
 
     [Fact]
@@ -18330,24 +18380,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_NonexistentPackage_ShowsError()
+    public async Task Type_NonexistentPackage_ShowsError()
     {
-        var options = new ApiOptions { PackagePath = "NonexistentPackage123456" };
+        var options = new TypeOptions { PackagePath = "NonexistentPackage123456" };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(1, exit);
         Assert.NotEmpty(error);
     }
 
     [Fact]
-    public async Task Api_LocalAssembly_ListsTypes()
+    public async Task Type_LocalAssembly_ListsTypes()
     {
-        var options = new ApiOptions { AssemblyPath = TestAssemblyPath };
+        var options = new TypeOptions { AssemblyPath = TestAssemblyPath };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("CommandExecutionTests", output);
@@ -20726,6 +20776,174 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen()
+    {
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Package(
+                "Test.Package",
+                "1.2.3",
+                "net11.0",
+                rid: null);
+        var selected = Assert.IsType<
+            AssemblyDescriptorSelectionResult.Ready>(
+            ResolvedAssemblyReference.SelectFromPath(
+                TestAssemblyPath,
+                provenance));
+
+        var ready = Assert.IsType<
+            LibraryInspectionSubjectSelection.Ready>(
+            LibraryInspectionSubject.Select(
+                "path-that-must-not-be-opened.dll",
+                AssemblyResolutionProvenance.Local("fallback"),
+                selected.Reference));
+
+        Assert.Same(selected.Reference, ready.Subject.AssemblyReference);
+        Assert.Same(provenance, ready.Subject.AssemblyReference!.Provenance);
+        using var sourceLink = ready.Subject.OpenSourceLink();
+        Assert.True(sourceLink.Context.HasMetadata);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-direct-").FullName;
+        string malformedPath = Path.Combine(tempDir, "Malformed.dll");
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            WriteTruncatedMetadataTableAssembly(
+                TestAssemblyPath,
+                malformedPath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                malformedPath,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(malformedPath, error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-package-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string malformedPath = Path.Combine(
+            libraryDirectory,
+            "Malformed.dll");
+        WriteTruncatedMetadataTableAssembly(
+            TestAssemblyPath,
+            malformedPath);
+        string packagePath = Path.Combine(
+            tempDir,
+            "Malformed.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Malformed.dll",
+                "--package",
+                packagePath,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Malformed.dll", error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates()
+    {
+        string? originalDotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-platform-").FullName;
+        const string Version = "999.0.0";
+        string runtimeDirectory = Path.Combine(
+            tempDir,
+            "shared",
+            "Microsoft.NETCore.App",
+            Version);
+        Directory.CreateDirectory(runtimeDirectory);
+        string malformedPath = Path.Combine(
+            runtimeDirectory,
+            "Malformed.Platform.dll");
+        WriteTruncatedMetadataTableAssembly(
+            TestAssemblyPath,
+            malformedPath);
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", tempDir);
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--platform",
+                "Malformed.Platform",
+                "--framework",
+                "runtime",
+                "--version",
+                Version,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(malformedPath, error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                originalDotnetRoot);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
         var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
@@ -22481,6 +22699,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tip:", error);
     }
 
+    [Theory]
+    [InlineData("Microsoft.CSharp@4.7.0")]
+    [InlineData("Microsoft.TestPlatform.TestHost@17.14.1")]
+    [InlineData("System.Private.ServiceModel@4.10.3")]
+    public async Task PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput(
+        string package)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "--all-libraries",
+            "-S",
+            "@Integrations",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "matched sections have no data across all libraries",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
@@ -22930,6 +23173,79 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Source audit", output);
         Assert.DoesNotContain("| Signals | Scope |", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_InvalidCachedPdbPreservesLibraryInspection()
+    {
+        string tempDirectory =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dotnet-inspect-pdb-store-{Guid.NewGuid():N}");
+        string cacheDirectory = Path.Combine(tempDirectory, "cache");
+        try
+        {
+            Directory.CreateDirectory(tempDirectory);
+            string fixturePath =
+                FixtureCatalog.SourceLinkPartiallyMalformed.AssemblyPath();
+            string assemblyPath =
+                Path.Combine(
+                    tempDirectory,
+                    Path.GetFileName(fixturePath));
+            File.Copy(fixturePath, assemblyPath);
+
+            using var source =
+                ILInspector.SourceLink.SourceLinkService.Open(fixturePath);
+            CodeViewInfo pdb = Assert.IsType<CodeViewInfo>(source.Context.PdbId);
+            string pdbFileName = Path.GetFileName(pdb.PdbFileName);
+            string guid = pdb.Guid.ToString("N").ToUpperInvariant();
+            string storeIdentity = pdb.Stamp is { } stamp
+                ? $"{guid}{stamp:X8}"
+                : $"{guid}FFFFFFFF";
+            string cachedPdbPath =
+                Path.Combine(
+                    cacheDirectory,
+                    "packages",
+                    "symbols",
+                    "servers",
+                    "symbols.nuget.org",
+                    pdbFileName,
+                    storeIdentity,
+                    pdbFileName);
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(cachedPdbPath)!);
+            File.WriteAllBytes(
+                cachedPdbPath,
+                [(byte)'B', (byte)'S', (byte)'J', (byte)'B']);
+
+            var (exit, output, error) =
+                await RunAppInDirectoryWithEnvironmentAsync(
+                    tempDirectory,
+                    new Dictionary<string, string?>
+                    {
+                        ["DOTNET_INSPECT_CACHE_DIR"] = cacheDirectory,
+                    },
+                    "library",
+                    assemblyPath,
+                    "-S",
+                    "Signals",
+                    "--offline");
+
+            Assert.True(
+                exit == 0,
+                $"Expected exit 0, received {exit}.{Environment.NewLine}Output:{Environment.NewLine}{output}{Environment.NewLine}Error:{Environment.NewLine}{error}");
+            Assert.Contains("## Signals", output);
+            Assert.Contains(
+                "PDB store returned malformed or mismatched cached content",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("Could not read library", error);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+                Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     [Fact]
@@ -24822,6 +25138,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-multitfm-").FullName;
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string libraryDirectory =
+                Path.Combine(content, "lib", "net11.0");
+            Directory.CreateDirectory(libraryDirectory);
+            string healthyPath = Path.Combine(
+                libraryDirectory,
+                "Good.dll");
+            string malformedPath = Path.Combine(
+                libraryDirectory,
+                "Bad.dll");
+            WriteTruncatedMetadataTableAssembly(
+                TestAssemblyPath,
+                malformedPath);
+            File.Copy(TestAssemblyPath, healthyPath);
+            string packagePath = Path.Combine(
+                tempDir,
+                "Mixed.Package.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Good.dll", output);
+            Assert.DoesNotContain("Bad.dll", output);
+            Assert.Contains("Bad.dll", error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_EmptySectionFailuresNameEachAssembly()
     {
         LibraryInspection FailedInspection(string tfm)
@@ -25261,9 +25629,13 @@ public partial class CommandExecutionTests
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "produced no output",
+                "Could not select library descriptor",
                 error,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                "selected managed assembly has no usable identity",
+                error,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

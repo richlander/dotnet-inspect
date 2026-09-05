@@ -4,6 +4,7 @@ import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
+  renderSourcePageActions,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -23,6 +24,7 @@ import { fakeDom } from "./fake-dom.ts";
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   value = "";
+  open = false;
   focused = false;
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -181,9 +183,6 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onCopyMemberSource: () => {
       calls.push("copy-member-source");
     },
-    onCopyName: () => {
-      calls.push("copy-name");
-    },
     onCopySignature: () => {
       calls.push("copy-signature");
     },
@@ -206,6 +205,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
+    onMemberFilterDisclosureToggle: value =>
+      calls.push(`member-filter-disclosure:${value}`),
     onMemberFilterKeyDown: (event, value) => {
       calls.push(`member-filter-key:${event.key}:${value}`);
       return true;
@@ -219,6 +220,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onOverloadSelect: value => calls.push(`overload:${value}`),
     onShowTypes: () => calls.push("types"),
     onTypeFilterChange: value => calls.push(`filter:${value}`),
+    onTypeFilterDisclosureToggle: value =>
+      calls.push(`type-filter-disclosure:${value}`),
     onTypeFilterEscape: () => calls.push("escape"),
     onTypeSelect: value => calls.push(`type:${value}`),
   };
@@ -242,6 +245,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-trait-filter]", allTraits, trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
+  const disclosure = root.add(
+    "[data-member-filter-disclosure]",
+    new FakeElement());
   const clear = root.add("#clear-member-filter", new FakeElement());
   const calls: string[] = [];
 
@@ -262,6 +268,8 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-trait:isStatic",
   ]);
   filter.dispatch("input");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   const arrow = keyboardEvent("ArrowDown");
   dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
@@ -270,6 +278,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-trait:isStatic",
     "member-filter:parse",
+    "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
     "member-filter-clear",
   ]);
@@ -287,6 +296,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   root.addAll("[data-namespace]", namespace, secondNamespace);
   root.addAll("[data-kind-filter]", kind, secondKind);
   const clear = root.add("#clear-filter", new FakeElement());
+  const disclosure = root.add(
+    "[data-type-filter-disclosure]",
+    new FakeElement());
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
@@ -310,6 +322,8 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespaceJump.dispatch("change");
   kind.dispatch("click");
   secondKind.dispatch("click");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
@@ -323,10 +337,12 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System.Text",
     "kind:class",
     "kind:interface",
+    "type-filter-disclosure:true",
     "clear",
     "filter:json",
     "list:End",
   ]);
+  assert.equal(clear.focused, true);
   assert.equal(forwardedListEvent, listKey.event);
   assert.equal(listKey.state.prevented, false);
 });
@@ -426,7 +442,6 @@ test("type panel bindings dispatch member composition and detail controls", () =
   root.addAll("[data-overload]", overload, defaultOverload);
   root.addAll("[data-copy-anchor]", anchor, invalidAnchor);
   const back = root.add("#member-back", new FakeElement());
-  const copyName = root.add("#copy-name", new FakeElement());
   const copySignature = root.add("#copy-signature", new FakeElement());
   const copyMemberSource = root.add("#copy-source", new FakeElement());
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
@@ -446,7 +461,6 @@ test("type panel bindings dispatch member composition and detail controls", () =
   overload.dispatch("click");
   defaultOverload.dispatch("click");
   back.dispatch("click");
-  copyName.dispatch("click");
   copySignature.dispatch("click");
   anchor.dispatch("click");
   invalidAnchor.dispatch("click");
@@ -465,7 +479,6 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "member-overload:2",
     "member-overload:NaN",
     "member-back",
-    "copy-name",
     "copy-signature",
     "copy-anchor:digest",
     "copy-anchor:undefined",
@@ -539,6 +552,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     kindFilters: ["class"],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -554,8 +569,14 @@ test("the type nav lists namespace groups with the current type selected", () =>
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
   assert.match(html, /id="clear-filter"/);
+  assert.match(
+    html,
+    /<details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure>/);
+  assert.match(html, /<summary id="type-filter-summary">/);
+  assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
+  assert.match(html, /id="content-navigation-pane"/);
   assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
@@ -574,6 +595,8 @@ test("the type nav reports no matches for an empty filtered group", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: true,
+    filterSummary: "nothing-matches · public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -581,6 +604,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   });
 
   assert.match(html, /No public types match this filter\./);
+  assert.match(html, /data-type-filter-disclosure open/);
 });
 
 test("the type nav handles a package with no projected types", () => {
@@ -596,6 +620,8 @@ test("the type nav handles a package with no projected types", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "All types",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -637,6 +663,7 @@ test("the member nav marks the active group and its selected overload", () => {
   });
 
   assert.match(html, /class="type-row member-row active-group [^"]*" data-nav-member="method:Serialize"/);
+  assert.match(html, /id="content-navigation-pane"/);
   assert.match(
     html,
     /data-nav-overload="1" role="option" aria-selected="true"/);
@@ -810,6 +837,12 @@ test("type metadata renders a loading state while the projection is in flight", 
   });
 
   assert.match(html, /Projecting type metadata…/);
+  assert.match(
+    html,
+    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…[\s\S]*?class="metadata-surface-footer"/);
+  assert.match(html, /System\.Text\.Json\.JsonSerializer/);
+  assert.match(html, /net9\.0 · System\.Text\.Json\.dll · System\.Text\.Json@9\.0\.0/);
+  assert.doesNotMatch(html, /class="type-heading"/);
 });
 
 test("type metadata renders composition, interfaces, and derived types once loaded", () => {
@@ -841,6 +874,9 @@ test("type metadata renders composition, interfaces, and derived types once load
     factRows,
   });
 
+  assert.match(
+    html,
+    /class="metadata-surface-scroll"[\s\S]*?class="document-section metadata-shape-section"[\s\S]*?Type shape/);
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Known derived types/);
@@ -848,7 +884,30 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /data-member-jump-kind="method"/);
 });
 
-test("type PDB source renders the provenance and copy action once loaded", () => {
+test("type metadata keeps projection failures inside the full-area surface", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const key = typeMetadataSignature(jsonSerializer, packageContext);
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: key,
+      typeMetadataLoading: false,
+      typeMetadataError: "projection unavailable",
+      typeMetadata: null,
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+
+  assert.match(
+    html,
+    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+});
+
+test("type PDB source renders code above provenance once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
@@ -864,8 +923,39 @@ test("type PDB source renders the provenance and copy action once loaded", () =>
 
   assert.match(html, /PDB Source/);
   assert.match(html, /SourceLink/);
-  assert.match(html, /id="copy-type-source"/);
-  assert.match(html, /open source ↗/);
+  assert.match(
+    html,
+    /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+  assert.doesNotMatch(html, /copy-type-source|open source/);
+});
+
+test("source page actions render copy and open for the page-owned group", () => {
+  const html = renderSourcePageActions({
+    source: {
+      provider: "pdb",
+      provenance: "SourceLink",
+      url: "https://example.test/source.cs?x=1&y=2",
+      text: "class JsonSerializer {}",
+    },
+    copyButtonId: "copy-type-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /id="copy-type-source"[^>]*>Copy<\/button>/);
+  assert.match(
+    html,
+    /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
+});
+
+test("source page actions disable copy until source is available", () => {
+  const html = renderSourcePageActions({
+    source: null,
+    copyButtonId: "copy-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
+  assert.doesNotMatch(html, /shell-action-link/);
 });
 
 test("decompiled type source discloses an escaped PDB-source limitation", () => {

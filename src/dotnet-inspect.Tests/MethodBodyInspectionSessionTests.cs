@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Fixtures;
 using ILInspector.CallGraph;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Analysis = ILInspector.Analysis;
@@ -296,15 +297,20 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
-    public void CallGraph_IndependentScopeIdentityConflictRemainsUsable()
+    public void CallGraph_IndependentScopesReconcileExactBindingIdentity()
     {
         string analysisPath =
             typeof(Analysis.CatalogMemberCorrespondencePlan)
                 .Assembly.Location;
+        var resolver = new CoreLibraryOnlyResolver();
         MethodBodyInspectionSession target =
-            MethodBodyInspectionSession.Open(analysisPath);
+            MethodBodyInspectionSession.Open(
+                analysisPath,
+                resolver);
         MethodBodyInspectionSession caller =
-            MethodBodyInspectionSession.Open(TestPath);
+            MethodBodyInspectionSession.Open(
+                TestPath,
+                resolver);
         Analysis.MethodIdentity typeIdentity =
             target.BodyIndex.DeclaredMethods.Single(method =>
                 method.DeclaringType.Name
@@ -315,12 +321,10 @@ public class MethodBodyInspectionSessionTests
             typeIdentity.MetadataToken,
             callerScopes: [caller],
             calleeScopes: [],
-            out _);
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
 
         Assert.NotEmpty(projection.CallSites);
-        Assert.Contains(
-            projection.Edges,
-            edge => edge.CallSiteIds.IsEmpty);
+        Assert.Equal(0, diagnostics.BindingIdentityConflictCount);
         Assert.Equal(
             projection.CallSites.Length,
             projection.CallSites
@@ -640,4 +644,37 @@ public class MethodBodyInspectionSessionTests
                     path)),
             includeAllocations: false,
             includeOpportunities: false);
+
+    sealed class CoreLibraryOnlyResolver :
+        IAssemblyReferenceResolver,
+        IAssemblyBindingPolicy
+    {
+        readonly ResolvedAssemblyReference _coreLibrary =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(object).Assembly.Location,
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    frameworkVersion: null,
+                    "call-graph identity-conflict fixture"));
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) =>
+            null;
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+                ? AssemblyBindingSelection.Found(_coreLibrary)
+                : AssemblyBindingSelection.NameNotOwned();
+        }
+    }
 }

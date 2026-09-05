@@ -6,6 +6,7 @@ import {
 } from "./command-bar.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+import { packageRemoveButton } from "./package-removal.ts";
 
 type LensDefinition = readonly [id: string, label: string];
 type SpotlightFocus = "input" | "chips";
@@ -16,6 +17,7 @@ interface SpotlightPackage {
   id: string;
   version: string;
   activeFramework?: string;
+  isRuntimePack?: boolean;
 }
 
 interface SpotlightType {
@@ -100,6 +102,8 @@ export type SpotlightResult =
   | TypeResult
   | MemberResult;
 
+export type RemovableSpotlightResult = PackageLoadedResult | PackageRecentResult;
+
 export interface SpotlightState {
   spotlightOpen: boolean;
   spotlightQuery: string;
@@ -121,6 +125,7 @@ interface SpotlightOptions {
   kindIcon: (kind: string) => string;
   searchResults: () => SpotlightResult[];
   pickResult: (result: SpotlightResult) => void;
+  removeResult?: (result: RemovableSpotlightResult) => boolean;
   executeCommand: (
     command: string,
     result: CommandPaletteResult,
@@ -134,6 +139,7 @@ interface SpotlightOptions {
   activeFramework: () => string;
   render: () => void;
   focusAfterDismiss?: () => void;
+  captureFocusAfterDismiss?: () => () => void;
 }
 
 const BASE_SCOPES = [
@@ -258,10 +264,13 @@ function hasElementId(value: EventTarget | null): value is EventTarget & { id: s
 }
 
 export function createSpotlight(options: SpotlightOptions) {
+  let boundInput: HTMLInputElement | null = null;
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
   let renderedResults: readonly SpotlightResult[] = [];
   let selectedResultIdentity: string | null = null;
+  const dismissedPackageIds = new Set<string>();
+  let dismissalQuery = state.spotlightQuery;
 
   function scopes() {
     return options.commandContext()
@@ -276,7 +285,32 @@ export function createSpotlight(options: SpotlightOptions) {
         ? commandPaletteResults(context, options.lenses())
         : [];
     }
-    return options.searchResults();
+    if (dismissalQuery !== state.spotlightQuery) {
+      dismissedPackageIds.clear();
+      dismissalQuery = state.spotlightQuery;
+    }
+    return options.searchResults().filter(result =>
+      result.kind !== "pkg-nuget"
+      || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
+  }
+
+  function removable(result: SpotlightResult): result is RemovableSpotlightResult {
+    return options.removeResult !== undefined
+      && (result.kind === "pkg-recent"
+        || (result.kind === "pkg-loaded" && !result.pkg.isRuntimePack));
+  }
+
+  function withRemoveButton(
+    result: SpotlightResult,
+    index: number,
+    row: string,
+  ): string {
+    if (!removable(result)) return row;
+    const label = result.kind === "pkg-recent"
+      ? `Forget ${result.entry.id} from recent packages`
+      : `Remove ${result.pkg.id} ${result.pkg.version} ${result.pkg.activeFramework ?? ""} from Workspace`;
+    return `<div class="package-search-row" role="presentation">${row}${packageRemoveButton(
+      "data-sl-remove", String(index), label, escapeHtml)}</div>`;
   }
 
   function rowHtml(result: SpotlightResult, index: number): string {
@@ -288,11 +322,11 @@ export function createSpotlight(options: SpotlightOptions) {
     const selectedClass = selected ? "selected" : "";
     const base = `id="spotlight-result-${index}" class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}"`;
     if (result.kind === "pkg-loaded") {
-      return `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
+      return withRemoveButton(result, index, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)} · open</span>
-      </button>`;
+      </button>`);
     }
     if (result.kind === "pkg-nuget") {
       return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
@@ -305,11 +339,11 @@ export function createSpotlight(options: SpotlightOptions) {
       const version = result.entry.version && result.entry.version !== "latest"
         ? result.entry.version
         : "";
-      return `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
+      return withRemoveButton(result, index, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${version ? `${escapeHtml(version)} · ` : ""}recent</span>
-      </button>`;
+      </button>`);
     }
     if (result.kind === "package-query") {
       const suffix = result.prefix
@@ -481,7 +515,7 @@ export function createSpotlight(options: SpotlightOptions) {
           </div>
           <div class="spotlight-chips" id="spotlight-chips">${chipsHtml()}</div>
           <div class="spotlight-results" id="spotlight-results" role="listbox">${resultsHtml(items)}</div>
-          <div class="spotlight-foot"><span>↑↓ select</span><span>→ target</span><span>↵ ${commands ? "complete / run" : "open"}</span><span>esc close</span></div>
+          <div class="spotlight-foot"><span><kbd>Ctrl P</kbd> search</span><span>↑↓ select</span><span>→ target</span><span>↵ ${commands ? "complete / run" : "open"}</span>${options.removeResult && !commands ? "<span>Shift+Delete remove</span>" : ""}<span>esc close</span></div>
         </div>
       </div>`;
   }
@@ -520,14 +554,41 @@ export function createSpotlight(options: SpotlightOptions) {
         if (result) pick(result);
       });
     });
+    root.querySelectorAll<HTMLElement>("[data-sl-remove]").forEach(button => {
+      button.addEventListener("click", () =>
+        removeResultAt(Number(button.dataset.slRemove)));
+    });
   }
 
-  function focus(): void {
+  function removeResultAt(index: number): boolean {
+    const result = renderedResults[index];
+    if (!result || !removable(result)) return false;
+    const input = document.querySelector<HTMLInputElement>("#spotlight-input");
+    const start = input?.selectionStart ?? state.spotlightQuery.length;
+    const end = input?.selectionEnd ?? start;
+    if (!options.removeResult?.(result)) return true;
+    dismissedPackageIds.add((result.kind === "pkg-loaded"
+      ? result.pkg.id : result.entry.id).toLowerCase());
+    updateResults();
+    const replacement = document.querySelector<HTMLInputElement>("#spotlight-input");
+    replacement?.focus({ preventScroll: true });
+    replacement?.setSelectionRange(start, end);
+    return true;
+  }
+
+  function focus(selection?: {
+    start: number | null;
+    end: number | null;
+    direction: "forward" | "backward" | "none" | null;
+  }): void {
     requestAnimationFrame(() => {
       const input = document.querySelector<HTMLInputElement>("#spotlight-input");
-      if (!input) return;
+      if (!input || document.activeElement === input) return;
       input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
+      input.setSelectionRange(
+        selection?.start ?? input.value.length,
+        selection?.end ?? input.value.length,
+        selection?.direction ?? "none");
     });
   }
 
@@ -570,6 +631,8 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function reset(): void {
+    boundInput = null;
+    dismissedPackageIds.clear();
     options.resetPackageSearch();
     state.spotlightOpen = false;
     state.spotlightQuery = "";
@@ -588,6 +651,8 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function open(seed = "", scope: SpotlightScope = "all"): void {
+    boundInput = null;
+    dismissedPackageIds.clear();
     interactionGeneration++;
     options.resetPackageSearch();
     state.spotlightOpen = true;
@@ -625,9 +690,11 @@ export function createSpotlight(options: SpotlightOptions) {
     const generation = interactionGeneration;
     reset();
     const execution = options.executeCommand(result.command, result);
+    const focusAfterDismiss = options.captureFocusAfterDismiss?.()
+      ?? options.focusAfterDismiss;
     options.render();
     const focusAfterExecution = () => {
-      if (generation === interactionGeneration) options.focusAfterDismiss?.();
+      if (generation === interactionGeneration) focusAfterDismiss?.();
     };
     Promise.resolve(execution).then(
       focusAfterExecution,
@@ -684,6 +751,9 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function handleModalKeys(event: KeyboardEvent): boolean {
+    if (event.key === "Delete" && event.shiftKey) {
+      return removeResultAt(state.spotlightIndex);
+    }
     if (event.key === "Escape") {
       close();
       return true;
@@ -755,6 +825,9 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function handleInlineKeys(event: KeyboardEvent): boolean {
+    if (event.key === "Delete" && event.shiftKey) {
+      return removeResultAt(state.spotlightIndex);
+    }
     const items = renderedResults;
     if (event.key === "ArrowDown") {
       state.spotlightIndex = nextSpotlightSelection(
@@ -783,6 +856,15 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function bind(root: ParentNode, mode: "modal" | "inline"): void {
     const input = root.querySelector<HTMLInputElement>("#spotlight-input");
+    const previous = boundInput;
+    const selection = previous && input && previous.value === input.value
+      ? {
+          start: previous.selectionStart,
+          end: previous.selectionEnd,
+          direction: previous.selectionDirection,
+        }
+      : undefined;
+    boundInput = input;
     if (input) {
       input.addEventListener("input", () => {
         state.spotlightQuery = input.value;
@@ -799,7 +881,7 @@ export function createSpotlight(options: SpotlightOptions) {
         id: mode === "modal"
           ? "spotlight-modal.navigate"
           : "spotlight-inline.navigate",
-        key: ["Escape", "Tab", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Enter"],
+        key: ["Escape", "Tab", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Enter", "Delete"],
         allowExtraModifiers: true,
         priority: WORKBENCH_KEYBINDING_PRIORITY.element,
         run: mode === "modal" ? handleModalKeys : handleInlineKeys,
@@ -815,7 +897,7 @@ export function createSpotlight(options: SpotlightOptions) {
           if (hasElementId(target) && target.id === "spotlight-backdrop") close();
         },
       );
-      focus();
+      focus(selection);
     }
   }
 

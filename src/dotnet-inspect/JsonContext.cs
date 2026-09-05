@@ -58,6 +58,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<PackageSourceLinkFile>))]
 [JsonSerializable(typeof(PackageSourceAvailability))]
 [JsonSerializable(typeof(PackageSourceIntegrity))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class JsonContext : JsonSerializerContext
 {
 }
@@ -108,6 +110,32 @@ internal partial class MatchImplementationDocumentCompactJsonContext : JsonSeria
 {
 }
 
+/// <summary>
+/// Serialization contract for <c>match --similar --json</c>
+/// (<see cref="MatchDiscoveryDocument"/>). Structured output retains every query-returned
+/// candidate, outcome, blocker, limit, and receipt; <c>--top</c> bounds rendered text only.
+/// </summary>
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MatchDiscoveryDocument))]
+internal partial class MatchDiscoveryDocumentJsonContext : JsonSerializerContext
+{
+}
+
+/// <inheritdoc cref="MatchDiscoveryDocumentJsonContext"/>
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MatchDiscoveryDocument))]
+internal partial class MatchDiscoveryDocumentCompactJsonContext : JsonSerializerContext
+{
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PackageFileJsonRow))]
 internal partial class PackageFileJsonRowContext : JsonSerializerContext
@@ -133,6 +161,8 @@ internal partial class PackageFileContentJsonContext : JsonSerializerContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ApiSurface))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class ApiJsonContext : JsonSerializerContext
 {
 }
@@ -146,6 +176,8 @@ public partial class ApiJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(SampleReference))]
 [JsonSerializable(typeof(List<SampleReference>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class ApiTypeJsonContext : JsonSerializerContext
 {
 }
@@ -159,6 +191,8 @@ public partial class ApiTypeJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(SampleReference))]
 [JsonSerializable(typeof(List<SampleReference>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }

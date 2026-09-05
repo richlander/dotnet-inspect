@@ -10,21 +10,197 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class ArrayKindIdentityTests
 {
+    static readonly byte[] SignatureImage =
+        ArrayKindSignatureFixture.BuildImage();
+
+    const string ModifiedVectorStructural =
+        "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[][]";
+    const string ModifiedMd1Structural =
+        "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[][*]";
+
+    public static TheoryData<string, string> TypeNodeParameterExpectations => new()
+    {
+        { "Vector", "System.Int32[]" },
+        { "Md1", "System.Int32[*]" },
+        { "Md1Twin", "System.Int32[*]" },
+        { "Md2", "System.Int32[,]" },
+        { "Nested", "System.Collections.Generic.List{System.Int32[*]}" },
+        { "Pointer", "System.Int32[*]*" },
+        { "ByRef", "System.Int32[*]@" },
+        { "Tuple", "System.ValueTuple{System.Int32[*],System.Int32[]}" },
+        { "Generic", "M0[*]" },
+        { "ModifiedVector", ModifiedVectorStructural },
+        { "ModifiedMd1", ModifiedMd1Structural },
+    };
+
+    public static TheoryData<string, string> TypeNodeReturnExpectations => new()
+    {
+        { "ReturnVector", "System.Int32[]" },
+        { "ReturnVectorTwin", "System.Int32[]" },
+        { "ReturnMd1", "System.Int32[*]" },
+        { "ReturnMd1Twin", "System.Int32[*]" },
+        { "ReturnMd2", "System.Int32[,]" },
+    };
+
+    public static TheoryData<string, string, string, string?, string?>
+        ApiParameterExpectations => new()
+        {
+            { "Vector", "int[]", "int[]", null, null },
+            { "Md1", "int[*]", "int[*]", "System.Int32[*]", null },
+            { "Md1Twin", "int[*]", "int[*]", "System.Int32[*]", null },
+            { "Md2", "int[,]", "int[,]", null, null },
+            {
+                "Nested",
+                "System.Collections.Generic.List<int[*]>",
+                "System.Collections.Generic.List<int[*]>",
+                "System.Collections.Generic.List{System.Int32[*]}",
+                null
+            },
+            { "Pointer", "int[*]*", "int[*]*", "System.Int32[*]*", null },
+            { "ByRef", "int[*]", "int[*]", "System.Int32[*]@", "ref" },
+            {
+                "Tuple",
+                "(int[*], int[])",
+                "System.ValueTuple<int[*], int[]>",
+                "System.ValueTuple{System.Int32[*],System.Int32[]}",
+                null
+            },
+            { "Generic", "T[*]", "T[*]", "M0[*]", null },
+            {
+                "ModifiedVector",
+                "int[][]",
+                "int[][]",
+                ModifiedVectorStructural,
+                null
+            },
+            {
+                "ModifiedMd1",
+                "int[][*]",
+                "int[][*]",
+                ModifiedMd1Structural,
+                null
+            },
+        };
+
+    public static TheoryData<string, string, string, string?>
+        ApiReturnExpectations => new()
+        {
+            { "ReturnVector", "int[]", "int[]", null },
+            { "ReturnVectorTwin", "int[]", "int[]", null },
+            { "ReturnMd1", "int[*]", "int[*]", "System.Int32[*]" },
+            { "ReturnMd1Twin", "int[*]", "int[*]", "System.Int32[*]" },
+            { "ReturnMd2", "int[,]", "int[,]", null },
+        };
+
+    [Theory]
+    [MemberData(nameof(TypeNodeParameterExpectations))]
+    public void TypeNodeParameterProjection_MatchesRecordedExpectation(
+        string memberName,
+        string expected)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = TypeHandle(reader);
+        MethodDefinition method = Method(reader, typeHandle, memberName);
+
+        MethodSignature<TypeNode> signature = method.DecodeSignature(
+            TypeNodeProvider.Instance,
+            GenericContext.ForMethod(
+                reader,
+                reader.GetTypeDefinition(typeHandle),
+                method));
+
+        Assert.Equal(
+            expected,
+            Assert.Single(signature.ParameterTypes).StructuralIdentity());
+    }
+
+    [Theory]
+    [MemberData(nameof(TypeNodeReturnExpectations))]
+    public void TypeNodeReturnProjection_MatchesRecordedExpectation(
+        string memberName,
+        string expected)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = TypeHandle(reader);
+        MethodDefinition method = Method(reader, typeHandle, memberName);
+
+        MethodSignature<TypeNode> signature = method.DecodeSignature(
+            TypeNodeProvider.Instance,
+            GenericContext.ForMethod(
+                reader,
+                reader.GetTypeDefinition(typeHandle),
+                method));
+
+        Assert.Equal(expected, signature.ReturnType.StructuralIdentity());
+    }
+
+    [Theory]
+    [MemberData(nameof(ApiParameterExpectations))]
+    public void ApiParameterProjection_MatchesRecordedExpectation(
+        string memberName,
+        string expectedDisplay,
+        string expectedCanonical,
+        string? expectedStructural,
+        string? expectedModifier)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == ArrayKindSignatureFixture.TypeName);
+
+        ApiParameter parameter =
+            Assert.Single(Member(type, memberName).SignatureModel!.Parameters);
+
+        Assert.Equal(expectedDisplay, parameter.Type);
+        Assert.Equal(expectedCanonical, parameter.EffectiveCanonicalType);
+        Assert.Equal(expectedStructural, parameter.StructuralType);
+        Assert.Equal(expectedModifier, parameter.Modifier);
+    }
+
+    [Theory]
+    [MemberData(nameof(ApiReturnExpectations))]
+    public void ApiReturnProjection_MatchesRecordedExpectation(
+        string memberName,
+        string expectedDisplay,
+        string expectedCanonical,
+        string? expectedStructural)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == ArrayKindSignatureFixture.TypeName);
+        ApiSignature signature = Member(type, memberName).SignatureModel!;
+
+        Assert.Equal(expectedDisplay, signature.ReturnType);
+        Assert.Equal(expectedCanonical, signature.EffectiveCanonicalReturnType);
+        Assert.Equal(expectedStructural, signature.StructuralReturnType);
+    }
+
     [Fact]
     public void Extract_PreservesArrayKindAcrossApiIdentityProjections()
     {
-        byte[] image = BuildArrayKindImage();
-        using var peReader = new PEReader(new MemoryStream(image));
+        using var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false));
         MetadataReader reader = peReader.GetMetadataReader();
         ApiSurface surface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: true);
         ApiType type = Assert.Single(
             surface.Types,
-            candidate => candidate.Name == "ArrayKinds");
-        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
-            handle => reader.GetString(
-                reader.GetTypeDefinition(handle).Name) == "ArrayKinds");
+            candidate => candidate.Name == ArrayKindSignatureFixture.TypeName);
+        TypeDefinitionHandle typeHandle = TypeHandle(reader);
 
         ApiMember vector = Member(type, "Vector");
         ApiParameter vectorParameter =
@@ -43,12 +219,12 @@ public sealed class ArrayKindIdentityTests
             Assert.Single(md1.SignatureModel!.Parameters);
         Assert.Equal("int[*]", md1Parameter.Type);
         Assert.Equal("int[*]", md1Parameter.EffectiveCanonicalType);
-        Assert.Null(md1Parameter.StructuralType);
+        Assert.Equal("System.Int32[*]", md1Parameter.StructuralType);
         AssertDecodedParameterStructuralIdentity(
             reader,
             typeHandle,
             "Md1",
-            "System.Int32[]");
+            "System.Int32[*]");
 
         Assert.Equal(
             md1Parameter.EffectiveCanonicalType,
@@ -59,7 +235,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "Md1Twin",
-            "System.Int32[]");
+            "System.Int32[*]");
 
         ApiMember md2 = Member(type, "Md2");
         ApiParameter md2Parameter =
@@ -90,7 +266,9 @@ public sealed class ArrayKindIdentityTests
             "Nested",
             "System.Collections.Generic.List<int[*]>",
             "System.Collections.Generic.List<int[*]>",
-            "System.Collections.Generic.List{System.Int32[]}");
+            "System.Collections.Generic.List{System.Int32[*]}",
+            emittedStructural:
+                "System.Collections.Generic.List{System.Int32[*]}");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -98,7 +276,8 @@ public sealed class ArrayKindIdentityTests
             "Pointer",
             "int[*]*",
             "int[*]*",
-            "System.Int32[]*");
+            "System.Int32[*]*",
+            emittedStructural: "System.Int32[*]*");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -106,8 +285,9 @@ public sealed class ArrayKindIdentityTests
             "ByRef",
             "int[*]",
             "int[*]",
-            "System.Int32[]@",
-            modifier: "ref");
+            "System.Int32[*]@",
+            modifier: "ref",
+            emittedStructural: "System.Int32[*]@");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -115,7 +295,9 @@ public sealed class ArrayKindIdentityTests
             "Tuple",
             "(int[*], int[])",
             "System.ValueTuple<int[*], int[]>",
-            "System.ValueTuple{System.Int32[],System.Int32[]}");
+            "System.ValueTuple{System.Int32[*],System.Int32[]}",
+            emittedStructural:
+                "System.ValueTuple{System.Int32[*],System.Int32[]}");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -123,9 +305,8 @@ public sealed class ArrayKindIdentityTests
             "Generic",
             "T[*]",
             "T[*]",
-            "M0[]");
-        const string modifiedArrayStructural =
-            "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[][]";
+            "M0[*]",
+            emittedStructural: "M0[*]");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -133,8 +314,8 @@ public sealed class ArrayKindIdentityTests
             "ModifiedVector",
             "int[][]",
             "int[][]",
-            modifiedArrayStructural,
-            emittedStructural: modifiedArrayStructural);
+            ModifiedVectorStructural,
+            emittedStructural: ModifiedVectorStructural);
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -142,8 +323,8 @@ public sealed class ArrayKindIdentityTests
             "ModifiedMd1",
             "int[][*]",
             "int[][*]",
-            modifiedArrayStructural,
-            emittedStructural: modifiedArrayStructural);
+            ModifiedMd1Structural,
+            emittedStructural: ModifiedMd1Structural);
 
         ApiTypeShape vectorShape = ReturnShape(type, "ReturnVector");
         ApiTypeShape vectorTwinShape = ReturnShape(type, "ReturnVectorTwin");
@@ -157,7 +338,8 @@ public sealed class ArrayKindIdentityTests
         Assert.Equal(1, md1Shape.ArrayRank);
         Assert.Null(
             Member(type, "ReturnVector").SignatureModel!.StructuralReturnType);
-        Assert.Null(
+        Assert.Equal(
+            "System.Int32[*]",
             Member(type, "ReturnMd1").SignatureModel!.StructuralReturnType);
         Assert.Null(
             Member(type, "ReturnMd2").SignatureModel!.StructuralReturnType);
@@ -170,7 +352,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "ReturnMd1",
-            "System.Int32[]");
+            "System.Int32[*]");
         AssertDecodedReturnStructuralIdentity(
             reader,
             typeHandle,
@@ -240,12 +422,10 @@ public sealed class ArrayKindIdentityTests
     public void SyntheticImage_UsesValidBodylessInterfaceDeclarations()
     {
         using var peReader = new PEReader(
-            new MemoryStream(BuildArrayKindImage()));
+            new MemoryStream(SignatureImage, writable: false));
         MetadataReader reader = peReader.GetMetadataReader();
         TypeDefinition type = reader.GetTypeDefinition(
-            reader.TypeDefinitions.Single(
-                handle => reader.GetString(
-                    reader.GetTypeDefinition(handle).Name) == "ArrayKinds"));
+            TypeHandle(reader));
 
         Assert.True(type.Attributes.HasFlag(TypeAttributes.Interface));
         Assert.True(type.Attributes.HasFlag(TypeAttributes.Abstract));
@@ -269,16 +449,16 @@ public sealed class ArrayKindIdentityTests
     [Fact]
     public void SyntheticImage_ResolvesEveryDeclaredSignatureTypeThroughClrLoader()
     {
-        Assembly assembly = Assembly.Load(BuildArrayKindImage());
+        Assembly assembly = Assembly.Load(SignatureImage);
         Type type = assembly.GetType(
-            "N.ArrayKinds",
+            $"N.{ArrayKindSignatureFixture.TypeName}",
             throwOnError: true)!;
         MethodInfo[] methods = type.GetMethods(
             BindingFlags.Public
                 | BindingFlags.Instance
                 | BindingFlags.DeclaredOnly);
 
-        Assert.Equal(16, methods.Length);
+        Assert.Equal(ArrayKindSignatureFixture.MethodCount, methods.Length);
         foreach (MethodInfo method in methods)
         {
             _ = method.ReturnType;
@@ -294,9 +474,9 @@ public sealed class ArrayKindIdentityTests
     [Fact]
     public void ExtractedArrayIdentity_SurvivesJsonRoundTrip()
     {
-        byte[] image = BuildArrayKindImage();
         ApiSurface live;
-        using (var peReader = new PEReader(new MemoryStream(image)))
+        using (var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false)))
         {
             live = ApiSurfaceExtractor.Extract(
                 peReader,
@@ -307,10 +487,10 @@ public sealed class ArrayKindIdentityTests
             JsonSerializer.Serialize(live))!;
         ApiType liveType = Assert.Single(
             live.Types,
-            candidate => candidate.Name == "ArrayKinds");
+            candidate => candidate.Name == ArrayKindSignatureFixture.TypeName);
         ApiType roundTrippedType = Assert.Single(
             roundTripped.Types,
-            candidate => candidate.Name == "ArrayKinds");
+            candidate => candidate.Name == ArrayKindSignatureFixture.TypeName);
 
         foreach (string name in new[]
         {
@@ -341,8 +521,10 @@ public sealed class ArrayKindIdentityTests
     [Fact]
     public void Compare_DoesNotPairSzAndRankOneNonSzAsEqual()
     {
-        ApiSurface vector = ExtractSingleMethod(Sz(Int32));
-        ApiSurface md1 = ExtractSingleMethod(MdArray(Int32, rank: 1));
+        ApiSurface vector = ExtractSingleMethod(
+            ArrayKindSignatureFixture.BuildSingleVectorParameterImage());
+        ApiSurface md1 = ExtractSingleMethod(
+            ArrayKindSignatureFixture.BuildSingleRankOneNonSzParameterImage());
 
         ApiDiff diff = ApiDiffAnalyzer.Compare(vector, md1);
 
@@ -431,6 +613,12 @@ public sealed class ArrayKindIdentityTests
                     handle => reader.GetString(
                         reader.GetMethodDefinition(handle).Name) == name));
 
+    static TypeDefinitionHandle TypeHandle(MetadataReader reader) =>
+        reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name)
+                == ArrayKindSignatureFixture.TypeName);
+
     static ApiTypeShape ReturnShape(ApiType type, string memberName) =>
         Assert.IsType<ApiTypeShape>(
             Member(type, memberName).SignatureModel?.ReturnTypeShape);
@@ -440,234 +628,9 @@ public sealed class ArrayKindIdentityTests
             type.Members,
             member => member.Kind == "method" && member.Name == name);
 
-    static ApiSurface ExtractSingleMethod(byte[] parameterType)
+    static ApiSurface ExtractSingleMethod(byte[] image)
     {
-        byte[] image = BuildImage(
-            [
-                new MethodSpec(
-                    "M",
-                    parameterType,
-                    Void,
-                    IsGeneric: false),
-            ]);
         using var peReader = new PEReader(new MemoryStream(image));
         return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
-
-    static byte[] BuildArrayKindImage()
-    {
-        var metadata = CreateMetadata();
-        AssemblyReferenceHandle systemRuntime = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("System.Runtime"),
-            new Version(8, 0, 0, 0),
-            default,
-            default,
-            default,
-            default);
-        AssemblyReferenceHandle systemCollections =
-            metadata.AddAssemblyReference(
-                metadata.GetOrAddString("System.Collections"),
-                new Version(8, 0, 0, 0),
-                default,
-                default,
-                default,
-                default);
-        TypeReferenceHandle list = metadata.AddTypeReference(
-            systemCollections,
-            metadata.GetOrAddString("System.Collections.Generic"),
-            metadata.GetOrAddString("List`1"));
-        TypeReferenceHandle valueTuple = metadata.AddTypeReference(
-            systemRuntime,
-            metadata.GetOrAddString("System"),
-            metadata.GetOrAddString("ValueTuple`2"));
-        TypeReferenceHandle isVolatile = metadata.AddTypeReference(
-            systemRuntime,
-            metadata.GetOrAddString("System.Runtime.CompilerServices"),
-            metadata.GetOrAddString("IsVolatile"));
-
-        byte[] md1 = MdArray(Int32, rank: 1);
-        byte[] sz = Sz(Int32);
-        byte[] md2 = MdArray(Int32, rank: 2);
-        byte[] modifiedVector = Sz(RequiredModifier(isVolatile, Int32));
-        byte[] nested = GenericInstance(
-            isValueType: false,
-            list,
-            md1);
-        byte[] tuple = GenericInstance(
-            isValueType: true,
-            valueTuple,
-            md1,
-            sz);
-
-        return BuildImage(
-            [
-                new("Vector", sz, Void, IsGeneric: false),
-                new("Md1", md1, Void, IsGeneric: false),
-                new("Md1Twin", md1, Void, IsGeneric: false),
-                new("Md2", md2, Void, IsGeneric: false),
-                new("Nested", nested, Void, IsGeneric: false),
-                new("Pointer", Pointer(md1), Void, IsGeneric: false),
-                new("ByRef", ByRef(md1), Void, IsGeneric: false),
-                new("Tuple", tuple, Void, IsGeneric: false),
-                new("Generic", MdArray(MethodGeneric0, rank: 1), Void, IsGeneric: true),
-                new("ModifiedVector", Sz(modifiedVector), Void, IsGeneric: false),
-                new("ModifiedMd1", MdArray(modifiedVector, rank: 1), Void, IsGeneric: false),
-                new("ReturnVector", null, sz, IsGeneric: false),
-                new("ReturnVectorTwin", null, sz, IsGeneric: false),
-                new("ReturnMd1", null, md1, IsGeneric: false),
-                new("ReturnMd1Twin", null, md1, IsGeneric: false),
-                new("ReturnMd2", null, md2, IsGeneric: false),
-            ],
-            metadata);
-    }
-
-    static byte[] BuildImage(
-        IReadOnlyList<MethodSpec> methods,
-        MetadataBuilder? metadata = null)
-    {
-        metadata ??= CreateMetadata();
-        var methodHandles = new List<MethodDefinitionHandle>(methods.Count);
-        int parameterRow = 1;
-        foreach (MethodSpec method in methods)
-        {
-            var signature = new BlobBuilder();
-            signature.WriteByte(method.IsGeneric ? (byte)0x30 : (byte)0x20);
-            if (method.IsGeneric)
-                signature.WriteCompressedInteger(1);
-            signature.WriteCompressedInteger(
-                method.ParameterType is null ? 0 : 1);
-            signature.WriteBytes(method.ReturnType);
-            if (method.ParameterType is not null)
-                signature.WriteBytes(method.ParameterType);
-
-            MethodDefinitionHandle methodHandle =
-                metadata.AddMethodDefinition(
-                    MethodAttributes.Public
-                        | MethodAttributes.Abstract
-                        | MethodAttributes.Virtual
-                        | MethodAttributes.HideBySig
-                        | MethodAttributes.NewSlot,
-                    MethodImplAttributes.IL,
-                    metadata.GetOrAddString(method.Name),
-                    metadata.GetOrAddBlob(signature),
-                    bodyOffset: -1,
-                    MetadataTokens.ParameterHandle(parameterRow));
-            methodHandles.Add(methodHandle);
-            if (method.ParameterType is not null)
-            {
-                metadata.AddParameter(
-                    ParameterAttributes.None,
-                    metadata.GetOrAddString("value"),
-                    sequenceNumber: 1);
-                parameterRow++;
-            }
-            if (method.IsGeneric)
-            {
-                metadata.AddGenericParameter(
-                    methodHandle,
-                    GenericParameterAttributes.None,
-                    metadata.GetOrAddString("T"),
-                    index: 0);
-            }
-        }
-
-        metadata.AddTypeDefinition(
-            TypeAttributes.Public
-                | TypeAttributes.Abstract
-                | TypeAttributes.Interface,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("ArrayKinds"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            methodHandles[0]);
-
-        var peBuilder = new ManagedPEBuilder(
-            new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll),
-            new MetadataRootBuilder(metadata),
-            new BlobBuilder());
-        var image = new BlobBuilder();
-        peBuilder.Serialize(image);
-        return image.ToArray();
-    }
-
-    static MetadataBuilder CreateMetadata()
-    {
-        var metadata = new MetadataBuilder();
-        metadata.AddAssembly(
-            metadata.GetOrAddString("ArrayKinds"),
-            new Version(1, 0, 0, 0),
-            default,
-            default,
-            0,
-            AssemblyHashAlgorithm.Sha1);
-        metadata.AddModule(
-            generation: 0,
-            metadata.GetOrAddString("ArrayKinds.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
-            default,
-            default);
-        metadata.AddTypeDefinition(
-            default,
-            default,
-            metadata.GetOrAddString("<Module>"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
-        return metadata;
-    }
-
-    static byte[] GenericInstance(
-        bool isValueType,
-        TypeReferenceHandle definition,
-        params byte[][] arguments)
-    {
-        var signature = new BlobBuilder();
-        signature.WriteByte(0x15);
-        signature.WriteByte(isValueType ? (byte)0x11 : (byte)0x12);
-        signature.WriteCompressedInteger(
-            (MetadataTokens.GetRowNumber(definition) << 2) | 1);
-        signature.WriteCompressedInteger(arguments.Length);
-        foreach (byte[] argument in arguments)
-            signature.WriteBytes(argument);
-        return signature.ToArray();
-    }
-
-    static byte[] RequiredModifier(
-        TypeReferenceHandle modifier,
-        byte[] inner)
-    {
-        var signature = new BlobBuilder();
-        signature.WriteByte(0x1f);
-        signature.WriteCompressedInteger(
-            (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
-        signature.WriteBytes(inner);
-        return signature.ToArray();
-    }
-
-    static byte[] MdArray(byte[] elementType, int rank)
-    {
-        var signature = new BlobBuilder();
-        signature.WriteByte(0x14);
-        signature.WriteBytes(elementType);
-        signature.WriteCompressedInteger(rank);
-        signature.WriteCompressedInteger(0);
-        signature.WriteCompressedInteger(0);
-        return signature.ToArray();
-    }
-
-    static byte[] Sz(byte[] elementType) => [0x1d, .. elementType];
-
-    static byte[] Pointer(byte[] elementType) => [0x0f, .. elementType];
-
-    static byte[] ByRef(byte[] elementType) => [0x10, .. elementType];
-
-    static readonly byte[] Void = [0x01];
-    static readonly byte[] Int32 = [0x08];
-    static readonly byte[] MethodGeneric0 = [0x1e, 0x00];
-
-    sealed record MethodSpec(
-        string Name,
-        byte[]? ParameterType,
-        byte[] ReturnType,
-        bool IsGeneric);
 }

@@ -549,7 +549,7 @@ public sealed class CallerScopeReachabilityPlan
                 []);
     }
 
-    sealed class ScopeFirstBindingPolicy : IAssemblyBindingPolicy
+    internal sealed class ScopeFirstBindingPolicy : IAssemblyBindingPolicy
     {
         readonly IAssemblyBindingPolicy _fallback;
         readonly ResolvedAssemblyReference _target;
@@ -567,47 +567,91 @@ public sealed class CallerScopeReachabilityPlan
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
         {
+            AssemblyBindingSelection selection;
             if (request.Target
                 is not AssemblyBindingTarget.AssemblyReference reference)
             {
-                return _fallback.Select(request);
+                AssemblyBindingSelectionSnapshot? nonReferenceSnapshot =
+                    _fallback.Select(request);
+                selection = AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    nonReferenceSnapshot?.Selection);
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
             }
 
-            if (_target.Identity == reference.Identity)
-                return AssemblyBindingSelection.Found(_target);
-
-            if (string.Equals(
-                _target.Identity.Name,
-                reference.Identity.Name,
-                StringComparison.OrdinalIgnoreCase))
+            if (_target.Identity.IsEquivalentTo(reference.Identity))
             {
-                // Keep a skewed caller as indeterminate unless the supplied
-                // policy explicitly rolls its reference to the selected target.
-                AssemblyBindingSelection fallback =
-                    _fallback.Select(request);
-                if (fallback
-                        is AssemblyBindingSelection.Selected selected
-                    && selected.Assembly.Identity == _target.Identity)
-                {
-                    return fallback;
-                }
-
-                return AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.IdentityPolicyRequired));
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    AssemblyBindingSelection.Found(_target));
             }
 
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
-                .Where(root => root.Identity == reference.Identity)
+                .Where(
+                    root => root.Identity.IsEquivalentTo(
+                        reference.Identity))
                 .ToImmutableArray();
-            return matches.Length switch
+            if (matches.Length > 0)
             {
-                0 => _fallback.Select(request),
-                1 => AssemblyBindingSelection.Found(matches[0]),
-                _ => AssemblyBindingSelection.Multiple(matches),
+                selection = matches.Length == 1
+                    ? AssemblyBindingSelection.Found(matches[0])
+                    : AssemblyBindingSelection.Multiple(matches);
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
+            }
+
+            AssemblyBindingSelectionSnapshot? referenceSnapshot =
+                _fallback.Select(request);
+            AssemblyBindingSelection delegated =
+                AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    referenceSnapshot?.Selection);
+            if (delegated
+                is not AssemblyBindingSelection.Missing
+                {
+                    Disposition:
+                        AssemblyBindingMissDisposition.NoNameOwner,
+                })
+            {
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    delegated);
+            }
+
+            bool targetOwnsName = string.Equals(
+                _target.Identity.Name,
+                reference.Identity.Name,
+                StringComparison.OrdinalIgnoreCase);
+            ImmutableArray<ResolvedAssemblyReference> nameOwners = _roots
+                .Where(
+                    root => string.Equals(
+                        root.Identity.Name,
+                        reference.Identity.Name,
+                        StringComparison.OrdinalIgnoreCase)
+                    && (!targetOwnsName
+                        || !root.Identity.IsEquivalentTo(
+                            _target.Identity)))
+                .ToImmutableArray();
+            if (targetOwnsName)
+                nameOwners = nameOwners.Insert(0, _target);
+
+            selection = nameOwners.Length switch
+            {
+                0 => delegated,
+                1 => AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.IdentityPolicyRequired)),
+                _ => AssemblyBindingSelection.Multiple(nameOwners),
             };
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                selection);
         }
     }
 }

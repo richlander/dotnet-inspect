@@ -21,7 +21,7 @@ using Analysis = ILInspector.Analysis;
 namespace DotnetInspector.Output;
 
 /// <summary>
-/// Formats API command output for display.
+/// Formats API inspection output for display.
 /// </summary>
 public static class ApiOutputFormatter
 {
@@ -250,7 +250,8 @@ public static class ApiOutputFormatter
         {
             IncludeSections = includeSections,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet && !ShouldRenderMemberDetailContext(options),
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            TextDiffContextLines = effectiveVerbosity >= Verbosity.Detailed ? null : 3
         };
     }
 
@@ -550,6 +551,7 @@ public static class ApiOutputFormatter
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
             SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            SourceFilePath = type.SourceFilePath,
             SourceChecksum = type.SourceChecksum,
             SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
@@ -1117,6 +1119,7 @@ public static class ApiOutputFormatter
                 endLine,
                 SelectSourceUrl(member.SourceUrl, options.BrowsableUrls))
             {
+                FilePath = member.SourceFilePath,
                 Checksum = member.SourceChecksum,
                 ChecksumAlgorithm = member.SourceChecksumAlgorithm,
             });
@@ -1553,6 +1556,8 @@ public static class ApiOutputFormatter
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
+            MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
+                facts => facts.CallerContract.Evidence.MemberToken == token),
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };

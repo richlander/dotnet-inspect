@@ -36,120 +36,50 @@ internal static partial class WorkflowContract
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
-        ValidateOutputConsumers(jobs);
+        ValidateConsumerStepContracts(jobs);
         YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
         RequireAbsent(changes, "if", "jobs.changes");
         RequireAbsent(changes, "continue-on-error", "jobs.changes");
         RequireAbsent(changes, "defaults", "jobs.changes");
         RequireAbsent(changes, "env", "jobs.changes");
 
-        YamlMappingNode outputMappings =
-            GetRequiredMapping(changes, "outputs", "jobs.changes");
-        List<string> declaredOutputs = [];
-        foreach ((YamlNode keyNode, YamlNode valueNode) in outputMappings.Children)
-        {
-            string name = RequireScalar(
-                keyNode,
-                "jobs.changes output name");
-            string binding = RequireScalar(
-                valueNode,
-                $"jobs.changes.outputs.{name} binding");
-            string expectedBinding =
-                "${{ steps.filter.outputs." + name + " }}";
-            if (binding != expectedBinding)
-            {
-                throw new InvalidOperationException(
-                    $"Invalid jobs.changes.outputs.{name} binding.");
-            }
-
-            declaredOutputs.Add(name);
-        }
-
-        if (declaredOutputs.Count == 0)
-        {
-            throw new InvalidOperationException(
-                "jobs.changes must declare at least one output.");
-        }
-        string[] requiredOutputs =
-        [
-            "code",
-            "csharpdiff",
-            "decompiler",
-            "docs",
-            "ildiff",
-            "ilroundtrip",
-            "packaging",
-            "shipped",
-            "web",
-            "skills",
-        ];
-        if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
-            .SetEquals(requiredOutputs))
-        {
-            throw new InvalidOperationException(
-                $"jobs.changes must declare exactly: " +
-                $"{string.Join(", ", requiredOutputs)}.");
-        }
-
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
+        ValidateTlaJob(jobs);
 
         YamlSequenceNode steps = GetRequiredSequence(
             changes,
             "steps",
             "jobs.changes");
-        if (steps.Children.Count != 5)
+        if (steps.Children.Count != 6)
         {
             throw new InvalidOperationException(
                 "jobs.changes must contain checkout, setup, self-test, " +
-                "provenance, and detection steps.");
+                "provenance, planning, and TLA+ scope upload steps.");
         }
 
         ValidateCheckoutStep(steps);
+        ValidateTlaScopeUploadStep(steps);
 
-        List<(int Index, YamlMappingNode Step)> detectionSteps = [];
         List<(int Index, YamlMappingNode Step)> selfTestSteps = [];
         for (int index = 0; index < steps.Children.Count; index++)
         {
             YamlMappingNode step = RequireMapping(
                 steps.Children[index],
                 "jobs.changes step");
-            if (GetOptionalScalar(step, "name") == "Detect changes")
-            {
-                detectionSteps.Add((index, step));
-            }
-            else if (GetOptionalScalar(step, "name") ==
+            if (GetOptionalScalar(step, "name") ==
                 "Self-test change detection")
             {
                 selfTestSteps.Add((index, step));
             }
         }
 
-        if (detectionSteps.Count != 1)
-        {
-            throw new InvalidOperationException(
-                $"Expected one jobs.changes Detect changes step, " +
-                $"found {detectionSteps.Count}.");
-        }
-
-        if (detectionSteps[0].Index != 4)
-        {
-            throw new InvalidOperationException(
-                "Detect changes must run after checkout, .NET setup, " +
-                "self-test, and EVIL provenance validation.");
-        }
-
         ValidateSetupStep(steps);
         (string provenanceRunSha256, string provenancePin) =
             ValidateProvenanceStep(steps, validateProvenancePin);
         ValidateSelfTestStep(selfTestSteps);
-        string body = ValidateDetectionStep(
-            repository,
-            detectionSteps[0].Step);
 
         return new WorkflowContractResult(
-            body,
-            declaredOutputs.AsReadOnly(),
             provenanceRunSha256,
             provenancePin);
     }
@@ -158,16 +88,6 @@ internal static partial class WorkflowContract
     {
         YamlMappingNode inspectWeb =
             GetRequiredMapping(jobs, "inspect-web", "jobs");
-        RequireScalarValue(
-            inspectWeb,
-            "needs",
-            "changes",
-            "jobs.inspect-web");
-        RequireScalarValue(
-            inspectWeb,
-            "if",
-            "needs.changes.outputs.web == 'true'",
-            "jobs.inspect-web");
         RequireAbsent(
             inspectWeb,
             "continue-on-error",
@@ -186,7 +106,7 @@ internal static partial class WorkflowContract
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.inspect-web step");
-            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v5")
+            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
             {
                 webSdkSteps.Add(step);
             }
@@ -252,6 +172,214 @@ internal static partial class WorkflowContract
             "run",
             "dotnet build eng/verify-package-manifest-corpus.cs -c Release",
             "jobs.test package-manifest corpus verifier build step");
+    }
+
+    private static void ValidateTlaJob(YamlMappingNode jobs)
+    {
+        YamlMappingNode tla = GetRequiredMapping(jobs, "tla-plus", "jobs");
+        RequireAbsent(tla, "continue-on-error", "jobs.tla-plus");
+        RequireAbsent(tla, "defaults", "jobs.tla-plus");
+        RequireAbsent(tla, "env", "jobs.tla-plus");
+
+        YamlSequenceNode steps = GetRequiredSequence(
+            tla,
+            "steps",
+            "jobs.tla-plus");
+        if (steps.Children.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "jobs.tla-plus must contain steps.");
+        }
+
+        YamlMappingNode checkout = RequireMapping(
+            steps.Children[0],
+            "jobs.tla-plus checkout step");
+        RequireExactKeys(
+            checkout,
+            ["uses"],
+            "jobs.tla-plus checkout step");
+        RequireScalarValue(
+            checkout,
+            "uses",
+            "actions/checkout@v7",
+            "jobs.tla-plus checkout step");
+
+        List<YamlMappingNode> downloads = [];
+        List<YamlMappingNode> scopeTests = [];
+        List<YamlMappingNode> runs = [];
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(
+                stepNode,
+                "jobs.tla-plus step");
+            switch (GetOptionalScalar(step, "name"))
+            {
+                case "Download TLA+ scope evidence":
+                    downloads.Add(step);
+                    break;
+                case "Self-test TLA+ runner scope":
+                    scopeTests.Add(step);
+                    break;
+                case "Run TLA+ checks":
+                    runs.Add(step);
+                    break;
+            }
+        }
+
+        if (downloads.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.tla-plus scope download step.");
+        }
+        RequireExactKeys(
+            downloads[0],
+            ["name", "uses", "with"],
+            "jobs.tla-plus scope download step");
+        RequireScalarValue(
+            downloads[0],
+            "uses",
+            "actions/download-artifact@v8",
+            "jobs.tla-plus scope download step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                downloads[0],
+                "with",
+                "jobs.tla-plus scope download step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}",
+                ["path"] = "${{ runner.temp }}/ci-plan",
+            },
+            "jobs.tla-plus scope download step.with");
+
+        if (scopeTests.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.tla-plus scope self-test step.");
+        }
+        RequireScalarValue(
+            scopeTests[0],
+            "shell",
+            "bash",
+            "jobs.tla-plus scope self-test step");
+        RequireScalarValue(
+            scopeTests[0],
+            "run",
+            "eng/test-tla-checks.sh",
+            "jobs.tla-plus scope self-test step");
+
+        if (runs.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.tla-plus run step.");
+        }
+        RequireScalarValue(
+            runs[0],
+            "shell",
+            "bash",
+            "jobs.tla-plus run step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                runs[0],
+                "env",
+                "jobs.tla-plus run step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["TLA_SCOPE_ARTIFACT"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}",
+                ["TLA_SCOPE_FRAMING"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.framing }}",
+                ["TLA_SCOPE_RECORD_COUNT"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.recordCount }}",
+                ["TLA_SCOPE_SHA256"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.sha256 }}",
+            },
+            "jobs.tla-plus run step.env");
+
+        string run = GetRequiredScalar(
+            runs[0],
+            "run",
+            "jobs.tla-plus run step");
+        if (!run.Contains(
+                "[ \"$TLA_SCOPE_ARTIFACT\" != \"ci-plan-tla-paths0\" ]",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "[ \"$TLA_SCOPE_FRAMING\" != " +
+                "\"pathBytesNulTerminated\" ]",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "actual_sha256=$(sha256sum \"$scope_file\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "\"$actual_sha256\" != \"$TLA_SCOPE_SHA256\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "tr -cd '\\000' < \"$scope_file\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "\"$actual_record_count\" != " +
+                "\"$TLA_SCOPE_RECORD_COUNT\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "eng/run-tla-checks.sh --changed-files0 < \"$scope_file\"",
+                StringComparison.Ordinal)
+            || run.Contains(
+                "eng/run-tla-checks.sh --all",
+                StringComparison.Ordinal)
+            || run.Contains(
+                "git diff",
+                StringComparison.Ordinal)
+            || run.Contains(
+                "CI_BEFORE_SHA",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "jobs.tla-plus must verify and consume the planner-produced " +
+                "scope without independent provenance or a whole-repository " +
+                "fallback.");
+        }
+    }
+
+    private static void ValidateTlaScopeUploadStep(YamlSequenceNode steps)
+    {
+        YamlMappingNode upload = RequireMapping(
+            steps.Children[5],
+            "jobs.changes TLA+ scope upload step");
+        RequireExactKeys(
+            upload,
+            ["name", "if", "uses", "with"],
+            "jobs.changes TLA+ scope upload step");
+        RequireScalarValue(
+            upload,
+            "name",
+            "Upload TLA+ scope evidence",
+            "jobs.changes TLA+ scope upload step");
+        RequireScalarValue(
+            upload,
+            "if",
+            "fromJSON(steps.plan.outputs.plan).validations.tla",
+            "jobs.changes TLA+ scope upload step");
+        RequireScalarValue(
+            upload,
+            "uses",
+            "actions/upload-artifact@v7",
+            "jobs.changes TLA+ scope upload step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                upload,
+                "with",
+                "jobs.changes TLA+ scope upload step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] =
+                    "${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}",
+                ["path"] =
+                    "${{ runner.temp }}/ci-plan/${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}",
+                ["if-no-files-found"] = "error",
+                ["retention-days"] = "1",
+            },
+            "jobs.changes TLA+ scope upload step.with");
     }
 
     private static void ValidateWorkflowTriggers(YamlMappingNode root)
@@ -322,7 +450,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             checkoutStep,
             "uses",
-            "actions/checkout@v6",
+            "actions/checkout@v7",
             "jobs.changes checkout step");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -348,7 +476,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             setupStep,
             "uses",
-            "actions/setup-dotnet@v5",
+            "actions/setup-dotnet@v6",
             "jobs.changes .NET setup step");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -474,72 +602,4 @@ internal static partial class WorkflowContract
             "Self-test change detection");
     }
 
-    private static string ValidateDetectionStep(
-        string repository,
-        YamlMappingNode detectionStep)
-    {
-        RequireScalarValue(
-            detectionStep,
-            "id",
-            "filter",
-            "Detect changes");
-        RequireScalarValue(
-            detectionStep,
-            "shell",
-            "bash",
-            "Detect changes");
-        RequireAbsent(detectionStep, "if", "Detect changes");
-        RequireAbsent(
-            detectionStep,
-            "continue-on-error",
-            "Detect changes");
-        YamlMappingNode detectionEnvironment =
-            GetRequiredMapping(detectionStep, "env", "Detect changes");
-        RequireExactScalarValues(
-            detectionEnvironment,
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["BASH_ENV"] = "",
-                ["CI_BEFORE_SHA"] =
-                    "${{ github.event.merge_group.base_sha || " +
-                    "github.event.before }}",
-                ["CI_PR_NUMBER"] =
-                    "${{ github.event.pull_request.number }}",
-                ["GH_TOKEN"] = "${{ github.token }}",
-            },
-            "Detect changes.env");
-        const string DetectionScript = "eng/ci-detect-changes.sh";
-        RequireScalarValue(
-            detectionStep,
-            "run",
-            DetectionScript,
-            "Detect changes");
-        string detectionScriptPath = Path.Combine(
-            repository,
-            DetectionScript);
-        string body = File.ReadAllText(detectionScriptPath);
-        if (body.Length == 0)
-        {
-            throw new InvalidOperationException(
-                "Detect changes has an empty script.");
-        }
-        if (!OperatingSystem.IsWindows()
-            && (File.GetUnixFileMode(detectionScriptPath)
-                & UnixFileMode.UserExecute) == 0)
-        {
-            throw new InvalidOperationException(
-                "Detect changes script must be executable.");
-        }
-        if (!body.StartsWith(
-                "#!/usr/bin/env bash\nset -e -o pipefail\n",
-                StringComparison.Ordinal)
-            || body.Contains("${{", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Detect changes script must own its Bash failure mode and " +
-                "contain no unevaluated workflow expressions.");
-        }
-
-        return body;
-    }
 }

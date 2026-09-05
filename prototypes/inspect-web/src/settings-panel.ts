@@ -1,7 +1,8 @@
-// The Settings page (a persistent preferences panel) and the decompiler "taste" popover it
-// shares its style catalog with. Both are dependency-injected render functions with their
-// rendered control bindings; `dotnet-inspect.ts` owns `state`, localStorage persistence, and
-// the theme/taste effects, and passes each computed slice and action in explicitly.
+import { trapModalTab } from "./shell-controls.ts";
+
+// The Settings dialog is a dependency-injected render function with its rendered
+// control bindings. `dotnet-inspect.ts` owns `state`, localStorage persistence,
+// and the theme/taste effects, and passes each computed slice and action in.
 
 export interface StyleTier {
   id: string;
@@ -28,11 +29,18 @@ export interface StyleCatalogState {
 
 type EscapeHtml = (value: unknown) => string;
 
+export function reconcileStyleTaste(
+  taste: readonly string[],
+  options: readonly StyleOption[],
+): string[] {
+  const currentIds = new Set(options.map(option => option.id));
+  return taste.filter(id => currentIds.has(id));
+}
+
 export interface SettingsPanelBindingActions {
   onClose: () => void;
   onOpen: (from: "home" | "workbench") => void;
   onTasteClear: () => void;
-  onTasteOpenToggle: () => void;
   onTasteToggle: (taste: string) => void;
   onThemeSelect: (theme: "dark" | "light") => void;
 }
@@ -47,12 +55,13 @@ export function bindSettingsPanel(
   root.querySelector("#home-settings")?.addEventListener(
     "click",
     () => actions.onOpen("home"));
-  root.querySelector("#open-settings")?.addEventListener(
-    "click",
-    () => actions.onOpen("workbench"));
-  root.querySelector("#taste-btn")?.addEventListener("click", event => {
-    event.stopPropagation();
-    actions.onTasteOpenToggle();
+  const backdrop = root.querySelector<HTMLElement>("#settings-backdrop");
+  backdrop?.addEventListener("click", event => {
+    if (event.target === backdrop) actions.onClose();
+  });
+  const dialog = root.querySelector<HTMLElement>("#settings-dialog");
+  dialog?.addEventListener("keydown", event => {
+    if (event.key === "Tab") trapModalTab(dialog, event);
   });
   root.querySelectorAll<HTMLElement>(".settings-seg[data-theme]")
     .forEach(button => button.addEventListener("click", () => {
@@ -69,18 +78,10 @@ export function bindSettingsPanel(
   root.querySelector("#settings-taste-clear")?.addEventListener(
     "click",
     actions.onTasteClear);
-  root.querySelectorAll<HTMLElement>("#taste-popover [data-taste]")
-    .forEach(checkbox => checkbox.addEventListener(
-      "change",
-      () => actions.onTasteToggle(checkbox.dataset.taste ?? "")));
-  root.querySelector("#taste-clear")?.addEventListener(
-    "click",
-    actions.onTasteClear);
 }
 
-// The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
-// detail-view taste popover and the Settings page so both stay in lockstep with the engine's
-// StyleOptionCatalog (fetched once into state.styleTiers/state.styleOptions).
+// The decompiler style ("taste") catalog, grouped by tier, as Settings checkbox
+// rows kept in lockstep with the engine's StyleOptionCatalog.
 export function styleCatalogGroupsHtml(catalog: StyleCatalogState, escapeHtml: EscapeHtml): string {
   const tiers = catalog.styleTiers || [];
   const options = catalog.styleOptions || [];
@@ -109,17 +110,6 @@ export function styleCatalogGroupsHtml(catalog: StyleCatalogState, escapeHtml: E
       </div>`).join("");
 }
 
-export function renderTastePopover(catalog: StyleCatalogState, escapeHtml: EscapeHtml): string {
-  const groups = styleCatalogGroupsHtml(catalog, escapeHtml);
-  const body = groups || '<div class="taste-empty">Style catalog unavailable.</div>';
-  return `
-    <div class="taste-popover" id="taste-popover" role="dialog" aria-label="Decompiler taste">
-      <div class="taste-head"><strong>Taste</strong><span>decompiler style knobs</span></div>
-      <div class="taste-body">${body}</div>
-      <div class="taste-foot">${catalog.taste.length ? '<button id="taste-clear" type="button">reset to default</button>' : '<span>default · opcode-faithful</span>'}</div>
-    </div>`;
-}
-
 export interface RenderSettingsViewOptions {
   theme: string;
   settingsReturn: string;
@@ -127,53 +117,57 @@ export interface RenderSettingsViewOptions {
   escapeHtml: EscapeHtml;
 }
 
-// The Settings page: a persistent preferences panel. Every control here writes straight to
+// The Settings dialog: a persistent preferences panel. Every control here writes straight to
 // localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
-// future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
-// style-option catalog the detail-view taste popover shows.
+// future sessions.
 export function renderSettingsView(options: RenderSettingsViewOptions): string {
-  const { theme, settingsReturn, styleCatalog, escapeHtml } = options;
+  const { theme, styleCatalog, escapeHtml } = options;
   const catalog = styleCatalogGroupsHtml(styleCatalog, escapeHtml);
   const styleBody = catalog
     || '<div class="taste-empty">Style catalog is still loading — reopen Settings in a moment.</div>';
   const activeCount = styleCatalog.taste.length;
   return `
-    <div class="settings-page">
-      <header class="settings-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <button id="settings-close" class="settings-close">${settingsReturn === "workbench" ? "back to workbench" : "back to home"} ✕</button>
-      </header>
-      <main class="settings-main">
-        <div class="settings-head">
-          <h1>Settings</h1>
-          <p class="settings-lede">Preferences are stored locally in your browser and persist across sessions. Nothing is uploaded.</p>
-        </div>
-
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <h2>Appearance</h2>
-            <p>Choose the color theme for the whole app.</p>
+    <div id="settings-backdrop" class="modal-backdrop">
+      <section id="settings-dialog" class="application-dialog settings-dialog"
+        role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="application-dialog-head">
+          <div>
+            <p class="section-eyebrow">Application</p>
+            <h2 id="settings-title" tabindex="-1">Settings</h2>
           </div>
-          <div class="settings-control">
-            <div class="settings-segment" role="group" aria-label="Theme">
-              <button type="button" class="settings-seg ${theme === "dark" ? "active" : ""}" data-theme="dark" aria-pressed="${theme === "dark"}">Dark</button>
-              <button type="button" class="settings-seg ${theme === "light" ? "active" : ""}" data-theme="light" aria-pressed="${theme === "light"}">Light</button>
+          <button id="settings-close" class="settings-close">Close</button>
+        </header>
+        <div class="settings-main">
+          <div class="settings-head">
+            <p class="settings-lede">Preferences are stored locally in your browser and persist across sessions. Nothing is uploaded.</p>
+          </div>
+
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <h2>Appearance</h2>
+              <p>Choose the color theme for the whole app.</p>
             </div>
-          </div>
-        </section>
+            <div class="settings-control">
+              <div class="settings-segment" role="group" aria-label="Theme">
+                <button type="button" class="settings-seg ${theme === "dark" ? "active" : ""}" data-theme="dark" aria-pressed="${theme === "dark"}">Dark</button>
+                <button type="button" class="settings-seg ${theme === "light" ? "active" : ""}" data-theme="light" aria-pressed="${theme === "light"}">Light</button>
+              </div>
+            </div>
+          </section>
 
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <h2>Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
-            <p>Tune how decompiled C# is spelled and synthesized — including <strong>readable local names</strong>. These apply to every source and call-graph view. The default is opcode-faithful.</p>
-          </div>
-          <div class="settings-taste">${styleBody}</div>
-          <div class="settings-taste-foot">
-            ${activeCount
-              ? '<button id="settings-taste-clear" type="button" class="settings-reset">Reset to default</button>'
-              : '<span class="settings-muted">Default · opcode-faithful</span>'}
-          </div>
-        </section>
-      </main>
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <h2>Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
+              <p>Tune how decompiled C# is spelled and synthesized — including <strong>readable local names</strong>. These apply to every source and call-graph view. The default is opcode-faithful.</p>
+            </div>
+            <div class="settings-taste">${styleBody}</div>
+            <div class="settings-taste-foot">
+              ${activeCount
+                ? '<button id="settings-taste-clear" type="button" class="settings-reset">Reset to default</button>'
+                : '<span class="settings-muted">Default · opcode-faithful</span>'}
+            </div>
+          </section>
+        </div>
+      </section>
     </div>`;
 }

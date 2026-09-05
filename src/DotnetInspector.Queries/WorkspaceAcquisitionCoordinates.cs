@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using InertText;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -258,6 +259,12 @@ public enum WorkspaceContextLoadFailureKind
 
     /// <summary>The host offers no capability an acquisition kind requires.</summary>
     HostCapabilityUnavailable,
+
+    /// <summary>A selected image uses Windows Metadata, which is unsupported.</summary>
+    UnsupportedMetadataFormat,
+
+    /// <summary>A selected image has a malformed assembly metadata root.</summary>
+    MalformedMetadataRoot,
 }
 
 /// <summary>
@@ -844,7 +851,11 @@ public abstract record RealizedMemberCoordinate
 public sealed record WorkspaceContextLoadFailure(
     WorkspaceContextLoadFailureKind Kind,
     WorkspaceMemberCoordinate? Member,
-    string Message);
+    string Message)
+{
+    /// <summary>The exact malformed-root reason, when applicable.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>One realized member of a loaded workspace context.</summary>
 /// <param name="Declared">
@@ -880,9 +891,28 @@ public abstract record WorkspaceContextLoadOutcome
                 availablePlatformAssemblies,
             string? framework,
             string? runtimeIdentifier)
+            : this(
+                group,
+                members,
+                [],
+                availablePlatformAssemblies,
+                framework,
+                runtimeIdentifier)
+        {
+        }
+
+        internal Loaded(
+            AssemblyContextGroup group,
+            ImmutableArray<WorkspaceContextMember> members,
+            ImmutableArray<PackageRootBinding> packageRoots,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies,
+            string? framework,
+            string? runtimeIdentifier)
         {
             Group = group;
             Members = members;
+            PackageRoots = packageRoots;
             AvailablePlatformAssemblies = availablePlatformAssemblies;
             Framework = framework;
             RuntimeIdentifier = runtimeIdentifier;
@@ -895,6 +925,11 @@ public abstract record WorkspaceContextLoadOutcome
         /// contribute several participants.
         /// </summary>
         public ImmutableArray<WorkspaceContextMember> Members { get; }
+
+        /// <summary>
+        /// Acquisition-issued package Roots in context declaration order.
+        /// </summary>
+        public ImmutableArray<PackageRootBinding> PackageRoots { get; }
 
         /// <summary>
         /// Metadata-derived assembly selection coordinates observed in the

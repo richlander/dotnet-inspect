@@ -351,6 +351,9 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            if (!Core.HttpClientFactory.IsOffline)
+                return await ExecuteOnlineVersionQueryAsync(packageArgs[0], options, context);
+
             using var failureScope = FeedFailureTelemetry.Scope();
             PackageVersionRange? range = null;
             string? rangeError = null;
@@ -580,7 +583,8 @@ public class PackageCommand
             if (versionQueryPinned is null
                 && options.Limit == 1
                 && !options.IncludeUnlisted
-                && !options.ListVersionsWithFeed)
+                && !options.ListVersionsWithFeed
+                && Core.HttpClientFactory.IsOffline)
             {
                 List<string>? singleVersions =
                     await PackageExtractor.GetSingleVersionListingAsync(
@@ -671,7 +675,14 @@ public class PackageCommand
                 return 0;
             }
 
-            var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
+            List<string>? versions = await PackageExtractor.GetVersionsAsync(
+                context.HttpClient,
+                normalizedName,
+                options.IncludePrerelease,
+                options.Limit,
+                logger.Log,
+                options.SourceOptions);
+
             if (versions == null)
             {
                 WriteVersionLookupFailure(
@@ -842,11 +853,13 @@ public class PackageCommand
             if (options.AllLibraries)
             {
                 return await ExecutePackageAllLibrariesAsync(
+                    client,
                     extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,
                     packageName,
                     version,
+                    resolution.ProducerKey,
                     target.IsLocalFile
                         ? PackageIntegrationAcquisition.Local(
                             nuspec?.PackageName,
@@ -1170,6 +1183,127 @@ public class PackageCommand
         }
     }
 
+    private static async Task<int> ExecuteOnlineVersionQueryAsync(
+        string packageReference,
+        InspectionOptions options,
+        CommandContext context)
+    {
+        PackageVersionRange? range = null;
+        string? rangeError = null;
+        bool isRange = !File.Exists(packageReference)
+            && PackageVersionRange.TryParse(packageReference, out range, out rangeError);
+        if (rangeError is not null)
+        {
+            CommandError.Write(rangeError);
+            return 1;
+        }
+
+        var (name, requestedVersion) = PackageExtractor.ParsePackageReference(packageReference);
+        string packageId = isRange ? range!.PackageId : name.ToLowerInvariant();
+        bool latest = !isRange && (options.ForceLatest
+            || string.Equals(requestedVersion, "latest", StringComparison.OrdinalIgnoreCase));
+        bool pinned = !isRange && !latest
+            && !string.IsNullOrEmpty(requestedVersion) && options.Limit == 1;
+        NuGet.Versioning.NuGetVersion? pinnedVersion = null;
+        if (pinned && !NuGet.Versioning.NuGetVersion.TryParse(requestedVersion, out pinnedVersion))
+        {
+            CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
+            return 1;
+        }
+
+        using var requestScope = RequestTelemetry.Scope($"package {packageId}", "package versions");
+        await using DesktopPackageSourceComposition composition = context.CreatePackageSourceComposition();
+        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
+            packageId,
+            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
+            isRange || pinned ? null : latest ? 1 : options.Limit,
+            options.SourceOptions,
+            context.Logger.Log,
+            includeUnlisted: !latest && (pinned || options.IncludeUnlisted));
+
+        bool requiresCompleteEvidence = latest || isRange
+            || (!pinned && options.SingleVersionQuery);
+        if (discovery.State == PackageVersionDiscoveryState.Failed
+            || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
+        {
+            WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+            return 1;
+        }
+
+        IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
+        if (pinned)
+        {
+            listings = [.. listings.Where(row =>
+                NuGet.Versioning.VersionComparer.VersionRelease.Equals(
+                    NuGet.Versioning.NuGetVersion.Parse(row.Version), pinnedVersion))];
+            if (listings.Count == 0
+                && discovery.Failures.Any(failure => failure.Kind != PackageAuthorityFailureKind.IncompleteMetadata))
+            {
+                WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+                return 1;
+            }
+        }
+
+        if (!discovery.HasAnyCandidate || ((pinned || latest) && listings.Count == 0))
+        {
+            CommandError.Write(pinned
+                ? $"Version '{requestedVersion}' of package '{packageId}' not found. Use --versions to see available versions."
+                : $"Package '{packageReference}' not found on eligible configured sources.");
+            return 1;
+        }
+
+        if (isRange)
+        {
+            try
+            {
+                listings = [.. PackageVersionVector.CreateListingAware(
+                    range!, listings, options.IncludePrerelease)
+                    .Take(options.Limit ?? int.MaxValue)];
+            }
+            catch (ArgumentException exception)
+            {
+                CommandError.Write(exception.Message);
+                return 1;
+            }
+        }
+
+        if (discovery.State == PackageVersionDiscoveryState.Partial)
+        {
+            CommandError.WriteWarning(
+                $"Version results for package '{packageId}' are partial.",
+                [.. discovery.Failures.Select(failure => failure.Message)]);
+        }
+
+        if (options.ListVersionsWithFeed)
+        {
+            var rowsByVersion = discovery.SourceListings.ToLookup(
+                row => row.Version, StringComparer.OrdinalIgnoreCase);
+            var rows = RowWindow.Apply(options.Rows,
+                listings.SelectMany(row => rowsByVersion[row.Version]).ToList());
+            if (LensProjection.TryProject(options, "--versions-with-feed",
+                    rows.Count, out var exit, VersionFeedColumns(rows, options)))
+                return exit;
+            OutputFormatter.WriteVersionFeedTable(rows, options, Console.Out);
+        }
+        else if (options.IncludeUnlisted)
+        {
+            var rows = RowWindow.Apply(options.Rows, listings);
+            if (LensProjection.TryProject(options, "--versions",
+                    rows.Count, out var exit, ["Version", "Listing"]))
+                return exit;
+            OutputFormatter.WriteVersionListings(rows, options, Console.Out);
+        }
+        else
+        {
+            var rows = RowWindow.Apply(options.Rows, listings.Select(row => row.Version).ToList());
+            if (LensProjection.TryProject(options, latest ? "--latest-version" : "--versions",
+                    rows.Count, out var exit, ["Version"]))
+                return exit;
+            WriteVersions(rows, options);
+        }
+        return 0;
+    }
+
     private static void WriteVersions(
         IEnumerable<string> versions,
         InspectionOptions options)
@@ -1188,6 +1322,64 @@ public class PackageCommand
         var sourceFailure =
             FeedFailureTelemetry.Current?.DescribeFailure(packageName);
         CommandError.Write(sourceFailure?.ToString() ?? notFoundMessage);
+    }
+
+    private static void WriteVersionDiscoveryFailure(
+        string packageName,
+        IReadOnlyList<PackageAuthorityFailure> failures)
+    {
+        var kinds = failures
+            .Select(failure => failure.Kind)
+            .ToHashSet();
+        var remediation = new List<string>();
+        if (kinds.Contains(PackageAuthorityFailureKind.Input))
+        {
+            remediation.Add(
+                "Correct the package command input and retry.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Configuration))
+        {
+            remediation.Add(
+                "Correct the package source configuration and retry.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.AuthenticationRequired))
+        {
+            remediation.Add(
+                "Supply credentials for the source and retry.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Unsupported))
+        {
+            remediation.Add(
+                "Use a package source that supports version enumeration in this host.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.IncompleteMetadata))
+        {
+            remediation.Add(
+                "Retry to obtain complete package version metadata.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Timeout))
+        {
+            remediation.Add(
+                "Retry, or increase --http-timeout for a slow package source.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.InvalidResponse)
+            || kinds.Contains(PackageAuthorityFailureKind.ResponseRejected))
+        {
+            remediation.Add(
+                "Check the package source metadata and configuration before retrying.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Transport))
+        {
+            remediation.Add(
+                "Check the package source location, access permissions, and connectivity before retrying.");
+        }
+
+        CommandError.Write(
+            $"Package '{packageName}' version discovery failed.",
+            [
+                .. failures.Select(failure => failure.Message),
+                .. remediation,
+            ]);
     }
 
     private static async Task<int> ExecuteMultiPackageAsync(
@@ -2991,7 +3183,7 @@ public class PackageCommand
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
         => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true;
 
-    private static PackageSourceQueryPlan CreatePackageSourceQueryPlan(
+    internal static PackageSourceQueryPlan CreatePackageSourceQueryPlan(
         SectionCatalog<InspectionResult> sectionCatalog,
         InspectionQueryCatalog<SourceLinkQueryContext> queryCatalog,
         InspectionOptions options,
@@ -3017,7 +3209,7 @@ public class PackageCommand
             queryPlan);
     }
 
-    private readonly record struct PackageSourceQueryPlan(
+    internal readonly record struct PackageSourceQueryPlan(
         SectionQueryPlan SectionPlan,
         InspectionQueryPlan<SourceLinkQueryContext> QueryPlan);
 
@@ -4263,17 +4455,26 @@ public class PackageCommand
     }
 
     private static async Task<int> ExecutePackageAllLibrariesAsync(
+        HttpClient httpClient,
         string extractPath,
         bool isLocalFile,
         string packageArg,
         string packageName,
         string version,
+        string? selectedProducerKey,
         PackageIntegrationAcquisition acquisition,
         InspectionOptions options)
     {
-        var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
-        if (selected == null)
+        PackageLibrarySelectionResult? selectionResult =
+            ResolveAllPackageLibraries(
+                extractPath,
+                packageName,
+                version,
+                options);
+        if (selectionResult == null)
             return 1;
+        IReadOnlyList<PackageLibrarySelection> selected =
+            selectionResult.Libraries;
 
         var packageReference = isLocalFile
             ? packageArg
@@ -4385,23 +4586,86 @@ public class PackageCommand
                 out bool includeIntegrationOpportunities);
         InspectionQueryPlan<InspectionQueryContext> queryPlan =
             queryCatalog.Plan(queries);
-        using PackageIntegrationsWorkspace? integrationsWorkspace =
-            requiresGroupedIntegrations
-                ? PackageIntegrationsWorkspace.Create(
+        PackageIntegrationAssembly[] integrationAssemblies =
+        [
+            .. selected.Select(selection =>
+            {
+                string relativePath = Path.GetRelativePath(
+                        extractPath,
+                        selection.Path)
+                    .Replace('\\', '/');
+                return CreatePackageIntegrationAssembly(
+                    selection.Path,
+                    relativePath);
+            }),
+        ];
+        PackageIntegrationsWorkspace? createdIntegrationsWorkspace = null;
+        if (requiresGroupedIntegrations)
+        {
+            if (ShouldUseArtifactBackedPackageIntegrations(
+                    isLocalFile,
+                    selectionResult.TargetFramework,
+                    selectedProducerKey,
                     selected.Select(selection =>
-                    {
-                        string relativePath = Path.GetRelativePath(
+                        Path.GetRelativePath(
                                 extractPath,
                                 selection.Path)
-                            .Replace('\\', '/');
-                        return CreatePackageIntegrationAssembly(
-                            selection.Path,
-                            relativePath);
-                    }),
-                    acquisition,
-                    includeIntegrationOpportunities:
-                        includeIntegrationOpportunities)
-                : null;
+                            .Replace('\\', '/'))))
+            {
+                (
+                    PackageRootBinding? packageRoot,
+                    string? acquisitionFailure) =
+                    await AcquirePackageRootBindingAsync(
+                        httpClient,
+                        packageName,
+                        version,
+                        selectionResult.TargetFramework!,
+                        selectedProducerKey!,
+                        options,
+                        logger.Log);
+                if (packageRoot is null)
+                {
+                    CommandError.Write(
+                        acquisitionFailure
+                        ?? "The package artifact workspace could not be acquired.");
+                    return 1;
+                }
+
+                createdIntegrationsWorkspace =
+                    await PackageIntegrationsWorkspace
+                        .TryCreateArtifactBackedAsync(
+                            integrationAssemblies,
+                            extractPath,
+                            packageRoot,
+                            includeIntegrationOpportunities);
+                if (createdIntegrationsWorkspace is null)
+                {
+                    createdIntegrationsWorkspace =
+                        PackageIntegrationsWorkspace.Create(
+                            integrationAssemblies,
+                            acquisition,
+                            includeIntegrationOpportunities:
+                                includeIntegrationOpportunities);
+                }
+                else
+                {
+                    logger.Log(
+                        $"Using artifact-backed package Integrations for {selectionResult.TargetFramework}.");
+                }
+            }
+            else
+            {
+                createdIntegrationsWorkspace =
+                    PackageIntegrationsWorkspace.Create(
+                        integrationAssemblies,
+                        acquisition,
+                        includeIntegrationOpportunities:
+                            includeIntegrationOpportunities);
+            }
+        }
+
+        await using PackageIntegrationsWorkspace? integrationsWorkspace =
+            createdIntegrationsWorkspace;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         List<(string FileName, IdentifierConfusionAuditFailureKind FailureKind)>
@@ -4625,14 +4889,16 @@ public class PackageCommand
 
         return workspace.UseAssemblyAsync(
             path,
-            (retainedAssembly, integrations, opportunities) =>
+            async (retainedAssembly, integrations, opportunities) =>
             {
                 switch (integrations)
                 {
                     case AssemblyIntegrationsEntry.Rejected rejected:
                         failures.Add(
                             (relativePath, rejected.Failure.Detail));
-                        return Task.FromResult<LibraryInspection?>(null);
+                        if (retainedAssembly is null)
+                            return null;
+                        break;
                     case AssemblyIntegrationsEntry.Failed failed:
                         failures.Add(
                             (relativePath, failed.Error.Message));
@@ -4652,10 +4918,21 @@ public class PackageCommand
                         break;
                 }
 
-                return inspectAsync(
-                    retainedAssembly,
-                    integrations,
-                    opportunities);
+                LibraryInspection? inspection =
+                    await inspectAsync(
+                            retainedAssembly,
+                            integrations,
+                            opportunities)
+                        .ConfigureAwait(false);
+                if (inspection is not null
+                    && retainedAssembly?.Registration
+                        .ArtifactRegistration is not null)
+                {
+                    inspection.LastModified =
+                        File.GetLastWriteTimeUtc(path);
+                }
+
+                return inspection;
             });
     }
 
@@ -4850,7 +5127,7 @@ public class PackageCommand
         return null;
     }
 
-    private static List<PackageLibrarySelection>? ResolveAllPackageLibraries(
+    private static PackageLibrarySelectionResult? ResolveAllPackageLibraries(
         string extractPath,
         string packageName,
         string version,
@@ -4869,12 +5146,106 @@ public class PackageCommand
             return null;
         }
 
-        return resolution.Paths
-            .Select(path => new PackageLibrarySelection(path))
-            .ToList();
+        return new PackageLibrarySelectionResult(
+            [
+                .. resolution.Paths.Select(
+                    path => new PackageLibrarySelection(path)),
+            ],
+            resolution.Tfm);
     }
 
     private sealed record PackageLibrarySelection(string Path);
+
+    private sealed record PackageLibrarySelectionResult(
+        IReadOnlyList<PackageLibrarySelection> Libraries,
+        string? TargetFramework);
+
+    internal static bool ShouldUseArtifactBackedPackageIntegrations(
+        bool isLocalFile,
+        string? selectedTargetFramework,
+        string? selectedProducerKey,
+        IEnumerable<string> selectedPackagePaths) =>
+        !isLocalFile
+        && PackageCoordinateResolver.IsAcquisitionTargetText(selectedTargetFramework)
+        && !string.IsNullOrWhiteSpace(selectedProducerKey)
+        && selectedPackagePaths.All(static path =>
+            path.StartsWith("ref/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(
+                "lib/",
+                StringComparison.OrdinalIgnoreCase));
+
+    static async Task<(PackageRootBinding? Binding, string? Failure)>
+        AcquirePackageRootBindingAsync(
+            HttpClient httpClient,
+            string packageName,
+            string version,
+            string targetFramework,
+            string selectedProducerKey,
+            InspectionOptions options,
+            Action<string>? log)
+    {
+        var sourceAuthorization =
+            new SourcePolicyPackageSourceAuthorization(
+                options.SourceOptions);
+        PackageSourceAuthorization authorization =
+            sourceAuthorization.AuthorizeSourcesFor(
+                packageName.ToLowerInvariant());
+        if (authorization.Sources.Count == 0)
+        {
+            return (
+                null,
+                authorization.DenialReason
+                ?? $"No source is authorized to provide package '{packageName}'.");
+        }
+        IReadOnlyList<PackageSource> selectedSources =
+        [
+            .. authorization.Sources.Where(source =>
+                NuGetCache.GetSourceKey(source.Url).Equals(
+                    selectedProducerKey,
+                    StringComparison.Ordinal)),
+        ];
+        if (selectedSources.Count == 0)
+        {
+            return (
+                null,
+                "The source that supplied the selected package is no longer authorized.");
+        }
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                httpClient,
+                new PackageCoordinate(
+                    packageName,
+                    version,
+                    targetFramework,
+                    RuntimeIdentifier: null),
+                selectedSources,
+                log,
+                options.IncludePrerelease,
+                useVersionCache: true,
+                requireStableFloating: true);
+        if (resolution is PackageCoordinateResolution.Invalid invalid)
+            return (null, invalid.Message);
+        if (resolution is PackageCoordinateResolution.Unavailable unavailable)
+            return (null, unavailable.Message);
+
+        PackagePayloadResult payload =
+            await PackagePayloadAcquisition.AcquireAsync(
+                httpClient,
+                ((PackageCoordinateResolution.Resolved)resolution)
+                    .Coordinate,
+                new FileSystemPackageStore(),
+                log);
+        if (payload is PackagePayloadResult.Unavailable payloadFailure)
+            return (null, payloadFailure.Message);
+
+        return (
+            PackageRootBinding.CreateFromResolved(
+                ((PackagePayloadResult.Acquired)payload).Payload,
+                targetFramework,
+                packageName),
+            null);
+    }
 
     internal static List<string> GetAllLibrariesSections(
         List<LibraryInspection> inspections,

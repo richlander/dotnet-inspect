@@ -1,14 +1,15 @@
 import { pdbSourceLimitationHtml } from "./data.ts";
+import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
-// type heading, metadata, and source sections shown for the "type" scope) as pure,
+// type heading, metadata working surface, and source sections shown for the "type" scope) as pure,
 // dependency-injected render functions. This module also binds the controls that its nav pane
 // renders; `dotnet-inspect.ts` owns the type index, filters, member grouping, and navigation
 // state transitions behind explicit callbacks. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
+// relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {
@@ -91,7 +92,6 @@ export interface TypePanelBindingActions {
     anchor: "selector" | "digest" | "canonical" | undefined,
   ) => void;
   onCopyMemberSource: () => void;
-  onCopyName: () => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
@@ -103,6 +103,7 @@ export interface TypePanelBindingActions {
   onMemberCompositionTraitSelect: (trait: string) => void;
   onMemberFilterChange: (value: string) => void;
   onMemberFilterClear: () => void;
+  onMemberFilterDisclosureToggle: (expanded: boolean) => void;
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
@@ -113,6 +114,7 @@ export interface TypePanelBindingActions {
   onOverloadSelect: (index: number) => void;
   onShowTypes: () => void;
   onTypeFilterChange: (value: string) => void;
+  onTypeFilterDisclosureToggle: (expanded: boolean) => void;
   onTypeFilterEscape: () => void;
   onTypeSelect: (typeId: string) => void;
 }
@@ -189,18 +191,16 @@ export function bindTypePanel(
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
-  root.querySelector("#clear-filter")?.addEventListener(
-    "click",
-    actions.onClearFilters);
+  root.querySelector("#clear-filter")?.addEventListener("click", () => {
+    actions.onClearFilters();
+    root.querySelector<HTMLElement>("#clear-filter")?.focus();
+  });
   root.querySelector("#clear-member-filter")?.addEventListener(
     "click",
     actions.onMemberFilterClear);
   root.querySelector("#member-back")?.addEventListener(
     "click",
     actions.onMemberBack);
-  root.querySelector("#copy-name")?.addEventListener(
-    "click",
-    actions.onCopyName);
   root.querySelector("#copy-signature")?.addEventListener(
     "click",
     actions.onCopySignature);
@@ -250,6 +250,11 @@ export function bindTypePanel(
   memberFilter?.addEventListener(
     "input",
     () => actions.onMemberFilterChange(memberFilter.value));
+  const memberFilterDisclosure =
+    root.querySelector<HTMLDetailsElement>("[data-member-filter-disclosure]");
+  memberFilterDisclosure?.addEventListener(
+    "toggle",
+    () => actions.onMemberFilterDisclosureToggle(memberFilterDisclosure.open));
   if (memberFilter) {
     keybindings.register({
       id: "member-filter.navigate",
@@ -260,6 +265,11 @@ export function bindTypePanel(
     }, memberFilter);
   }
   const filter = root.querySelector<HTMLInputElement>("#type-filter");
+  const typeFilterDisclosure =
+    root.querySelector<HTMLDetailsElement>("[data-type-filter-disclosure]");
+  typeFilterDisclosure?.addEventListener(
+    "toggle",
+    () => actions.onTypeFilterDisclosureToggle(typeFilterDisclosure.open));
   filter?.addEventListener(
     "input",
     () => actions.onTypeFilterChange(filter.value));
@@ -294,6 +304,8 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   libraryControlHtml: string;
+  filtersExpanded: boolean;
+  filterSummary: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
@@ -304,36 +316,43 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
-    libraryControlHtml, escapeHtml, typeDisplayName, kindIcon, shortKind,
+    libraryControlHtml, filtersExpanded, filterSummary, escapeHtml,
+    typeDisplayName, kindIcon, shortKind,
   } = options;
   return `
-    <aside class="type-browser" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
           <span class="result-count">${visible.length} shown</span>
         </div>
-        <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
-      </div>
-      <label class="type-search">
-        <span>/</span>
-        <input id="type-filter" value="${escapeHtml(typeFilter)}" placeholder="Filter types, members, libraries" autocomplete="off" spellcheck="false" />
-        <kbd>⌘F</kbd>
-      </label>
-      <div class="namespace-picker">
-        <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-          <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
-          ${namespaceOptionsHtml}
-        </select>
-      </div>
-      <div class="chip-stack">
-        <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-          <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-          ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
+        <div class="browser-head-actions">
+          <button class="tiny-button" id="clear-filter" title="Clear filters" aria-label="Clear filters">×</button>
+          ${renderContentNavigationCloseButton()}
         </div>
-        ${accessibilityControlHtml}
-        ${libraryControlHtml}
       </div>
+      <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
+        <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+        <label class="type-search">
+          <span aria-hidden="true">/</span>
+          <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
+          <kbd>⌘F</kbd>
+        </label>
+        <div class="namespace-picker">
+          <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
+            <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
+            ${namespaceOptionsHtml}
+          </select>
+        </div>
+        <div class="chip-stack">
+          <div class="namespace-chips kind-chips" aria-label="Type kind filters">
+            <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
+            ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
+          </div>
+          ${accessibilityControlHtml}
+        </div>
+      </details>
+      <div class="type-library-context">${libraryControlHtml}</div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
@@ -382,12 +401,13 @@ export function renderMemberNav(options: MemberNavOptions): string {
       : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
     : "";
   return `
-    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
+    <aside id="content-navigation-pane" class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
           <span class="result-count">${visibleMemberCount} of ${memberCount}</span>
         </div>
+        ${renderContentNavigationCloseButton()}
       </div>
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
         <span class="chevron">‹</span>
@@ -495,21 +515,44 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   } = options;
   const current = typeMetadataSignature(item, packageContext);
   const fresh = metadataState.typeMetadataKey === current;
+  const meta = fresh ? metadataState.typeMetadata : null;
+  const renderSurface = (content: string) => {
+    const kind = [
+      ...(meta?.modifiers || []),
+      meta?.kind || item.kind,
+    ].filter(part => part.length > 0).join(" ");
+    const accessibility = meta?.accessibility || item.accessibility || "public";
+    const coordinate =
+      `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
+    return `
+      <section class="metadata-surface" aria-labelledby="metadata-surface-title">
+        <header class="metadata-surface-head">
+          <h1 id="metadata-surface-title">Metadata</h1>
+          <p>${escapeHtml(kind)} <span>· ${escapeHtml(accessibility)}</span></p>
+        </header>
+        <div class="metadata-surface-scroll">
+          ${content}
+        </div>
+        <footer class="metadata-surface-footer">
+          <span title="${escapeHtml(item.id)}">${escapeHtml(item.id)}</span>
+          <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
+        </footer>
+      </section>`;
+  };
   if (metadataState.typeMetadataLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`;
+    return renderSurface(`<section class="document-section metadata-surface-state source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
   }
   if (fresh && metadataState.typeMetadataError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`;
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`);
   }
-  const meta = fresh ? metadataState.typeMetadata : null;
   if (!meta) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`);
   }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...(meta.modifiers || []), meta.kind].join(" ")],
-    ["Accessibility", meta.accessibility || "public"],
-    ["Namespace", meta.namespace || "global"],
+    ["Kind", [...(meta.modifiers || []), meta.kind || item.kind].join(" ")],
+    ["Accessibility", meta.accessibility || item.accessibility || "public"],
+    ["Namespace", meta.namespace || item.namespace || "global"],
     ["Assembly", meta.assembly || item.assembly],
   ];
   if (meta.baseType) shape.push(["Base type", meta.baseType]);
@@ -559,8 +602,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures!.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
     : "";
 
-  return `
-    <section class="document-section">
+  return renderSurface(`
+    <section class="document-section metadata-shape-section">
       <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
       ${factRows(shape)}
     </section>
@@ -569,7 +612,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${derived}
     ${attributes}
     ${graph}
-    ${failures}`;
+    ${failures}`);
 }
 
 export function typeSourceSignature(
@@ -602,18 +645,54 @@ export interface RenderTypeSourceOptions {
   highlightCSharp: (value: string) => string;
 }
 
+export interface RenderSourceResultOptions {
+  source: TypeSourceResult;
+  escapeHtml: EscapeHtml;
+  highlightCSharp: (value: string) => string;
+}
+
+export function renderSourceResult(options: RenderSourceResultOptions): string {
+  const { source, escapeHtml, highlightCSharp } = options;
+  return `<section class="source-result" aria-label="Source">
+      <pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>
+      <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
+    </section>`;
+}
+
+export interface RenderSourcePageActionsOptions {
+  source: TypeSourceResult | null;
+  copyButtonId: "copy-source" | "copy-type-source";
+  escapeHtml: EscapeHtml;
+}
+
+export function renderSourcePageActions(
+  options: RenderSourcePageActionsOptions,
+): string {
+  const { source, copyButtonId, escapeHtml } = options;
+  return `
+    <button id="${copyButtonId}" type="button"${source ? "" : " disabled"}>Copy</button>
+    ${source?.url
+      ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
+      : ""}`;
+}
+
 export function renderTypeSource(options: RenderTypeSourceOptions): string {
-  const { currentSignature, sourceState, escapeHtml, highlightCSharp } = options;
+  const {
+    currentSignature,
+    sourceState,
+    escapeHtml,
+    highlightCSharp,
+  } = options;
   const fresh = sourceState.typeSourceKey === currentSignature;
   if (sourceState.typeSourceLoading && fresh) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
   }
   if (fresh && sourceState.typeSource) {
-    const typeSource = sourceState.typeSource;
-    return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${typeSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(typeSource)}<button id="copy-type-source" type="button">copy</button></div>
-        <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(typeSource.text)}</code></pre>
-      </section>`;
+    return renderSourceResult({
+      source: sourceState.typeSource,
+      escapeHtml,
+      highlightCSharp,
+    });
   }
   if (fresh && sourceState.typeSourceError) {
     return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.typeSourceError)}</p></section>`;

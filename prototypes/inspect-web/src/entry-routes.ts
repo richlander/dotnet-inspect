@@ -1,5 +1,6 @@
 export const ROUTED_ENTRY_PATHS = {
   credits: "/credits",
+  demos: "/demos",
   packageQuery: "/query",
 } as const;
 
@@ -7,9 +8,8 @@ export const ENTRY_DOCUMENT_PATHS = [
   "/",
   "/index.html",
   ROUTED_ENTRY_PATHS.credits,
-  `${ROUTED_ENTRY_PATHS.credits}/`,
+  ROUTED_ENTRY_PATHS.demos,
   ROUTED_ENTRY_PATHS.packageQuery,
-  `${ROUTED_ENTRY_PATHS.packageQuery}/`,
 ] as const;
 
 export function isRoutedEntryPath(

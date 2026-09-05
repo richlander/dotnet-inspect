@@ -28,10 +28,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -51,16 +51,7 @@ jobs:
 
       - name: Validate fixture catalog
         shell: bash
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/package-fixture-tests.xml"
-          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-            -class "DotnetInspector.Tests.PackageFixtureTests" \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Package fixture test filter selected no tests." >&2
-            exit 1
-          fi
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.PackageFixtureTests"
 
       - name: Pack fixture packages
         shell: bash

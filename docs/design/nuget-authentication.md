@@ -422,13 +422,16 @@ a network origin or resource scope does not create context association.
 Feed-advertised metadata cannot mint or replace the context reference.
 
 The configured-authority owner supplies one provider-query URI when it creates
-the context. That URI is the canonical configured service-index endpoint
-selected by the owner's alias decision, retained privately by the context
-solely for `GetAuthenticationCredentials`. Every authorized challenge for the
-context queries the plugin with that URI, including when an advertised resource
-or redirect target supplies the first challenge. The concrete challenge target
-never becomes provider lookup identity and feed-advertised metadata cannot
-replace it. Provider-query identity does not authorize a target.
+the context. That URI retains the exact configured service-index spelling
+selected by the owner's alias decision, including raw path and query spelling,
+solely for `GetAuthenticationCredentials`. Parsing the URI to establish
+resource scope must not replace that provider-query spelling. Every authorized
+challenge for the context queries the plugin with that exact URI, including
+when an advertised resource or redirect target supplies the first challenge.
+The concrete challenge target never becomes provider lookup identity and
+feed-advertised metadata cannot replace it. Provider-query identity does not
+authorize a target. NuGet.Client's JSON URI serialization likewise emits the
+URI's original string rather than its normalized presentation.
 
 The configured service-index endpoint establishes the context's
 credential-resource scope. For ordinary hosts the scope is the endpoint's URI
@@ -496,6 +499,12 @@ A user-configured V3 endpoint is different even when its host belongs to
 NuGet.org: it follows the configurable-source rules above and does not acquire
 the built-in Gallery's credential-free identity merely from its hostname.
 
+Credential-provider contexts are desktop-only. Browser/Wasm callers cannot
+create a `PluginAuthenticationContextOwner`; creation fails visibly with
+`PlatformNotSupportedException`, and V3 factory composition independently
+rejects a context on that platform. Browser sources continue to use the
+explicit session PAT contract owned by the browser-package-source design.
+
 #### Concurrency and refresh
 
 Acquisition is single-flight per context. Concurrent authorized challenges for
@@ -532,6 +541,9 @@ The target is unverified until Release gates establish:
   a provider that answers only for the configured service-index URI is queried
   with that URI, and the resulting credential is replayed only to the
   authorized resource;
+- `CredentialRequestPreservesOriginalSourceSpelling`: raw-distinct configured
+  service-index spellings remain distinct in plugin protocol requests rather
+  than collapsing through parsed-URI presentation;
 - `SharedAssociationPipelinesShareAuthenticationContext`: two V3 pipelines
   constructed with the same `PackageSourceAssociation` share credential
   publication and coalesce concurrent challenges into one provider
@@ -799,13 +811,19 @@ the associated V3 source pipeline; an unassociated call site cannot acquire
 plugin authority. Neither shape fixes the `nuget.config` path, which still
 depends on the caller threading an explicit credential through.
 
-The current handler caches acquired credentials by request-target origin so the
-service index and discovered package endpoints share one challenge response.
-Azure Artifacts adds the first path segment, which is the organization. This
-separates Azure organizations, but neither shape separates distinct configured
-sources inside one cache scope. The
-[source-scoped context](#source-scoped-plugin-authentication-context) is the
-target replacement; its implementation gates remain unverified.
+The legacy shared handler caches acquired credentials by request-target origin
+so the service index and discovered package endpoints share one challenge
+response. Azure Artifacts adds the first path segment, which is the
+organization. This separates Azure organizations, but neither rule separates
+distinct configured sources inside one cache scope.
+
+The
+[source-scoped context](#source-scoped-plugin-authentication-context) is
+implemented for owner-composed V3 source pipelines through
+`PackageSourceClientFactory.CreateWithPluginAuthentication`. Package-source
+composition issue #5603 is the named consumer that will replace the legacy
+shared-handler path; until then, that path does not claim source-scoped
+isolation.
 
 When an automatic redirect ends in an authentication challenge, credential acquisition remains
 scoped to the caller-selected source URI and the retry starts again from that URI. A redirect
@@ -827,8 +845,13 @@ Two tiers, in `src/NuGetFetch.Tests`:
     `IsRetry` progression, request-target cache scoping for ordinary hosts,
     organization scoping and GUID-alias reuse for Azure Artifacts, redirect
     isolation from credential scope and returned content, 403 opt-in, and that
-    an existing credential is not overwritten. It does not yet establish the
-    source-scoped context gates above.
+    an existing credential is not overwritten. It establishes only the legacy
+    shared-handler behavior.
+  - `PluginAuthenticationContextTests` pins every required source-scoped
+    context gate above. Pipeline mapping, disposal, resource-first challenge,
+    and redirect composition run through owner-composed V3 clients; focused
+    state, scope, refresh, and retirement vectors use hermetic handler
+    transports.
   - `PluginProtocolTests` runs a **real plugin process** — a cross-platform managed fixture that
     genuinely speaks the line protocol — so framing, the symmetric handshake, process death,
     selected shutdown behavior, and caller-cancellation classification are exercised end to end
@@ -844,7 +867,7 @@ Two tiers, in `src/NuGetFetch.Tests`:
 CI runs the offline tier only:
 
 ```bash
-dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 ```
 
 The live tier needs a private feed, which CI and fork PRs do not have. To run it locally, mint a
@@ -855,7 +878,7 @@ PAT:
 export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 export DOTNET_INSPECT_TEST_AZDO_TOKEN=$(az account get-access-token \
   --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
-dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
+dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 ```
 
 The token is read from the environment and never written to a config file.

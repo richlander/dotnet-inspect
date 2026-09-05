@@ -32,7 +32,7 @@ import type {
   BrowserWorkspaceShareDecodeResult,
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-catalog.d.ts";
 
 interface TestView {
   id: string;
@@ -54,6 +54,7 @@ function workspaceState(
 ): WorkspaceUrlState {
   return {
     package: "Example.Second",
+    subject: null,
     tabs: [
       {
         id: "t0",
@@ -139,6 +140,7 @@ function workspaceView(
   return {
     package: "Example.Second",
     packageKey: "example.second@2.0.0/net10.0",
+    workspaceSubjectOpen: false,
     lens: "api",
     selectedTypeId: "Example.Widget",
     selectedMemberKey: "graph:method:Build",
@@ -378,6 +380,34 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.section, "facts");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
+});
+
+test("workspace-subject URLs preserve retained coordinates and restore Workspace", () => {
+  const state = workspaceState({
+    subject: "workspace",
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  });
+  const url = buildWorkspaceStateUrl(
+    "https://inspect.example/?package=Old#pkg",
+    state,
+    () => encoded());
+
+  assert.equal(url.hash, "#workspace");
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => decoded(state));
+  assert.equal(parsed.workspaceSubjectOpen, true);
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.packageLens, "overview");
+  assert.equal(parsed.tabs.length, 2);
+  assert.equal(parsed.package, "Example.Second");
   assert.equal(parsed.workspaceNotice, "");
 });
 
@@ -628,6 +658,7 @@ test("package-root URLs discard stale workspace state and restore the package le
     locationSnapshot(url),
     () => rejected("unexpected"));
   assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
   assert.equal(parsed.packageLens, "dependencies");
   assert.equal(parsed.version, "1.2.3");
 });
@@ -1022,6 +1053,20 @@ test("history signatures distinguish captured library scope", () => {
     workspaceViewSignature(workspaceView({
       libraryScope: ["System.Text.Json"],
     })));
+});
+
+test("history signatures distinguish Workspace from Package", () => {
+  const packageView = workspaceView({
+    atPackageRoot: true,
+    workspaceSubjectOpen: false,
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(packageView),
+    workspaceViewSignature({
+      ...packageView,
+      workspaceSubjectOpen: true,
+    }));
 });
 
 test("unknown workspace view and member-section tokens are ignored", () => {

@@ -69,7 +69,8 @@ public static class PackageProfileSections
                     PackageProfileQuery.ExecuteToArrayAsync(
                     context.Source,
                     context.Request,
-                    cancellationToken))
+                    cancellationToken,
+                    context.OperationContext))
             .Compile();
 
     private static void ConfigurePipeline(
@@ -155,7 +156,7 @@ public static class PackageProfileSections
                     EmptyCell,
                     EmptyCell,
                     EmptyCell,
-                    Cell(summary.Producer.Value),
+                    summary.Source.Producer.Display,
                     TruncatedCell,
                     Cell(TruncationMessage(summary))));
             }
@@ -217,7 +218,7 @@ public static class PackageProfileSections
             Cell(match.Manifest.Authors ?? ""),
             match.Verified ? YesCell : NoCell,
             Cell(match.TotalDownloads.ToString(CultureInfo.InvariantCulture)),
-            Cell(match.Producer.Value));
+            match.Source.Producer.Display);
 
         if (match.Manifest.DependencyGroups.IsEmpty)
         {
@@ -318,7 +319,7 @@ public static class PackageProfileSections
             EmptyCell,
             EmptyCell,
             EmptyCell,
-            Cell(failure.Producer.Value),
+            failure.Source.Producer.Display,
             Cell(FailureStatus(failure)),
             Cell(failure.Message));
 

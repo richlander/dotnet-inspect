@@ -34,6 +34,9 @@ public sealed record ResolvedAssemblyDependency(
 public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPath)
 {
     public IReadOnlyList<string>? PackageRoots { get; init; }
+    public string? RootPackageDirectory { get; init; }
+    public NuGetSourceOptions? PackageSourceOptions { get; init; }
+    public bool UsePackageSourcePolicy { get; init; }
     public IReadOnlyList<string>? CorpusAssemblyPaths { get; init; }
     public string? ProjectAssetsPath { get; init; }
     public string? TargetFramework { get; init; }
@@ -132,16 +135,18 @@ public sealed partial class AssemblyDependencyResolver :
 
     public AssemblyBindingPolicyVersion Version { get; } = new();
 
-    public AssemblyBindingSelection Select(
+    public AssemblyBindingSelectionSnapshot Select(
         AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var key = AssemblyBindingRequestKey.From(request);
-        return _bindingSelections.GetOrAdd(
-            key,
-            _ => new Lazy<AssemblyBindingSelection>(
-                () => SelectCore(request),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        return new AssemblyBindingSelectionSnapshot(
+            Version,
+            _bindingSelections.GetOrAdd(
+                key,
+                _ => new Lazy<AssemblyBindingSelection>(
+                    () => SelectCore(request),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value);
     }
 
     public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
@@ -207,9 +212,13 @@ public sealed partial class AssemblyDependencyResolver :
                 Add(path, AssemblyDependencyProvenance.SiblingAssembly);
 
         foreach (var path in PackageDependencyReferencePaths(
-            targetPath,
-            _options.PackageRoots,
-            preferImplementationAssemblies: _options.PreferImplementationAssemblies))
+            targetPath: targetPath,
+            packageRoots: _options.PackageRoots,
+            preferImplementationAssemblies: _options.PreferImplementationAssemblies,
+            rootPackageDirectory: _options.RootPackageDirectory,
+            targetFramework: _options.TargetFramework,
+            sourceOptions: _options.PackageSourceOptions,
+            useSourcePolicy: _options.UsePackageSourcePolicy))
         {
             var package = TryReadPackageIdentity(path, _options.PackageRoots);
             Add(path, AssemblyDependencyProvenance.PackageDependency, package.Id, package.Version);
@@ -287,7 +296,9 @@ public sealed partial class AssemblyDependencyResolver :
                 {
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
-                        candidateFailure);
+                        candidateFailure,
+                        MissDisposition:
+                            AssemblyBindingMissDisposition.NameOwnedNoMatch);
                 }
             }
             activeTier = tier;
@@ -322,7 +333,9 @@ public sealed partial class AssemblyDependencyResolver :
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                candidateFailure);
+                candidateFailure,
+                MissDisposition:
+                    AssemblyBindingMissDisposition.NameOwnedNoMatch);
         }
 
         // The target may reference an older platform contract than the running
@@ -335,8 +348,11 @@ public sealed partial class AssemblyDependencyResolver :
             || scope == AssemblyResolutionScope.Any
                 && _options.IncludeInstalledPlatformFallback
                 && activeTier is null;
-        if (useInstalledPlatformFallback
-            && PlatformResolver.IsPlatformCandidate(identity.Name))
+        bool probeInstalledPlatform =
+            useInstalledPlatformFallback
+            && PlatformResolver.IsPlatformCandidate(identity.Name);
+        bool installedPlatformOwnsName = false;
+        if (probeInstalledPlatform)
         {
             var (path, framework, _, _) =
                 _options.PreferImplementationAssemblies
@@ -346,6 +362,7 @@ public sealed partial class AssemblyDependencyResolver :
                     : PlatformResolver.ResolveAssemblyFromSnapshot(
                         identity.Name,
                         _installedPlatformFrameworkSnapshot.Value);
+            installedPlatformOwnsName = path is not null;
             if (path is not null)
             {
                 AssemblyDescriptorResolution descriptor = DescriptorResult(
@@ -375,7 +392,11 @@ public sealed partial class AssemblyDependencyResolver :
 
         return new AssemblyResolutionAttempt(
             Assembly: null,
-            candidateFailure);
+            candidateFailure,
+            MissDisposition: activeTier is not null
+                || installedPlatformOwnsName
+                    ? AssemblyBindingMissDisposition.NameOwnedNoMatch
+                    : AssemblyBindingMissDisposition.NoNameOwner);
     }
 
     AssemblyResolutionAttempt? ResolveDesignatedOverlay(
@@ -605,7 +626,17 @@ public sealed partial class AssemblyDependencyResolver :
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
                     candidateFailure))
-            : AssemblyBindingSelection.NotFound();
+            : attempt.MissDisposition switch
+            {
+                null or AssemblyBindingMissDisposition.Undifferentiated =>
+                    AssemblyBindingSelection.NotFound(),
+                AssemblyBindingMissDisposition.NoNameOwner =>
+                    AssemblyBindingSelection.NameNotOwned(),
+                AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                    AssemblyBindingSelection.NameOwnedButNoMatch(),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding miss disposition."),
+            };
     }
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
@@ -865,7 +896,8 @@ public sealed partial class AssemblyDependencyResolver :
         ResolvedAssemblyReference? Assembly,
         CandidateOpenFailureKind? CandidateFailure,
         ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
-        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default);
+        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
+        AssemblyBindingMissDisposition? MissDisposition = null);
 
     readonly record struct AssemblyDescriptorKey(
         string Path,

@@ -210,6 +210,7 @@ public static class PackagePayloadAcquisition
     /// </summary>
     public static async Task<PackageSourcePayloadResult> AcquireAsync(
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         PackageSourceCoordinate coordinate,
         IPackageStore store,
         Action<string>? log = null,
@@ -219,6 +220,7 @@ public static class PackagePayloadAcquisition
         NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(store);
         cancellationToken = operationContext?.ResolveInvocationToken(
@@ -227,7 +229,8 @@ public static class PackagePayloadAcquisition
         limits = ValidateLimits(limits);
         cancellationToken.ThrowIfCancellationRequested();
 
-        string producerKey = NuGetCache.GetSourceKey(source.Identity.Value);
+        string producerKey = NuGetCache.GetSourceKey(
+            configuredSourceIdentity.Value);
         foreach (IPackageContent cached in store.EnumerateCached(
                      coordinate.PackageId,
                      coordinate.Version,
@@ -257,22 +260,22 @@ public static class PackagePayloadAcquisition
                 coordinate.Version,
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
-        if (operation
-            is PackageSourceOperationResult<PackageSourcePayload>.Failed failed)
+        if (operation.Failure is { } failure)
         {
-            return failed.Failure.Kind == PackageSourceFailureKind.NotFound
+            return failure.Kind == PackageSourceFailureKind.NotFound
                 ? new PackageSourcePayloadResult.Unavailable(
                     $"Package '{coordinate.PackageId}' version "
                     + $"'{coordinate.Version}' was not supplied by the selected source.")
-                : new PackageSourcePayloadResult.Failed(failed.Failure);
+                : new PackageSourcePayloadResult.Failed(failure);
         }
 
         PackageSourcePayload payload =
-            ((PackageSourceOperationResult<PackageSourcePayload>.Succeeded)operation)
-            .Value;
+            operation.Value
+            ?? throw new InvalidOperationException(
+                "The package source payload operation completed without a value or failure.");
         if (payload.Kind != PackageSourcePayloadKind.Package
             || payload.Coordinate != coordinate
-            || payload.Producer != source.Identity)
+            || !ReferenceEquals(payload.Source, source.Source))
         {
             await payload.Content.DisposeAsync().ConfigureAwait(false);
             return new PackageSourcePayloadResult.Unavailable(
@@ -284,7 +287,7 @@ public static class PackagePayloadAcquisition
             payload.AdvertisedLength,
             coordinate,
             producerKey,
-            $"source '{source.Kind}'",
+            $"source '{source.Source.TransportKind}'",
             store,
             log,
             limits,
@@ -571,13 +574,18 @@ public static class PackagePayloadAcquisition
             }
 
             using IPackagePayloadReservation? reservation =
-                transferPolicy?.Reserve(
-                    new PackagePayloadTransfer(
-                        coordinate,
-                        producerKey,
-                        advertisedLength));
+                transferPolicy is null
+                    ? null
+                    : await transferPolicy.ReserveAsync(
+                            new PackagePayloadTransfer(
+                                coordinate,
+                                producerKey,
+                                advertisedLength),
+                            bodyCancellationToken)
+                        .ConfigureAwait(false);
             try
             {
+                bodyCancellationToken.ThrowIfCancellationRequested();
                 byte[]? archive = advertisedLength is { } declared
                     && declared >= 0
                     && declared <= int.MaxValue

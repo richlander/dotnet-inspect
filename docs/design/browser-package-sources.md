@@ -430,9 +430,11 @@ rather than accepting independent identity or issuer arguments.
 callback from the external client assembly. Its admitted kinds are
 `NuGetGallery` and `NuGetV3`. Gallery uses the canonical owner-issued NuGet.org
 producer; v3 uses the descriptor's admitted normalized endpoint projection.
-`LocalFolder` remains unsupported until #3759. Null arguments and unsupported
-descriptor kinds are rejected before any caller callback runs or any bound
-factory is made available.
+`LocalFolder` is not an external `CreateCustom` descriptor kind; the
+[local folder package source](local-folder-package-source.md) constructs its
+owner-issued client directly from canonical local identity.
+Null arguments and unsupported descriptor kinds are rejected before any caller
+callback runs or any bound factory is made available.
 
 For an admitted descriptor, NuGetFetch constructs the complete source identity,
 private issuer, and bound public result factory before invoking the callback
@@ -722,10 +724,16 @@ migration is a dependency, not authority for those consumers to reinterpret
 reference to the legacy type from the source tree, including implicit
 formatting and equality call sites rather than only reads of selected members.
 Its temporary file inventory groups NuGetFetch compatibility and tests under
-issue #4795, package authority and acquisition readers under #4797, and query
-and CLI projection readers under #4806. Browser pending-acquisition readers,
-including the direct `BrowserPackageWorkspace` read, are grouped under #4805.
-It fails for both an unlisted reference and a stale entry.
+issue #4795, package authority and acquisition readers under #4797, and Browser
+pending-acquisition readers, including the direct `BrowserPackageWorkspace`
+read, under #4805. Query and CLI projection readers completed their #4806
+migration in this slice; the empty set must remain empty. The inventory uses
+C# syntax and property-symbol binding across every non-generated top-level C#
+source root to exclude comments and literals while following ordinary
+descriptor aliases and syntax forms. It records explicit type-reference and
+implicit descriptor-identity-reference counts per file, so it fails for an
+unlisted file, a stale entry, or reference-count drift within an enrolled file.
+A synthetic mutation gate proves all three comparisons are non-vacuous.
 
 Issue #4805 is both a direct legacy-type migration and a cache dependency
 through package-owned endpoint canonicalization. Its browser cache slots
@@ -909,6 +917,18 @@ Implementation is not complete until Release gates establish:
 - `LegacyPackageSourceIdentitySurfaceMatchesMigrationSet` prevents the
   additive compatibility window from acquiring any new legacy type,
   formatting, equality, or factory consumer;
+- `LegacyMigrationSetComparisonRejectsInventoryMutations` proves the
+  source-derived migration inventory rejects unlisted files, stale entries,
+  and reference-count drift;
+- `LegacyReferenceDiscoveryIncludesImplicitFormattingAndEquality` proves the
+  inventory observes descriptor identity consumers that do not spell the
+  legacy type at their use site;
+- `LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches` proves the
+  inventory semantically attributes local and global legacy type aliases and
+  descriptor identity readers across every bounded conditional-compilation
+  configuration, including cross-file aliases and inferred receiver bindings,
+  then conservatively unions executable legacy-type, alias, and descriptor
+  identity name spans from normally inactive branches;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
   and equal-value hash consistency, plus Gallery and NuGetV3
@@ -1037,9 +1057,12 @@ Their shared NuGet.org producer label alone does not authorize cache sharing.
 
 ### Local-folder source
 
-Local-folder support remains a separate implementation because its candidate
-enumeration, payload access, identity, and platform availability differ from
-HTTP sources. It is not required for the initial browser registry.
+Canonical path and `file://` equivalence are owned by
+[Local package source identity](local-package-source-identity.md).
+[Local-folder client support](https://github.com/richlander/dotnet-inspect/issues/5399)
+remains a separate implementation because its candidate enumeration, payload
+access, and platform availability differ from HTTP sources. It is not required
+for the initial browser registry.
 
 ## Registration, selection, and eligibility
 
@@ -1051,7 +1074,8 @@ Registration and selection are different:
 - an **eligible source** is active and authorized for the package ID after
   package source mapping or an equivalent host policy.
 
-Inspect Web UI owns where package-source operations appear. The package-source
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation)
+owns where package-source operations appear. The package-source
 owner supplies descriptors and typed actions for:
 
 - viewing the built-in NuGet Gallery source;
@@ -1671,7 +1695,8 @@ never rendered.
 
 The website renders the owner-issued compact producer label on every
 source-bearing surface designated by
-[Inspect Web UI](inspect-web-ui.md#package-source-presentation), including
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation),
+including
 search results and version choices. A version advertised upstream but
 unavailable from a selected mirror is shown as a source-specific availability
 fact, not as a contradictory global package state.
@@ -1768,8 +1793,15 @@ authorization, and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
 `MalformedRedirectTargetIsInvalidResponse` gates redirect-target admission.
 The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
-Candidate projection remains inside the same operation deadline as the metadata
-request.
+`CandidateProjectionRemainsInsideOperationDeadline` and
+`NestedSearchSnapshotRemainsInsideOperationDeadline` gate that outer
+projection and nested immutable snapshotting remain inside the same operation
+deadline as the metadata request.
+`VersionResultSnapshotRemainsInsideOperationDeadline` gates the second
+immutable version-result snapshot and publication at that same deadline.
+`SuccessPublicationRemainsInsideOperationDeadline` gates that final
+search/version validation and success-outcome construction retain that
+deadline and classify expiration as a typed timeout rather than success.
 
 Source operations already return typed outcome shells, but current result
 shapes still carry the legacy `PackageSourceIdentity` and separate transport

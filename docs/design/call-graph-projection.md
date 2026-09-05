@@ -102,6 +102,37 @@ The projection owns everything a host must not re-invent in JavaScript:
   the *entire* projection. It never mixes catalog and structural identities in
   one result. Shared callees, cycles, and the target as both caller and callee
   collapse to one node in either domain.
+  The fallback's opaque member selector preserves ECMA-335 array kind:
+  vector `T[]` and rank-one non-SZ `T[*]` are distinct at every nested
+  position. The Metadata API producer emits the Analysis-owned structural
+  payload whenever a non-SZ array requires it, and the Analysis `MemberRef`
+  producer emits the byte-identical payload from `TypeRef`; normalized display
+  spelling remains compatibility-only and does not erase exact array kind.
+  Exact metadata-name segments containing literal array brackets use the same
+  escaping on both producer paths, and the Metadata API producer emits that
+  structural payload through bare names, arrays, and generic containers. Such
+  names therefore cannot alias an actual array wrapper.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesLiteralArrayNamesAcrossTypeShapes`
+  gates those cases.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindForEventAccessors`
+  gates the same producer agreement, distinctness, and tokenless resolution for
+  event add/remove bodies in a CLR-loadable image.
+  General exact-name identity, namespace-versus-nested boundaries, pinned-name
+  compatibility, contextual generic-name shadowing, multidimensional arrays in
+  display-parsed generic arguments, and primitive `TypedReference` identity are
+  outside this array-kind claim and tracked by #5374, #5375, and #5376.
+  An older surface without that structural payload cannot claim a structural
+  match for `T[*]`, but an exact MethodDef-token candidate may still recover
+  the body when no structural candidate matches.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindAcrossExtractedApiAndMemberRefSelectors`
+  gates producer agreement for vectors, non-SZ arrays, nested generics,
+  pointers, by-reference types, tuples, method generic parameters, custom
+  modifiers, and return types, plus resolution with and without an exact-token
+  candidate.
+  `CallGraphCorrespondenceFlowTests.CorrespondenceFlow_MatchesRecordedStageExpectations`
+  records the exact Metadata input, API selector, independently decoded
+  `MemberRef` selector, tokenless resolution, and JSON-restored exact-token
+  recovery for vector, rank-one non-SZ, rank-two, and nested non-SZ specimens.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   A catalog-resolved node also carries the exact defining assembly identity
@@ -174,6 +205,14 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FindFocusCalleeRow` maps a physical call occurrence from the selected member
   to that stable logical edge row. Exact catalog call-site storage wins; the
   assembly-local fallback uses the same typed structural identity as projection.
+  `FindFocusCalleeTarget` returns an occurrence view of that row's target: it
+  keeps the logical node id and identity while restoring the physical call's
+  typed member and exact encoded assembly scope. A definition identity from a
+  collapsed node is withheld when the projection has no unambiguous terminal
+  resolution and it conflicts with the occurrence scope. The occurrence view
+  is not inserted into `Nodes`.
+  `FindCalleeTargetRestoresVersionDistinctOccurrenceIdentity` gates these
+  properties.
   `FindNode` likewise maps a `MethodIdentity` to a node, preferring exact
   definition evidence, including the exact definition that supplied body facts
   for a detached call-site occurrence, before the typed structural fallback
@@ -349,6 +388,22 @@ another. If either direction is scoped, the CLI builds the other direction in
 a target-only catalog rather than mixing a detached tree with an evidence-free
 local tree; `CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped` gates
 that projection never falls back to structural identity and collapses versions.
+
+Caller-scope admission distinguishes result cardinality from completeness
+before graph construction. When a caller's exact assembly reference binds to a
+different definition than the inspected target, that caller is conclusively
+excluded from the target's graph. If no caller remains, the complete empty graph
+is a canonical successful value, analogous to `string.Empty`: zero edges is
+evidence, not absence of evidence. `Complete(empty)` is therefore distinct from
+`Incomplete(partial)`. An unavailable or ambiguous correspondence retains the
+candidate as indeterminate and makes the affected result incomplete; exact
+exclusion does not. This does not change the separate case where an admitted
+graph contains an exact binding to a different identity of the primary
+assembly, which remains represented by `BindingIdentityConflictCount`.
+`CallerScopes_ExactReferencedVersionExcludesDifferentTarget` gates the
+Analysis-owned admission result, and
+`Member_CallGraph_VersionSkewedCallerScopeIsCompleteAndEmpty` gates the CLI
+presentation without an incompleteness warning.
 
 `CrossLibraryCalleeNeighborhood` exposes the existing cross-library callee
 traversal as a call-only L1 inspection-graph neighborhood. Its request carries

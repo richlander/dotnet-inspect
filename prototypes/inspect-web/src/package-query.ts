@@ -2,7 +2,7 @@
 //
 // This module owns the request/outcome contract and pure state transitions for a
 // wide, streaming query over a package source (nuget.org today; other feeds
-// possible later), narrowed by product-issued nuspec facets.
+// possible later), narrowed by product-issued package facets.
 //
 // It is deliberately data-source-agnostic: `PackageQueryDataSource` is supplied
 // by the caller so this module can be built and tested against fake sources
@@ -14,9 +14,18 @@ export interface QueryFacetTerm {
   label: string;
   summary?: string;
   weight?: number;
-  tier: "nuspec";
+  tier: "nuspec" | "package-content";
   selectionGroupId?: string | null;
+  combinesWithinSelectionGroup?: boolean;
+  displayGroupId?: string | null;
+  displayGroupLabel?: string | null;
 }
+
+const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
+const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
+export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
+const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
+const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest {
@@ -37,7 +46,7 @@ export function createQueryRequest(
   return {
     scopeQuery,
     facets: [],
-    requestedLimit: 200,
+    requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
   };
 }
@@ -57,14 +66,29 @@ export function withFacet(
   facet: QueryFacetTerm,
 ): QueryRequest {
   if (request.facets.some(existing => existing.key === facet.key)) return request;
-  return { ...request, facets: [...request.facets, facet] };
+  return withFacets(request, [...request.facets, facet]);
 }
 
 export function withoutFacet(
   request: QueryRequest,
   facetKey: string,
 ): QueryRequest {
-  return { ...request, facets: request.facets.filter(f => f.key !== facetKey) };
+  return withFacets(
+    request,
+    request.facets.filter(facet => facet.key !== facetKey));
+}
+
+function withFacets(
+  request: QueryRequest,
+  facets: readonly QueryFacetTerm[],
+): QueryRequest {
+  return {
+    ...request,
+    facets,
+    requestedLimit: facets.some(facet => facet.tier === "package-content")
+      ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
+      : DEFAULT_QUERY_CANDIDATE_LIMIT,
+  };
 }
 
 export function toggleFacet(
@@ -77,9 +101,11 @@ export function toggleFacet(
 
   const compatible = facet.selectionGroupId
     ? request.facets.filter(existing =>
-        existing.selectionGroupId !== facet.selectionGroupId)
+        existing.selectionGroupId !== facet.selectionGroupId
+        || (facet.combinesWithinSelectionGroup === true
+          && existing.combinesWithinSelectionGroup === true))
     : request.facets;
-  return withFacet({ ...request, facets: compatible }, facet);
+  return withFacet(withFacets(request, compatible), facet);
 }
 
 /** One package's projection plus which predicate terms matched and why. Never
@@ -91,7 +117,7 @@ export function toggleFacet(
 export interface QueryResultRow {
   packageId: string;
   version: string;
-  tier: "nuspec";
+  tier: "nuspec" | "package-content";
   evidence: readonly [string, ...string[]];
   totalDownloads: number;
   producer?: string;
@@ -114,6 +140,12 @@ export type TerminalQueryCompletion =
   | { kind: "cancelled" }
   | { kind: "failed"; reason: string };
 
+export interface QueryProgress {
+  phase: "search" | "manifest" | "package-content";
+  completed: number;
+  limit: number;
+}
+
 /** Mirrors `NuGetSearchOutcome`'s shape: results and failures both carried, so
  * a partially-searched source never renders as a confident empty/complete
  * result (untrusted-data-threat-model.md's "reject, do not sanitize" extends
@@ -121,11 +153,17 @@ export type TerminalQueryCompletion =
 export interface QueryOutcome {
   rows: readonly QueryResultRow[];
   failures: readonly string[];
+  progress: readonly QueryProgress[];
   completion: QueryCompletion;
 }
 
 export function emptyOutcome(): QueryOutcome {
-  return { rows: [], failures: [], completion: { kind: "streaming" } };
+  return {
+    rows: [],
+    failures: [],
+    progress: [],
+    completion: { kind: "streaming" },
+  };
 }
 
 export function appendRows(
@@ -142,6 +180,21 @@ export function appendFailure(
   return { ...outcome, failures: [...outcome.failures, failure] };
 }
 
+export function appendProgress(
+  outcome: QueryOutcome,
+  progress: QueryProgress,
+): QueryOutcome {
+  const existingIndex = outcome.progress.findIndex(
+    item => item.phase === progress.phase);
+  return {
+    ...outcome,
+    progress: existingIndex < 0
+      ? [...outcome.progress, progress]
+      : outcome.progress.map((item, index) =>
+          index === existingIndex ? progress : item),
+  };
+}
+
 export function withCompletion(
   outcome: QueryOutcome,
   completion: QueryCompletion,
@@ -151,10 +204,17 @@ export function withCompletion(
 
 /** Supplies product-projected pages and failures for a request. */
 export interface PackageQueryDataSource {
+  /** Initial durable-match credit advertised to the producer. Sources without
+   * a demand protocol omit this and retain their existing push behavior. */
+  initialMatchCredit?: number;
+  /** Adds durable-match credit to the active request. Returns false when no
+   * request can accept the credit. */
+  requestMore?(additionalMatchCredit: number): boolean;
   run(
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
     onFailure: (failure: string) => void,
+    onProgress: (progress: QueryProgress) => void,
     /** Signaled when `cancel()` is called or a newer run supersedes this one,
      * so the source can stop in-flight network/manifest work instead of
      * running it to completion unobserved. */
@@ -174,7 +234,10 @@ export function initialQueryState(): PackageQueryState {
 export interface PackageQueryController {
   run(request: QueryRequest): Promise<void>;
   cancel(): void;
+  requestMore(): void;
 }
+
+export type PackageQueryUpdateKind = "reset" | "stream";
 
 /** Owns one in-flight generation counter so a superseded request's late pages
  * never append into a newer request's outcome (same race-safety idiom as
@@ -182,10 +245,11 @@ export interface PackageQueryController {
 export function createPackageQueryController(
   state: PackageQueryState,
   source: PackageQueryDataSource,
-  onUpdate: () => void,
+  onUpdate: (kind: PackageQueryUpdateKind) => void,
 ): PackageQueryController {
   let generation = 0;
   let abortController = new AbortController();
+  let grantedMatchCredit = Number.POSITIVE_INFINITY;
 
   return {
     async run(request: QueryRequest) {
@@ -195,6 +259,8 @@ export function createPackageQueryController(
       const requestGeneration = ++generation;
       state.request = request;
       state.outcome = emptyOutcome();
+      grantedMatchCredit =
+        source.initialMatchCredit ?? Number.POSITIVE_INFINITY;
       // Capture this run's own signal before onUpdate() runs: onUpdate() is
       // caller-supplied and may reentrantly call run() again synchronously
       // (e.g. a state-change handler that immediately kicks off a new
@@ -202,7 +268,7 @@ export function createPackageQueryController(
       // `source.run()` below gets a chance to read it — silently handing
       // this run the *next* run's signal instead of its own.
       const signal = runController.signal;
-      onUpdate();
+      onUpdate("reset");
 
       let completion: TerminalQueryCompletion;
       try {
@@ -211,12 +277,17 @@ export function createPackageQueryController(
           rows => {
             if (requestGeneration !== generation) return;
             state.outcome = appendRows(state.outcome, rows);
-            onUpdate();
+            onUpdate("stream");
           },
           failure => {
             if (requestGeneration !== generation) return;
             state.outcome = appendFailure(state.outcome, failure);
-            onUpdate();
+            onUpdate("stream");
+          },
+          progress => {
+            if (requestGeneration !== generation) return;
+            state.outcome = appendProgress(state.outcome, progress);
+            onUpdate("stream");
           },
           signal,
         );
@@ -237,13 +308,13 @@ export function createPackageQueryController(
         if (requestGeneration !== generation) return;
         const reason = error instanceof Error ? error.message : String(error);
         state.outcome = withCompletion(state.outcome, { kind: "failed", reason });
-        onUpdate();
+        onUpdate("stream");
         return;
       }
 
       if (requestGeneration !== generation) return;
       state.outcome = withCompletion(state.outcome, completion);
-      onUpdate();
+      onUpdate("stream");
     },
 
     cancel() {
@@ -253,7 +324,20 @@ export function createPackageQueryController(
       generation++;
       abortController.abort();
       state.outcome = withCompletion(state.outcome, { kind: "cancelled" });
-      onUpdate();
+      onUpdate("stream");
+    },
+
+    requestMore() {
+      if (state.outcome.completion.kind !== "streaming"
+        || !source.requestMore
+        || !Number.isFinite(grantedMatchCredit)
+        || state.outcome.rows.length
+          < grantedMatchCredit - PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD) {
+        return;
+      }
+      if (source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH)) {
+        grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+      }
     },
   };
 }

@@ -81,9 +81,12 @@ public static class MemberCommand
 
         try
         {
-            var loaded = ApiServices.LoadFullApi(
+            var loaded = options.RouterDeferredTypeOrMember
+                ? ApiServices.LoadTypeApi(source, options)
+                : ApiServices.LoadFullApi(
                 searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                apiSource, source.ApiVersion, selectedTfm, logger, options);
+                apiSource, source.ApiVersion, selectedTfm, logger, options,
+                source.PackageExtractPath);
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
@@ -109,6 +112,8 @@ public static class MemberCommand
             }
 
             var apiType = lookupResult.Type!;
+            ResolvedAssemblyReference? sourceAssembly =
+                loaded.TryGetSourceAssembly(apiType);
             if (options.RouterDeferredTypeOrMember
                 && lookupResult.ImpliedMember is null
                 && DeferredExactTargetUsesTypePipeline(
@@ -418,18 +423,24 @@ public static class MemberCommand
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
-                    apiType, locationDllPath, packageName, packageVersion,
-                    effectiveOptions, context.HttpClient, logger);
+                    apiType,
+                    locationDllPath,
+                    sourceAssembly,
+                    packageName,
+                    packageVersion,
+                    effectiveOptions,
+                    context.HttpClient,
+                    logger);
                 if (pdbPath != null)
                     effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
             }
 
             // Resolve PDB/source only when selected detail sections need them.
             if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null
-                && NeedsMemberSourceResolution(apiType, effectiveOptions))
+                && AuthorizesMemberSourceResolution(apiType, effectiveOptions))
             {
-                bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                    .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
+                bool fetchSource =
+                    AuthorizesMemberSourceContent(apiType, effectiveOptions);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
                 // A property/event (including an indexer) has no body of its own: its PDB source
                 // is located through the accessor the selected ordinal addresses, so resolve by that
@@ -454,26 +465,34 @@ public static class MemberCommand
                 // was extracted from — apiType.SourceAssemblyPath (the target
                 // assembly for a forwarded type, otherwise the extraction dll).
                 // Only resolve source by token when the assembly opened for
-                // lookup (pdbLookupPath) IS that same assembly; otherwise the
+                // lookup is that same assembly; otherwise the
                 // token's row would not align (forwarded facade, or a reference
                 // assembly for the surface vs an implementation assembly for
                 // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
+                string methodSourceAssemblyPath =
+                    apiType.IsForwarded
+                        && sourceAssembly?.Path is { } supplierPath
+                            ? supplierPath
+                            : pdbLookupPath;
                 var sourceMetadataToken = LibraryMetadataService
                     .ReferenceTreePathComparer(OperatingSystem.IsWindows())
                     .Equals(
-                        Path.GetFullPath(pdbLookupPath),
+                        Path.GetFullPath(methodSourceAssemblyPath),
                         Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    pdbLookupPath, sourceTypeName,
+                    methodSourceAssemblyPath, sourceTypeName,
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
                     sourceMetadataToken,
                     tokenOriginAssembly,
-                    sourceMember?.MetadataToken ?? 0);
+                    sourceMember?.MetadataToken ?? 0,
+                    sourceAssembly,
+                    packageName,
+                    packageVersion);
 
                 effectiveOptions = effectiveOptions with
                 {
@@ -664,7 +683,7 @@ public static class MemberCommand
             return 1;
         }
 
-        if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
+        if (GetDeferredTypeIncompatibleOption(unresolvedOptions)
             is { } incompatibleOption)
         {
             CommandError.Write(
@@ -673,9 +692,21 @@ public static class MemberCommand
         }
 
         return await TypeCommand.ExecuteResolvedAsync(
-            ApiCommand.ToTypeOptions(unresolvedOptions),
+            TypeCommand.FromDeferredMemberOptions(unresolvedOptions),
             source,
             loaded);
+    }
+
+    private static string? GetDeferredTypeIncompatibleOption(
+        MemberOptions options)
+    {
+        if (options.Focus is not null) return "--focus";
+        if (options.OverloadIndexExplicitlySet) return "--index";
+        if (options.CtorOnly) return "--ctor";
+        if (options.CallerScopeDirectories.Length > 0) return "--bin";
+        if (options.CallerScopePackages.Length > 0) return "--caller-package";
+        if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";
+        return null;
     }
 
     private static async Task<int?> TryExecuteFindIfMissAsync(MemberOptions options)
@@ -895,6 +926,19 @@ public static class MemberCommand
                    || sections.Contains(SectionNames.BodyShapes)
                    || sections.Contains(SectionNames.Facts));
     }
+
+    internal static bool AuthorizesMemberSourceResolution(
+        ApiType apiType,
+        MemberOptions options)
+        => options.OverloadIndex.HasValue
+           && NeedsMemberSourceResolution(apiType, options);
+
+    internal static bool AuthorizesMemberSourceContent(
+        ApiType apiType,
+        MemberOptions options)
+        => AuthorizesMemberSourceResolution(apiType, options)
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;

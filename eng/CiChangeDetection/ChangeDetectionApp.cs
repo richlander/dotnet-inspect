@@ -1,3 +1,5 @@
+using CiChangeDetection.Planning;
+
 namespace CiChangeDetection;
 
 /// <summary>
@@ -66,10 +68,12 @@ public static class ChangeDetectionApp
                     validateProvenancePin: false);
                 return ProvenancePin.Refresh(mutated, mutatedContract);
             });
-        DetectionTestSuite.Run(repository, result);
+        ChangePlanTestSuite.Run(repository);
 
         Console.WriteLine(
-            "CI change detection fail-safe, path canaries, and provenance pin mutations passed.");
+            "CI aggregate fail-safe, path canaries, provenance pin mutations, "
+            + "change-planner construction, and workflow scope transport "
+            + "passed.");
         return 0;
     }
 

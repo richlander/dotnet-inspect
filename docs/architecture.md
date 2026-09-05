@@ -23,6 +23,8 @@ Authority is intentionally distributed:
   contracts.
 - [CLI host architecture](cli-architecture.md) describes command-host
   composition without treating the CLI as the whole product.
+- [Decompiler architecture](decompiler-architecture.md) maps the decompiler
+  implementation, host integration, and testing infrastructure.
 
 ## Essential shape
 
@@ -90,9 +92,10 @@ than forming an additional host tier.
 
 These are logical boundaries, not a claim that every layer is already a
 separate reusable assembly. L1 is available through host-neutral projects.
-Current L2 section pipelines remain in the `DotnetInspector.Sections` namespace
-inside the CLI project; the owning design describes their separate-component
-target.
+`DotnetInspector.Sections` contains the typed unresolved selection-operation
+intent boundary and the first reusable L2 Rows execution boundary. Current L2
+section pipelines remain in the same namespace inside the CLI project; their
+broader migration is still incomplete.
 
 The reusable L1/L2 binding is owned by
 [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition).
@@ -120,6 +123,11 @@ alphabetically.
 | `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
 | `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
 
+Within Services, `LocalRepoSourceAcquisition` owns [local repository source
+acquisition](design/local-repository-source-acquisition.md): checksum-backed
+substitution of Git blob bytes for one PDB source request. PDB acquisition
+retains the surrounding source-selection and fallback policy.
+
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
 the universal CLI acquisition path. The current package-free fixture consumes
@@ -132,7 +140,7 @@ and query workspaces while migration continues.
 | ------ | ------------- | -------------- | ----------------- |
 | `ILInspector.MetadataPrimitives` | Primitive floor | Dependency-free SRM mechanics and neutral metadata-name operations. | [Metadata primitives](metadata-primitives.md) |
 | `CSharpText` | Text grammar floor | Model-free C# and XML-documentation grammars, names, signatures, and conservative text ranges. | [Inspection layers](design/inspection-layers.md) |
-| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), focused Metadata designs |
+| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
 | `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
 | `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |
@@ -141,11 +149,17 @@ Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
 CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that
 depends on typed models.
 
+[C# memory-safety declaration spelling](design/csharp-memory-safety-spelling.md)
+owns the proposed CSharp policy for consuming independent caller-contract,
+pointer, and declaration-shape facts. Its adoption and production-host gates
+remain pending; Metadata interpretation and Decompiler reconstruction stay
+with their respective owners.
+
 ### Evidence and comparison engines
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `ILInspector.Findings` | Result contracts | Domain-free observation, census, matching, transition, comparison, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding producers](design/finding-producers.md) |
+| `ILInspector.Findings` | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
 | `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.Text` | Text producer | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
@@ -164,6 +178,9 @@ reaches through Research to redefine the other.
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
 | `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
+| `DotnetInspector.RowSelection` | Shared row-selection contract | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
+| `DotnetInspector.Sections` | Shared L2 contracts | Typed unresolved row-selection intent plus binding of already-resolved section-row cohorts to semantic selection and L2 result identities. | [L2 section-row shaping](design/section-row-shaping.md) |
+| `DotnetInspector.Presentation` | Shared presentation composition | Host-neutral lowering from typed inspection and comparison contracts into Markout presentation shapes. Member source diff projection deliberately consumes the Queries, Decompiler, Text, Metadata, MetadataPrimitives, and CSharpText graph so hosts cannot pair independently acquired endpoints or infer constructor context from display text. | [Analysis diff](design/analysis-diff.md), [Comparison document](design/comparison-document.md), [Member source diff presentation](design/member-source-diff-presentation.md) |
 | `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
 | `DotnetInspector.ResearchQueries` | Optional L1 companion | Research-backed queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
 | `DotnetInspector.PackageQueries` | Optional L1 companion | Package-aware composition over package-neutral queries and realization proofs. | [Package Root realization](design/artifact-acquisition-and-workspaces.md#package-root-realization) |
@@ -171,25 +188,55 @@ reaches through Research to redefine the other.
 Queries accept content-shaped or context-shaped inputs. They do not choose a
 renderer, parse command lines, or use display strings as identity.
 
-Current L2 section pipelines, immutable catalogs, schemas, and compiled lenses
-live under `src/dotnet-inspect/Sections` in the CLI assembly. The
+The reusable `DotnetInspector.Sections` project currently contains the
+unresolved selection-operation intent and one-cohort Rows execution
+boundaries. Existing L2 section pipelines, immutable catalogs, schemas, and
+compiled lenses remain under
+`src/dotnet-inspect/Sections` in the CLI assembly. The
 [Section model](design/section-model.md) and
 [section pipeline](design/section-pipeline.md) own those contracts;
-[Inspection layers](design/inspection-layers.md) owns the target reusable L2
-component boundary. The browser host currently consumes L1 query projects
-without referencing the CLI assembly.
+[Inspection layers](design/inspection-layers.md) owns their target reusable L2
+boundary. The browser host currently consumes L1 query projects without
+referencing the CLI assembly.
 
 ### Hosts and tools
 
 | Host | Place in flow | Role | Primary guide |
 | ---- | ------------- | ---- | ------------- |
+| `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity and membership, ecosystem-pack metadata, and lazy product-demo sources shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md), [Workspace Definitions](design/workspace-definitions.md#product-demos-are-closed-section-presets) |
 | `src/dotnet-inspect` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
-| `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine contracts. | [Inspect Web UI](design/inspect-web-ui.md); target [operation authority](design/inspect-web-operation-authority.md) |
+| `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | Focused apps and fixtures | Boundary canary | Narrow executable consumers that prove a reusable boundary without becoming product owners. | Their local README or owning design |
 
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
+
+Within `tools/DecompilerHarness`, `AuthoredCorpusHistoryStore` is the focused
+owner for admitting complete EVIL benchmark artifacts as durable observations
+and validating the ordered committed sequence. Its
+[committed authored-corpus history](design/authored-corpus-history.md) contract
+separates persistence evidence from benchmark production, methodology,
+ratchet comparison, and history-card rendering.
+
+`SourceOracleCandidateLedger` is the focused harness owner for complete
+candidate-file accounting and deterministic next-enrollment ranking over one
+accepted source-oracle baseline. Its
+[candidate-ledger contract](design/source-oracle-candidate-ledger.md) consumes
+PDB mapping, acquisition, evaluation, syntax-inventory, and provenance evidence
+without taking ownership of those producers or of manifest enrollment.
+
+Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
+[package index cache](design/package-index-cache.md) contract defines when a
+persistent filesystem-derived package projection may replace cold inspection;
+`CoreCache` remains only its storage mechanism.
+
+Within `DotnetInspector.Services`, package-metadata persistence is a focused
+observation-reuse owner. Its
+[package metadata persistence](design/package-metadata-persistence.md)
+contract defines when a complete, authority-scoped present or absent
+observation may replace a fresh metadata operation; `MetadataFieldCache` and
+`CoreCache` remain encoding and storage mechanisms.
 
 ## Core currencies
 
@@ -282,14 +329,14 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | ----------- | ---------- | ------------ |
 | Workspace, acquisition, cache, or source policy | [Inspection space](inspection-space.md), [artifact acquisition](design/artifact-acquisition-and-workspaces.md) | `DotnetInspector.Artifacts*`, `DotnetInspector.Core`, `DotnetInspector.Packages`, `DotnetInspector.Services` |
 | Query planning or execution | [Inspection layers](design/inspection-layers.md) | `DotnetInspector.Queries`, optional query companions |
-| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md) | `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
+| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md), [semantic row selection](design/semantic-row-selection.md) | `DotnetInspector.RowSelection`, `DotnetInspector.Sections`, `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
 | Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |
 | Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
 | Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
-| Decompilation or implementation comparison | [Decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
+| Decompilation or implementation comparison | [Decompiler architecture](decompiler-architecture.md), [decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | CLI command or output behavior | [CLI host architecture](cli-architecture.md), [progressive disclosure](design/progressive-disclosure.md), [output shapes](design/output-shapes.md) | `src/dotnet-inspect` |
-| Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) | `prototypes/inspect-web` |
+| Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) composition map; see [navigation presentation](design/inspect-web-navigation-presentation.md), [navigation consumer](design/inspect-web-navigation-consumer.md), [shell interaction](design/inspect-web-shell-interaction.md), and [surface composition](design/inspect-web-surface-composition.md) | `prototypes/inspect-web` |
 
 Use [the documentation index](README.md) when the focused owner is not obvious.
 

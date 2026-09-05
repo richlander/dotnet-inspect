@@ -32,7 +32,21 @@ provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
 `--all-libraries` partitions binding universes by package asset directory,
 preserving non-`net*` framework and runtime contexts, and releases each
-participant before advancing. Progressive member call
+participant before advancing. For a remote package whose default selection
+resolves one target framework, that grouped path now consumes the shared
+artifact-backed package-role realization: the existing visible surface
+selection remains the input to ordinary library inspection while Integration
+queries use its exact body-bearing implementation participant when one exists.
+A rejected implementation remains visible without erasing an available
+surface, and asynchronous workspace close retains the artifact generation
+until both participant groups settle. Ordinary presentation retains the
+selected extraction file's timestamp rather than manufacturing a timestamp
+from the artifact stream. The artifact-backed path requires the
+binding's frozen surface role to exactly cover the command's visible selection
+and to form exact assembly-identity correspondence; other package shapes
+retain the legacy grouped workspace. Local archives and explicit `--tfm` modes
+also keep that path because their visible selection can span tools or multiple
+package layout roles. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization
@@ -348,6 +362,12 @@ them. It also retains the acquisition provenance and policy inputs needed to
 decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
+[Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
+the committed logical Root occurrences above those physical contexts,
+closed-by-default selective dependency expansion, revision-bound scope edits,
+and closure completeness. Artifact Acquisition retains realization, admission,
+binding-context publication, query authorization, and physical lifetime.
+
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
@@ -515,21 +535,28 @@ Browser/Wasm execution target.
 models this workspace-level interaction. It covers direct and coordinated
 release ownership, close racing construction, lease-draining authorization,
 group quiescence, complete failure reporting, and eventual asynchronous close.
-It treats package admission and `AssemblyContextGroup` release as adjacent
-abstract completions; their internal contracts remain owned by
-`docs/design/inspection-layers.md` and
-[`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla).
-The model checks the target design, not current implementation conformance.
+It treats package admission and coordinated release as adjacent abstract
+completions whose contracts remain owned by
+`docs/design/inspection-layers.md`. Its direct-group path instantiates the
+exact-group request,
+terminal receipt, and result lifecycle in
+[`AssemblyContextGroupReleaseLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycle.tla);
+callback and resource internals remain in the detailed
+[`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)
+model. The model checks the interaction contract. The Release gates below
+enforce the shipped close mechanics; exact direct-receipt attribution remains
+unverified by a fault-injection implementation gate.
 
-The direct-group foundation is implemented. The parameterless constructor
-retains synchronous compatibility. `CreateAsynchronous()` selects the awaited
-lifetime before admission, `CloseAsync()` returns one shared
-`Task<InspectionWorkspaceCloseReport>`, `DisposeAsync()` awaits that task, and
-`CloseReport` exposes the same immutable report after completion. Each direct
-group has one release completion. An asynchronous workspace captures cleanup
-failure as `InspectionWorkspaceGroupCloseResult.Failure`; synchronous
-compatibility continues to throw the same cleanup failure while requesting the
-same group-owned release.
+The direct and coordinated workspace-close paths are implemented. The
+parameterless constructor retains synchronous compatibility.
+`CreateAsynchronous()` selects the awaited lifetime before admission,
+`CloseAsync()` returns one shared `Task<InspectionWorkspaceCloseReport>`,
+`DisposeAsync()` awaits that task, and `CloseReport` exposes the same immutable
+report after completion. Each direct group has one release completion. An
+asynchronous workspace captures that outcome as an
+`InspectionWorkspaceDirectGroupCloseResult`; synchronous compatibility
+continues to throw the same cleanup failure while requesting the same
+group-owned release.
 
 The direct implementation is enforced by these Release gates:
 
@@ -554,21 +581,80 @@ The direct implementation is enforced by these Release gates:
   and reaches terminal close through awaited progress without a blocking wait
   or background-thread requirement.
 
-Coordinated package-role adoption remains unverified. The current
-`PackageAssemblyContextRoles` path independently disposes its role groups and
-does not yet supply the owner-issued participation and completion contracts
-required above. These remaining Release gates belong to that adjacent
-composition:
+Shareable package-role completion uses the coordinated path. It batch-registers
+every planned physical group before awaited construction, pre-issues the exact
+`PackageRoleGroupId` and terminal `PackageRoleCleanupReport` task, and closes
+projection admission through a workspace-owned gate before owner release is
+requested. The workspace never adds those groups to its direct-release set.
+Package-role completion remains their sole physical release authority, while
+`InspectionWorkspaceCoordinatedGroupCloseResult<PackageRoleGroupCleanupRecord>`
+retains the exact keyed cleanup record without translating it.
+
+The shareable completion operation requires `CreateAsynchronous()` because its
+construction has awaited admission and it does not provide a synchronous
+request-release adapter. The synchronous caller-owned
+`CreatePackageAssemblyContextRoles` path remains unchanged.
+
+The coordinated composition is enforced by these Release gates:
 
 - `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce`;
 - `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`; and
 - `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`.
+
+`WorkspaceClose_CoordinatedLateGroupsCommitHistoryBeforeOwnerRelease` proves
+that close racing a separate-topology construction records both planned
+admissions in registration order before dispatching their shared owner release,
+returns no completion to the late caller, and retains both exact keyed cleanup
+records.
 
 This contract does not define package admission keys, cache policy, package
 selection, role planning, participant projection, package cleanup-record shape,
 artifact acquisition lifetime, query-specific participant release policy, or
 the implementation of
 [#4960](https://github.com/richlander/dotnet-inspect/issues/4960).
+
+#### Retained package-realization caller
+
+**Status:** no approved product caller.
+
+The `inspect-web` prototype is the only current multi-operation consumer of
+package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
+complete `BrowserInspectionScope` instances keyed by an exact
+package-coordinate set; the prototype's README owns that retention and eviction
+policy. Each scope owns one `InspectionWorkspace` and one package-role
+realization. The registry returns the already-open scope for a later exact
+request, so the workspace never receives a second independent package-role
+demand and cannot exercise workspace-local exact-request admission.
+
+Moving reuse below that boundary would be a product-topology migration, not a
+narrow caller adoption. A Browser-session owner would need to adopt the landed
+demand-projection and coordinated-release contracts across the prototype:
+replace retained whole scopes with independently returned demand projections,
+migrate every scope query to projection-safe access, attach package-archive
+retention to the shared completion instead of one demand, and define awaited
+session reset or shutdown so retained entries eventually close.
+
+A one-request workspace beneath each existing registry key cannot receive a
+second independent exact demand because the outer registry returns the retained
+scope first. An Integrations-only workspace would duplicate the ordinary
+realization solely to resubmit a demand that Integrations already answers from
+the retained scope. Neither topology adds an independently useful product
+lifetime.
+
+The retained Browser platform path is not a package-role caller: each cumulative
+rebuild creates a fresh `InspectionWorkspace` through `WorkspaceContextLoader`
+instead of submitting repeated package-role demands. The CLI, the only shipped
+host, remains operation-scoped. Therefore no existing component justifies the
+lower-level retained cache, and
+[#4960](https://github.com/richlander/dotnet-inspect/issues/4960) remains
+deferred. A future caller proposal must establish its product lifetime first,
+including explicit bounds for retained or in-flight exact requests, concurrent
+physical operations, and aggregate retained-byte reservation, and must name one
+real repeated exact-demand scenario plus one neighboring distinct-demand
+scenario. Once that caller is approved, the admission implementation owns the
+observable ready-reuse, non-hit, capacity-rejection, and terminal-cleanup gates
+through that caller. Admission must not be implemented or a caller lifetime
+manufactured solely to make those gates pass.
 
 `WorkspaceContextLoader` now realizes package, platform, and embedded
 coordinates without requiring a filesystem. A platform coordinate maps the
@@ -1003,27 +1089,38 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Product-resident home demos ship as a static id→factory registry
-(`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
-`RendererRegistry` style); hosts resolve one demo via
-`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records and requires a `ProductDemoSections` binding. Home demos are closed
-presets over the open query/section product: the registry fixes inputs and names
-**existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
-Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
-table/tsv/jsonl keep Callers when the demo has caller scope so the re-add stays
-one section, otherwise Call Graph so package-local entry points still emit rows;
-mermaid keeps Call Graph; document JSON fails closed until graph projection
-lands); the CLI host runs them through the normal type/member section pipelines
-(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
-sections in ordinary formats. Demos must not call past sections into ad hoc
-inspection APIs; a capability that is not a product section is not a home demo
-until the section exists. CLI argv, definition plans, and browser engine
-operations (including a generated TypeScript binding of that engine surface)
-must be encodings of the same preset—not parallel demo systems. Residual:
-minted view-facet ids, `WorkspaceContextLoader` as the shared group-run owner,
-and Call Graph structured-JSON projection (see
-workspace-definitions). Detail:
+Product-resident home demos ship through the static application
+ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
+ecosystem grouping, display metadata, and global product order. Workspace
+Definitions owns `ProductDemoSourceBinding`, record types and peer-graph
+validation, exact scenario resolution, section admission, run plans, execution,
+and failures. The selected application-authored factory constructs the records.
+Grouped and flat discovery expose only immutable metadata; selecting one exact
+scenario ID dispatches only that source, whose binding requires exactly one
+matching scenario record. Selection retains the catalog descriptor beside the
+resolved scenario, and hosts use that descriptor as product display metadata.
+The donor `DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry
+has been removed; `DotnetInspector.Ecosystems` is the sole shipping application
+inventory.
+
+Home demos are closed presets over the open query/section product: each source
+fixes inputs and names **existing product section(s)**
+(`ProductDemoSections.ExpandRunSections` expands Call Graph presets
+format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
+when the demo has caller scope so the re-add stays one section, otherwise Call
+Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
+document JSON fails closed until graph projection lands). The CLI host runs
+them through the normal type/member section pipelines (`DemoScenarioRunner` →
+`TypeCommand` / `MemberCommand`) and returns those sections in ordinary
+formats. Demos must not call past sections into ad hoc inspection APIs; a
+capability that is not a product section is not a home demo until the section
+exists. CLI argv, definition plans, and browser engine operations (including a
+generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Ecosystem grouping does not select or
+activate the pack's package set, prefixes, or scanner, and is never inferred
+from package coordinates or display text. Residual: minted view-facet ids,
+`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
+structured-JSON projection (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
@@ -1183,6 +1280,10 @@ sequential executor satisfies these rules without requiring threads.
 Producers receive the narrow context named by their scope, not a mutable
 workspace object. This keeps the workspace from becoming a god object and makes
 cross-group access explicit.
+[Analysis universe realization](design/analysis-universe-realization.md) owns
+the equivalent narrow handoff when a validated analysis plan needs an ordered
+finite population, one or more contexts, and provider-issued executable
+capabilities.
 
 ## Core currencies
 

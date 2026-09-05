@@ -927,11 +927,18 @@ public class CatalogMemberCorrespondencePlanTests
             candidate => candidate.MetadataToken == token);
         byte[] image = File.ReadAllBytes(assemblyPath);
         ResolvedAssemblyReference source = Descriptor(image);
+        ResolvedAssemblyReference coreLibrary =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(object).Assembly.Location,
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    frameworkVersion: null,
+                    "compiler-produced vararg fixture"));
         CatalogMemberCorrespondencePlan plan =
             CatalogMemberCorrespondencePlan.Create(source, member);
         using var catalog = new TypeResolutionCatalog();
         using TypeResolutionContext context = catalog.CreateContext(
-            MissingPolicy.Instance,
+            new CoreLibraryPolicy(coreLibrary),
             [source],
             plan.Requests);
 
@@ -1773,9 +1780,35 @@ public class CatalogMemberCorrespondencePlanTests
         internal static MissingPolicy Instance { get; } = new();
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
+    }
+
+    sealed class CoreLibraryPolicy(
+        ResolvedAssemblyReference coreLibrary) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+                ? AssemblyBindingSelection.Found(coreLibrary)
+                : AssemblyBindingSelection.NameNotOwned();
+        }
     }
 
     sealed class UnavailablePolicy : IAssemblyBindingPolicy
@@ -1783,11 +1816,18 @@ public class CatalogMemberCorrespondencePlanTests
         internal static UnavailablePolicy Instance { get; } = new();
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.IdentityPolicyRequired));
+                AssemblyBindingFailureKind.IdentityPolicyRequired));
+        }
     }
 
     sealed class ExactPolicy : IAssemblyBindingPolicy
@@ -1803,13 +1843,20 @@ public class CatalogMemberCorrespondencePlanTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target is AssemblyBindingTarget.AssemblyReference reference
-            && _assemblies.TryGetValue(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target is AssemblyBindingTarget.AssemblyReference reference
+                && _assemblies.TryGetValue(
                 reference.Identity,
                 out ResolvedAssemblyReference? assembly)
                 ? AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }

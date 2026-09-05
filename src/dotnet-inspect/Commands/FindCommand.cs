@@ -17,6 +17,9 @@ namespace DotnetInspector.Commands;
 public class FindCommand
 {
     public const string Name = "find";
+    internal const int PackageProfileDefaultLimit = 500;
+    internal const int PackageProfileMaximumLimit = 1_000;
+
     public static async Task<int> ExecuteAsync(
         FindOptions options,
         CancellationToken cancellationToken = default)
@@ -182,25 +185,33 @@ public class FindCommand
             && !int.TryParse(options.TypeFilter, out _))
         {
             CommandError.Write(
-                $"-t must be an integer between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile.");
+                $"-t must be an integer between 1 and {PackageProfileMaximumLimit} for a package-prefix profile.");
             return 1;
         }
 
-        int maximumPackages = options.Limit ?? 100;
+        int maximumPackages =
+            options.Limit ?? PackageProfileDefaultLimit;
         if (maximumPackages is <= 0
-            or > PackageProfileQuery.MaximumPackageLimit)
+            or > PackageProfileMaximumLimit)
         {
             CommandError.Write(
-                $"-t must be between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile (got {maximumPackages}).");
+                $"-t must be between 1 and {PackageProfileMaximumLimit} for a package-prefix profile (got {maximumPackages}).");
             return 1;
         }
 
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(
+                context.HttpClient.Timeout);
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 DotnetInspector.Core.HttpClientFactory
                     .CreateCredentialFreeHandler(),
-                NuGetFetchOptions.FromRequestTimeout(
-                    context.HttpClient.Timeout));
+                fetchOptions);
+        using var operationContext = new NuGetOperationContext(
+            fetchOptions.RequestTimeout,
+            fetchOptions.OperationTimeout,
+            cancellationToken);
         var request = new PackagePrefixProfileRequest(
             options.PackagePrefix!,
             maximumPackages);
@@ -212,7 +223,10 @@ public class FindCommand
             catalog.Lens.Plan(Verbosity.Normal, includeSections);
         InspectionQueryResults queryResults =
             await queryPlan.RunAsync(
-                new PackageProfileQueryContext(source, request),
+                new PackageProfileQueryContext(
+                    source,
+                    request,
+                    operationContext),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         var events = queryResults.Get(PackageProfileQuery.Definition);
 

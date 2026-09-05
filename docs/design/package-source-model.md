@@ -1,545 +1,604 @@
 # Package source model
 
-This document defines what it means for dotnet-inspect to support NuGet package
-sources. It covers source configuration, package source mapping, local stores,
-source-bound caches, package discovery, exact payload acquisition, and
-NuGet.org-specific enrichment.
+This document is the normative owner for package-source composition in
+`DotnetInspector.Packages`. It defines how active configured source
+declarations become package authorities, how package-source mapping selects
+those authorities for one package ID, and how owner-issued source operations
+become package-level candidate and payload results.
 
-Browser source implementations, NuGet Gallery access without the v3 service
-index, portable source bundles, ephemeral credentials, and library-owned
-timeouts are defined by
-[browser package sources](browser-package-sources.md).
+The owner composes policy and evidence. It does not infer authority from a
+transport URL, producer label, display string, cache hit, or successful
+response.
 
-It is the target contract. The
-[implementation boundaries](#implementation-boundaries) section distinguishes
-the behavior already present from the work needed to complete the model.
+## Boundary
 
-The central rule is:
+The package source model consumes these owner-issued inputs:
 
-> Package sources authorize package candidates. Caches may fulfill an authorized exact
-> coordinate, but they do not introduce candidates and their payload must
-> retain the identity of the source that supplied it.
+| Input | Owning contract | Use here |
+| --- | --- | --- |
+| Active configured source declarations and package-source mapping aliases | Package configuration | Select the declarations eligible for one canonical package ID. |
+| HTTP endpoint admission and local-source classification inputs | Package configuration and [local package source identity](local-package-source-identity.md) | Classify before any source client or network authority exists. |
+| Local search, version, manifest, payload, and failure outcomes | [Local folder package source](local-folder-package-source.md) | Consume bounded local source evidence without reinterpreting paths, layout, or host failures. |
+| `PackageSourceAssociation`, `IPackageSourceClient`, `PackageSourceOperationResult<T>`, and source-result identity | [Browser package sources](browser-package-sources.md#nugetfetch-typed-source-result-identity) | Invoke protocol-independent operations and recover the exact caller authority from each result. |
+| `NuGetOperationContext` and typed deadline failures | [Browser package sources](browser-package-sources.md#operation-context-handoff) | Share one caller identity and operation ceiling across every selected authority and route. |
+| Plugin-authentication context and target authorization | [NuGet feed authentication](nuget-authentication.md#source-scoped-plugin-authentication-context) | Bind configurable V3 routes and compatibility requests to the selected configured authority. |
+| Package-store publication and cache lookup | [Cache concurrency and publication](cache-concurrency.md) | Admit only candidate and payload entries authorized by the current package authority. |
 
-NuGet does not define the declaration order of HTTP sources as precedence. It
-queries applicable sources and may obtain an exact package from any of them.
-[Package Source Mapping][package-source-mapping] is the mechanism for limiting
-which sources may serve a package id. dotnet-inspect follows that division:
-configuration establishes the active sources, mapping narrows them for each
-package id, and source provenance protects downloaded content after acquisition.
+It returns package-owned typed outcomes:
 
-## Terms
+- a classified HTTP authority, classified local source, or pre-client failure;
+- a resolved authority set for one package ID;
+- candidate evidence pairing package authority with owner-issued producer and
+  transport provenance;
+- an authoritative, explicitly partial, or failed package aggregate;
+- payload authorization pairing one exact coordinate with one or more
+  configured authorities;
+- credential-safe source failures or caller cancellation; and
+- a payload whose lifetime remains owned by its caller.
 
-| Term | Meaning |
+This design does not own NuGetFetch identity, protocol discovery, endpoint
+construction, retry, failure construction, authentication internals, deadline
+mechanics, or stream translation. It does not own Core HTTP-pipeline
+construction or offline diagnostic rendering. It does not define browser
+source profiles, package-profile or CLI presentation, or local-folder feed
+identity and acquisition. Canonical local identity is owned by
+[Local package source identity](local-package-source-identity.md); folder-feed
+capabilities are owned by
+[Local folder package source](local-folder-package-source.md), and
+package-level acquisition composition remains
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400);
+package-profile projection remains owned by
+[#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
+
+## Identity roles
+
+The following roles are intentionally separate:
+
+- A **configured alias** is the name and source declaration against which
+  package-source mapping is evaluated. Several aliases may name one authority.
+- A **configured package authority** is the package owner's canonical
+  authorization unit. It determines candidate and payload eligibility.
+- A **source association** is the opaque `PackageSourceAssociation` reference
+  used to recover one configured package authority from a NuGetFetch result.
+- A **source route** is one runtime client or local capability through which an
+  authority can perform an operation. Several routes may implement one
+  authority.
+- **Producer identity** is NuGetFetch-owned, credential-free provenance.
+  Several configured authorities may deliberately have the same producer.
+- **Transport kind** records the protocol implementation that produced one
+  result. It is evidence, not authority or precedence.
+
+Configured alias names are not authority: a rename must not grant access to
+another endpoint. Producer identity is not authority: it deliberately folds
+query, fragment, credential rotation, and recognized credential-like path
+slots. Transport kind is not authority: Gallery and V3 can implement one
+authority, while two V3 routes can implement distinct authorities.
+
+Each configured authority therefore has a package-owned opaque runtime
+identity. Equality is owner-issued; no consumer recreates it from source text.
+An authority can additionally have a durable cache key only when the package
+owner can project a stable key without credential-dependent input while still
+preserving every authority distinction.
+
+For HTTP declarations, runtime authority equality canonicalizes only the
+scheme, IDN host, effective port, percent-escape hex casing, and one trailing
+path slash. It preserves the raw path, query, and fragment spelling, including
+encoded-unreserved characters, dot segments, repeated slashes, and an empty
+query or fragment marker. This stricter process-local key is neither the
+NuGetFetch producer identity nor the legacy persistent-cache key. It must not
+be rendered, persisted, or hashed into a cache path.
+
+An HTTP declaration containing configured credentials, a query, fragment, or
+redacted credential-like path component cannot use a durable key derived from
+that text. Hashing the untreated value would retain a credential guess
+verifier, while using the credential-free producer key would collapse distinct
+authorities. Such an authority remains fully usable through its opaque runtime
+identity, but cross-process candidate and payload cache reuse is unavailable
+until an independent non-secret stable authority ID exists. A source name
+alone is not sufficient because the same name can later designate another
+endpoint.
+
+Portable browser source IDs and owner-issued canonical local identities may
+provide such an independent stable ID under their own contracts. The package
+owner combines that ID with a versioned authority namespace; it does not hash a
+credential-bearing URL to fill a missing identity.
+
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure`,
+`ConfiguredAuthority_RawPathDistinctionsRemainSeparate`,
+`PackageVersionListing_EncodedPathCredentialDoesNotCrossToLiteralPath`, and
+`SourceClientComposition_PreservesRawProviderQuerySpelling`, together with the
+authentication owner's
+`CredentialRequestPreservesOriginalSourceSpelling`, are the required Release
+gates for these distinctions.
+
+## Classification precedes authority and transport
+
+Classification consumes source syntax and its resolution base before any HTTP
+producer, source association, authentication context, or runtime client is
+created.
+
+| Classification | Consequence |
 | --- | --- |
-| Coordinate | A package id and exact version. |
-| Active source | A source selected by configuration and command-line options. |
-| Eligible source | An active source permitted to serve a particular package id after package source mapping. |
-| Candidate source | An eligible source that reported a particular coordinate during version discovery. |
-| Producer | The eligible source that supplied the bytes for a coordinate, or the `explicit-local-input` origin for a directly named `.nupkg`. |
-| Candidate cache | Source-scoped version metadata that can answer discovery without contacting its feed. |
-| Payload cache | Exact package content retained with the identity of its producer. |
-| Source-bound content | Content dotnet-inspect fetched and recorded against its producer. |
-| Payload location | Where the inspected bytes were opened: an explicit file, global packages, the dotnet-inspect cache, a local feed, or a network response. |
-| Enrichment endpoint | A service such as a symbol server or NuGet.org aggregate metadata API that is not itself a package source. |
-| Source client | A protocol-specific implementation that supplies package-source capabilities behind the common candidate and payload contracts. |
-| Candidate observation | A normalized coordinate together with the producer that reported it, the discovery contract, and source-relative listing state. |
-| Availability observation | A transient environment- and transport-scoped result describing whether an authorized producer can currently supply a coordinate. |
+| Admitted absolute `http` or `https` endpoint | The package owner may mint an HTTP configured authority and compose owner-issued HTTP routes. |
+| Plain local path or `file://` source | The value goes only to the local-source identity owner. It never enters HTTP endpoint or client construction. |
+| Unsupported scheme, malformed value, or unusable local input | A pre-client failure names the configured alias safely. It creates no package authority, authentication context, runtime client, or network request. |
 
-Source identity has two parts with different purposes:
+Relative config paths resolve from the declaring config file; relative
+command-line paths resolve from the command working directory. Path
+canonicalization, `file://` equivalence, and platform case behavior are owned
+by
+[Local package source identity](local-package-source-identity.md). Folder
+enumeration and local payload operations are owned by
+[Local folder package source](local-folder-package-source.md). Package-level
+adoption remains
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). This owner
+only dispatches to those boundaries and preserves their results.
 
-- the configured source name is what `<packageSourceMapping>` refers to; and
-- the canonical HTTP endpoint or local directory identifies the producer in
-  caches.
+A caller may bind ambient configuration discovery to an explicit absolute
+directory. That directory replaces the process working directory only as the
+starting point for the `NuGet.Config` hierarchy; it does not change the base
+for a relative command-line source. This lets a replay consumer retain the
+configuration context of an earlier command without converting the hierarchy
+into one synthetic config file or reinterpreting it from the replay directory.
+`ReplayConfigDirectory_DoesNotRebaseAnExplicitRelativeSource` and
+`ReplayConfigDirectory_RejectsARelativeSourceResolutionBase` are the Release
+gates for that handoff.
 
-Names do not prove two feeds are the same. HTTP endpoint canonicalization does
-not make path or query case-insensitive. It folds exactly one optional trailing
-path slash because `/feed` and `/feed/` are alternate spellings of one endpoint;
-repeated trailing slashes and fragments remain distinct. This endpoint identity
-is shared by credential scoping and legacy cache keys, where folding a query or
-fragment could let one configured endpoint answer for another.
-Local sources use a separate identity: config-relative paths resolve from the
-declaring config's directory, CLI-relative paths resolve from the working
-directory, and path and `file://` spellings normalize to one absolute directory.
-Dot segments and trailing directory separators fold; path case follows the
-platform. Symlinks are not resolved merely to establish identity. HTTP and
-local identities occupy distinct namespaces. The cache identity rules are
-detailed in [cache concurrency and publication](cache-concurrency.md).
+When the local owner classifies a valid authority but the current host lacks a
+requested local capability, the package result retains that authority and a
+typed capability-unavailable cause. It is not an HTTP failure, package absence,
+or reason to contact the declaration as a URL. It makes an operation that
+needs that source's evidence incomplete.
 
-Credentials are an access mechanism, not a durable source identity. Cache
-eligibility does not retain a token, depend on token lifetime, or prove that the
-caller could authenticate again. Multiple configured names for one canonical
-endpoint remain aliases through package source mapping, then collapse to one
-content producer. If eligible aliases define conflicting credential
-configurations, resolution fails rather than choosing a credential
-arbitrarily. A feed that serves different bytes for one coordinate at one
-endpoint based on the caller's identity is not compatible with this
-immutable-source assumption; it needs distinct source endpoints to keep those
-content domains separate. Credentials selected for a configured endpoint may
-be sent to package resources discovered on the same origin (scheme, host, and
-port), but never to a cross-origin resource advertised by the feed.
-Runtime v3 clients own isolated credential-free transports rather than
-accepting a shared client or opaque caller handler. Their default handler
-disables cookies, default credentials, and preauthentication on desktop.
-Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
-of setting unsupported handler properties. Source credentials travel through
-the typed credential parameter so the library can enforce the origin boundary.
-Desktop redirects are followed by a bounded source-owned handler that reapplies
-authorization only to the credential's original origin. Exceeding five
-redirects is rejected as a source-response safety-bound failure. Malformed raw
-targets, unusable IDNA hosts, and embedded user information are rejected before
-another request is formed.
-This is gated by
-`RuntimeFactoriesDoNotAcceptSharedHttpClient` and
-`DefaultV3TransportHasNoAmbientCredentialMechanisms`,
-`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
-`BrowserNuGetRequestsOmitAmbientCredentials`,
-`DesktopRedirectsScopeAuthorizationToOriginalOrigin`,
-`DesktopRedirectLimitAllowsFiveAndRejectsSix`,
-`RedirectLimitIsResponseRejected`,
-`MalformedRedirectTargetIsInvalidResponse`, and the `NuGetFetch`
-`browser-wasm` build.
+Network capability is checked after classification and authority resolution.
+Offline mode may use an authorized cache entry, but it cannot convert an HTTP
+route into a local source or an unsupported declaration into an HTTP request.
 
-The typed source-client compatibility adapter therefore derives producer
-identity from a query-bearing legacy service index's origin and path while
-retaining its query and fragment only in runtime transport configuration. This
-does not change the stricter endpoint identity used for credential adoption or
-legacy caches. Portable descriptors reject queries and fragments. Two immutable
-content domains that need distinct producer identities require distinct
-endpoint paths rather than a query-only distinction.
+The classification boundary is gated by
+`SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
+`SourceClassification_FileUriNeverConstructsHttpTransport`,
+`SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`, and
+`LocalCapabilityAbsence_IsVisibleNonHttpAndIncomplete`.
+`PackageVersionListing_UnusableSourceSetupIsTypedBeforeTransport` additionally
+gates malformed HTTP syntax, hosts rejected by NuGetFetch endpoint projection,
+and an unusable credential-provider scope at the live CLI boundary.
 
-Package-source identity is broader than a NuGet v3 service-index URL. A
-standard v3 feed, the built-in NuGet Gallery browser implementation, and a
-local folder may implement the same candidate and payload contracts through
-different transports. Those implementation differences remain below source
-resolution: consumers receive typed capabilities, candidates, failures, and
-producer provenance rather than protocol URLs.
+## Resolving active and eligible authorities
 
-The NuGet Gallery browser implementation and the canonical NuGet.org v3 source
-share the producer identity
-`https://api.nuget.org/v3/index.json`; the browser implementation may use that
-identity without requesting the blocked service index. User-interface registry
-IDs and transport profiles do not replace producer identity. Candidate cache
-keys also identify the discovery contract and its version so a listed-only
-search result cannot answer a complete listing-aware enumeration.
+Source resolution proceeds in two distinct domains:
 
-Several transport profiles may implement one producer. Source resolution
-collapses them by producer identity before candidate queries. A transport
-failure falls through to another applicable profile and does not create a
-second candidate source or a partial aggregate; the producer fails only when
-all of its applicable transports fail.
+1. Determine active configured aliases.
+2. Evaluate package-source mapping against alias names for the canonical
+   package ID.
+3. Classify only the selected aliases.
+4. Collapse selected aliases that the package owner proves designate one
+   configured authority.
 
-## Resolving active and eligible sources
+Collapsing before mapping would let an ineligible alias authorize an eligible
+endpoint. Mapping therefore retains alias identity until the package-specific
+selection is complete. A mapping-enabled configuration that matches no
+pattern, maps only to inactive aliases, or is malformed is a typed mapping
+failure and authorizes no source.
 
-Without source options, dotnet-inspect resolves the same effective
-configuration hierarchy as NuGet restore for the working directory.
-`PackageSources.Default` models NuGet.org as the lowest-precedence source
-layer; discovered computer-level, user-level, and directory-level configs are
-then merged over it. Ordinary collections merge in NuGet precedence order with
-`<clear/>`, disabled sources, and nearer re-enablement. Administrator sources
-from `NuGetDefaults.Config` are different: `<clear/>` cannot remove them, but
-a nearer `disabledPackageSources` entry can disable or re-enable them. With no
-configuration, the default layer remains active. `<clear/>` replaces the
-accumulated ordinary sources with `PackageSources.Empty`, so a deliberately
-empty active set does not authorize NuGet.org; source resolution fails without
-disclosing the requested package id.
+Aliases collapse only when their package-owned classified authority is equal.
+They must also agree on credentials, provider-query authority, and every
+route-affecting policy. Conflicting aliases fail before any client is created;
+the owner does not pick the first declaration.
 
-An explicitly named `--nugetconfig` is a source-selection act, not absence of
-configuration. Its merge starts from `PackageSources.Empty`, so only that file
-supplies configuration. The file must exist, be valid, and declare a usable
-source; an empty selected file fails rather than searching a feed the caller
-did not name.
+Declaration order has no semantic-version or same-tier payload precedence. It
+may make diagnostics stable, but it cannot decide which version wins or
+authorize bytes. `PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`,
+`ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases`,
+`PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`, and
+`SourceOrder_DoesNotChooseVersionOrSameTierPayload` gate these rules.
+`ResolveSourcesForPackageWithFailures_RetainsValidPeer`,
+`ResolveSourcesForPackageWithFailures_MappedUnsupportedAliasIsNotInactive`,
+and `PackageVersionListing_UnsupportedConfiguredSourceRetainsValidPeer` gate
+per-alias pre-client failure without suppressing valid selected authorities.
 
-Only the final active source set matters downstream. Sources produced by
-`nuget.config` merging are semantically identical to the same endpoints named
-with repeated `--source`: they supply the same candidates and authorize the
-same producer-matched payload-cache entries.
+## Associations, routes, and authentication
 
-`<clear/>` removes inherited source authorization. With no subsequent source,
-there are no candidates and no `global-packages` entry has an authorized
-producer. Adding a source back enables that feed and payloads whose recorded
-producer matches it. This has the same effect as `--no-nuget-cache` on entries
-belonging to removed sources, but the mechanisms remain distinct:
-`--no-nuget-cache` disables the global payload cache even for active sources.
+The package owner creates exactly one `PackageSourceAssociation` for each live
+configured authority and retains the reverse map. Every NuGetFetch route
+composed for that authority receives the same association. Distinct
+authorities receive distinct associations even when their producer identities,
+network origins, or source names are equal.
 
-The command-line source options compose as follows:
+Several routes may implement one authority only after authority equality and
+policy compatibility are established. Shared producer identity is never that
+proof. The built-in Gallery and canonical NuGet.org V3 transports can be
+routes of one configured authority only when the host explicitly supplies that
+composition; a consumer cannot infer it from the producer key or hostname.
 
-| Option | Effect |
+Route order is failover inside one authority, not precedence among configured
+authorities. A route success settles its authority. A request timeout,
+transport failure, or unsupported capability can permit the next applicable
+route while the shared operation context remains live. The authority fails
+only after no applicable route can produce the required evidence.
+
+For configurable V3 routes, the package owner supplies the same association
+and canonical authority decision consumed by the authentication owner. The
+provider-query URI retains the exact configured spelling selected for that
+authority; parsing it for resource authorization cannot replace its plugin
+lookup identity. Reusing or disposing a route does not independently create or
+retire authentication authority. Replacing or releasing the configured
+authority retires its authentication context under that owner's contract.
+Gallery remains plugin-authentication-free.
+
+Package-layer compatibility requests must execute through the selected
+authority's source-bound request policy. A feed-advertised or redirect target
+does not acquire authority from its URL. The authentication owner decides
+whether that concrete target can use the route's context; an out-of-scope
+target is sent without plugin authorization and its response remains visible.
+If no owner-issued typed route can perform a compatibility request, the package
+operation reports an unsupported capability rather than issuing a bare
+`HttpClient` request.
+
+These boundaries are gated by
+`SourceClientComposition_OneAssociationPerAuthorityAcrossRoutes`,
+`GalleryV3Composition_RequiresOwnerIssuedAuthorityEquality`,
+`CompatibilityRequest_CrossScopeAuthenticationIsSuppressed`, and
+`CompatibilityRequest_SameScopeAuthenticationRemainsAvailable`.
+
+## Adopting source results
+
+Every NuGetFetch result carries its exact caller association, producer
+provenance, and transport kind. The package owner adopts a result only by
+reference lookup of the returned association in the live authority map.
+Producer equality, producer display, producer key parsing, legacy
+`PackageSourceIdentity.Value`, transport kind, endpoint parsing, and source
+declaration order are invalid recovery mechanisms.
+
+An unknown, retired, or foreign association is a contract failure. Its
+candidate, manifest, payload, or failure cannot enter an aggregate or cache.
+The package owner preserves owner-issued producer and transport provenance
+without changing their equality or rendering.
+
+Candidate evidence pairs:
+
+- the package-owned configured authority;
+- the exact normalized coordinate;
+- the owner-issued discovery contract and listing state; and
+- the owner-issued producer and transport provenance.
+
+Payload evidence additionally pairs that authority with the exact requested
+coordinate. A payload result whose coordinate or association differs from the
+request is rejected and disposed under the source-result lifetime contract.
+
+`SourceResultAssociation_ForeignSameProducerResultIsRejected` and
+`SourceResultAssociation_ExactAuthorityAndCoordinateAreRequired` gate this
+boundary.
+
+## Candidate aggregation
+
+Candidate discovery queries every active, package-ID-eligible configured
+authority whose semantics can affect the requested result. Routes of one
+authority produce one authority outcome; they do not become independent votes.
+
+A per-authority outcome is one of:
+
+- authoritative candidate evidence, including an authoritative empty set;
+- a typed capability absence;
+- a typed source failure;
+- a request timeout;
+- a terminal operation timeout; or
+- caller cancellation.
+
+Package aggregates then have these states:
+
+| State | Meaning |
 | --- | --- |
-| `--source URL` | Replaces configured package sources. Repeat it to select more than one. |
-| `--add-source URL` | Adds a source to the active set. |
-| `--nugetconfig PATH` | Selects one config instead of config discovery. |
+| **Authoritative** | Every required authority settled with evidence sufficient for the requested contract. |
+| **Partial** | Some usable evidence exists, but at least one required authority could not provide sufficient evidence. The result carries every retained candidate and every incomplete authority cause. |
+| **Failed** | No safe result can satisfy the requested contract, configuration or mapping denied the operation, or the shared operation ceiling expired. |
 
-Source replacement does not disable package source mapping. Mapping is loaded
-from configuration independently and then applied to the active sources. Under
-the target model, matching follows NuGet: mapping keys are compared with active
-source names case-insensitively. A URL supplied through `--source` or
-`--add-source` retains every configured-name alias when it matches that
-producer. Mapping selects the package-specific aliases before they collapse to
-one producer. An unmatched URL uses the URL itself as its source name.
+`NotFound` and an authoritative empty version result are source-relative
+evidence. Authentication, transport, timeout, malformed response, unsupported
+capability, and unimplemented local capability are not absence.
 
-This distinction matters when an override names an endpoint that configuration
-does not. If a config maps `Contoso.*` to a source named `contoso`, an unmatched
-URL override is not named `contoso`; no source is eligible and the command
-reports a mapping failure. A URL override that matches the configured
-`contoso` endpoint keeps that name and remains eligible.
+Raw search or version enumeration may expose an explicit partial result when
+its caller accepts partial evidence. Latest, wildcard, and range selection
+cannot select from partial evidence when the missing authority could change
+the answer. Authoritative package absence likewise requires authoritative
+absence from every required authority. A requested result limit is not
+incompleteness when each source operation establishes the bounded query
+contract; an owner-issued source or page limit is.
 
-### Package source mapping
+Source order never chooses a semantic version. Selection applies the
+version-resolution contract to the union of authority-bearing candidate
+evidence only after the aggregate has sufficient completeness for that
+operation.
 
-When `<packageSourceMapping>` is absent, every active source is eligible for
-every package id. When it is present, every id must match a pattern. Matching is
-case-insensitive and uses NuGet's precedence:
+The Release gates are
+`Discovery_AllEligibleAuthoritiesMustSettleBeforeAuthoritativeSelection`,
+`Discovery_UnreadableAuthorityCannotBecomePackageAbsence`,
+`Discovery_PartialEvidenceCannotSelectLatestWildcardOrRange`, and
+`Discovery_SourceOrderCannotChangeSelectedVersion`.
 
-1. An exact package id wins.
-2. Otherwise, the longest matching prefix ending in `*` wins.
-3. `*` is the least-specific prefix and acts as a default.
+## Exact payload acquisition
 
-Only sources declaring the winning pattern are eligible. The same winning
-pattern may appear under more than one source, in which case all of those
-active sources are eligible. A package that matches no pattern, or whose mapped
-source names are not active, fails as a mapping error before candidate or
-payload lookup.
+A discovered coordinate can be acquired only from an authority that reported
+that coordinate under the discovery contract used to select it. A pinned exact
+coordinate is caller-supplied evidence and may be requested from any authority
+eligible for that package ID.
 
-Mapping is evaluated independently for every package id. It therefore applies
-to top-level packages, transitive dependencies, RID companion packages,
-platform packs, tool-wrapper redirects, routing probes, and search results. A
-dependency does not inherit its parent's producer.
+An exact pinned acquisition may succeed from one authorized authority without
+proving peer authorities readable. This is intentionally different from
+candidate aggregation: the caller already chose the coordinate, and one
+authorized byte source is sufficient. Peer authentication, transport, or
+capability failures remain available as diagnostics but do not turn a
+completed authorized payload into a partial payload.
 
-Configured local-folder feeds are ordinary sources under this rule. They must
-be active and mapped like HTTP feeds. The NuGet global packages folder is not a
-configured feed; it is a provenance-bearing payload cache.
+Cold acquisition preserves NuGet's local-before-HTTP source tiers. There is no
+precedence within one tier. A cached payload may answer before an uncached
+authority is probed only when its retained authority is currently authorized
+for that coordinate.
 
-## Candidates before payloads
+Symbols, manifests, RID companions, tool-wrapper redirects, and projected
+platform packs independently reapply the package-ID and coordinate authority
+rules. Existence of a primary package on one authority does not authorize a
+related package or symbol endpoint on another.
 
-Source declaration order does not decide version selection and is not a
-security boundary. Version discovery combines source-scoped candidate lists
-from all eligible feeds, and selecting one version uses semantic-version
-ordering. Each coordinate retains the feeds that reported it.
+`PinnedAcquisition_OneAuthorizedAuthorityMaySucceedWithoutPeerReadability`,
+`DiscoveredPayload_RequiresReportingAuthority`,
+`PayloadTier_LocalBeforeHttpWithoutDeclarationPrecedence`, and
+`RelatedCoordinate_RecomputesPackageAuthority` gate these rules.
 
-Content caches are not candidate lists. A version present only in
-`global-packages` or the dotnet-inspect package-content cache does not appear in
-`Name`, `--versions`, wildcard, or range resolution. A source-scoped version
-list cache may answer for its feed because it stores that feed's discovery
-result, not because package bytes happen to exist locally.
+## Shared operation context and payload lifetime
 
-When discovery cannot complete, producer-authorized payload versions may be
-shown as diagnostic exact-pin suggestions. They are never selected
-automatically and do not become candidates for any discovery operation.
+One public package operation creates or consumes one `NuGetOperationContext`
+and passes that exact instance to every selected authority and every route,
+including local routes. A new source, retry, compatibility request, redirect,
+or route fallback creates no new operation ceiling.
 
-After discovery selects an exact coordinate, a payload cache may answer only
-for an authorized producer:
+A request deadline can fail one route and permit another applicable route or
+authorized authority while time remains. An operation-ceiling timeout is
+terminal: outstanding work is cancelled, no later route starts, and collected
+candidate evidence cannot be published as authoritative or used for automatic
+selection. Concurrent lower-precedence transport failures cannot hide the
+typed operation timeout.
 
-- for a discovered coordinate, the authorized producers are the candidate
-  sources that reported that version; and
-- for a pinned coordinate, the caller supplied the candidate, so every eligible
-  source is an authorized producer.
+Caller cancellation remains cancellation carrying the original caller token.
+It does not become a source failure, partial result, or operation timeout.
 
-A source-bound app-cache slot may answer only when its producer is in that set.
-A `global-packages` entry may answer only when `.nupkg.metadata.source` resolves
-to a source in that set. Missing, ambiguous, or mismatched provenance is a cache
-miss. The payload is then requested from an authorized producer and cached
-under that producer's identity.
+When a source operation returns a payload stream, the caller owns that stream
+and must keep the shared context alive until consumption or disposal
+completes. The package owner does not dispose an externally supplied context.
+It disposes only a context it created, and only after every owned source
+operation and payload stream has settled.
 
-When payload sources must be queried, configured local-folder feeds are
-considered before HTTP feeds, matching NuGet's documented source tiers. No
-precedence is promised among sources in the same tier. If one exact producer
-matters, configure or map the package id to one source.
+The gates are
+`OperationContext_RequestTimeoutMayFailOverWithinRemainingCeiling`,
+`OperationContext_OperationTimeoutIsTerminalAcrossAuthorities`,
+`OperationContext_CallerCancellationRetainsOriginalIdentity`, and
+`PayloadLifetime_SharedContextOutlivesReturnedStream`.
 
 ## Candidate and payload stores
 
-| Store | Supplies candidates | Supplies payloads | Source rule | Bypass |
-| --- | --- | --- | --- | --- |
-| Explicit local `.nupkg` | The named coordinate only | Yes | Producer is `explicit-local-input`; feed resolution does not apply | Choose a different input. |
-| Source-scoped version cache | Yes | No | Answers only for the feed that produced the cached list | `@latest` or cache clearing. |
-| NuGet global packages folder | No | Yes | `.nupkg.metadata.source` must be an authorized producer | `--no-nuget-cache`. |
-| dotnet-inspect package cache | No | Yes | Its producer slot must be authorized | Clear or isolate the app cache. |
-| Configured local-folder feed | Yes | Yes | Must be active and eligible | Remove it from the active source set. |
-| HTTP feed | Yes | Yes | Must be active and eligible | Remove it from the active source set or use `--offline`. |
+Candidate entries are keyed by:
 
-NuGet restore uses the global folder more permissively: an exact hit skips
-source lookup and package source mapping. dotnet-inspect instead uses the
-optional `.nupkg.metadata.source` field as an authorization requirement. This
-is necessary for `--source A` to mean that A supplies both the candidate and
-the bytes.
+- configured package authority;
+- canonical package ID; and
+- the complete discovery contract, including any contract version and options
+  that change the candidate set.
 
-There is no restore-like compatibility mode. Source fidelity is the only
-payload policy. In the common case it adds no network work because the recorded
-producer remains active and eligible. A miss occurs when provenance is absent,
-the source was removed or mapped out, or another source supplied the same
-coordinate. Those are precisely the cases where source-blind reuse would make
-the result ambiguous. After a strict miss, the source-scoped dotnet-inspect
-cache serves later requests.
+Payload entries are keyed by configured package authority and exact normalized
+coordinate. Both entry kinds retain producer and transport provenance as
+evidence, never as authorization.
 
-`--no-nuget-cache` disables the global payload cache but retains
-dotnet-inspect's source-bound payload and candidate caches. `--offline` forbids
-network access: a pinned coordinate can succeed from an authorized payload
-cache, while discovery also requires an eligible local-folder feed or
-source-scoped candidate cache. `--isolated` combines a separate app-cache root
-with exclusion of the global packages folder.
+Query-distinct or credential-path-distinct configured authorities therefore do
+not share entries merely because NuGetFetch gives them one producer identity.
+Aliases already proven to be one authority may share. An authority without a
+credential-safe durable key can use only authority-scoped process-local cache
+state; it cannot fall back to a producer-keyed persistent entry.
 
-## Worked examples
+The NuGet global packages folder is a payload cache, not a candidate source.
+Its `.nupkg.metadata.source` must resolve unambiguously to an authority
+currently authorized for the exact coordinate. Missing or ambiguous metadata,
+an inactive authority, or producer equality without authority equality is a
+cache miss.
 
-Unless one is shown, these examples assume the complete configuration
-hierarchy contains no package-source configuration, administrator default
-source, or package source mapping.
+Changing source selection, package-source mapping, credentials, or configured
+authority never reinterprets an old entry as newly authorized. Cache namespaces
+that used endpoint strings or NuGetFetch producer identity as authority are
+legacy and must migrate to a new versioned namespace rather than relabeling
+existing bytes.
 
-### Pinned package, default source
-
-```bash
-dotnet-inspect package Foo@1.2.3
-```
-
-The caller supplied the exact coordinate, so no candidate query is needed.
-NuGet.org is the implicit eligible source. If
-`global-packages/foo/1.2.3/.nupkg.metadata` records NuGet.org, dotnet-inspect
-opens that payload without network access:
-
-```text
-Producer: nuget.org
-Payload location: global-packages
-```
-
-If the metadata is absent or records another feed, the global entry is a miss.
-An authorized NuGet.org slot in the dotnet-inspect app cache may still answer.
-dotnet-inspect downloads `Foo@1.2.3` from NuGet.org only when no authorized
-payload cache answers, then commits it to that app-cache slot.
-
-### Bare package, default source
-
-```bash
-dotnet-inspect package Foo
-```
-
-The command must first determine which version `Foo` means. NuGet.org is the
-implicit candidate source:
-
-1. Use NuGet.org's source-scoped candidate cache when it is fresh.
-2. Otherwise, query NuGet.org and select the latest stable version.
-3. Retain NuGet.org as the feed that reported the selected coordinate.
-4. Open an app-cache or global-packages payload only when its producer is
-   NuGet.org; otherwise download the payload from NuGet.org.
-
-An installed `Foo@1.2.3` payload does not by itself make `1.2.3` a candidate.
-With an empty candidate cache, this command queries NuGet.org even when that
-payload is already in global packages. The network candidate query may still be
-followed by a local payload hit.
-
-### One explicit source
-
-```bash
-dotnet-inspect package Foo \
-  --source https://feed-a.example/v3/index.json
-```
-
-Only feed A supplies candidates. If discovery selects `Foo@1.2.3` and A
-reported it, a cached payload recorded from A may answer. A global-packages
-entry recorded from NuGet.org or feed B is ignored, even though its id and
-version match.
-
-The pinned form skips A's candidate query but keeps the same payload rule:
-
-```bash
-dotnet-inspect package Foo@1.2.3 \
-  --source https://feed-a.example/v3/index.json
-```
-
-### Equivalent `nuget.config`
-
-When no administrator default source is active, this configuration has the
-same source authority as `--source` naming feed A:
-
-```xml
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="feed-a"
-         value="https://feed-a.example/v3/index.json" />
-  </packageSources>
-</configuration>
-```
-
-Feed A supplies candidates and authorizes payloads recorded from A. `<clear/>`
-removes ordinary inherited feeds and their cached-payload authority; it does
-not remove administrator sources from `NuGetDefaults.Config`, which must be
-disabled through `disabledPackageSources`. It also does not disable payload
-caching for a source subsequently added to the configuration.
-
-### Offline operation
-
-| Request | Cached state | Result |
-| --- | --- | --- |
-| `Foo@1.2.3 --offline` | Authorized payload | Succeeds without candidate metadata. |
-| `Foo --offline` | Fresh candidate list selects `1.2.3`; authorized payload exists | Succeeds entirely from caches. |
-| `Foo --offline` | Payload exists, but candidate metadata is absent | Fails because content cannot introduce a version candidate. |
-| `Foo --offline` | Fresh candidate metadata exists, but no authorized payload exists | Fails because network payload acquisition is prohibited. |
-
-## Feed-relative inspection
-
-Package inspection is feed-relative. An id and version identify the NuGet
-coordinate, but they do not establish which bytes dotnet-inspect examined when
-multiple feeds publish that coordinate.
-
-Standard package provenance therefore reports:
-
-- the producer feed whose payload is being inspected, or
-  `explicit-local-input` for a directly named `.nupkg`; and
-- the payload location used for this invocation, such as `global-packages`,
-  the source-scoped dotnet-inspect cache, a local feed, or a fresh network
-  response.
-
-These are independent. A package opened from `global-packages` still reports
-NuGet.org or a custom feed as its producer. A package fetched from a feed and
-then committed to the app cache keeps the same producer on later runs.
-
-Version discovery exposes feed observations before a payload is selected:
-`--versions-with-feed` reports every feed carrying each version. Exact
-feed inspection selects one authorized producer and reports it. Direct file
-inspection reports its explicit local origin instead; neither path presents
-source-free provenance. Comparing differing payloads from multiple feeds is an
-explicit future audit operation rather than hidden work in ordinary inspection.
-
-## Operation contracts
-
-Every operation that deals in package identities uses the same eligible-source
-calculation. It may differ only in how answers from that set are combined.
-
-| Operation | Contract |
-| --- | --- |
-| Latest or wildcard version | Query every eligible source or its candidate cache and select the highest matching semantic version. Content caches do not participate. |
-| Version enumeration or range | Return the union from eligible source candidate lists. `--versions-with-feed` retains one row per version and reporting feed. |
-| Discovered payload acquisition | Use a payload cache only when its producer reported the selected coordinate. On a miss, query those candidate sources and record the successful producer. |
-| Pinned payload acquisition | The caller supplies the coordinate. Use a payload cache or source only when its producer is eligible for the package id. |
-| Nuspec and dependency traversal | Apply mapping to each dependency id, including cache reads and nuspec-only requests. |
-| Search | Search active sources with a search capability, then retain a result only when the reporting source is eligible for that result's package id. Carry source failures rather than presenting partial results as complete. |
-| Prefix manifest profile | Search by package-ID prefix, retain candidate metadata and producer provenance, then request only each selected coordinate's bounded exact manifest. Package archives and assemblies are not profile inputs. |
-| Routing and qualified-name probes | Use the caller's source options and mapping for package-existence and fallback probes. A probe cannot see a source the eventual command cannot use. |
-| RID, platform-pack, and wrapper follow-up | Recalculate eligibility for every newly named package id. |
-| Project restored-assets context | Bind to the assets and local package content selected by the existing restore; do not reinterpret its graph through current source options. |
-
-Candidate caches are source-specific inputs, not merged authority. A cached
-version list for one endpoint may replace a request to that endpoint, but the
-answer is recomposed across the current eligible set and retains candidate
-provenance. Package content cache keys include the producer endpoint. Mapping
-and candidate authorization are evaluated before a payload cache entry can
-answer.
-
-### Failure semantics
-
-Source failures are not package absence:
-
-- no mapping match, or no active source named by the winning mapping, is a
-  mapping error;
-- authentication and transport failures identify the unreadable source;
-- `not found` means every source required to establish absence was read and
-  none supplied the package; and
-- an operation claiming a complete aggregate, such as latest-version
-  resolution, cannot silently claim an authoritative result while an eligible
-  source is unreadable.
-
-A pinned exact coordinate may succeed from one of several eligible sources
-without proving that every peer source is readable. Aggregate operations must
-either fail or mark an answer partial when an eligible source could change it.
+`CandidateCache_QueryDistinctAuthoritiesDoNotShareEntries`,
+`PayloadCache_QueryDistinctAuthoritiesDoNotShareEntries`,
+`CredentialBearingAuthority_HasNoProducerKeyedPersistentFallback`,
+`GlobalPackages_ProducerEqualityCannotAuthorizePayload`, and
+`LegacyProducerScopedCache_IsNotReinterpretedAsAuthorityScoped` gate these
+properties.
 
 ## Enrichment is a separate capability
 
-Package-source authority does not automatically authorize traffic to unrelated
-services.
+Package metadata enrichment is not evidence for candidate or payload
+authority. NuGet.org-specific downloads, publication dates, deprecation,
+vulnerability, and registration metadata can run only when the canonical
+NuGet.org authority is active and package-ID-eligible. Another source's
+package identity is never sent to NuGet.org merely because the enrichment
+service exists.
 
-NuGet.org registration, catalog, download-count, deprecation, verification, and
-vulnerability services may be queried for a package id only when NuGet.org is
-eligible for that id. Merely listing NuGet.org somewhere in the active config
-is insufficient when package source mapping assigns the id elsewhere. This
-prevents a private package identity from being disclosed to NuGet.org.
+Enrichment failure does not revoke already established candidate or payload
+authority. It remains a separate typed capability failure. Search, version
+selection, and payload acquisition do not gain authority from enrichment data.
 
-PDB acquisition has its own provenance:
+## Failure semantics
 
-- embedded and adjacent PDBs belong to the selected package or library;
-- NuGet.org has known producer-specific `.snupkg` download routes;
-- custom and local feeds have no standard NuGet symbol-package download
-  resource, so `.snupkg` acquisition from those producers is unsupported until
-  an explicit endpoint contract exists;
-- NuGet and Microsoft symbol servers are explicit enrichment endpoints, not
-  package sources, and successful results record the server; and
-- SourceLink URLs come from the inspected artifact and are governed by the
-  untrusted-data and network-capability policies, not package source mapping.
+Failures identify their package authority and preserve the owner-issued
+producer, transport, capability, coordinate, failure kind, and typed deadline
+detail when those facts exist. They do not retain raw configured source text,
+credentials, endpoint-bearing exception messages, response bodies, or archive
+content.
 
-Configuring a private package source therefore never grants permission to probe
-NuGet.org for that package's `.snupkg`. Conversely, allowing a symbol-server
-probe does not make that server eligible to supply package bytes.
+Configuration, mapping, classification, source operation, aggregate
+incompleteness, and caller cancellation remain distinguishable. No layer turns
+an unreadable source into package absence, unsupported capability into a
+transport error, request timeout into operation timeout, or cancellation into
+an empty result.
 
-## Implementation boundaries
+CLI wording and structured-output projection remain presentation-owner work.
 
-The source-policy seam should resolve one typed result containing:
+## Executable interaction model
 
-- the active sources, with configured names, canonical endpoints, credentials,
-  and local/HTTP capability;
-- the package-id-specific eligible sources after mapping;
-- source-scoped candidate results and their reporting feeds;
-- the payload-cache policy and authorized producer set; and
-- diagnostics for unmatched mappings and unavailable required sources.
+The
+[package source composition TLA+ model](models/package-source-composition/README.md)
+checks the stateful portion of this design: concurrent authorities, ordered
+route fallback inside one authority, exact association adoption, complete
+versus partial discovery, pinned success from one authority, request timeout
+fallback, and terminal operation timeout.
 
-Consumers should not independently parse source options, resolve config, or
-decide whether a cache key is allowed. Version discovery, package extraction,
-nuspec reads, search, routing, metadata enrichment, RID verification, and
-symbols should consume that shared result.
+The model assumes already-classified eligible authorities and owner-issued
+source outcomes. It does not model source syntax, URL or path canonicalization,
+package-source mapping, authentication internals, persistent cache
+construction, payload bytes, or implementation correspondence. The Release
+gates named throughout this document remain the implementation evidence.
 
-NuGetFetch now exposes typed source-operation results. Candidate observations
-carry normalized coordinates, producer identity, discovery contract, and
-`listed`, `unlisted`, `unknown`, or `not-applicable` state. Exact payload
-results retain their coordinate, producer, transport profile, payload kind,
-and caller-owned stream. Expected source failures retain the source transport
-and exact coordinate when applicable, and are classified without retaining
-source URLs or response text. A payload stream remains deadline-bound after it
-is returned, but a later consumption failure remains an exception because the
-operation result has already completed. These transport results do not yet
-perform multi-source aggregation and are not environment availability
-observations.
-The v3 source client owns service-index `PackageBaseAddress` discovery plus
-version-index, exact-manifest, and exact-package URL construction. The legacy
-`NuGetClient` delegates to that source-owned primitive and retains only its
-compatibility choice to bypass canonical NuGet.org service-index discovery.
-V3 symbol payload remains unsupported because the protocol has no
-package-base-relative symbol download contract.
+## Implementation boundary
 
-The current implementation source-scopes downloaded package content and
-candidate metadata, aggregates versions across sources while retaining the
-reporting feeds, uses global-folder payloads only when their recorded producer
-is authorized, applies layered `<packageSourceMapping>` configuration per
-package id, preserves aliases through mapping before collapsing producers, and
-threads caller options through routing and platform-pack probes. The remaining
-implementation work includes:
+Desktop adoption is staged. Ordinary online
+`package <id> --versions` is the first package-owned consumer: it resolves
+configured authorities, creates one association per authority and one
+plugin-authentication context per configurable V3 authority, uses the
+credential-free Gallery route for the exact anonymous NuGet.org authority,
+uses one operation context across those authorities, adopts each typed result
+through the exact association, and reports authoritative, partial, or failed
+version evidence. A selected local authority invokes the existing bounded
+NuGetFetch local-folder client without constructing an HTTP transport or
+authentication context. Its complete version observations, including an empty
+result, join the same aggregate as HTTP evidence through exact association
+lookup. Unavailable local capability, missing roots, invalid archives, and
+source limits remain attributed failures rather than package absence. The
+NuGetFetch host contract is unchanged: desktop filesystems support local reads;
+Browser/Wasm without a filesystem capability returns typed unsupported.
+When the Gallery route cannot complete its registration listing-state join,
+its retained flat-container candidates are explicitly partial rather than
+authoritative.
+Malformed selected declarations and unusable configurable authentication
+scopes become attributed pre-client failures before transport construction.
+Other valid selected authorities still run, and usable peer evidence is
+reported as partial.
 
-- completing config and override semantics, including the complete NuGet config
-  hierarchy and config-relative local source paths
-  ([#3739](https://github.com/richlander/dotnet-inspect/issues/3739));
-- carrying payload producer provenance through package inspection indexes,
-  projected platform packs, and package-associated symbols
-  ([#3738](https://github.com/richlander/dotnet-inspect/issues/3738));
-- exposing producer feed and payload location as standard package provenance;
-- defining canonical local-source identity and acquiring packages and nuspecs
-  from configured folder feeds
-  ([#3759](https://github.com/richlander/dotnet-inspect/issues/3759));
-- making aggregate failures authoritative or explicitly partial; and
-- separating package-producer symbol lookup from public symbol-server
-  enrichment.
+Online metadata-only version queries also use this composition: pinned
+verification, latest-version, range enumeration, `--versions-with-feed`, and
+`--include-unlisted`. Latest and range selection require authoritative
+discovery; a healthy subset cannot choose the answer. A pinned verification
+can report an observed exact coordinate with peer failures disclosed, but
+cannot infer absence from unreadable peers. Failed operations, including the
+terminal operation deadline, publish no query rows.
 
-## NuGet precedents
+Offline version queries, payload-selecting latest/wildcard/range resolution,
+payload, metadata, search, and extraction paths remain on the legacy
+composition until their package-owned adoption slices land.
+The process-global authentication decorator therefore
+also remains solely for those legacy paths; it cannot be removed until they no
+longer depend on it. This first live slice does not read or publish the legacy
+producer-keyed version-list cache; authority-safe cache adoption remains a
+later slice.
 
-- [Package Source Mapping][package-source-mapping] defines mapping patterns,
-  pattern precedence, transitive application, multiple eligible sources, and
-  the global-packages-folder exception.
-- [Package installation process][package-installation-process] documents that
-  local sources precede HTTP sources and that multiple sources are consulted to
-  find the best version.
-- [Managing the global packages and cache folders][nuget-cache-folders]
-  documents the global-folder-first lookup.
-- NuGet's
-  [`RemoteWalkContext`](https://github.com/NuGet/NuGet.Client/blob/c82ceb9ad93dc8fdcb51fb6807c8e8c70f1443e8/src/NuGet.Core/NuGet.DependencyResolver.Core/Remote/RemoteWalkContext.cs)
-  applies mapping by package id and active source name.
-- NuGet's
-  [`ResolverUtility`](https://github.com/NuGet/NuGet.Client/blob/c82ceb9ad93dc8fdcb51fb6807c8e8c70f1443e8/src/NuGet.Core/NuGet.DependencyResolver.Core/ResolverUtility.cs)
-  separates local and HTTP source tiers and does not make HTTP declaration
-  order a precedence contract.
+The current desktop paths that derive cache authorization from source URL
+digests, collapse sources by producer-shaped endpoint identity, or iterate an
+ordered source list are legacy behavior. They cannot claim this target
+contract.
 
-[nuget-cache-folders]: https://learn.microsoft.com/nuget/consume-packages/managing-the-global-packages-and-cache-folders
-[package-installation-process]: https://learn.microsoft.com/nuget/concepts/package-installation-process
-[package-source-mapping]: https://learn.microsoft.com/nuget/consume-packages/package-source-mapping
+Implementation is complete only when the named non-vacuous Release gates
+exercise the package-owned authority types and outcomes. Each gate must include
+the positive behavior in its name and a close negative case that would pass if
+producer identity, transport kind, source order, or a healthy subset were
+mistakenly used as authority. Existing NuGetFetch and authentication gates
+remain evidence for their owners; they do not substitute for these
+package-composition gates.
+
+### Local version-listing adoption
+
+The CLI consumer is ordinary `package <id> --versions --source <folder>` (or a
+mapped folder in `NuGet.Config`). Local and HTTP version evidence use the same
+operation context, filtering, sorting, and final result limit. Directory layout
+recognition and finite observation limits remain owned by NuGetFetch.
+
+`PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport`,
+`PackageVersionListing_LocalMappingPrecedesCollapseAndKeepsDistinctRoots`,
+`PackageVersionListing_LocalAndHttpUnionIsSortedBeforeLimit`,
+`PackageVersionListing_EmptyLocalRootIsAbsenceButMissingRootFails`,
+`PackageVersionListing_LocalFailureRetainsHttpPeerAsPartial`,
+`PackageVersionListing_HttpFailureRetainsLocalPeerAsPartial`, and
+`OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling` are the
+Release gates for this adoption. The existing terminal-operation-timeout and
+HTTP source-association gates remain unchanged.
+
+The production adoption path is tracked by
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400) in five steps:
+configured authorities, ordinary version listing, metadata-only version
+queries, payload/cache authority (including payload-selecting resolution),
+and remaining CLI consumers/legacy retirement. The user explicitly approved
+CLI-only continuation ("CLI is good enough. proceed"); browser adoption is
+not a prerequisite for this workstream. These slices do not add browser
+filesystem registration or claim that offline local discovery is supported.
+
+### Metadata-only version queries
+
+The consumer is the CLI version-query family, not package inspection. The
+aggregate projects adopted observations into existing `PackageVersionInfo`
+and `PackageVersionSourceInfo` presentation models. These projections are not
+payload authorization receipts. Existing Markout-backed output paths retain
+their Markdown, TSV, JSONL, row-window, and count shapes.
+
+Listing state is per authority. An unlisted Gallery row is hidden by default
+even if another authority lists that version; the merged listing is visible
+if any authority lists it. Local/V3 sources without listing semantics retain
+the existing visible/`listed` presentation convention. Feed labels are
+credential-safe presentation only; colliding labels get operation-local
+ordinals, never hashes of HTTP authority keys.
+
+Limits apply to distinct versions after the union, not source rows. Range
+limits apply after inclusive endpoint resolution in caller direction.
+Explicit latest queries exclude unlisted versions even when their output
+requests the listing column. Pinned queries enumerate including prereleases
+and unlisted coordinates, compare normalized versions, and do not consult
+legacy payload caches online. Raw partial listings (including `--versions 1`)
+retain warnings; bare `--version`, explicit latest, and range queries fail
+before rendering when evidence is partial.
+
+`CliVersionQueries_LocalSelectorsUseCompleteEvidence`,
+`CliVersionQueries_PartialEvidenceCannotSelectLatestOrRange`,
+`CliVersionQueries_PinnedEvidenceDoesNotRequireReadablePeers`,
+`CliVersionQueries_ListingLensesPreservePerAuthorityRows`, and
+`CliVersionQueries_SourceOrderCannotChangeLatest` are the Release gates for
+this slice. Payload-selecting wildcard/latest/range paths remain outside this
+claim and migrate with their authority-preserving payload handoff.
+
+### Reusable authority authorization
+
+The reusable authorization seam projects selected package sources into
+package-owned configured authority objects. It uses the same runtime authority
+key as desktop source composition, mints one opaque source association per
+authority, supports exact reverse lookup, and supplies a versioned persistent
+cache key only when the package owner can form one without retained credentials
+or collapsed authority distinctions. Alias mapping remains earlier than
+authority collapse, and local and HTTP declarations are classified without
+constructing a transport. An authority object and its association live for one
+authorization answer; result adoption uses that answer's reverse map.
+Host-supplied independently authorized sources remain distinct unless their
+policy owner has already selected and collapsed aliases with equivalent
+authority keys and policy.
+
+The Release gates
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`PackageSourceAuthorization_QueryDistinctAuthoritiesHaveExactAssociations`,
+`PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`,
+`PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`,
+`SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
+`SourceClassification_FileUriNeverConstructsHttpTransport`,
+`SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`,
+`PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`, and
+`PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`
+enforce this seam.
+
+Typed route composition, exact result adoption, and version discovery are live
+for the online desktop consumer described above. Payload and cache
+authorization plus the remaining consumer migrations remain later slices of
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). The legacy
+`Sources` projection remains available during those migrations; it is not an
+alternative authority identity.

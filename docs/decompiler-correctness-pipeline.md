@@ -5,8 +5,10 @@ staged correctness gauntlet. It is **not** just a catalog of today's harness
 flags. The current tools are the raw material; this document names the
 first-class correctness system we want agents and maintainers to use.
 
-[decompiler.md](decompiler.md) explains how the decompiler pipeline produces
-output. [decompiler-quality.md](decompiler-quality.md) explains the quality
+[Decompiler architecture](decompiler-architecture.md) maps the implementation,
+host consumers, and test infrastructure. [decompiler.md](decompiler.md) explains
+how the pipeline produces output.
+[decompiler-quality.md](decompiler-quality.md) explains the quality
 strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
@@ -154,24 +156,23 @@ entry gate invalidates every later result, so run it first and report it.
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
-   The decompiler test host rejects an explicit `-class`, `-method`, or
-   `-filter` selector that matches no discovered test, including one unmatched
-   selector alongside valid selectors. Every requested `-id` must resolve
-   after the other filters, even when another ID is valid. The host also
-   rejects standalone or combined direct selections that resolve to no
-   runnable test, including through explicit-test mode, and reports stale or
-   malformed `-run` serializations directly. A misspelled targeted gate
-   therefore fails instead of reporting a successful zero-test or partial run.
-   Preflight discovery runs in a short-lived child process so its serializer
-   registration and disposable theory data cannot alter the real runner process.
-   `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
-   the subprocess gate for both the rejection and isolation contracts.
-   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
-   protects its renamed-apphost regression from concurrent test processes by
-   holding isolated aliases live in independent workers while another host
-   starts through the real muxer.
-   `ExplicitFilterGuardTests.AppHostAlias_CancellationCleansParentOwnedDirectories`
-   protects worker cleanup when the parent cancels those processes.
+   [The repository xUnit test host](design/xunit-test-host.md) selects
+   Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
+   The decompiler host owns `--gate` preset expansion and the stronger
+   `--gate pre-merge` receipt: the preset names independent correctness claims,
+   so the CI checker requires report evidence for every expected class and
+   compares independent pre-enumerated discovery identities with execution
+   identities to prove every selected case executes exactly once. MTP's
+   aggregate minimum cannot replace either property.
+
+   Until the MTP adoption tracked by #5379, the decompiler executable retains
+   its transitional `ExplicitFilterGuard` preflight. That preflight is not the
+   repository contract and is removed by adoption rather than generalized.
+   The MTP migration must preserve `--gate` expansion and the per-class receipt
+   and discovery-to-execution completeness receipt while replacing native
+   xUnit selector syntax with MTP filters. If the selected MTP version cannot
+   expose the required independent identities, this suite remains on its
+   transitional host until an equally strong MTP-backed receipt exists.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
@@ -195,7 +196,8 @@ Notes:
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
 - **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait-
+  `dotnet run --project src/dotnet-inspect.Tests -c Release --
+  --filter-not-trait
   "Speed=Slow"`, `dotnet run --project src/ILInspector.Decompiler.Tests -c
   Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
   round-trip filters. These gate command surface, pass logic, printer, importer
@@ -210,7 +212,7 @@ Notes:
   prove the slow suite is green; run the full suite locally before review.
 - The IL round-trip oracle follows the same shape: PR CI runs
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
-  -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
+  --filter-not-trait "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
   Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.

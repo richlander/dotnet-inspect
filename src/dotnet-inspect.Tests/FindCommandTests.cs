@@ -21,6 +21,9 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class FindCommandTests
 {
+    private static readonly PackageSourceResultFactory TestResults =
+        CreateResultFactory();
+
     [Fact]
     public void TableFormatter_MultiPattern_OutputsCanonicalTsvRows()
     {
@@ -284,7 +287,7 @@ public class FindCommandTests
                         ["Contoso"],
                         42,
                         true,
-                        PackageSourceIdentity.NuGetOrg,
+                        TestResults.Source,
                         ManifestFacts(
                             "Contoso.Package",
                             "1.2.3",
@@ -301,7 +304,7 @@ public class FindCommandTests
                 new PackageProfileEvent.Completed(
                     new PackageProfileSummary(
                         "Contoso.",
-                        PackageSourceIdentity.NuGetOrg,
+                        TestResults.Source,
                         Candidates: 1,
                         Matches: 1,
                         Failures: 0,
@@ -363,14 +366,14 @@ public class FindCommandTests
                 new PackageProfileFailure(
                     "Contoso.Broken",
                     "1.0.0",
-                    PackageSourceIdentity.NuGetOrg,
+                    TestResults.Source,
                     PackageProfileFailureKind.InvalidManifest,
                     "The manifest was invalid.",
                     PackageManifestFailureReason.IdentityMismatch)),
             new PackageProfileEvent.Completed(
                 new PackageProfileSummary(
                     "Contoso.",
-                    PackageSourceIdentity.NuGetOrg,
+                    TestResults.Source,
                     Candidates: 1,
                     Matches: 0,
                     Failures: 1,
@@ -390,7 +393,7 @@ public class FindCommandTests
             "source pagination limit",
             view.Results[1].Error);
         Assert.Equal(
-            PackageSourceIdentity.NuGetOrg.Value,
+            TestResults.Source.Producer.Display.ToString(),
             view.Results[1].Source);
         Assert.Equal(2, PackageProfileSections.CountRows(view));
         Assert.Equal(
@@ -410,9 +413,14 @@ public class FindCommandTests
     }
 
     [Fact]
-    public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
+    public async Task
+        PackageProfileCatalog_MaterializesOnceAndForwardsOperationContext()
     {
         var source = new CountingPackageSource();
+        using var operationContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(4),
+            TestContext.Current.CancellationToken);
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
 
@@ -424,11 +432,13 @@ public class FindCommandTests
                 .RunAsync(
                     new PackageProfileQueryContext(
                         source,
-                        new PackagePrefixProfileRequest("Contoso.")),
+                        new PackagePrefixProfileRequest("Contoso."),
+                        operationContext),
                     cancellationToken:
                         TestContext.Current.CancellationToken);
 
         Assert.Equal(1, source.SearchRequests);
+        Assert.Same(operationContext, source.SearchOperationContext);
         ImmutableArray<PackageProfileEvent> first =
             results.Get(PackageProfileQuery.Definition);
         ImmutableArray<PackageProfileEvent> second =
@@ -510,7 +520,7 @@ public class FindCommandTests
                     ["Contoso"],
                     42,
                     true,
-                    PackageSourceIdentity.NuGetOrg,
+                    TestResults.Source,
                     ManifestFacts(
                         "Contoso.Package",
                         "1.0.0",
@@ -560,7 +570,7 @@ public class FindCommandTests
                     ["Contoso"],
                     42,
                     true,
-                    PackageSourceIdentity.NuGetOrg,
+                    TestResults.Source,
                     ManifestFacts(
                         "Contoso.Package",
                         "1.0.0",
@@ -614,7 +624,7 @@ public class FindCommandTests
                         ["Contoso"],
                         42,
                         true,
-                        PackageSourceIdentity.NuGetOrg,
+                        TestResults.Source,
                         ManifestFacts(
                             "Contoso.Package",
                             "1.0.0",
@@ -676,7 +686,7 @@ public class FindCommandTests
                         ["Contoso"],
                         42,
                         true,
-                        PackageSourceIdentity.NuGetOrg,
+                        TestResults.Source,
                         ManifestFacts(
                             "Contoso.Package",
                             "1.0.0",
@@ -721,7 +731,7 @@ public class FindCommandTests
     {
         var summary = new PackageProfileSummary(
             "Contoso.",
-            PackageSourceIdentity.NuGetOrg,
+            TestResults.Source,
             Candidates: 1,
             Matches: failures == 0 ? 1 : 0,
             failures,
@@ -747,7 +757,7 @@ public class FindCommandTests
                         [hostileOwner],
                         0,
                         false,
-                        PackageSourceIdentity.NuGetOrg,
+                        TestResults.Source,
                         ManifestFacts(
                             "Contoso.Package",
                             "1.0.0",
@@ -756,7 +766,7 @@ public class FindCommandTests
                 new PackageProfileEvent.Completed(
                     new PackageProfileSummary(
                         "Contoso.",
-                        PackageSourceIdentity.NuGetOrg,
+                        TestResults.Source,
                         Candidates: 1,
                         Matches: 1,
                         Failures: 0,
@@ -864,13 +874,94 @@ public class FindCommandTests
                     tsv,
                     jsonl)));
 
+    private static PackageSourceResultFactory CreateResultFactory()
+    {
+        PackageSourceResultFactory? captured = null;
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                PackageSourceAssociation.Create(),
+                factory =>
+                {
+                    captured = factory;
+                    return new FactoryOnlyPackageSourceClient(factory.Source);
+                });
+        return captured
+            ?? throw new InvalidOperationException(
+                "The test result factory was not supplied.");
+    }
+
+    private sealed class FactoryOnlyPackageSourceClient(
+        PackageSourceResultIdentity source)
+        : IPackageSourceClient
+    {
+        public PackageSourceResultIdentity Source { get; } = source;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.None;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
     private sealed class CountingPackageSource : IPackageSourceClient
     {
         public int SearchRequests { get; private set; }
-        public PackageSourceIdentity Identity =>
-            PackageSourceIdentity.NuGetOrg;
-        public PackageSourceKind Kind =>
-            PackageSourceKind.NuGetGallery;
+        public NuGetOperationContext? SearchOperationContext
+        {
+            get;
+            private set;
+        }
+        public PackageSourceResultIdentity Source => TestResults.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.Search;
 
@@ -884,17 +975,11 @@ public class FindCommandTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             SearchRequests++;
+            SearchOperationContext = operationContext;
             return Task.FromResult<
                 PackageSourceOperationResult<PackageSearchResult>>(
-                    new PackageSourceOperationResult<PackageSearchResult>
-                        .Failed(
-                            new PackageSourceFailure(
-                                Identity,
-                                Kind,
-                                PackageSourceCapabilities.Search,
-                                Coordinate: null,
-                                PackageSourceFailureKind.Transport,
-                                "Expected test failure.")));
+                    TestResults.FailedSearch(
+                        PackageSourceFailureKind.Transport));
         }
 
         public Task<PackageSourceOperationResult<PackageSearchResult>>
@@ -960,10 +1045,7 @@ public class FindCommandTests
         { get; } = [];
         public List<PackageSourceCoordinate> ManifestRequests { get; } = [];
         public int PackageRequests { get; private set; }
-        public PackageSourceIdentity Identity =>
-            PackageSourceIdentity.NuGetOrg;
-        public PackageSourceKind Kind =>
-            PackageSourceKind.NuGetGallery;
+        public PackageSourceResultIdentity Source => TestResults.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.Search
             | PackageSourceCapabilities.Manifest;
@@ -978,26 +1060,19 @@ public class FindCommandTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             SearchRequests.Add((prefix, take, prerelease));
-            PackageSearchMatch[] matches =
+            SearchResult[] matches =
             [
                 .. CandidateCoordinates.Select(coordinate =>
-                        new PackageSearchMatch(
-                            new SearchResult(
-                                coordinate.PackageId,
-                                coordinate.Version),
-                            new PackageCandidateObservation(
-                                coordinate,
-                                Identity,
-                                PackageDiscoveryContract.KeywordSearch,
-                                PackageListingState.Listed))),
+                    new SearchResult(
+                        coordinate.PackageId,
+                        coordinate.Version)),
             ];
             return Task.FromResult<
                 PackageSourceOperationResult<PackageSearchResult>>(
-                    new PackageSourceOperationResult<PackageSearchResult>
-                        .Succeeded(
-                            new PackageSearchResult(
-                                matches,
-                                PackageSearchTruncationReason.None)));
+                    TestResults.SucceededSearch(
+                        TestResults.Search(
+                            matches,
+                            PackageSearchTruncationReason.None)));
         }
 
         public Task<PackageSourceOperationResult<PackageSourceManifest>>
@@ -1038,13 +1113,9 @@ public class FindCommandTests
                 """);
             return Task.FromResult<
                 PackageSourceOperationResult<PackageSourceManifest>>(
-                    new PackageSourceOperationResult<PackageSourceManifest>
-                        .Succeeded(
-                            new PackageSourceManifest(
-                                coordinate,
-                                Identity,
-                                Kind,
-                                content)));
+                    TestResults.SucceededManifest(
+                        coordinate,
+                        TestResults.Manifest(coordinate, content)));
         }
 
         public Task<PackageSourceOperationResult<PackageSearchResult>>
@@ -1101,9 +1172,9 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
-    [InlineData("Azure", 0, "-t must be between 1 and 10000 for a package-prefix profile (got 0).")]
-    [InlineData("Azure", 10001, "-t must be between 1 and 10000 for a package-prefix profile (got 10001).")]
-    [InlineData("Azure ", 100, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
+    [InlineData("Azure", 0, "-t must be between 1 and 1000 for a package-prefix profile (got 0).")]
+    [InlineData("Azure", 1001, "-t must be between 1 and 1000 for a package-prefix profile (got 1001).")]
+    [InlineData("Azure ", 500, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
     public async Task PackageProfileInvalidInput_UsesComposedDiagnostic(
         string prefix,
         int limit,
@@ -1127,6 +1198,13 @@ public class FindCommandIntegrationTests
             "ArgumentOutOfRange_",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageProfileLimits_UseMeasuredDefaultAndMaximum()
+    {
+        Assert.Equal(500, FindCommand.PackageProfileDefaultLimit);
+        Assert.Equal(1_000, FindCommand.PackageProfileMaximumLimit);
     }
 
     [Fact]
@@ -1221,7 +1299,7 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("-t must be an integer between 1 and 10000", error);
+        Assert.Contains("-t must be an integer between 1 and 1000", error);
         Assert.DoesNotContain("Attempted:", error);
         Assert.DoesNotContain("Arg_", error, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1249,7 +1327,7 @@ public class FindCommandIntegrationTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "-t must be between 1 and 10000 for a package-prefix profile",
+            "-t must be between 1 and 1000 for a package-prefix profile",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }
@@ -1271,6 +1349,9 @@ public class FindCommandIntegrationTests
     [Fact]
     public async Task PackageProfileMarkdown_HonorsColumnProjection()
     {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
         PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
             [
@@ -1281,7 +1362,7 @@ public class FindCommandIntegrationTests
                         ["Contoso"],
                         42,
                         true,
-                        PackageSourceIdentity.NuGetOrg,
+                        source.Source,
                         ManifestFacts(
                             "Contoso.Package",
                             "1.0.0",
@@ -1835,18 +1916,16 @@ public class FindCommandIntegrationTests
     // ── Error handling tests ─────────────────────────────────────────
 
     [Fact]
-    public async Task Find_NoScope_AppliesCuratedDefault()
+    public async Task Find_NoScope_AppliesPlatformDefault()
     {
         var options = new FindOptions
         {
             Pattern = "Stream"
-            // No scope specified - should apply curated defaults
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
-        // Should succeed with curated scope applied
         Assert.Equal(0, exit);
         Assert.Contains("Stream", output);
     }

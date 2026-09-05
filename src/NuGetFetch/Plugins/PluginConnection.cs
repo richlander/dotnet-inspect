@@ -259,7 +259,11 @@ internal sealed class PluginConnection : IAsyncDisposable
         CancellationToken cancellationToken) =>
         SendAsync(
             MessageMethods.GetAuthenticationCredentials,
-            new GetAuthenticationCredentialsRequest(uri.ToString(), isRetry, isNonInteractive, canShowDialog),
+            new GetAuthenticationCredentialsRequest(
+                uri.OriginalString,
+                isRetry,
+                isNonInteractive,
+                canShowDialog),
             PluginJsonContext.Default.EnvelopeGetAuthenticationCredentialsRequest,
             PluginJsonContext.Default.GetAuthenticationCredentialsResponse,
             cancellationToken,
@@ -1003,6 +1007,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             if (!_process.HasExited && !_process.WaitForExit((int)ExitWaitAfterClose.TotalMilliseconds))
             {
                 _process.Kill(entireProcessTree: true);
+                await _process.WaitForExitAsync().ConfigureAwait(false);
             }
         }
         catch

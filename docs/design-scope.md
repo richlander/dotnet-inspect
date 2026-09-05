@@ -1,10 +1,11 @@
 # Design scope and composition
 
-[How work runs on this repo](../AGENTS.md#how-work-runs-on-this-repo) and
-[Design scope and composition](../AGENTS.md#design-scope-and-composition) state
+[Development practices](development-practices.md#design-establishes-the-footing)
+places design before implementation.
+[Design scope and composition](../AGENTS.md#design-scope-and-composition) states
 the binding rules: one architectural owner per design effort, and a broad,
-multi-component design requires explicit user approval. This document owns the
-full mechanics and recovery procedure.
+multi-component design requires explicit user approval. This document owns
+the full mechanics and recovery procedure.
 
 ## One owner per focused design
 
@@ -113,6 +114,17 @@ the implementation. Implementation-level safety, soundness, or faithfulness
 claims must still follow
 [Asserted properties name their gate](evidence-and-validation.md#asserted-properties-name-their-gate).
 The model supplements rather than replaces the readable specification.
+
+When a higher-layer model consumes a stable contract already owned by a
+lower-layer component, instantiate the owner-issued TLA+ module instead of
+copying its definitions or transition rules. Keep the module dependency graph
+acyclic and aligned with product dependencies: a consumer may bind and exercise
+an owner's contract, but may not redefine it. Recheck the imported safety
+properties under the composed behavior and add the composition-specific
+properties separately. Model checking one finite instance does not produce a
+proof artifact that transfers to another instance. The module layout,
+configuration, and validation mechanics live in
+[Compose models along product boundaries](tla-plus-methodology.md#compose-models-along-product-boundaries).
 
 ## Reviewing focused designs
 

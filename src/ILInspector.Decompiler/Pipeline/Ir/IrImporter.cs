@@ -64,6 +64,34 @@ public static class IrImporter
     /// </summary>
     public static IrFunction? Import(MetadataSource source, MethodRef method)
     {
+        if (method.ExactDefinitionAddress is { } exactAddress)
+        {
+            try
+            {
+                if (!ReferenceEquals(
+                        method.ExactDefinitionAcquisitionGuard,
+                        source.AcquisitionGuard)
+                    || !exactAddress.BelongsTo(source.Reader))
+                {
+                    return null;
+                }
+
+                int row = MetadataTokens.GetRowNumber(exactAddress.Handle);
+                return row > 0
+                    && row <= source.Reader.GetTableRowCount(
+                        TableIndex.MethodDef)
+                        ? Import(source, exactAddress.Handle)
+                        : null;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return CrashFunction(
+                    method.Name,
+                    method.DeclaringType.Name,
+                    ex);
+            }
+        }
+
         TypeRef type = ImporterType(method);
         if (type.DefinitionName is not { } exactName)
             return Import(source, ImporterTypeName(type), method.Name);
@@ -620,6 +648,8 @@ public static class IrImporter
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
             IsRuntimeAsync = method.IsRuntimeAsync,
+            ClassicAsyncRequest = method.ClassicAsyncRequest,
+            IsMetadataBacked = method.IsMetadataBacked,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);
@@ -2788,7 +2818,12 @@ public static class IrImporter
     // difference between an old-rules and a new-rules build (an `unsafe` block or
     // member modifier has no IL representation), so it is what the printer keys
     // on to choose explicit `unsafe { }` blocks over the member modifier.
-    static bool ModuleUsesUpdatedMemorySafetyRules(MetadataReader reader)
+    //
+    // Internal rather than private because recompilation must replay the exact
+    // mode the printer used. The decompiler harness calls this same predicate so
+    // the two cannot drift; deriving the harness mode from a separate reader
+    // (however more faithful) reintroduces that drift.
+    internal static bool ModuleUsesUpdatedMemorySafetyRules(MetadataReader reader)
     {
         foreach (var handle in reader.GetModuleDefinition().GetCustomAttributes())
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)

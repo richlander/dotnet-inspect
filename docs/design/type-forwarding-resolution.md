@@ -6,119 +6,40 @@
 
 ## Status
 
-Implemented architecture replacing the former collection of type-forwarder
-helpers and spelling-based caller matching with one structured
-reference-to-definition system.
+Implemented structured reference-to-definition architecture. Current consumers
+use the implemented declaration, acquisition, binding-result, resolution, and
+correspondence surfaces. Sections explicitly marked design-only describe target
+contracts rather than shipped behavior.
 
-Slices 1 through 6 are delivered. Declaration, acquisition, resolution,
-definition consumers, source/API consumers, platform lookup, facade
-classification, direct caller correspondence, and call graphs use the
-structured contracts. The delivery followed the primitive-first approach used
-by `InertString` in
-[#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
-value, its invariants, and its gates before asking consumers to depend on it.
+This document is limited to Metadata's consumer-independent resolution
+contract: one exact structured request, one policy-authorized forwarding path,
+and one typed terminal outcome. It does not specify how a caller selects
+requests, combines outcomes, admits artifacts, judges C# spellability, or
+presents results.
 
-Issue [#4809](https://github.com/richlander/dotnet-inspect/issues/4809) defines
-a focused consumer extension for signature spellability. That extension is
-design-only and unverified until the named gates in this document land. The
-current implementation scans selected assemblies into a non-public type-name
-set; the candidate in
-[#4276](https://github.com/richlander/dotnet-inspect/pull/4276) expands that
-approach to definition and forwarder name sets. Neither satisfies the contract
-because neither resolves a forwarding chain to its terminal definition or
-retains typed non-success evidence.
+[Consumer scenario inventory](#consumer-scenario-inventory) records the known
+demand classes, including Research target attempts from
+[#5189](https://github.com/richlander/dotnet-inspect/pull/5189). The inventory
+is informative: each consumer's owning design remains authoritative for its
+selection, admission, composition, and presentation behavior.
 
-Browser platform call graphs resolve exact graph-target type identities through
-`AssemblyContextTypeResolutionQuery`. The query retains the cumulative
-workspace's immutable participant snapshots, applies its participant-only
-binding policy, and returns Metadata's typed resolution outcome. The Browser
-host may realize a missing terminal assembly only when the selected platform
-pack already authorizes that assembly, then it rebuilds the bounded graph
-before transport. It does not probe the host filesystem.
-`PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing` gates
-this consumer boundary.
+The executable
+[type-forwarding resolution model](models/type-forwarding-resolution/README.md)
+checks the resolver's baseline path, outcome, cycle, hop-bound, and scope
+invariants. The model supplements the existing Release gates; it does not claim
+implementation conformance by itself.
 
-Custom-attribute enum width can consume the same frozen generation through
-`TypeResolutionEnumWidth`: planned serialized names become structured
-requests, `Resolve` locates an already-retained defining image, and
-the resolved definition's authenticated kind plus
-`TypeResolutionContext.TryGetEnumUnderlyingType` establish a sealed
-core-library-derived `System.Enum` definition and read its single valid
-`value__` field without exposing a reader. Reflection-name escapes are projected
-back to exact metadata namespace and type segments, and the pre-decode guard
-applies SRM's own serialized-name projection before consulting the width table,
-so a name that only parses once its assembly suffix is removed cannot give the
-guard and the decoder different widths. Unplanned, unbound,
-malformed, or callback-ambiguous names stay `Int32`. Explicit assembly
-qualifiers stay constraints rather than widening to wildcards: an explicit
-`Culture=neutral` is spelled so it cannot match a culture-specific candidate,
-and an explicit `PublicKeyToken=null` names an unsigned assembly. Because an
-empty token reads as a wildcard during binding, the adapter records it on the
-request and then drops a resolved candidate that turned out to be signed,
-keeping the qualifier a constraint without changing the identity contract that
-`AssemblyDependencyResolver` and `MetadataSource` also consume. The qualifier
-constrains the assembly the reference bound to, so when forwarding hops were
-followed the narrowing inspects the first hop's source rather than the terminal
-definition. A definition
-that is not a CLI-valid enum -- unsealed, not directly derived from
-`System.Enum`, generic, carrying a non-public, non-special, or literal
-`value__`, or
-carrying a non-literal static field -- supplies no width.
+## Baseline supported scenarios
 
-An argument whose signature names a type by handle is resolved from the
-definition that handle denotes, on both sides, never from its rendered name. A
-definition handle denotes itself; a reference is matched structurally, by name
-and resolution scope. Distinct definitions can render to one string: a nested
-type joins its declaring type with `.`, exactly as a namespace joins a type
-name, so a nested `Kind` declared in `Samples.E` and a top-level `Kind` in
-namespace `Samples.E` both render `Samples.E.Kind`. A reference additionally
-carries a resolution scope that its flattened spelling discards. Any name-keyed
-index must therefore drop one colliding definition, and routing either side
-through a name would let the guard and the decode select different definitions
-and skip different widths. Both sides ask
-`EnumUnderlyingPrimitive.TryResolveDefinition` about the same handle and take
-the width from the definition it returns;
-`NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates both handle forms
-and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the premise. A
-supplied name resolver never overrides a definition the signature already
-named, on either side. Structural matching walks a reference's nested scope
-chain but does not consult its terminal assembly or module scope, so a
-reference whose chain matches a definition in this reader resolves to that
-definition even when it nominally denotes another assembly. That is
-long-standing behavior, gated by
-`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`, and it is what keeps
-this side aligned with a decode that would otherwise reach the same local
-definition through its rendered name. A reference whose chain matches no
-definition here resolves by name as before.
+These scenarios describe the common resolver behavior that consumers may rely
+on. Each is a successful execution of the resolver contract, including the
+case where resolution correctly preserves why it could not continue.
 
-A name that has no pending handle -- a reference to a type this reader does not define, or a name the blob
-authored -- is looked up by spelling, and that lookup depends on where the name
-came from. A handle-derived
-name is an exact metadata spelling that reaches the provider verbatim, and
-metadata names may contain characters a reflection type name treats as escapes,
-so it is matched by its exact spelling before its reflection-normalized one.
-A blob-authored name is reflection syntax whose escapes are meaningful
--- `E\+Kind` names the metadata type `E+Kind`, not one spelled with a backslash
--- so it is normalized first and never matched verbatim. Both sides of the
-guard/decode pair classify a name the same way, so the two remain aligned
-either way. That classification belongs to a single pending lookup, not to a
-spelling: the provider records only that the name it produced most recently
-came from the blob, and clears that mark when it produces a handle-derived
-name. Remembering spellings instead would let a blob-authored occurrence
-change how a later handle-derived occurrence of the same spelling resolves,
-making a consumed width depend on argument order. The guard also resolves a repeated enum name
-once rather than once per array element, because the element count is
-attacker-chosen and per-element parsing is the amplification the guard exists to
-prevent.
-
-Product extract does
-not
-yet collect CA enum names into a generation; that remains residual on
-[#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
-`TypeResolutionEnumWidthTests` gates the adapter, and
-`CustomAttributeValueGuardTests` gates guard/decoder width alignment through
-`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` and
-`EnumArrayElements_ResolveTheWidthOncePerName`.
+| Request for `T1` | Result |
+| --- | --- |
+| The starting assembly defines `T1` directly. | `Resolved` identifies that exact physical `TypeDef`. The forwarding-hop sequence is empty; no forwarding-specific behavior occurs. |
+| The starting assembly forwards `T1`, the exact target assembly is available under the supplied workspace and binding policy, and the target defines `T1`. | `Resolved` identifies the target's exact physical `TypeDef`. The result retains the ordered forwarding-hop sequence, including every source and exact target assembly-reference identity, so consumers can report the forwarding nature and complete chain. |
+| The starting assembly forwards `T1`, but the exact target assembly is not available under the supplied workspace and binding policy. | Resolution returns the applicable typed non-success outcome: `UnboundBinding` when policy authoritatively has no candidate, or `Unavailable` when acquisition or selection cannot supply one. The result retains the completed forwarding-hop sequence and exact target assembly-reference identity so consumers can report a non-resolvable forwarder and its target. It is not `NotFound`, and the forwarding declaration is not treated as a definition. |
 
 ## The problem
 
@@ -426,9 +347,9 @@ public sealed class ResolvedAssemblyCandidate
 }
 ```
 
-`ResolvedAssemblyReference` evolves in slice 2 from a value-equal record to a
-non-equatable sealed class containing identity, optional path, opener,
-provenance, and an `AssemblyAcquisitionRegistration`:
+`ResolvedAssemblyReference` is a non-equatable sealed class containing
+identity, optional path, opener, provenance, and an
+`AssemblyAcquisitionRegistration`:
 
 ```csharp
 public sealed class AssemblyAcquisitionRegistration
@@ -584,6 +505,11 @@ its Metadata provenance representation does not.
 
 There are four legitimate starts and they stay explicit:
 
+The following sketches show the implemented seed-origin surface. The
+[resolver-lineage continuation contract](#resolver-lineage-continuations)
+adds a selected-occurrence start and origin; an acquisition descriptor alone
+remains a seed, not a way to resume a context-sensitive selection.
+
 ```csharp
 public abstract class AssemblyBindingOrigin
 {
@@ -727,7 +653,8 @@ context's frozen catalog, probe it, then follow any forwarder." An unregistered
 handle is a typed `UnregisteredAssembly` rejection; resolution never mutates a
 frozen catalog. `Reference` means "first ask the binding policy to resolve this
 exact `AssemblyRef` from this binding origin, then probe the result." Forwarder
-hops always use the current candidate as `RequestingAssembly`; a global origin
+hops always use the current candidate as `RequestingAssembly`, retaining its
+selected occurrence's continuation when present; a global origin
 is explicit and a policy may reject it for a source-relative scope. The builder
 registers a reference start's requesting registration as a plan root before
 freeze, then policy receives only that opaque registration. A frozen context
@@ -933,7 +860,8 @@ public enum AssemblyBindingFailureKind
     IdentityPolicyRequired,
     CandidateUnavailable,
     UnsupportedScope,
-    InvalidPolicyResult
+    InvalidPolicyResult,
+    InvalidCompositionResult
 }
 
 public sealed record AssemblyBindingFailure(
@@ -998,7 +926,7 @@ public abstract class AssemblyBindingSelection
 
     public static AssemblyBindingSelection Found(
         ResolvedAssemblyReference assembly) =>
-        new Selected(assembly);
+        new Selected(assembly, []);
 
     public static AssemblyBindingSelection NotFound() =>
         new Missing(AssemblyBindingMissDisposition.Undifferentiated);
@@ -1015,7 +943,36 @@ public abstract class AssemblyBindingSelection
 
     public static AssemblyBindingSelection Multiple(
         ImmutableArray<ResolvedAssemblyReference> assemblies) =>
-        new Ambiguous(assemblies);
+        new Ambiguous(assemblies, []);
+
+    public static AssemblyBindingSelection RequireComposition(
+        ImmutableArray<ResolvedAssemblyReference> candidates)
+    {
+        if (candidates.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A composition domain cannot be empty.",
+                nameof(candidates));
+        }
+        if (candidates.Any(static candidate => candidate is null))
+        {
+            throw new ArgumentException(
+                "A composition domain cannot contain null descriptors.",
+                nameof(candidates));
+        }
+        if (candidates
+            .Select(static candidate => candidate.Registration)
+            .Distinct(ReferenceEqualityComparer.Instance)
+            .Count() != candidates.Length)
+        {
+            throw new ArgumentException(
+                "A composition domain cannot repeat a registration.",
+                nameof(candidates));
+        }
+
+        return new CompositionRequired(
+            new AssemblyBindingCandidateDomain(candidates));
+    }
 
     public static AssemblyBindingSelection Invalid(
         AssemblyBindingFailure failure) =>
@@ -1023,10 +980,19 @@ public abstract class AssemblyBindingSelection
 
     public sealed class Selected : AssemblyBindingSelection
     {
-        internal Selected(ResolvedAssemblyReference assembly) =>
+        internal Selected(
+            ResolvedAssemblyReference assembly,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Assembly = assembly;
+            ShadowedAssemblies = shadows;
+        }
 
         public ResolvedAssemblyReference Assembly { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Missing : AssemblyBindingSelection
@@ -1048,10 +1014,18 @@ public abstract class AssemblyBindingSelection
     public sealed class Ambiguous : AssemblyBindingSelection
     {
         internal Ambiguous(
-            ImmutableArray<ResolvedAssemblyReference> assemblies) =>
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Assemblies = assemblies;
+            ShadowedAssemblies = shadows;
+        }
 
         public ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Rejected : AssemblyBindingSelection
@@ -1061,6 +1035,27 @@ public abstract class AssemblyBindingSelection
 
         public AssemblyBindingFailure Failure { get; }
     }
+
+    public sealed class CompositionRequired : AssemblyBindingSelection
+    {
+        internal CompositionRequired(
+            AssemblyBindingCandidateDomain domain) =>
+            Domain = domain;
+
+        public AssemblyBindingCandidateDomain Domain { get; }
+    }
+}
+
+public sealed class AssemblyBindingCandidateDomain
+{
+    internal AssemblyBindingCandidateDomain(
+        ImmutableArray<ResolvedAssemblyReference> candidates) =>
+        Candidates = candidates;
+
+    public ImmutableArray<ResolvedAssemblyReference> Candidates { get; }
+
+    public AssemblyBindingSelection Finalize(
+        ImmutableArray<ResolvedAssemblyReference> contenders);
 }
 
 public sealed class AssemblyBindingSelectionSnapshot
@@ -1069,13 +1064,13 @@ public sealed class AssemblyBindingSelectionSnapshot
         AssemblyBindingPolicyVersion policyVersion,
         AssemblyBindingSelection selection)
     {
-        PolicyVersion = policyVersion
+        Version = policyVersion
             ?? throw new ArgumentNullException(nameof(policyVersion));
         Selection = selection
             ?? throw new ArgumentNullException(nameof(selection));
     }
 
-    public AssemblyBindingPolicyVersion PolicyVersion { get; }
+    public AssemblyBindingPolicyVersion Version { get; }
     public AssemblyBindingSelection Selection { get; }
 }
 
@@ -1093,10 +1088,19 @@ public abstract class AssemblyBindingOutcome
 
     public sealed class Resolved : AssemblyBindingOutcome
     {
-        internal Resolved(ResolvedAssemblyCandidate candidate) =>
+        internal Resolved(
+            ResolvedAssemblyCandidate candidate,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Candidate = candidate;
+            ShadowedAssemblies = shadows;
+        }
 
         public ResolvedAssemblyCandidate Candidate { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Missing : AssemblyBindingOutcome
@@ -1118,10 +1122,18 @@ public abstract class AssemblyBindingOutcome
     public sealed class Ambiguous : AssemblyBindingOutcome
     {
         internal Ambiguous(
-            ImmutableArray<ResolvedAssemblyCandidate> candidates) =>
+            ImmutableArray<ResolvedAssemblyCandidate> candidates,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Candidates = candidates;
+            ShadowedAssemblies = shadows;
+        }
 
         public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Rejected : AssemblyBindingOutcome
@@ -1152,13 +1164,21 @@ internal interface IAssemblyBindingResolver
 
 #### Atomic selection/version snapshots
 
+> **Status: partially implemented by #5646.** Policies return
+> `AssemblyBindingSelectionSnapshot`, and Metadata validates the returned token
+> before interpreting a cold answer and validates the current token again at
+> the generation commit point. Focused Release tests enforce foreign-snapshot
+> rejection and policy-publication exclusion. Non-reused transforming-policy
+> tokens, delegated-version refresh, supersession retry, and full
+> model-to-implementation correspondence remain unverified.
+
 `AssemblyBindingSelectionSnapshot` is the policy owner's immutable answer for
 one request. It atomically carries the exact
 `AssemblyBindingPolicyVersion` of the immutable policy state that produced the
 selection. The selection may be any current arm, preserving its descriptors,
-shadow evidence, miss disposition, or typed failure; #5214 may add its
-composition handoff to the same closed selection hierarchy without changing
-the version association.
+shadow evidence, miss disposition, typed failure, or the
+[complete composition handoff](#complete-identity-eligible-binding-composition)
+without changing the version association.
 
 `IAssemblyBindingPolicy.Version` remains the identity of the policy state that
 is current when observed. A policy captures one immutable state and its version
@@ -1254,12 +1274,14 @@ return the delegate token as the governing token for composite behavior. It
 never relabels a mismatched delegated payload with its own version.
 
 One atomically published composite state contains its token, captured delegate
-versions, and immutable routing inputs. A learned source-relative route is
-staged into a fresh composite state and token; it cannot mutate answers under
-the current token. #5216 may instead provide a complete route map during
-workspace realization. This contract defines the policy-local state
-transition, not construction, publication, termination, or replacement of the
-workspace generation that consumes it.
+versions, and immutable routing inputs. Changing that routing function requires
+a fresh composite state and token; it cannot mutate answers under the current
+token. Selecting another occurrence under that unchanged function is not a
+policy change. The resolver-lineage contract below replaces discovery-time
+route insertion for source-relative groups with an explicit continuation.
+Issue #5216 may instead provide a complete route map during workspace realization.
+This contract defines the policy-local state transition, not construction,
+publication, termination, or replacement of the consuming workspace generation.
 
 `AssemblyReferenceBindingPolicy` has two disjoint modes. A structured-policy
 delegate is fully transparent for every target: the adapter exposes the
@@ -1275,8 +1297,8 @@ version starts a new generation and may reuse a resolution recipe only after
 the refreshed binding snapshots compare structurally equal under the existing
 recipe rules.
 
-This focused contract does not define #5224's miss ownership, #5214's complete
-identity-eligible candidate handoff, #5216's workspace construction and
+This focused contract does not define #5224's miss ownership, the complete
+identity-eligible candidate handoff below, #5216's workspace construction and
 replacement, or the #5133 successor's designated/platform arbitration. It
 also does not prescribe host retry timing after a superseded generation or
 transactional rollback of acquisition and declaration evidence.
@@ -1288,6 +1310,301 @@ mutations, commit-point validation, pre-commit policy-publication exclusion,
 and eventual publication. Its companion composite model checks matching success,
 foreign-snapshot propagation, state refresh, route replacement, and retry
 progress.
+
+#### Resolver-lineage continuations
+
+> **Status: design-only; product adoption is unverified.** #5801 supplies
+> compiled evidence for the existing behavior, not this representation.
+> #5666 owns this focused decision; #5274 tracks adoption and retirement.
+> Existing policies retain their transitional behavior until their adoption
+> slices land.
+
+**Claim:** a selected assembly occurrence retains the policy-issued binding
+context required for its subsequent references, without changing the answers
+to other requests under the same policy version.
+
+The production consumer is `AssemblySetSurfaceBuilder`, through
+`AssemblySetResolutionSession`. CLI `DiffCommand` and `TimelineCommand`
+already invoke it through `ApiSurfaceEndpointResolver`. The #5801 fixture
+demonstrates `Consumer -> Middle forwarder -> Base`: a constraint classifies as
+`ReferenceType` through Consumer's resolver and as `Undetermined` when the
+learned association is removed. This establishes the need for resolver lineage,
+not the need for a shared mutable route map. It is Services-level evidence;
+it does not claim an end-to-end command or call-graph demonstration.
+
+##### Decision and alternatives
+
+| Representation | Decision and reason |
+| --- | --- |
+| Policy-issued continuation on the selected occurrence | Chosen: retains the source of the next binding decision without publishing a new answer for an existing origin. |
+| Complete immutable participant routes | Retained for sealed workspaces. Open-ended assembly-set inspection cannot assume that all selected forwarding participants were initial roots. |
+| Registration-to-resolver map with fresh tokens | Not the default: every newly discovered route could supersede discovery, requiring a retry/convergence owner that this path does not have. |
+| Add-only map under one token | Rejected: an unrouted origin already receives the fallback answer, so insertion can change an equal request. Sharing one registration also makes first-writer ownership insufficient. |
+| Separate catalog per initial root | Insufficient by itself: selecting a canonical peer root can switch the governing resolver. That context still has to survive the next hop; duplicating catalogs does not define the missing association. |
+
+The two-context boundary is deliberately distinct from the minimal #5801
+fixture: two supported policy delegates can return the same acquisition
+descriptor while prescribing different dependencies. The model explores this
+boundary; a compiled product gate for it remains part of adoption.
+
+##### Currency and authority
+
+An `AssemblyBindingOccurrence` pairs a selected `ResolvedAssemblyReference`
+with its `AssemblyBindingLineage`. The descriptor continues to own acquisition
+identity; the lineage owns the binding context in which references from that
+occurrence are interpreted. Neither field is inferred from a path, display
+name, MVID, or the order in which a candidate was discovered.
+
+A lineage is opaque outside its issuing policy. It is scoped to the exact
+issuing policy state/version and denotes an immutable continuation of that
+state's routing function. Its equality must preserve the issuer, policy
+version, and every delegated-context distinction that can change a subsequent
+answer. Equal continuation meanings within one state have stable equality;
+traversing another hop does not create a new meaning merely because it is
+another call. This is a bounded routing context, not an accumulated path.
+
+A seed origin explicitly names an initial assembly or the existing global
+arm. It uses the policy's fixed seed/default rules. A continuation origin
+names the selected occurrence. Reconstructing a seed from that occurrence's
+registration is not an equivalent operation. Existing context-free policies
+may return an explicit seed continuation; they do not claim to retain a
+source-relative context.
+
+Only the selection issuer pairs an assembly with its continuation. Metadata
+retains that pair, projects the descriptor through the acquisition catalog,
+and passes the occurrence as the requesting origin for forwarding, intrinsic
+core-library binding, and other context-sensitive resolution dependencies.
+The issuer has the requesting descriptor as well as the opaque lineage when
+its binding rule needs image facts; it need not recover a descriptor from an
+otherwise uninformative registration.
+
+For a source-relative group, selecting a configured canonical participant
+uses that participant's configured resolver context. Selecting a transitive
+non-participant retains the selecting delegate's context. Thus the rule is
+not "always copy the parent's context": existing canonical-root and
+designated/platform selection semantics still determine the selected result.
+A terminal missing, unavailable, rejected, or ambiguous result creates no
+active selected occurrence and installs no route. Shadowed descriptors are
+evidence, not active continuations.
+
+A transparent wrapper preserves the occurrence unchanged. A transforming
+composite issues its own continuation and retains the delegated continuation
+inside it; it does not pass an outer context to a delegate that did not issue
+it. The existing delegated-snapshot version check precedes payload use and
+therefore precedes occurrence issuance. This section does not change
+candidate-domain eligibility or finalization: when composition returns a
+terminal selection, that selection's issuer also supplies its continuation.
+
+##### Association, reuse, and failure
+
+The atomic selection snapshot governs the assembly and continuation together.
+An occurrence from another issuing state cannot be silently rebound under a
+new token or treated as a seed. A stale or foreign continuation is an explicit
+binding-origin rejection, not an identity miss or a reason to use the default
+resolver. Ordinary in-flight version drift keeps the existing
+`PolicyVersionChanged` control and commit rules. A later generation must obtain
+fresh occurrences from its seeds; this design adds no automatic retry.
+
+The Metadata binding-domain projection includes the candidate and the full
+lineage distinction. Type-request keys, intrinsic-binding keys, deferred
+kind-resolution dependencies, frozen manifests, and policy-dependent recipes
+retain the same distinction. The same candidate reached through two lineages
+may share acquisition, inventory, and image-local declaration facts, but not a
+binding answer or context-dependent type-kind result merely because its
+physical definition is the same.
+
+A selected binding outcome, a terminal resolution result, and a retained
+recipe preserve the occurrence needed to start a later context-sensitive
+request. A physical definition key, token, or address remains physical
+correspondence currency; it does not become a resolver-context lookup key.
+The continuation supplies no new acquisition authority and does not extend
+the lifetime of a catalog or an owning workspace.
+
+Across a policy-version change, context-sensitive recipes are re-derived
+from seeds rather than relabeling old lineages. Image-local reuse remains
+available. Selective cross-version equivalence of lineage-bearing recipes
+is not a claim of this slice.
+
+Stable lineage equality makes repeated semantic requests idempotent.
+Occurrences count as relationship/discovery work under the existing bounds,
+even when they share one candidate; the candidate count is not a substitute
+for that work bound. Existing physical-candidate forwarder-cycle detection
+and hop budgets remain unchanged. This effort does not widen support for
+revisiting a candidate through a different context on one forwarding path.
+
+##### Both production hosts and retirement
+
+The counted adoption path in #5274 has **four steps**, including this design.
+The table is a composition plan, not authority over another owner's internals.
+
+| Step | Owning slice and completion |
+| --- | --- |
+| 1 | Binding owner: lock this currency and the companion model in #5666. Product behavior is unchanged. |
+| 2 | Metadata: carry selected occurrences through requests, results, deferred dependencies, and policy-dependent caches. Existing seed-only producers remain behavior-compatible; context-aware gates demonstrate distinct answers for a shared registration. |
+| 3 | Services: adopt the currency in `SourceRelativeAssemblyGroupBindingPolicy` and remove learned-route insertion, its CAS publication, and registration-only intrinsic caching. Preserve the #5801 result and demonstrate it through the existing CLI `diff` endpoint; `timeline` uses the same endpoint construction. |
+| 4 | Queries/Browser: adopt through `AssemblyContextTypeResolutionQuery` and `MemberCallGraphSession`, exercised by `PlatformCallGraphExports`. Confirm terminal member navigation and call-graph endpoints while retaining sealed participant provisioning and one attempt per authorized demand. |
+
+The CLI production path is reached at step 3; the Browser path at step 4.
+Browser is an actual caller of both named query services. It is not evidence
+for discovery-time route learning: the workspace-owned complete-plan and
+one-attempt contract remains unchanged. No Browser filesystem resolver or
+host-specific continuation algorithm is introduced.
+
+The replacement is incomplete until step 3 retires the Services learned-route
+representation and step 4 closes both-host adoption. Other transforming
+policies remain the separately scoped work in #5667, #5668, and #5669.
+Delegated-version refresh is still required when a delegate actually changes;
+it is not made unnecessary by replacing route learning.
+
+##### Evidence and limits
+
+The [resolver-lineage model](models/resolver-lineage/README.md) checks the
+selected-occurrence association, lineage-sensitive cache reuse, canonical-root
+context selection, and stable-token progress. It imports the binding owner's
+version lifecycle and checks that genuine policy change can supersede the
+attempt without an automatic retry. Negative controls erase the occurrence
+context, omit it from cache identity, always inherit a parent context, or
+advance the token merely for selecting a continuation.
+
+The model abstracts two resolver contexts, one shared selected candidate, and
+two terminal dependencies; it is not a PE decoder, a workspace realization
+model, or proof of product adoption. Exact TLC outcomes are enforced by
+`eng/tla-expected-exit-codes.txt`. Product enforcement remains unverified until
+steps 2-4 provide Release gates at the Metadata, Services/CLI, and
+Queries/Browser boundaries. No feature-specific rendering domain is added:
+the existing API and call-graph models and their lowering owners remain.
+
+The comparative baseline is explicit context association, not a new loading
+mechanism. [AssemblyLoadContext][lineage-alc] associates assemblies with loading
+contexts and requires repeatable answers; shared assemblies retain their
+owning context, rather than copying every referring context.
+[MetadataLoadContext][lineage-mlc] keeps binding answers, including failures,
+inside one context and rejects resolver results belonging to another context.
+Those constraints inform association and cache scope. Their loading APIs,
+one-name-per-context rules, and fallback policies are not this tool's binding
+authority; no implementation code or runtime-loading mechanism is imported.
+
+[lineage-alc]: https://learn.microsoft.com/en-us/dotnet/core/dependency-loading/understanding-assemblyloadcontext
+[lineage-mlc]: https://github.com/dotnet/runtime/blob/main/src/libraries/System.Reflection.MetadataLoadContext/src/System/Reflection/MetadataLoadContext.Resolving.cs
+
+#### Complete identity-eligible binding composition
+
+> **Status: design-only and unverified in the product.** The companion TLA+
+> model checks the bounded interaction contract. Product correspondence
+> requires focused Release gates when this contract is implemented.
+
+`AssemblyBindingCandidateDomain` is the binding identity owner's immutable
+handoff for one exact `AssemblyBindingRequest`. It contains every and only
+`ResolvedAssemblyReference` that the issuing policy state has proved eligible
+under its identity and scope rules. It does not say which eligible candidate
+has the preferred workspace role. A transforming composite may apply one
+adjacent arbitration policy without repeating identity matching by consuming a
+new `AssemblyBindingSelection.CompositionRequired` arm that carries this
+domain.
+
+The domain is complete at issuance. Candidate membership is by
+`AssemblyAcquisitionRegistration` reference identity, and each registration
+appears exactly once with the exact owner-issued descriptor. The immutable
+candidate sequence has one deterministic order for an equal request under one
+`AssemblyBindingPolicyVersion`. The identity owner chooses that order; it is
+not path order, discovery order, or an arbitration ranking. Consumers preserve
+it as evidence; the handoff grants no permission to treat an earlier member as
+the arbitration winner.
+
+An empty eligible set does not produce a domain. It produces the applicable
+missing, unavailable, or rejected result under the existing owner contracts.
+Likewise, a candidate that the identity owner cannot admit does not enter the
+domain merely so that a later policy can reject it. Completeness means complete
+within the issuing identity policy, not every same-named file in an acquisition
+or workspace. The public factory rejects a default or empty candidate array so
+an invalid handoff cannot stand in for one of those owner-issued results. It
+also rejects null descriptors and repeated
+`AssemblyAcquisitionRegistration` identities before issuing a domain.
+
+The handoff owns finalization. The adjacent consumer supplies only the nonempty
+set of highest-precedence contenders:
+
+- one contender becomes `Selected`;
+- more than one contender becomes `Ambiguous`; and
+- every domain member not in that contender set becomes inactive shadow
+  evidence.
+
+The final selection therefore partitions the issued domain exactly: active
+contenders and inactive shadows are disjoint, their union is the complete
+domain, and every descriptor is preserved unchanged. `Ambiguous` gains the
+same inactive-shadow evidence as `Selected`; its active candidates are only the
+unruled top-precedence tie, not lower-precedence candidates that the consumer
+has already classified as inactive. The handoff derives the inactive set
+rather than accepting a consumer-supplied partial list.
+
+Only `AssemblyBindingCandidateDomain.Finalize` may mint a selection with
+inactive shadows. The public `Found` and `Multiple` factories create final
+no-shadow results and cannot reopen an earlier result. A policy that needs
+later arbitration issues a complete domain instead of passing a chosen
+descriptor and shadows to another owner.
+
+Finalization accepts only the exact descriptors present in the handoff. A
+foreign registration, duplicate contender, empty contender set, or substituted
+descriptor is visible as `Rejected(InvalidCompositionResult)`. It never becomes
+a partial success, an inferred miss, or an exception-shaped fallback. A valid
+decision retains the domain's deterministic order within both its active and
+inactive projections.
+
+Existing result arms do not become candidate domains:
+
+- `Selected` and `Ambiguous` are terminal policy decisions. Their inactive
+  shadows remain inactive and cannot be reopened or promoted by a later
+  owner.
+- `Unavailable` and `Rejected` remain their exact typed failures.
+- `NameOwnedNoMatch` and `Undifferentiated` remain terminal misses.
+- `NoNameOwner` may advance only through the separately modeled fixed policy
+  tier chain. It supplies no candidate evidence and cannot itself produce a
+  composition handoff.
+- `CompositionRequired` is not a missing result and therefore cannot authorize
+  same-request tier fallthrough. It must be finalized by its designated
+  adjacent arbitration owner before Metadata can intern or freeze the result.
+
+If `CompositionRequired` reaches the Metadata adapter without that owner, the
+request validator returns `Rejected(InvalidCompositionResult)`. The adapter
+does not intern any domain member, freeze the handoff, or treat it as a miss.
+This is the fail-closed boundary for a missing or bypassed arbitration owner.
+After valid finalization, the adapter interns only the active selected or
+ambiguous descriptors. It copies inactive descriptors to
+`AssemblyBindingOutcome` unchanged and in domain order; inactive evidence does
+not receive a catalog candidate id.
+
+The handoff is carried inside the atomic
+`AssemblyBindingSelectionSnapshot` defined above. A transforming composite
+validates the delegated snapshot against its captured delegate version before
+inspecting the domain. It returns the handoff-produced terminal selection under
+the composite's own captured version, as required by the adjacent composite
+version contract. A delegated snapshot whose token does not match the
+composite's captured delegate token is not interpreted. A later replacement of
+either delegate or composite policy state prevents stale publication through
+the existing `PolicyVersionChanged` generation control path; provisional work
+that already matched its captured token remains governed by the atomic snapshot
+contract above. Binding and resolution caches never key a handoff independently
+from its request and governing version. The companion model checks the
+delegated snapshot's pre-consumption match; the existing selection/version
+models check the distinct outer-token association, later replacement, and
+commit point.
+
+This contract owns identity-domain completeness, descriptor preservation,
+deterministic evidence order, and the closed finalization boundary. It does not
+define how identity eligibility is computed; designated/platform roles or
+precedence; package, project, platform, or local acquisition; construction or
+ordering of a policy-tier route; workspace participant adoption; workspace
+publication or replacement; or retry after policy-version supersession. #5216
+must supply a workspace whose participants and versions make the handoff
+consumable. The #5133 successor may rank only members of the issued domain and
+owns the meaning of its role precedence.
+
+The executable
+[binding composition-currency model](models/binding-composition-currency/README.md)
+checks complete and order-independent issuance, exact final partitioning,
+valid-decision correspondence, non-domain-result preservation,
+noncanonical terminal-partition preservation, empty/foreign-decision
+rejection, foreign snapshot exclusion, and eventual completion.
 
 #### Binding miss name ownership
 
@@ -1305,9 +1622,9 @@ version that produced it:
   pretending that the name is owned or unowned.
 
 These are composition facts, not candidate evidence. `NoNameOwner` permits a
-composite policy to invoke its next policy tier or request the next composition
-step defined by #5214, but it does not establish identity eligibility,
-authorize candidate selection, or permit inactive-shadow promotion.
+composite policy to invoke its next policy tier, but it does not establish
+identity eligibility, authorize candidate selection, or permit inactive-shadow
+promotion.
 `NameOwnedNoMatch` and `Undifferentiated` are terminal for composition.
 Treating `Undifferentiated` as terminal is fail-closed behavior, not evidence
 that the producer owned the name. A concrete unavailable or rejected result
@@ -1317,12 +1634,15 @@ An explicit disposition is valid only for
 `AssemblyBindingTarget.AssemblyReference`, whose structured identity supplies
 the requested name. An intrinsic-core-library request has no requested
 assembly name and continues to use a selected, unavailable, or rejected
-outcome rather than a name-ownership miss. Every wrapper or composite validates
-each delegated result against the original request before interpreting it. A
-missing result for an intrinsic-core-library request immediately becomes
-`Rejected(InvalidPolicyResult)` and no later tier is invoked. The Metadata
-adapter applies the same validation to a final policy result, so direct and
-composed policies share one closed rule.
+outcome rather than a name-ownership miss. Every wrapper or composite
+validates each delegated result against the request that produced it before
+interpreting it. An intrinsic facade search issues a distinct
+assembly-reference sub-request for each facade identity. A valid miss for one
+facade may advance to the next facade identity, but it cannot become the final
+intrinsic result. Exhausting all facade identities without a selection returns
+`Unavailable(UnsupportedScope)`. The Metadata adapter rejects a missing final
+result for the enclosing intrinsic request, so direct and composed policies
+share one closed final-result rule.
 
 Only the policy owner that holds the complete frozen name-ownership decision
 for the exact request may issue `NoNameOwner` or `NameOwnedNoMatch`. This
@@ -1338,22 +1658,18 @@ Composition preserves each policy result exactly:
 - `NoNameOwner` alone permits evaluation of the next tier;
 - `NameOwnedNoMatch` stops at the issuing tier;
 - `Undifferentiated` stops rather than falling through; and
-- a composite may return `NoNameOwner` only after exhausting its complete
-  frozen request-eligible tier chain and receiving `NoNameOwner` from every
-  tier in that chain.
+- a composite may return `NoNameOwner` only after exhausting its concrete fixed
+  tier chain and receiving `NoNameOwner` from every tier in that chain.
 
-The complete request-eligible chain is an owner-attested input independent of
-the results its tiers return. A configured tier list without that completeness
-attestation is an invalid policy input and produces
-`Rejected(InvalidPolicyResult)` before a no-owner result can be issued. This
-contract consumes the closed chain and does not define how an adjacent
-workspace owner constructs or publishes it.
+Whether a configured chain includes every independently owner-attested
+request-eligible tier is workspace-owned completeness evidence supplied by
+issue #5216 and remains unverified here. This contract governs the fixed chain it
+receives; it does not construct or certify a workspace-wide complete chain.
 
 A final `NoNameOwner` attests only that the exact composite, origin, scope, and
-version exhausted that complete chain. It is not evidence that no owner exists
-globally or in a later independently owned composite. A skipped, unconfigured,
-or unevaluated request-eligible tier prevents the composite from issuing
-`NoNameOwner`.
+version exhausted that fixed chain. It is not evidence that no owner exists
+globally or in a later independently owned composite. An unevaluated tier in
+the configured chain prevents the composite from issuing `NoNameOwner`.
 
 A wrapper around `IAssemblyBindingPolicy` preserves the delegated disposition.
 The nullable `IAssemblyReferenceResolver` adapter cannot infer ownership from a
@@ -1364,8 +1680,8 @@ the complete empty decision.
 
 The Metadata adapter copies the disposition unchanged from
 `AssemblyBindingSelection.Missing` to `AssemblyBindingOutcome.Missing`.
-`AssemblyBindingSnapshot` and every frozen binding dependency include the
-disposition, so cache equality never collapses `NoNameOwner`,
+The frozen Metadata binding outcome and every cached binding dependency include
+the disposition, so cache equality never collapses `NoNameOwner`,
 `NameOwnedNoMatch`, and `Undifferentiated`. A disposition change for an equal
 request is a policy-answer change and therefore requires a different
 `AssemblyBindingPolicyVersion`; the atomic selection snapshot above carries
@@ -1376,8 +1692,8 @@ Type resolution may continue to project every binding miss to
 resolution outcome hierarchy or expose tier internals through presentation.
 
 This focused contract does not define adjacent package, project, sibling,
-platform, or local name-ownership rules; #5214's complete identity-eligible
-candidate currency; the atomic answer/version association above; #5216's
+platform, or local name-ownership rules; the complete identity-eligible
+candidate currency above; the atomic answer/version association above; #5216's
 workspace realization; or the #5133 successor's designated/platform role
 arbitration.
 
@@ -1404,7 +1720,9 @@ the requesting origin in the request and cache key; different origins may reuse
 the same selected registration without sharing a cached policy decision.
 
 The internal structurally equatable `AssemblyBindingDomainKey` is a closed
-value with `Global` and `RequestingCandidate(AssemblyCandidateId)` arms. It is
+origin projection. Its implemented arms are `Global` and
+`RequestingCandidate(AssemblyCandidateId)`; the continuation target contract
+adds the lineage distinction to a requesting occurrence. It is
 generation-scoped and is the only origin projection permitted in binding and
 resolution cache keys. `AssemblyBindingCacheKey` is the structural tuple of
 that domain key, closed binding target, and scope; the containing cache supplies
@@ -1911,8 +2229,9 @@ The distinction between the five non-success outcomes is load-bearing:
   failure after selection, an unsupported multi-module export, or another
   failure that must remain visible.
 
-No consumer may convert all five to `null` and present "no callers" or "no
-source" as a complete answer.
+The hierarchy provides no total projection to semantic absence. A consumer
+that narrows these outcomes defines and gates that decision in its own design;
+the retained resolution evidence does not change class.
 
 ## Resolution context and lifetime
 
@@ -1941,7 +2260,7 @@ Inventory stores distinct semantic `AssemblyRef` and forwarding-target
 identities in first-seen order. Repeated metadata rows and repeated forwarders
 to one target do not amplify the retained adjacency graph.
 
-Slice 2a evolves durable sessions to construct `PEReader` with
+Durable sessions construct `PEReader` with
 `PEStreamOptions.PrefetchEntireImage` and close the source stream immediately
 after construction. The catalog may retain prefetched image memory, but holds
 no source file handle for the lifetime of a context. Candidate, retained-image
@@ -1954,39 +2273,34 @@ from one module with declarations from another.
 
 This preserves the single PE-lifetime owner established by
 `AssemblyInspectionSession`; it does not lend a reader to a consumer or dispose
-a session that a consumer cache expects to retain. The catalog outlives every
-`TypeResolutionContext` and graph cache containing its keys. `LibraryBodyIndex`,
-the decompiler, and the compile-back harness now consume that owner; the former
-per-call `TypeForwardResolver` compatibility path has been removed.
+a session that a retained result expects to keep alive. The catalog outlives
+every `TypeResolutionContext` and every owner retaining its generation-scoped
+keys. Resolution has no per-call `TypeForwardResolver` compatibility path.
 
 Candidate discovery and correspondence are separate phases.
 `TypeResolutionCatalog` is the inspection-lifetime owner. Its internal
 generation builder is the discovery-phase vehicle, and each
-`CreateContext` call freezes one `TypeResolutionContext`. The consumer planner
-supplies explicit assembly descriptors for every requesting origin plus a
+`CreateContext` call freezes one `TypeResolutionContext`. The caller supplies
+explicit assembly descriptors for every requesting origin plus a
 manifest with two request kinds:
 
-- concrete `TypeResolutionRequest` entries for the target, matching caller
-  references, and named signature types in graph edges being indexed;
-- binding-only `AssemblyBindingRequest` entries for every snapshotted
-  `AssemblyRef` used to build caller-scope reverse adjacency, each carrying its
-  requesting candidate origin; selected candidates contribute only the
-  additional `AssemblyRef` targets used by their valid `ExportedType`
-  forwarders.
+- concrete `TypeResolutionRequest` roots to resolve; and
+- binding-only `AssemblyBindingRequest` roots that a higher-level operation
+  explicitly needs without resolving a type, each carrying its requesting
+  candidate origin.
 
 The builder executes those roots provisionally, including every per-hop
 scope-tightening transition. Each encountered
 `(AssemblyBindingDomainKey, AssemblyBindingTarget,
 AssemblyResolutionScope)` binding is added to the manifest; each selected
 registration and forwarded continuation extends the work queue. It does not
-bind references outside the explicit type and adjacency roots or sweep
-framework assemblies.
+bind references outside the explicit roots and forwarding continuations or
+sweep framework assemblies.
 
 Provisional resolution uses materialized inventories, optional catalog-owned
 sessions, and candidate ids but does not issue definition keys, join tokens,
-graph leases, or a public `TypeResolutionContext`. Discovery reaches a fixed
-point when a complete queue pass adds no request, binding pair, or
-registration.
+or a public `TypeResolutionContext`. Discovery reaches a fixed point when a
+complete queue pass adds no request, binding pair, or registration.
 
 The builder is bounded by the plan's candidate and relationship budgets.
 Stable acquisition registrations make repeated selections idempotent; an owner
@@ -2010,8 +2324,9 @@ and token arms cannot change beneath a cache.
 Discovery epochs do not invalidate image-local declaration results. A later
 epoch seeds unchanged roots from the previous frozen recipes and reruns only a
 recipe whose recorded binding dependency changed when policy was refreshed.
-With a stable acquisition plan, adding a progressive lens therefore preserves
-the once-per-catalog probe count and once-per-distinct-request resolution count.
+With a stable acquisition plan, adding explicit roots in a later generation
+therefore preserves the once-per-catalog probe count and
+once-per-distinct-request resolution count.
 
 An internal `FrozenResolutionRecipe` is the generation-neutral cache payload.
 It stores:
@@ -2023,9 +2338,11 @@ It stores:
 - the exact `AssemblyBindingCacheKey` dependencies and their closed,
   structurally comparable `AssemblyBindingSnapshot` values.
 
-`AssemblyBindingSnapshot` contains only the binding arm, missing disposition,
-selected candidate ids, and typed failure payload; it never compares public
-outcome objects or descriptors. Freeze stores recipes by
+`AssemblyBindingSnapshot` contains the binding arm, missing disposition,
+selected candidate ids, their lineage distinctions when present, and typed
+failure payload; it never compares public outcome objects or descriptors.
+Lineage-bearing recipes follow the seed re-derivation rule above on policy
+replacement. Freeze stores recipes by
 `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)` and materializes the
 public outcome and definition keys for that generation. A later epoch carries
 each dependency forward without a policy call while its owning policy version
@@ -2094,9 +2411,10 @@ catalog, and caches:
 
 `TypeResolutionCacheKey` is an internal projection; it does not use the public
 request object's reference equality. Its start arm contains either the internal
-candidate id plus scope or the closed binding target plus binding-domain key
-plus scope, or the source candidate plus module name, followed by the
-structurally equatable `MetadataTypeDefinitionName`.
+candidate id and any selected-occurrence lineage plus scope or the closed
+binding target plus binding-domain key plus scope, or the source occurrence
+plus module name, followed by the structurally equatable
+`MetadataTypeDefinitionName`.
 
 The cache retains typed failures as well as successes. Re-running a rejected
 probe must not turn it into a success-shaped miss.
@@ -2151,14 +2469,17 @@ For one builder request:
 8. On `Rejected`, return `Rejected`.
 9. On `ExportedFromModule`, return
    `Rejected(UnsupportedModuleExport(module))`.
-10. On `Forwarded`, append one hop.
-11. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
-12. Wrap the forwarder's exact target identity in
+10. On `Forwarded`, tighten, but never loosen, `AssemblyResolutionScope`, then
+    append one hop carrying that effective scope and the exact target identity.
+11. If the appended hop exceeds the forwarding-hop budget, return
+    `Rejected(HopBudgetExceeded)` without constructing a binding request or
+    invoking binding policy for that target.
+12. Otherwise wrap the forwarder's exact target identity in
     `AssemblyBindingTarget.Reference`, construct the binding request, add its
     key to the discovery manifest, read or populate its provisional cache
     entry, and apply the same exhaustive outcome mapping as step 2.
-13. Stop on repeated assembly candidate or the hop budget with the corresponding
-    `Rejected` failure.
+13. Stop on a repeated selected assembly candidate with
+    `Rejected(ForwarderCycle)`.
 14. Otherwise repeat at step 3.
 
 The traversal is iterative. It has both:
@@ -2219,781 +2540,146 @@ The caller policies are explicit:
   with version-skewed identity is `Unavailable(IdentityPolicyRequired)`, not an
   inferred roll-forward.
 
-The last rule intentionally narrows today's version-blind caller matching. A
-version-skewed local caller becomes an indeterminate diagnostic rather than a
-reported caller until acquisition policy can prove the binding. That behavior
-change is compatibility evidence, not a silent miss. An explicit future local
-roll-forward option belongs to the binding policy and must carry its own
-policy name and gates.
-
-An unavailable or ambiguous answer may therefore omit exact correspondence,
-but every affected caller or graph edge retains incomplete evidence. It cannot
-fabricate one or present the omission as an authoritative empty result.
-
-## Consumer model
-
-### Signature spellability
-
-Signature spellability asks one Metadata-owned question:
-
-> Under this frozen assembly catalog and binding policy, what typed evidence
-> supplies every named type occurrence required by this metadata signature, and
-> does each external definition that participates in C# spelling have external
-> accessibility?
-
-It does not ask whether the tools-side artifact planner included every local
-declaration or body dependency, whether Roslyn will compile the complete
-artifact, or whether the generated spelling binds to the intended symbol.
-Those are compile-back closure and C# binding questions owned by the
-tools-side round-trip engine. Issue
-[#4810](https://github.com/richlander/dotnet-inspect/issues/4810) owns that
-adjacent design and may consume this operation's typed result without
-reconstructing Metadata resolution.
-
-#### Source-bound subject and plan
-
-The catalog creates a closed signature subject through the source candidate's
-owned inspection session. Its field, property, and method arms each retain:
-
-- the verified source MVID and acquisition registration;
-- the declaring `TypeDef` token;
-- the expected member-table token and member kind.
-
-The session validates the token table, row bounds, declaring-type ownership,
-and module identity before decoding. Callers do not pair an arbitrary
-`MetadataReader` with a reader-bound `FieldDefinition`, `PropertyDefinition`,
-or `MethodDefinition` value. A cross-reader row, wrong member table, stale
-module address, or declaring-type mismatch produces a typed subject rejection.
-No rejected subject can construct a plan.
-
-One guarded, bounded decode produces an immutable reader-independent
-signature-spellability plan. It retains the source subject, the source
-candidate's authorized baseline `AssemblyResolutionScope`, and every named type
-occurrence in stable signature order. A rejected signature produces a typed
-plan rejection and no success-shaped partial occurrence or request set.
-Evaluation consumes this exact plan; it does not decode the signature again.
-
-Each occurrence retains:
-
-- its complete `MetadataNamedTypeReference`, including the closed scope arm;
-- its signature role: ordinary type, required custom modifier, or optional
-  custom modifier;
-- whether external accessibility participates in `CanSpell`;
-- the exact `TypeResolutionRequest`, when the occurrence requires resolution.
-
-Resolution is required for every non-primitive named occurrence. External
-accessibility participates for ordinary types and required modifiers, but not
-for an optional-only modifier. When several occurrences produce one equal
-request, the plan keeps one resolution request and merges accessibility
-participation with logical OR. An optional-only occurrence can therefore
-resolve to an inaccessible definition without making the signature unspellable;
-the same definition used by an ordinary type or required modifier must be
-externally accessible. Any non-success resolution remains fail-closed for every
-role.
-
-Primitive type codes are direct C# spellings and retain an
-`IntrinsicCoreLibrary` occurrence for provenance without adding a definition
-request. Generic parameters add no named occurrence. Arrays, pointers,
-function pointers, generic arguments, and modified types contribute their named
-children rather than replacing them with one outer leaf.
-
-#### Closed origin and scope mapping
-
-The plan exhaustively maps `MetadataTypeReferenceScope`:
-
-- `AssemblyReference` creates `FromReference` with the exact
-  `AssemblyReferenceIdentity` and the source candidate as binding origin.
-- `CurrentAssembly` creates `FromAssembly` for the source candidate. Evaluation
-  can then distinguish a local requirement in that candidate from an external
-  definition reached through a forwarder.
-- `IntrinsicCoreLibrary` is the direct primitive occurrence described above.
-- `ModuleReference` creates `FromModule`; the current engine therefore retains
-  `UnsupportedModuleReference` instead of defaulting the occurrence to
-  spellable.
-
-Metadata owns one scope-tightening operation used for both initial references
-and forwarding hops. Each `AssemblyReference` occurrence derives its own scope
-by applying that operation to the source candidate's authorized baseline scope
-and the occurrence's exact identity. A platform-token reference therefore
-tightens to `Platform` without constraining an unrelated package reference in
-the same signature. `CurrentAssembly` begins with the source baseline scope,
-and every later forwarding hop may tighten but never loosen it.
-
-The operation never performs its own exact-then-versionless retry. Version
-unification, candidate selection, and other compatibility choices belong to the
-catalog's explicit binding policy. Signature spellability supplies the exact
-per-occurrence target, origin, and scope, then consumes the policy-selected
-candidate. It does not reconstruct policy from assembly names, file names, or
-the compiler reference directory.
-
-#### Terminal accessibility
-
-`TypeResolutionContext` owns a terminal-definition accessibility operation.
-Consumers pass a `ResolvedTypeDefinitionKey` back to the issuing context and
-receive one closed outcome:
-
-- **Accessible** means the terminal `TypeDef` is public, or is nested public
-  through an entirely externally accessible declaring chain.
-- **Inaccessible** means the complete chain is readable but any required
-  visibility is not externally accessible.
-- **Rejected** retains a cross-catalog, stale-generation, or catalog-lifetime
-  key failure, or the exact bounded declaring-chain rejection.
-
-The operation uses the catalog-owned inspection session and the existing
-iterative `TypeDef` declaring-chain traversal. It exposes no reader or handle.
-Resolution cannot issue a `ResolvedTypeDefinition` until that candidate's
-durable session has opened successfully, and the catalog caches that session by
-candidate. Accessibility reuses the exact retained session that produced the
-definition; it never calls the acquisition opener or demand-opens a second
-session after freeze. Candidate-open failure therefore remains a resolution
-outcome that prevents a resolved key from existing, not an accessibility
-outcome.
-
-The issuing context caches the closed outcome by its internal
-`(AssemblyCandidateId, TypeDefinitionToken)` coordinate within one catalog
-generation. Consumers neither hash nor compare the opaque public key. Distinct
-reference requests that resolve to the same terminal definition therefore
-share one accessibility read, while a replacement generation cannot reuse a
-stale classification.
-
-An `ExportedType` row is forwarding evidence, not visibility proof. A nested
-exported-type chain is spellable when the declaration probe resolves it to a
-terminal definition and the accessibility operation accepts that definition.
-A top-level forwarding row whose target assembly is unavailable remains
-`UnboundBinding`; a target assembly that binds but lacks the type remains
-`NotFound`; forwarding cycles, malformed chains, ambiguity, open failure, and
-relationship or hop-budget exhaustion retain their exact typed outcomes.
-
-#### Aggregate result
-
-The aggregate retains one evidence entry per distinct request plus direct
-primitive evidence and the source-bound local requirements:
-
-- **LocalRequirement** carries a resolved definition in the source candidate.
-  It proves exact identity but makes no claim that a generated artifact included
-  the declaration or that the declaration is accessible from the reconstructed
-  member's C# context.
-- **ExternalDefinition** carries the resolved definition, merged participation,
-  and terminal accessibility outcome.
-- **Unresolved** carries the exact non-success `TypeResolutionOutcome`,
-  including hop evidence and merged participation.
-- **Rejected** carries subject, signature, or evaluation failure before a
-  complete evidence set exists.
-
-The Metadata aggregate exposes whether external references are spellable; it
-does not turn `LocalRequirement` into a success verdict. A compatibility
-`CanSpell` projection may be true only when the plan completed, every required
-resolution succeeded, every participating external definition is
-`Accessible`, and the caller supplies typed proof that every local requirement
-is available and nameable in the generated artifact. Issue #4810 owns that
-proof. Without it, the compatibility projection fails closed. `Inaccessible`
-is an authoritative negative when accessibility participates. `NotFound`,
-`UnboundBinding`, `Unavailable`, `Ambiguous`, and `Rejected` resolution arms
-are incomplete and can never produce `CanSpell: true`.
-
-`PlanExpansionRequired` is an orchestration result, not an inaccessible type.
-The coordinator contributes every request from the immutable plan and freezes
-a replacement context before producing a final verdict. If an evaluation
-surface cannot perform that expansion, it returns a rejected aggregate and may
-not admit the signature.
-
-Resolution outcomes, including typed non-success arms, reuse the context's
-generation-scoped resolution cache. Terminal accessibility uses the separate
-definition-scoped cache above. There is no parallel cache of defined,
-forwarded, or non-public type-name strings. The resolution and accessibility
-result caches do not outlive their catalog generation; catalog-owned candidate
-sessions, declaration results, and frozen recipes retain the catalog lifetime
-defined earlier. No result exposes a `MetadataReader`, handle, or borrowed
-session.
-
-### Analysis type provenance
-
-Analysis keeps its own `TypeRef`; this design does not unify it with the
-Decompiler `TypeRef`. The metadata lookup value introduced here is not a
-CLI/type-level selector and does not answer that separate open design question.
-
-When `TypeRefDecoder` decodes a metadata `TypeRef`, it also retains its complete
-resolution scope as typed provenance. Structural `TypeRef` equality remains
-Analysis-owned and does not absorb resolution:
-
-```csharp
-public abstract record TypeReferenceOrigin
-{
-    private protected TypeReferenceOrigin() { }
-    private protected abstract int Discriminator { get; }
-
-    public sealed record AssemblyReference : TypeReferenceOrigin
-    {
-        internal AssemblyReference(AssemblyReferenceIdentity assembly) =>
-            Assembly = assembly;
-
-        public AssemblyReferenceIdentity Assembly { get; }
-        private protected override int Discriminator => 0;
-    }
-
-    public sealed record CurrentAssembly : TypeReferenceOrigin
-    {
-        internal CurrentAssembly() { }
-        private protected override int Discriminator => 1;
-    }
-
-    public sealed record IntrinsicCoreLibrary : TypeReferenceOrigin
-    {
-        internal IntrinsicCoreLibrary() { }
-        private protected override int Discriminator => 2;
-    }
-
-    public sealed record ModuleReference : TypeReferenceOrigin
-    {
-        internal ModuleReference(string moduleName) => ModuleName = moduleName;
-        public string ModuleName { get; }
-        private protected override int Discriminator => 3;
-    }
-}
-
-public sealed record ResolvableTypeReference(
-    TypeReferenceOrigin Origin,
-    MetadataTypeDefinitionName Type);
-```
-
-The origin is excluded from display and from existing shape equality. It is
-separate typed provenance and must not be recovered from, or cached by,
-structural `TypeRef` equality. Caller resolution caches key on
-`(AssemblyCandidateId source, ResolvableTypeReference reference)`, never on
-`TypeRef` or `ResolvableTypeReference` alone. The source candidate supplies the
-domain for assembly, current-assembly, module, and intrinsic-core-library
-origins. The engine projects that pair to its generation-scoped
-`TypeResolutionCacheKey`.
-
-This is decoder-produced, output-only provenance. Analysis owns construction;
-external consumers may pattern-match the closed arms but cannot mint an origin
-that the metadata did not supply.
-
-This replaces #3476's proposed `RawAssembly` string with the full identity the
-metadata actually supplied. Two `AssemblyRef` rows with different identity
-therefore remain different resolution inputs even when Analysis shape equality
-canonicalizes their simple names together.
-
-The resolution plan combines `CurrentAssembly` with the candidate that supplied
-the row and starts from that candidate. `IntrinsicCoreLibrary` covers signature
-primitive type codes that have no `TypeRef` row and resolves through the
-candidate's `AssemblyBindingTarget.IntrinsicCoreLibrary` policy request; it
-never synthesizes an assembly identity. `ModuleReference` remains typed and
-maps to `TypeResolutionStart.Module` and the explicit
-`UnsupportedModuleReference` outcome until module acquisition exists; it is
-never invented as an assembly identity. Intrinsic, nil, module, and assembly
-scopes therefore do not collapse into a nullable assembly field.
-
-### Caller matching
-
-The target member's declaring `TypeDef` produces one
-`ResolvedTypeDefinitionKey`. Each candidate call site's open declaring type is
-resolved through its `ResolvableTypeReference`. A callee declared by a
-`TypeDef` in the candidate image starts from that candidate and materializes its
-own definition key; it does not need a `TypeReferenceOrigin`.
-
-The correspondence rule is then:
-
-```text
-catalog.Compare(candidate definition key, target definition key)
-```
-
-There is no facade-name membership test.
-
-Two distinct candidates that carry the same assembly identity, MVID, and
-`TypeDef` token are not silently called either same or different. Unless the
-catalog proves they are one candidate, correspondence is `Indeterminate` with
-duplicate-artifact evidence. This preserves exact correspondence without
-turning the scope-contains-a-copy case into a success-shaped miss.
-
-Generic member matching, parameter arity, and signature comparison remain
-Analysis concerns after the declaring definitions correspond.
-
-### Caller scope reachability and the three gates
-
-Assembly selection, type prefiltering, and member matching must not each derive
-forwarder reachability. One `CallerScopeReachabilityPlan` snapshots the scope
-under the inspection catalog:
-
-1. Read each candidate's own identity, assembly references, matching structured
-   `TypeRef` names, and matching own `TypeDef` names.
-2. Resolve the target type through only those matching references. A candidate
-   whose matching reference resolves to the target definition is a direct
-   seed. A candidate with indeterminate matching evidence is retained as an
-   indeterminate seed.
-3. Bind assembly references to catalog candidates and build reverse adjacency.
-   Every pair is contributed as a binding-only discovery root and frozen before
-   reverse closure begins. The command-selected target descriptor is
-   authoritative for an exact reference to its identity; competing non-target
-   scope roots remain ambiguous.
-4. Expand assembly-level forwarding adjacency. For every candidate selected by
-   an adjacency edge or resolution root, read its `ExportedType` inventory and
-   collect only the `AssemblyRef` targets that terminate valid forwarder
-   declarations. Add those binding-only roots and edges, then repeat for newly
-   selected forwarder candidates to the discovery budget. This adds
-   `caller -> facade -> implementation` even when the caller's matching
-   `TypeRef` names some unrelated type.
-5. Root graph reachability at every candidate in the target definition's
-   generation-stable correspondence class: the exact owning candidate plus all
-   candidates carrying the catalog's class-scoped
-   `IndeterminateDuplicateArtifact` evidence.
-6. Compute the transitive graph set as reverse-reference closure from the
-   target-assembly roots, direct facade seeds, and indeterminate seeds.
-
-An unread reference set or a missing/unbound, unavailable, ambiguous, or
-rejected adjacency binding cannot prove a negative. Its incoming scope carriers
-remain
-indeterminate graph seeds and widen closure under their identities; an
-unreadable selected facade never relies on its unavailable `AssemblyDef`
-identity to retain callers above it. This matches the current rule that unknown
-reachability must not truncate everything above it.
-
-This replaces `CallerScopeFilter`'s assembly-spelling proof with a proof against
-definition correspondence. A facade need not be in the caller scope: resolving
-the matching reference may acquire and traverse it through binding policy. The
-work remains query-directed because it resolves only the target structured name
-through references actually present in scope candidates. Forwarding adjacency
-opens only candidates reached from those roots and reads only their
-`ExportedType` target references; it does not bind every dependency of those
-candidates or seed from every framework facade.
-
-Rooting at the target assembly is independent of the target type name. It keeps
-a scope candidate that references another type in the target assembly, and
-therefore keeps callers above that intermediate method. The correspondence-class
-root includes independently registered duplicate copies, so an unrelated-type
-edge into a duplicate cannot truncate callers merely because it was not a
-direct type seed. The direct facade seeds add the case the assembly graph cannot
-express: a matching type reference whose facade is outside the caller scope but
-resolves to the target definition.
-
-The plan exposes two projections from one catalog and one metadata snapshot:
-
-- direct callers use the direct and indeterminate seed set;
-- call graph uses the reverse closure.
-
-The graph projection is therefore never narrower than the direct projection.
-If graph sessions were opened first, direct callers may reuse them. If direct
-callers were opened first, the graph opens the additional closure candidates.
-The current `_selectedScopePaths`, `_graphScopes`, and graph-first reuse cache
-must migrate together; replacing only `CallerScopeTypeFilter` is not sound.
-
-The plan also retains whether each ruled-out candidate was not definitely
-unopenable. `HasRuledOutCandidateNotDefinitelyUnopenable` replaces
-`_ruledOutScopeIsOpenable` and preserves its current weaker contract for
-`Unknown` and `UnknownReferences`, as well as the null-versus-empty choice that
-selects the caller-tree builder. Scope selection cannot discard or strengthen
-that routing signal as an incidental side effect.
-
-The cheap direct-caller negative is step 1 of the plan:
-
-1. Decode the candidate image's `TypeRef` rows.
-2. Compare the structured namespace and nested-name segments with the target,
-   deliberately ignoring assembly spelling.
-3. Compare the candidate's own `TypeDef` structured names as well.
-4. Rule the image out only when both row enumerations completed, no row is
-   undecidable, every row has a different structured type name, and the image
-   does not define that name itself.
-5. If either enumeration fails, retain the candidate itself as indeterminate in
-   both direct-caller and graph projections. Retain individual malformed or
-   undecidable rows when enumeration otherwise continues.
-
-Forwarding changes which assembly defines a type, not the namespace and metadata
-name a call site records. This name-only negative therefore remains sound while
-avoiding forwarder resolution for the majority of a scope. It is wider than
-today's assembly-qualified filter, which is the safe direction.
-
-Only matching or indeterminate rows proceed to step 2. One
-`CallerResolutionPlan` owns and reuses the resolutions performed while building
-reachability; final call-site matching does not run a second resolution pass:
-
-```csharp
-public abstract class TypeCorrespondenceFailure
-{
-    private protected TypeCorrespondenceFailure() { }
-
-    public sealed class Resolution : TypeCorrespondenceFailure
-    {
-        internal Resolution(TypeResolutionOutcome nonSuccess) =>
-            NonSuccess = nonSuccess;
-
-        public TypeResolutionOutcome NonSuccess { get; }
-    }
-
-    public sealed class DuplicateArtifact : TypeCorrespondenceFailure
-    {
-        internal DuplicateArtifact(
-            DefinitionCorrespondence.IndeterminateDuplicateArtifact evidence) =>
-            Evidence = evidence;
-
-        public DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence
-            { get; }
-    }
-
-    public sealed class IncomparableCatalogs : TypeCorrespondenceFailure
-    {
-        internal IncomparableCatalogs(
-            AssemblyCatalogId left,
-            AssemblyCatalogId right)
-        {
-            Left = left;
-            Right = right;
-        }
-
-        public AssemblyCatalogId Left { get; }
-        public AssemblyCatalogId Right { get; }
-    }
-
-    public sealed class StaleGeneration : TypeCorrespondenceFailure
-    {
-        internal StaleGeneration(
-            AssemblyCatalogGenerationId left,
-            AssemblyCatalogGenerationId right)
-        {
-            Left = left;
-            Right = right;
-        }
-
-        public AssemblyCatalogGenerationId Left { get; }
-        public AssemblyCatalogGenerationId Right { get; }
-    }
-
-    public sealed class IncompleteMetadata : TypeCorrespondenceFailure
-    {
-        internal IncompleteMetadata() { }
-    }
-}
-
-public abstract class CandidateTypeRelation
-{
-    private protected CandidateTypeRelation() { }
-
-    public sealed class SameDefinition : CandidateTypeRelation
-    {
-        internal SameDefinition() { }
-    }
-
-    public sealed class DifferentDefinition : CandidateTypeRelation
-    {
-        internal DifferentDefinition() { }
-    }
-
-    public sealed class Indeterminate : CandidateTypeRelation
-    {
-        internal Indeterminate(TypeCorrespondenceFailure failure) =>
-            Failure = failure;
-
-        public TypeCorrespondenceFailure Failure { get; }
-    }
-}
-```
-
-`IncompleteMetadata` retains a candidate whose name inventory could not be
-completed even though the image remained openable. It is separate from
-`Resolution` because no decoder-produced origin exists for a malformed row
-from which to construct a resolution request.
-
-All remaining gates consume projections of this relation:
-
-- `SameDefinition` stays in scope and may match.
-- `DifferentDefinition` may be ruled out.
-- `Indeterminate` must not be ruled out by a prefilter. The final consumer
-  retains the diagnostic and does not fabricate a match.
-
-At image scope, relations combine without losing the row or `TypeDef` that
-supplied them:
-
-- any `SameDefinition` keeps the image;
-- all `DifferentDefinition` rules it out;
-- otherwise the image is `Indeterminate`.
-
-The final matcher still resolves the exact origin or own definition carried by
-the call site; one genuine row cannot vouch for a differently identified row
-beside it.
-
-The prefilter's soundness is therefore structural: there is no second
-permissiveness rule to keep synchronized with the matcher.
-
-### Call graph
-
-`CallerGraphKey` is split into four concepts:
-
-- a total `GraphNodeStorageKey`, scoped by source candidate and metadata
-  location, retains every node and edge even when correspondence cannot be
-  established;
-- a catalog-issued `DefinitionJoinToken` projects an opaque definition key into
-  either `Exact` or `IndeterminateDuplicateArtifact`. Tokens are stable only for
-  that catalog and are the only hashable definition correspondence values;
-- an optional `CatalogMemberJoinKey` exists when the declaring type and every
-  identity-bearing named type in the open parameter and return signature have
-  either a catalog-issued definition token or an eligible degraded component;
-- a degraded `CatalogTypeShape` leaf substitutes a catalog-owned
-  `UnresolvedBindingKey` plus structured type name only for an unavailable
-  named type. The binding key represents the exact cached
-  `(AssemblyBindingDomainKey, AssemblyBindingTarget,
-  AssemblyResolutionScope)` request, preserving the complete
-  assembly/module/current origin instead of collapsing failures into one
-  bucket.
-
-`TypeResolutionOutcome.UnboundBinding` and
-`TypeResolutionOutcome.Unavailable` carry an opaque, non-hashable
-`UnresolvedBindingReference` minted beside the terminal cached binding answer.
-Candidate-open failures remain `Rejected` and never receive that reference.
-`TypeResolutionCatalog.ProjectUnresolvedBindingKey` projects a current
-reference into `UnresolvedBindingKey`; its closed result distinguishes
-`Issued`, `IncomparableCatalogs`, and `StaleGeneration`.
-
-`UnresolvedBindingKey` has the same internal-constructor and generation scope
-as `DefinitionJoinToken`; it cannot survive or compare across a generation
-advance. The catalog issues one key for one complete binding request in one
-generation, whether policy authoritatively found no candidate
-(`UnboundBinding`) or could not provide one (`Unavailable`).
-
-`TypeResolutionCatalog.ProjectDefinitionJoinToken` returns a closed
-`DefinitionJoinTokenProjection` result. `Issued` carries the token;
-`IncomparableCatalogs` and `StaleGeneration` preserve why no token can be
-issued. Projection is neither nullable nor exception-shaped for those expected
-catalog-lifetime states.
-
-```csharp
-public enum DefinitionJoinKind
-{
-    Exact,
-    IndeterminateDuplicateArtifact
-}
-
-public sealed class DefinitionJoinToken : IEquatable<DefinitionJoinToken>
-{
-    readonly AssemblyCatalogId _catalog;
-    readonly AssemblyCatalogGenerationId _generation;
-    readonly Guid _value;
-
-    internal DefinitionJoinToken(
-        AssemblyCatalogId catalog,
-        AssemblyCatalogGenerationId generation,
-        Guid value,
-        DefinitionJoinKind kind,
-        DuplicateArtifactEvidence? evidence)
-    {
-        _catalog = catalog;
-        _generation = generation;
-        _value = value;
-        Kind = kind;
-        Evidence = evidence;
-    }
-
-    public DefinitionJoinKind Kind { get; }
-    public DuplicateArtifactEvidence? Evidence { get; }
-
-    public bool Equals(DefinitionJoinToken? other) =>
-        other is not null
-        && _catalog == other._catalog
-        && _generation == other._generation
-        && _value == other._value
-        && Kind == other.Kind;
-
-    public override bool Equals(object? obj) =>
-        obj is DefinitionJoinToken other && Equals(other);
-
-    public static bool operator ==(
-        DefinitionJoinToken? left,
-        DefinitionJoinToken? right) =>
-        ReferenceEquals(left, right) || left?.Equals(right) is true;
-
-    public static bool operator !=(
-        DefinitionJoinToken? left,
-        DefinitionJoinToken? right) =>
-        !(left == right);
-
-    public override int GetHashCode() =>
-        HashCode.Combine(_catalog, _generation, _value, Kind);
-}
-
-public sealed class UnresolvedBindingKey : IEquatable<UnresolvedBindingKey>
-{
-    readonly AssemblyCatalogId _catalog;
-    readonly AssemblyCatalogGenerationId _generation;
-    readonly Guid _value;
-
-    internal UnresolvedBindingKey(
-        AssemblyCatalogId catalog,
-        AssemblyCatalogGenerationId generation,
-        Guid value)
-    {
-        _catalog = catalog;
-        _generation = generation;
-        _value = value;
-    }
-
-    public bool Equals(UnresolvedBindingKey? other) =>
-        other is not null
-        && _catalog == other._catalog
-        && _generation == other._generation
-        && _value == other._value;
-
-    public override bool Equals(object? obj) =>
-        obj is UnresolvedBindingKey other && Equals(other);
-
-    public static bool operator ==(
-        UnresolvedBindingKey? left,
-        UnresolvedBindingKey? right) =>
-        ReferenceEquals(left, right) || left?.Equals(right) is true;
-
-    public static bool operator !=(
-        UnresolvedBindingKey? left,
-        UnresolvedBindingKey? right) =>
-        !(left == right);
-
-    public override int GetHashCode() =>
-        HashCode.Combine(_catalog, _generation, _value);
-}
-```
-
-The constructors and `(catalog, generation, value)` fields are internal.
-Definition-token equality and hashing use that triple plus `Kind`;
-class-scoped `Evidence` is excluded. Unresolved-binding-key equality and
-hashing use the triple. The catalog returns one token class for every definition
-correspondence class and one unresolved key for every eligible complete binding
-request in a frozen generation. Duplicate-artifact tokens deliberately join but
-retain an indeterminate kind; consumers cannot construct an exact token or
-change an issued token's kind.
-
-Named types nested under generic instances, arrays, byrefs, and pointers use the
-same recursive correspondence projection. Replacing only the declaring
-assembly fragment would leave forwarded parameter and return types stringly and
-is not a migration.
-
-Analysis materializes that recursive work once as a
-`CatalogMemberCorrespondencePlan`. The plan stores the open declaring type,
-method name, member kind, canonical signature header, method generic arity,
-instance/static shape, ordered open parameter shapes, and open return shape. The
-source descriptor supplied to the plan is the descriptor for the image that
-produced the decoded member; a simple-name
-mismatch is rejected as a sanity check, while correct source/member pairing
-remains the caller's acquisition invariant. The plan exposes the distinct
-`TypeResolutionRequest` values needed by those shapes so a graph builder can
-union many plans into one frozen context before projecting any key.
-`TypeResolutionRequestComparer` uses the same structural manifest key as
-`TypeResolutionContext`; plan deduplication and frozen-manifest lookup therefore
-cannot drift.
-
-For a vararg signature, the plan also retains the decoded required-parameter
-count and treats only that open parameter prefix as member identity. Optional
-arguments encoded after the call-site sentinel are invocation data, not part of
-the target member signature. A missing or out-of-range required count produces
-typed incomplete evidence rather than a join key.
-
-An embedded vararg function-pointer shape is different: it is itself a type, so
-its complete parameter list and sentinel position remain identity-bearing. The
-plan retains every embedded parameter as a named leaf or resolution request and
-makes the whole member incomplete when the required-parameter count is out of
-range.
-
-`CatalogMemberCorrespondencePlan.Project` accepts the frozen context, not a
-separately supplied catalog. Resolved named leaves become
-`DefinitionJoinToken` values. `UnboundBinding` and genuine policy
-`Unavailable` leaves become `UnresolvedBindingKey` plus their exact
-`MetadataTypeDefinitionName`. Other resolution outcomes, absent open generic
-signatures, missing decoder provenance, unsupported shapes, malformed or
-over-depth shapes, stale generations, and plan expansion remain closed typed
-failures. A plan-expansion failure carries its `ResolutionPlanRequest` so the
-coordinator can advance the catalog rather than treating the member as absent.
-
-The resulting `CatalogMemberJoinKey` exposes its catalog, generation, and
-`Exact` or `Indeterminate` kind. Its recursive `CatalogTypeShape` can be
-constructed only by Analysis from catalog-issued definition or unresolved
-binding currency. Custom-modifier and function-pointer payloads are retained by
-the decoder for this projection without changing the existing structural
-equality or display of Analysis's `Unsupported` `TypeRef` arm. An ordinary
-unsupported shape still produces typed incomplete evidence.
-
-Graph joins hash only catalog-issued join tokens, never
-`ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
-`Exact` yields an exact edge. Matching keys containing any token whose kind is
-`IndeterminateDuplicateArtifact` yield an
-indeterminate logical node; `GraphNodeEvidence.Correspondence` retains the
-catalog's duplicate evidence on every physical definition or call site that
-supports it.
-
-When both sides have the same degraded key under one catalog and binding scope,
-the graph likewise joins them only as indeterminate correspondence; it does not
-report exact definition correspondence.
-Both `UnboundBinding` and `Unavailable` are eligible because each preserves the
-complete terminal binding request. `NotFound`, ambiguous, rejected, or
-cross-catalog uses do not degraded-join. Those projections retain unique
-`GraphNodeStorageKey` identities and appear through
-`CatalogCallGraphScope.IncompleteNodes` / `IncompleteEdges`; every non-success
-remains attached to its physical evidence and never becomes an ordinary
-"no edge."
-
-The catalog graph no longer joins on canonical simple assembly-name strings.
-Version, culture, token, and core-library facade differences are resolved
-through source-relative binding policy before member correspondence. The
-degraded projection is intentionally narrower: it preserves an unavailable
-join only when the complete binding request agrees. Version-skewed or
-differently identified references remain separate storage nodes with
-incomplete evidence.
-
-Every metadata-driven degraded component carries the source candidate through
-`AssemblyBindingDomainKey`. `CurrentAssembly` and `ModuleReference` additionally
-retain the module/current arm and module name where present;
-`IntrinsicCoreLibrary` retains its distinct target and scope. An unavailable
-`AssemblyReference` degraded-joins only within the same source domain when its
-complete identity and scope also agree. Cross-source fragmentation is the
-intentional soundness boundary: without resolved correspondence, the catalog
-has no proof that two private binding domains denote one type.
-
-`CatalogCallGraphScope` owns the catalog and frozen context that minted its
-keys. It plans each distinct source signature once, unions requests before
-freezing, projects each plan once, and stores physical definitions, call sites,
-and edges once for both traversal directions. `ReleaseGraph` disposes that
-generation; a later query creates a new generation without reopening the
-already-owned body indexes. The scope neither serializes keys nor mixes keys
-from another catalog or generation. It is not a separate forwarding model.
-
-### Source and API consumers
-
-Source and API consumers receive `ResolvedAssemblyReference` or
-`ResolvedTypeDefinition`, never a forwarder target string:
-
-- `PdbContext.ResolveImplementationAssemblyPath` is deleted.
-- `SourceLinkService.OpenImplementation` opens the resolved descriptor.
-- `SourceEnricher` and `SourceFileCollector` do not construct sibling paths.
-- `ApiServices.ResolveForwardedTypes` resolves each structured type through the
-  engine and opens the returned descriptor.
-- The former `PlatformResolver.FindLibraryContainingType` is replaced by a
-  typed platform-catalog
-  query. Its trusted ref-pack index returns all defining and forwarding
-  candidates deterministically; explicit platform source policy selects one or
-  reports ambiguity. It never returns a first-enumerated simple-name string.
-- The former `PlatformResolver.IsFacadeOnlyAssembly` moves to a Metadata-owned surface
-  classification that consumes typed declaration inventory. Classification is
-  not cross-assembly resolution, but Services may not interpret raw forwarder
-  rows after the architecture gate lands.
-
-Platform type-to-library discovery keeps its user-query contract separate from
-`MetadataTypeDefinitionName`. `PlatformTypeLookupPattern` is parsed from user
-input and preserves the current exact-name, dotted-suffix/unqualified-name, and
-generic-arity-normalized matching semantics, plus ordinal-ignore-case
-comparison, `+`/`.` nested-name equivalence, and primitive-alias normalization.
-It queries an index of structured definition names and returns every match as
-typed candidates; it does not pretend an unqualified pattern is an exact
-metadata identity.
-
-The current consumers migrate with those contracts:
-
-- both `SourceResolver` platform probes consume `Resolved`, `Missing`,
-  `Ambiguous`, and `Rejected` explicitly; only `Resolved` supplies a descriptor,
-  `Missing` continues ordinary not-found handling, and the other arms surface
-  source-resolution diagnostics rather than choosing a string;
-- `ApiServices` and `LibraryMetadataService` carry typed facade classification
-  and its Finding instead of reducing rejection to nullable `bool`;
-- `RouterCommandDefinition` routes a proven facade to `type` and a proven
-  implementation to `library`; an indeterminate or rejected classification
-  does not auto-reroute and reports the routing diagnostic.
-
-The forwarder-related path sinks in #3460 disappear by construction. General
-artifact-derived path components elsewhere still need `HardenedPath`; that is a
-different system.
+The last rule intentionally rejects version-blind local selection. An explicit
+future local roll-forward option belongs to the binding policy and must carry
+its own policy name and gates. This design returns typed incomplete evidence;
+each consumer owns whether and how that evidence affects its result.
+
+## Baseline resolution requirements
+
+These are the normative requirements shared by every consumer. The structured
+model, binding contract, context lifetime, and algorithm sections define their
+typed realization. A consumer may narrow when it invokes resolution or decline
+to invoke it, but it cannot reinterpret an invoked result.
+
+### Exact request and policy authority
+
+- One request carries one exact structured type name and one closed start:
+  registered assembly, assembly reference plus origin and scope, intrinsic core
+  library plus requesting origin and scope, or module reference.
+- Binding selection belongs to the supplied policy. Resolution neither derives
+  policy from a directory nor retries by assembly spelling, path, version, or
+  consumer preference.
+- The request's type name is invariant across the route. Each forwarder binds
+  its exact target identity from the forwarding candidate as requesting origin.
+- The request carries its caller-selected initial scope, which resolution never
+  widens. A forwarding hop may tighten that scope but never loosen it.
+
+### Continuous forwarding evidence
+
+- A forwarding declaration is evidence, not a terminal definition. `Resolved`
+  requires a readable, validated terminal candidate whose exact declaration
+  result is `Defined`.
+- Every followed forwarding declaration contributes one ordered hop before the
+  next binding is interpreted. A later missing, unavailable, ambiguous, or
+  rejected result retains the completed prefix; failure does not erase how far
+  resolution progressed. The hop retains the declaration's exact target
+  assembly-reference identity even when no target candidate can be selected.
+- A forwarding declaration encountered after the traversal budget is consumed
+  is retained as the final evidence hop with its tightened scope and exact
+  target identity. Resolution then returns `HopBudgetExceeded` without calling
+  binding policy for that target.
+- Hop sources follow the selected candidate path without gaps or consumer-made
+  aliases. Re-selecting any candidate already on that path is a cycle, even
+  when another path or descriptor spelling could describe the same bytes.
+- A multi-module export is not a forwarding hop. It remains the typed
+  unsupported-module result until a separately owned module-acquisition design
+  exists.
+
+### Sound terminal outcomes
+
+Exactly one terminal `TypeResolutionOutcome` is produced for every completed
+invocation:
+
+- `Resolved` means the route reached one exact terminal `TypeDef`.
+- `NotFound` means the last selected, readable image authoritatively returned
+  `TypeDeclarationResult.Missing` for the exact name.
+- `UnboundBinding` means policy authoritatively found no candidate for the exact
+  binding target, origin, and scope.
+- `Unavailable` means policy could not supply or select the candidate required
+  to continue.
+- `Ambiguous` means binding or declaration evidence did not permit one choice.
+- `Rejected` means the request, selected image, metadata relationship, module
+  form, cycle, budget, policy result, or frozen plan could not be accepted.
+
+`NotFound` is therefore never a synonym for a missing target assembly,
+unavailable acquisition, ambiguity, malformed metadata, exhausted work, or an
+unsupported module. The baseline has no projection that collapses the
+non-success arms into a success-shaped empty result or strengthens one into
+semantic absence.
+
+### Bounded and frozen execution
+
+- Cross-assembly traversal is iterative, detects repeated selected candidates,
+  and stops at the explicit hop budget. The nested in-image relationship walk
+  independently enforces its handle-cycle and node budgets.
+- Cancellation remains out of band and does not replace a metadata outcome.
+- Discovery runs under one captured binding-policy version, manifests every
+  type and binding request required by the route, and publishes only after the
+  policy version still matches. A frozen context performs no acquisition,
+  policy selection, declaration discovery, or request expansion.
+- Resolution, declaration, binding, inventory, and retained-session caches
+  preserve typed failures as well as successes under their existing catalog
+  and generation keys. Reuse cannot change an outcome's class.
+
+### Evidence and correspondence stay separate
+
+- Ordered hops describe provenance; they do not establish terminal identity.
+- `ResolvedTypeDefinitionKey` is generation-scoped opaque correspondence
+  currency. Only the catalog may compare it or project join currency.
+- `MetadataTypeDefinitionAddress` is a durable, revalidated location, not
+  cryptographic identity or cross-artifact correspondence.
+- Every metadata token and durable member/type address remains scoped to the
+  physical candidate and module that owns its row. Forwarding never remaps a
+  terminal token onto the starting facade or authorizes a consumer to interpret
+  it against another image.
+- Cross-catalog, stale-generation, and duplicate-artifact uncertainty remain
+  typed results rather than Boolean inequality.
+
+### Executable soundness model
+
+The
+[TLA+ model](models/type-forwarding-resolution/README.md)
+explores every declaration result, forwarded-hop binding result, and
+selected-candidate open result over three assemblies and two hops. Its positive
+configurations check fourteen safety invariants and terminal progress. Six
+mutations demonstrate that the properties fail if the resolver accepts a
+forwarder as a definition, accepts an invalid selected image, attributes a
+terminal definition to the starting facade, maps a binding miss to `NotFound`,
+loosens scope, or permits a repeated candidate.
+
+The model assumes typed binding and declaration inputs and does not model their
+owners, catalog publication, caches, correspondence, or any consumer workflow.
+The [Metadata gates](#metadata-gates) and
+[architecture gates](#architecture-gates) remain the implementation evidence.
+
+## Consumer scenario inventory
+
+This inventory explains why the baseline exists and where requirements beyond
+it belong. It is not a second contract for any consumer. A consumer design may
+reference the baseline outcome and evidence, but its own owner defines request
+selection, admission, composition, fallback, and presentation. New consumers
+change this document only when they expose a missing resolver invariant, not to
+record their internal protocol.
+
+Issue #5273 inventories structured type-forwarding resolution as one precedent
+for a possible generalized Metadata semantic-substrate pattern. That
+investigation, not this design, owns any cross-cutting admission test, shared
+result vocabulary, or adoption by other Metadata helpers. It is not a consumer
+scenario and creates no forwarding-resolver requirement.
+
+| Consumer scenario | Baseline resolution demand | Unique demand beyond the baseline |
+| --- | --- | --- |
+| Cross-assembly definition and body lookup | Reach one exact terminal definition or retain the exact typed reason resolution stopped. | Body acquisition, reader/session lifetime, and method selection remain with the body or acquisition owner. |
+| Source, API, and platform navigation | Consume the resolved descriptor and forwarding path without reconstructing an assembly name or sibling path. | User-pattern matching, facade classification, source acquisition, and provenance presentation remain with Metadata queries and Services. |
+| Direct caller selection | Resolve decoded declaring and signature references to catalog-local definitions. | Decoder provenance, conservative reachability, member matching, and caller projection remain Analysis-owned. |
+| Call-graph correspondence | Resolve every identity-bearing named type without dropping physical evidence when resolution is incomplete. | Hashable join projections, degraded unavailable-binding keys, physical storage identity, and graph lifetime remain Analysis-owned and are mapped by [Type, member, and API representation](type-member-api-representation.md). |
+| Browser platform call graphs | Resolve through already authorized platform candidates. | Supplemental platform admission and rebuilding the bounded workspace graph remain workspace/query decisions; the resolver does not probe the host. |
+| `match` token selection and discovery in #5228 | Retain the terminal physical candidate and module beside every resolved definition or member coordinate. | The CLI owns raw-token provenance, merged-surface projection, pairwise same-image checks, and discovery-population selection. A forwarded member token cannot be scanned or reinterpreted against the facade, and widening discovery cannot silently switch the seed back to the facade image. |
+| Custom-attribute enum width | Reach the exact defining type selected by the serialized reference. | Serialized-name grammar, qualifier constraints, enum-shape validation, and decoder width resolution belong to [Custom-attribute value decoding](custom-attribute-value-decoding.md). |
+| Signature spellability and compile-back | Resolve each named occurrence and preserve terminal definition and failure evidence. | The independent [single-signature decode bound](metadata-signature-decoding.md) and terminal accessibility tracked by #5302 belong outside this design. #5248 owns replacement of the superseded aggregate references with the tools-side local declaration/nameability obligation. Compiler closure and final admission remain tools-owned. This design issues no spellability aggregate or proof protocol. |
+| Research implementation targets in #5189 | Supply the meaning of a forwarding declaration if a later composition explicitly invokes resolution. | The Research attempt is input-local and intentionally records `Unavailable/DeclaringTypeForwarded` instead of leaving its admitted input. [Workspace Research target composition](research-workspace-target-composition.md) owns selection of an exact already admitted terminal Research attempt. Supplemental admission remains a separate workspace-owned effort. |
+| Integration census | Resolve a peer to its terminal definition while retaining ordered forwarding evidence. | Finite-universe `In`/`Out` classification, completeness, suppression, provenance, and parent handoff remain owned by [Integrations](integrations.md). |
 
 ## Determinism
 
@@ -3029,983 +2715,106 @@ become a false change.
 - No metadata name is used as a filesystem path component by the resolution
   engine.
 - No result that escapes the context holds a metadata handle or reader.
-- Signature decode boundedness is specified by the
-  [signature decode bounding contract](#signature-decode-bounding-contract).
-
-## Signature decode bounding contract
-
-A signature decode walks artifact-authored metadata on behalf of a caller who
-has not inspected it. The decode must therefore complete within a stated bound
-or refuse, and it must never report success after doing unbounded work.
-
-This section specifies that bound: the quantities a decode consumes, how each
-is bounded, and what a gate must do to enforce it.
-
-### Owner
-
-The signature decode inside `ILInspector.Metadata` owns this contract:
-`SignatureOccurrenceProvider` and the work budget it charges. This document is
-the owning document.
-
-This contract does not govern acquisition, binding policy, forwarding
-semantics, the evidence model, or anything outside a single signature decode.
-
-### What goes wrong without a bound
-
-A decode reads metadata the caller did not write. The artifact arrives from a
-package feed, and every length, count, and name in it is a number its author
-chose. The decode's job is to turn that into a typed plan; the caller's
-expectation is that reading one member signature costs about what one member
-signature is worth.
-
-Four things break that, and they fail in different directions.
-
-**No bound at all.** Work becomes proportional to author-chosen numbers, so the
-ratio of effort to artifact size has no limit. The probe below builds a method
-with no parameters whose one type reference is scoped to an assembly reference
-carrying a 16 MiB public key: decoding that one signature copies 16 MiB. Work
-is driven by a number in the artifact rather than by the size of the question
-asked, and a caller decoding many members repeats it per member.
-The decode then *succeeds*, which is the worst part -- nothing is reported,
-and the cost surfaces only as a tool that has stopped responding.
-
-**A bound that is too low.** Legitimate signatures are refused, and refusal is
-attributed to the artifact: the tool reports a rejected signature for code that
-is entirely well-formed. A slow tool is a complaint; a tool that calls valid
-input malformed is wrong, and wrong about someone else's work.
-
-**A bound that is too high.** The bound exists, passes review, and never binds,
-so the first failure returns unchanged. Nothing in the code distinguishes this
-from a good ceiling. Only a census does, by showing the distance between the
-ceiling and what real artifacts consume.
-
-**A bound on the wrong quantity.** This is the one that survives review, because
-the budget is visibly present and is charged on every path. A budget that counts
-callbacks is fully satisfied while cost grows without limit, since it cannot
-observe that one callback read a megabyte. The code reads as bounded and is not.
-
-The ceilings therefore need two justifications, and each answers a different
-failure. They must sit far enough above real artifacts that no legitimate
-signature is refused, which the census establishes: the largest real decode
-consumed 1,182 ledger units against a ceiling of 262,144. And they must bind on
-the quantity that actually grows, which is what the classification below is
-for.
-
-### The two classes of cost
-
-Throughout this section, **materializing** means copying artifact bytes into a
-managed object -- a string, a byte array, or a typed identity built from them.
-The cost is proportional to the size of what is copied. Reading how large
-something is, without copying it, is not materializing and costs nothing
-comparable.
-
-Every quantity a decode consumes falls into exactly one class. The classes
-divide on a single question -- **who fixes the number** -- because that is the
-question the threat model turns on. The obligation follows from the answer.
-
-**Class A -- tool-capped.** A constant chosen by this code caps what a *single*
-materialization can cost, and a gate enforces that cap before the
-materialization happens. The artifact cannot raise it, so the worst case is
-known without asking the artifact anything.
-
-**Class B -- author-sized.** A number in the artifact fixes the size, and
-nothing caps it. Nothing about one occurrence is known until the artifact is
-asked.
-
-A cap is tool-capped only if its value does not come from the artifact. A bound
-derived from artifact content -- scaling a limit by a declared length, a member
-count, or a table size -- is author-sized wearing a cap, and belongs in Class B
-however it is spelled.
-
-Where the constant is written does not matter: a `const` field, a parameter
-default, and a literal at a call site are the same class. A bound supplied by a
-caller of this library is likewise Class A, because the caller is on the trusted
-side of the threat model and spends only its own budget. Caller configuration
-therefore does not form a third class; it changes who picks the ceiling, not
-whether the ceiling is known before the read.
-
-### The bounding invariant
-
-> Every metadata materialization inside the decode is **either** capped by a
-> constant this code chose, **or** charged against the work ledger before it
-> occurs.
-
-The disjunction is the whole contract, and both arms are load-bearing. Each
-arm is what its class makes possible: a tool-capped quantity has a known worst
-case, so the charge may come after; an author-sized one does not, so the charge
-must come first.
-
-For **Class A**, charging may follow materialization. The ledger's role there is
-bounding *repetition*, not magnitude: a name capped at
-`MaxTypeNameCharacters` cannot exceed the ceiling by itself, so reading it and
-then charging it is sound. Requiring charge-before-read for Class A would be a
-correctness claim the code does not need and does not make.
-
-For **Class B**, the charge **must** precede the materialization. A single
-author-sized blob can exceed any aggregate ceiling on its own, so charging
-afterwards charges a bill already paid: by the time the copy has happened, the
-work the ledger exists to refuse has been done, and the ledger can only report
-it.
-
-That requires knowing what a read will cost before performing it, which sounds
-circular but is not: metadata records how large a thing is separately from the
-thing, so the size can be read without producing the value.
-
-`MetadataReader.GetBlobReader(handle)` positions a reader over one heap entry
-and exposes its byte count as `Length`, allocating nothing and decoding
-nothing. What that costs depends on the heap, because ECMA-335 stores the two
-differently. A `#Blob` entry is length-prefixed, so its size is a compressed
-integer read at a known offset. A `#Strings` entry is null-terminated, so its
-size is found by scanning for the terminator.
-
-Measured against entries from 16 bytes to 16 MiB:
-
-| Entry | `.Length` at 16 B | `.Length` at 16 MiB | Allocated |
-| --- | ---: | ---: | ---: |
-| `#Blob` -- public key | 13.5 ns | 6.5 ns | 0 bytes |
-| `#Strings` -- name, culture | 25.0 ns | 278,354.0 ns | 0 bytes |
-
-Pricing a blob is constant. Pricing a string is not: the scan grows with the
-string. Both are still sound prices, for the reason that matters -- neither
-allocates, neither decodes UTF-8, and neither produces a value the decode
-retains. The scan reads bytes the artifact already contains, so it cannot
-amplify: at worst it examines each byte once. Materializing amplifies, because
-a managed copy is allocated and retained, UTF-8 becomes wider UTF-16, and the
-same entry is reached once per occurrence.
-
-Those costs describe *physical* heap entries. SRM can also return **projected**
-virtual strings, whose bytes it synthesizes and allocates inside
-`GetBlobReader` itself; for those the price is paid in the act of reading it,
-and pricing before materializing is not available. Projected strings arise only
-from Windows Metadata, which `AGENTS.md` excludes as an unsupported input
-format.
-
-That exclusion is **not currently enforced on the decode path**.
-`MetadataImageFormatClassifier` can refuse Windows Metadata, but no product
-code calls it; adoption is tracked by #4877, and `docs/metadata-primitives.md`
-states that the classifier's existence alone does not close the entry-point
-inventory. Until a caller admits images through a `SupportedEcma335` result,
-the allocation-free pricing claim above holds for physical entries and is
-**unverified** for the repository's decode entry points as a whole. A decode
-that admitted Windows Metadata would need this quantity reclassified, because
-its price could not be read before it was paid.
-
-The concrete contrast at a Class B site is therefore:
-
-| Call | Produces | Allocates | Can amplify |
-| --- | --- | --- | --- |
-| `reader.GetBlobReader(handle).Length` | a byte count | nothing | no |
-| `reader.GetString(handle)`, or a typed identity built from the blob | the value | a managed copy | yes |
-
-So the decode reads the price, charges the ledger that amount, and performs the
-copy only if the ledger accepted. `Length` decides nothing -- it is a
-measurement, and the ledger is what refuses. Ordering is the entire point: the
-same two calls in the opposite order compute the same numbers and bound
-nothing.
-
-One residual follows from the string scan and is accepted rather than hidden.
-Pricing an author-sized name does work proportional to that name before any
-charge is made. It is bounded by the image, allocation-free, and orders of
-magnitude below materializing, so it cannot be amplified into the failure this
-contract prevents -- but it is not zero, and a future quantity whose price
-cannot be read this cheaply would need a different treatment.
-
-Misclassifying a Class B quantity as Class A permits unbounded work on an
-accepted decode, and is the failure this classification exists to prevent.
-
-### The cost model
-
-These are the quantities a decode consumes. The set is closed: a change that
-introduces a new quantity must extend this table in the same change.
-
-| Quantity | Arises from | Class | Bounded by |
-| --- | --- | --- | --- |
-| Expanded signature nodes | one provider callback per decoded node | A | `MaxSignatureTypeNodes` node budget |
-| Occurrence copies | copying occurrence arrays through aggregate layers | A | materialization budget, `MaxSignatureTypeNodes * 8` |
-| Type name characters | `TypeDef`/`TypeRef` name projection | A | `MaxTypeNameCharacters`, applied by the aggregate as the budget it hands the name reader, which refuses an over-budget entry before materializing; repetition charged to the ledger |
-| Resolution-scope chain length | walking a `TypeRef` resolution-scope chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
-| Declaring-type chain length | walking a `TypeDef` declaring-type chain to project a nested type's full name | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
-| `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | A | `TypeSpecGuard.MaxCumulativeBytes` across the active re-entry closure, not per `TypeSpec`; repetition charged to the ledger |
-| Array shape bounds | array shape materialization | A | the guard's shape allowance, enforced by `SignatureBlobGuard` before decoding begins: it charges the declared size and lower-bound counts against its own `remainingTypeNodes`, because a byte-length check alone does not bound this work |
-| `AssemblyRef` public-key **token** | terminal scope projection | A | exactly 8 bytes, enforced before the token is projected |
-| `AssemblyRef` **full public key** | terminal scope projection, when `AssemblyFlags.PublicKey` is set | **B** | charged from storage length before materializing |
-| `AssemblyRef` name and culture storage | terminal scope projection | **B** | charged from storage length before materializing |
-| `ModuleRef` name storage | terminal scope projection | **B** | charged from storage length before materializing |
-
-The `AssemblyRef` public key appears twice because one flag decides its class.
-When `AssemblyFlags.PublicKey` is clear the blob is a token and an exact
-8-byte check rejects anything else, so it is Class A. When the flag is set the
-blob is a real key the author sizes, nothing caps it, and it is Class B. A
-classification that named the field without naming the flag would be wrong for
-one of the two paths.
-
-### Budgets
-
-Three budgets, each bounding a distinct thing. They are not interchangeable and
-one cannot substitute for another.
-
-- **Node budget** -- how many callbacks run. Bounds decode *breadth*.
-- **Materialization budget** -- how many occurrence copies are made. Bounds
-  aggregation *fan-out*.
-- **Work ledger** -- how much metadata is examined, in bytes or characters.
-  Bounds decode *cost*.
-
-The first two count events; only the ledger observes magnitude. A budget that
-counts callbacks cannot observe that one callback read a megabyte, so no count
-budget substitutes for the ledger.
-
-The ledger ceiling is `MaxTypeNameCharacters * 64`. The rationale is that one
-decode may legitimately examine the equivalent of 64 maximum-length type names.
-The census below reports the observed maxima this ceiling must clear; a change
-that raises it must state why a legitimate signature needed more, not merely
-that an input was rejected.
-
-### Measured bounds
-
-A ceiling is a claim about real artifacts, so it is set from a census rather
-than from judgement. This one decoded every method, field, and property
-signature in two corpora with all three budgets removed, recording what each
-decode consumed.
-
-| Corpus | Assemblies | Decodes | Ordered SHA-256 of inputs |
-| --- | ---: | ---: | --- |
-| .NET 11 preview 6 runtime and reference packs (`11.0.0-preview.6.26359.118`) | 490 | 363,322 | `4c0c167ce14db91ca046c44aa038a21d411da7d8b95fe5a18cba6248eaee38cc` |
-| Third-party packages pinned by `docs/data/nuget-top-packages.lock.json` (90 of the 100 carry a `lib/` assembly), deduplicated by content | 431 | 2,387,301 | `776fd357c28d39124bba1c1d19e858692e2ecbddc23baff8caf02059a1dde97e` |
-| Combined | 921 | 2,750,623 | |
-
-No decode was rejected by a pre-existing guard, so every observation is of a
-complete decode.
-
-Per-decode consumption against each budget:
-
-| Budget | Ceiling | p50 bucket | p99.99 bucket | Observed max | Headroom |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Node budget | 65,536 | ≤1 | ≤63 | 72 | 910x |
-| Materialization budget | 524,288 | ≤1 | ≤63 | 158 | 3,318x |
-| Work ledger | 262,144 | ≤63 | ≤511 | 1,182 | 222x |
-
-Percentiles are recorded as base-2 histogram buckets, so each is reported as
-its bucket's upper bound rather than an exact value. Observed maxima are exact.
-
-Per-quantity consumption, as the largest single charge and the largest total
-within one decode:
-
-| Quantity | Largest single | Largest per decode | Charges | Per-item cap |
-| --- | ---: | ---: | ---: | --- |
-| Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
-| Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
-| Declaring-type chain length | *unmeasured* | *unmeasured* | *unmeasured* | 256 |
-| Array shape bounds | *unmeasured* | *unmeasured* | *unmeasured* | guard allowance |
-| `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
-| `AssemblyRef` `PublicKeyOrToken` storage | 8 | 64 | 1,232,641 | 8 when a token |
-| `AssemblyRef` culture storage | 0 | 0 | 0 | none |
-| `ModuleRef` name storage | 0 | 0 | 0 | **none** |
-| `TypeSpec` blob bytes | 0 | 0 | 0 | 4,096 |
-
-Three quantities are unmeasured, for three different reasons, and none is
-measured at zero.
-
-The declaring-type chain is unmeasured because the census measures what the
-instrumented build charged, and that build charges the chain length only on the
-`TypeRef` resolution-scope path. A conforming implementation charges it on the
-`TypeDef` path too, so the ledger figures above are a **lower bound** for a
-conforming decode, understated by at most one charge per declaring-chain node
-per projected nested name. The per-walk cap still holds unconditionally: the
-walk reads into caller-owned storage of exactly `MaxRelationshipNodes` entries
-and is refused beyond it.
-
-Array shape bounds are unmeasured because of *where* they are enforced.
-`SignatureBlobGuard` charges the declared size and lower-bound counts against
-its own `remainingTypeNodes` allowance before decoding begins, and the census
-accumulators start after the guard returns. That allowance is a separate
-enforcement point from the aggregate's node budget, not the same counter
-reached by another route, so the node figures above are accurate for what they
-measure and simply say nothing about shape bounds. The quantity is bounded --
-the guard refuses a blob whose shape counts exceed its allowance -- but the
-corpus never priced it, so no observed magnitude supports the ceiling.
-
-The `PublicKeyOrToken` class split is unmeasured because the census charges it
-at one site and does not record `AssemblyFlags.PublicKey`, so the split cannot
-be recovered from the recorded maximum. The flag decides the class, not the
-blob's size or cryptographic validity: an artifact may set
-`AssemblyFlags.PublicKey` on an 8-byte blob, and the adversarial probe below
-does exactly that. The measured 8-byte maximum therefore bounds the quantity
-but does not establish that no full public key occurred. Instrumenting the flag
-and re-running would settle it.
-
-Two results set the ceilings, for the measured quantities. Every measured
-Class A quantity stays far below its cap -- the longest single type name
-observed is 175 characters against a 4,096 ceiling, and the longest
-resolution-scope chain is 3 against 256 -- so the caps constrain nothing real.
-And no decode approached any of the three instrumented budgets, which is what
-makes those budgets available to bound repetition rather than typical cost.
-That statement does not extend to the guard's separate shape allowance.
-
-The headroom column divides each ceiling by a measured maximum, so where the
-maximum is understated the ratio is an **upper bound on headroom**, not
-guaranteed headroom. This affects the work ledger, the one budget the
-declaring-type chain would charge. Its guaranteed floor is obtained by assuming
-the worst unmeasured case: every occurrence copy in the largest observed decode
-projects a nested name whose declaring chain runs to the full
-`MaxRelationshipNodes` cap. That is `1,182 + 158 * 256 = 41,630` against a
-262,144 ceiling, or roughly **6.3x** guaranteed, against 222x measured. The
-conclusion that the ledger is not the binding constraint survives, but only the
-6.3x figure is load-bearing until the charge is added and the census re-run.
-
-The last three rows were never exercised, and no probe below drives the culture
-or `ModuleRef` name paths. That is a statement about the corpus, not about
-reachability: each is reachable by construction. The `TypeSpec` probe below
-drives the last row, and the public-key probe drives the full-key path that the
-merged `PublicKeyOrToken` row cannot separate.
-`GetTypeFromSpecification` in particular is unreachable
-through `ELEMENT_TYPE_CLASS`, which admits only `TypeDef` and `TypeRef`; it is
-reached through a custom modifier, where `TypeDefOrRefOrSpecEncoded` admits a
-`TypeSpec`.
-
-#### What the census cannot show
-
-The census bounds the Class A quantities it measured. It does not bound the two
-Class A quantities disclosed above as unmeasured: each is structurally bounded
-by its guard, but neither has an observed margin. And it cannot bound Class B
-at all, because the largest Class B value in any corpus is a fact about the
-authors who happened to produce it.
-
-A single method taking no parameters, whose one `TypeRef` is scoped to an
-`AssemblyRef` carrying a full public key, consumes ledger units equal to that
-key's size:
-
-| Public key bytes | Ledger units charged | Against the 262,144 ceiling |
-| ---: | ---: | ---: |
-| 8 | 17 | 0.0x |
-| 1,024 | 1,033 | 0.0x |
-| 65,536 | 65,545 | 0.3x |
-| 1,048,576 | 1,048,585 | **4.0x** |
-| 16,777,216 | 16,777,225 | **64.0x** |
-
-Every real decode measured stayed under 1,182 units. One author-chosen field
-reaches four orders of magnitude beyond that, from an artifact small enough to
-mail, and it scales linearly with no upper limit. This is the entire reason the
-ledger exists and the reason charging must precede a Class B read: no census,
-however large, would have predicted the fourth row, and no count of callbacks
-would observe it.
-
-The `TypeSpec` probe shows the contrasting Class A shape. Charged units track
-the blob exactly, and the pre-existing guard, not the ledger, rejects the
-oversized case:
-
-| `TypeSpec` bytes | Ledger units charged | Outcome |
-| ---: | ---: | --- |
-| 5 | 16 | decoded |
-| 1,029 | 1,040 | decoded |
-| 8,197 | -- | rejected by `TypeSpecGuard` |
-
-Because that guard caps the active re-entry closure at `MaxCumulativeBytes`, no
-single `TypeSpec` charge in an accepted decode can approach the ledger ceiling,
-and the ledger's role for this quantity is bounding how many times a shared
-`TypeSpec` is re-entered.
-
-#### Reproducing
-
-Both corpora are pinned. The platform tier is the installed runtime and
-reference packs at the stated version. The third-party tier is every `lib/`
-assembly of the package versions in `docs/data/nuget-top-packages.lock.json`,
-fetched from nuget.org and deduplicated by content; ten of those packages ship
-no `lib/` assembly and contribute nothing. The digests above are over the
-ordered per-file SHA-256 of the inputs, so a corpus that drifts is detectable
-rather than silently different.
-
-The census is a measurement build, not product code: it replaces the three
-budget checks with accumulators, tags each charge site by caller line, and
-decodes every member signature in each input. Rebuild it by instrumenting
-`SignatureOccurrenceWorkBudget`. A change that alters what a decode charges
-must re-run it, because the observed maxima are the only evidence that the
-ceilings clear real artifacts.
-
-A census run also checks that every charge the instrumented build *made* was
-accounted for: charges that no classified site accounts for are recorded
-against an unmapped bucket, which was zero across all 2,750,623 decodes. A
-non-zero unmapped count means the table above is missing a quantity.
-
-That check has a blind spot, and two of the three unmeasured quantities above
-fell into it. The unmapped bucket sees only charges that execute. The
-declaring-type chain is never charged on one path, and array shape bounds are
-charged by the guard before the accumulators start; neither produces an
-unmapped entry, because neither produces an entry at all. A zero unmapped count
-therefore does not establish that the closed set is complete; it establishes
-only that the charges the build made were classified. The `PublicKeyOrToken`
-split is unmeasured for an unrelated reason -- that charge executed and was
-mapped, but the census did not record the flag that separates the classes.
-
-The pricing costs in *The two classes of cost* are measured separately and need
-no product code. Emit an assembly whose single `AssemblyRef` carries a name and
-a public key of a chosen size, then time and measure allocations for
-`GetBlobReader(reference.Name).Length` and
-`GetBlobReader(reference.PublicKeyOrToken).Length` in Release across sizes from
-16 bytes to 16 MiB. The blob figure must stay flat and both allocation figures
-must stay zero; a regression in either invalidates the charge-before-read rule
-for that quantity.
-
-### Charging bounds; caching does not
-
-Caching a projection is an optimization and must never be load-bearing for the
-bound. Removing any cache must leave the decode *bounded* -- it may cause a
-legitimate input to be rejected, but it must not permit unbounded work.
-
-Cache removal is therefore a valid probe of the bound: the required failure is
-the ledger refusing, not an exception, a duplicate key, or an unrelated budget.
-A cache-removal mutation that fails a gate for any other reason establishes
-nothing about the bound.
-
-### Enforcement obligation
-
-This contract is enforced structurally, not by review. A conforming gate must
-satisfy all of the following.
-
-1. **Deny by default.** Any call that can materialize metadata fails the gate
-   unless its site is classified by this contract. A gate that enumerates
-   forbidden member names is not conforming, because every unnamed member --
-   and every member added later -- is permitted by omission.
-2. **No exempt regions.** A method that charges is not thereby trusted for its
-   other reads. Sanctioned methods are checked like any other.
-3. **Ordering is verified, not assumed.** For Class B sites the gate must
-   establish that the charge dominates the materialization on every
-   control-flow path. Asserting that a charge appears somewhere in the method
-   does not discharge this obligation.
-4. **Classification is explicit.** Each materializing site names its class. An
-   unclassified site fails.
-
-A gate that does not meet these obligations is named and documented for the
-property it actually checks.
-
-No gate meeting these obligations exists yet, so this property is currently
-**unverified**; building one is implementation work, not part of this contract.
-
-The obligations describe a division of labor that gate would complete. A gate
-establishes that every site is classified. The census records any charge no
-classified site accounts for. Neither closes the set: a gate cannot see a
-quantity the contract never named, and a census cannot see work the
-implementation never charges -- including work the corpus reaches constantly,
-and work a separate enforcement point charges before the accumulators start.
-Completeness of the closed set is therefore **unverified**, and establishing it
-requires deriving the inventory from the source rather than from what a run
-happened to charge.
-
-### Failure is visible and attributed
-
-A decode that exceeds a budget fails closed through the typed rejection outcome.
-Exceeding a bound is a statement about the *artifact*, so it must not be
-reported as anything else, and an internal programming error must not be
-reported as a rejected signature. See #5062.
-
-Refusal is not the only useful signal. Charging a Class B read requires its
-magnitude before the read, so every Class B site holds that number by
-construction; today it is compared against the ledger and discarded. Nothing in
-this contract requires discarding it. A threshold *below* the refusal ceiling
-may report an unusual magnitude as an observation, and the census shows such a
-threshold would be quiet: the largest Class B charge anywhere in the corpus was
-58 bytes, and two of the three measured Class B quantities never occurred at
-all.
-
-Two constraints hold if that is built. A reporting threshold never affects
-acceptance -- it is an observation, and removing it changes no outcome. And it
-never replaces the ceiling, because a threshold that reports and continues does
-not bound. The ledger refuses; a threshold only notices.
-
-### Non-claims
-
-- Does not change `MaxSignatureTypeNodes`, `MaxTypeNameCharacters`, or
-  `MaxRelationshipNodes`.
-- Does not specify the aggregate's typed API, forwarding semantics, evidence
-  model, or caching strategy beyond the load-bearing rule above.
-- Does not specify exception mapping, which is #5062.
-- Does not specify how a bound magnitude becomes a Finding, or any audit
-  surface, which is #5074. The rule above constrains such a threshold; it does
-  not design one.
-- Does not claim any existing gate is conforming. The obligations above are the
-  standard against which gates are to be judged, including gates already
-  written.
+- Signature decode boundedness is specified independently by
+  [Bounded Metadata signature decoding](metadata-signature-decoding.md).
 
 ## Performance model
 
-Resolution is query-directed:
+Baseline resolution is query-directed:
 
-- the inspection acquisition plan contributes package, platform, project, and
-  local inventories to one Metadata-owned catalog;
-- the engine opens only the starting assembly and assemblies named by the
-  forwarder chain;
-- each candidate inventory is read once; a candidate that later needs a
-  durable session incurs at most one additional prefetched-image open;
-- source streams close immediately after inventory or prefetched-session
-  construction;
-- each `(assembly, type)` declaration probe runs once;
-- callers in the same source candidate sharing a resolvable reference reuse the
-  completed resolution; different source candidates remain distinct binding
-  domains;
-- caller reachability resolves only target-name references present in the scope
-  snapshot;
-- caller reachability binds each snapshotted scope-candidate `AssemblyRef` once
-  in its requesting domain to build reverse adjacency;
-- correctness requires opening each distinct candidate selected by those edges
-  once to determine whether it has forwarding adjacency; after that read,
-  reachability follows only its `ExportedType`-target references and does not
-  traverse its ordinary dependency graph;
-- graph signature correspondence resolves only named type occurrences in edges
-  being indexed and caches each `(source candidate, resolvable origin)` once.
+- the caller contributes explicit type and binding roots before freeze;
+- the engine opens only the start candidate and candidates selected by the
+  forwarding route;
+- each candidate inventory is read once, and repeated semantic reference or
+  forwarding-target rows do not multiply work;
+- a candidate needing declaration access owns at most one retained inspection
+  session, independently bounded from adjacency-only inventory reads;
+- each exact declaration probe, binding request under one policy version, and
+  completed resolution recipe is single-flight and caches typed failure as well
+  as success;
+- source-open concurrency, retained-image bytes, candidate discovery, in-image
+  relationship work, and cross-assembly hops retain explicit independent
+  bounds; and
+- a frozen context performs no new policy, source, or discovery work.
 
-The cross-assembly engine does not require a sweep over every framework assembly
-and does not re-seed the caller-scope closure from every facade. The platform
-type-to-library discovery capability is separately explicit and uses its
-catalog's cached ref-pack index. The structural performance gate for the
-forwarded `XmlReader` caller is:
+Consumers may batch requests or build wider graphs under their own contracts,
+but those scenarios do not widen the baseline resolver into an implicit
+assembly or framework sweep.
 
-- the real caller is found;
-- forwarding-inventory opens equal the distinct candidates selected by scope
-  adjacency plus newly selected forwarder targets;
-- peak live source streams never exceed `MaxConcurrentSourceOpens`, and no
-  adjacency-only stream or durable-session source stream remains open after
-  construction;
-- framework traversal does not expand through ordinary dependencies of those
-  candidates;
-- no target file is reopened by the forwarder engine;
-- each unique `(source candidate, matching reference or signature origin)` is
-  resolved at most once;
-- adjacency policy calls equal the distinct
-  `(requesting candidate, reference identity, scope)` rows in the scope
-  snapshot plus forwarding-adjacency rows over the whole inspection while
-  policy versions remain unchanged, and no adjacency request is first
-  discovered after freeze.
+## Delivery record
 
-Wall-clock measurements may accompany implementation evidence but do not
-replace these structural counts.
+The implementation landed primitive-first:
 
-## Delivery plan
+1. structured names, tokens, and the bounded single-image declaration result;
+2. acquisition registration, inventory/session ownership, typed binding, and
+   the frozen cross-assembly resolution engine;
+3. migration of definition, body, source, API, platform, caller, and graph
+   consumers away from string and path reconstruction; and
+4. catalog-owned definition correspondence and join projections.
 
-Each slice has one behavioral claim and can land independently.
-
-### Slice 1: model and declaration primitive
-
-- Add the structured names, tokens, and declaration result types.
-- Build the bounded single-image declaration probe.
-- Support top-level and nested forwarded types.
-- Represent multi-module exports explicitly.
-- Add no production consumer.
-- Do not change `ResolvedAssemblyReference` or
-  `IAssemblyReferenceResolver`.
-
-Claim: one readable image can answer "defines, forwards, misses, or rejects"
-without returning a stringly or nullable result.
-
-### Slice 2a: acquisition catalog foundation
-
-- Evolve `ResolvedAssemblyReference` to the non-equatable descriptor plus
-  acquisition registration contract.
-- Add one `InspectionAcquisitionPlan` per inspection and collapse today's
-  per-path resolver instances into its shared owner adapters.
-- Add catalog-owned `AssemblyInventorySnapshot` values for every discovered
-  candidate and open prefetched `AssemblyInspectionSession` values only on
-  demand; inventory reads and durable-session opens are separate single-flight
-  operations sharing the source-open semaphore.
-- Verify retained sessions against the inventoried assembly identity and MVID,
-  and make the plan the sole owner of retained session lifetime.
-- Keep the plan and its result hierarchy internal until binding policy and
-  resolution outcomes establish the public context boundary.
-- Add no cross-assembly traversal or public binding policy.
-
-Claim: one acquisition registration maps to one catalog-local candidate,
-reader-independent inventory, and at most one lazily retained session under
-explicit resource budgets.
-
-### Slice 2b: context and resolution engine
-
-- Add the resolution request, binding, failure, ambiguity, and outcome
-  hierarchies after their descriptor and catalog dependencies exist.
-- Add the catalog lifetime and compose `TypeResolutionContext` over snapshots
-  plus optional sessions without retaining adjacency-only readers.
-- Add public `IAssemblyBindingPolicy` descriptor selections and the
-  Metadata-internal candidate-interning adapter.
-- Implement the iterative cross-assembly engine.
-- Make catalog and resolution caches safe for concurrent Analysis with
-  single-flight opens and probes.
-- Port the former `TypeForwardResolver` behavioral coverage to engine tests.
-  Delete that compatibility resolver after its consumers migrate with
-  caller-owned catalogs.
-
-Claim: one typed request resolves to one typed definition or one explicit
-non-success outcome, with one lifetime owner.
-
-### Slice 3: existing definition consumers
-
-- Migrate `LibraryBodyIndex`, `MemberBodyProducer`, and
-  `CrossAssemblyTypeResolver`.
-- Delete Analysis's duplicate forwarder loop.
-- Preserve current decompiler and Analysis answers.
-
-Claim: existing cross-assembly definition lookups use one engine without
-changing their successful results.
-
-### Slice 4: source and API consumers
-
-This slice lands as two independently complete consumer migrations:
-
-- **4a -- descriptor opening and path-sink deletion:** teach `PdbContext` and
-  `SourceLinkService` to open acquisition descriptors through `OpenRead`;
-  migrate `SourceEnricher` and `ApiServices` to exact structured names and
-  resolved descriptors; delete `SourceFileCollector`'s unreachable forwarded
-  fallback and every forwarder-target sibling-path construction.
-- **4b -- platform lookup and classification:** migrate `SourceResolver`,
-  `LibraryMetadataService`, and `RouterCommandDefinition`; replace
-  `PlatformResolver.FindLibraryContainingType` with the typed platform catalog
-  and move `IsFacadeOnlyAssembly` to Metadata-owned classification.
-
-Both 4a and 4b are delivered. The platform catalog retains structured names,
-declaration kind, assembly identity, provenance, and descriptors; its explicit
-policy prefers definitions and reports multiple preferred candidates as
-ambiguity. Surface classification is derived from the same Metadata-produced
-declaration inventory and projects rejection as a failed Finding rather than a
-non-facade answer.
-
-Claim: forwarded source and API resolution consume descriptors and cannot turn
-an inspected assembly name into a path.
-
-### Slice 5: direct caller correspondence
-
-- Retain typed `TypeReferenceOrigin` during Analysis decoding.
-- Build `CallerScopeReachabilityPlan` and `CallerResolutionPlan`.
-- Replace `_selectedScopePaths`, direct/graph scope reuse, type prefiltering,
-  `_ruledOutScopeIsOpenable`, caller-tree builder routing, and
-  `MatchesCrossAssembly` as one coherent gate migration.
-- Port #3476's real framework fixture and close negative controls.
-- Do not port `ForwardedTypeAliases`.
-
-Slice 5 is delivered. Analysis retains exact decoder-produced origins, one
-reachability plan supplies both caller projections, Metadata owns
-generation-scoped definition correspondence, and final call-site matching
-consumes the plan's per-origin relation. The spelling-based scope filters and
-`MatchesCrossAssembly` have been removed rather than retained as compatibility
-paths.
-
-Claim: `Callers` finds a caller compiled through a facade by comparing resolved
-definition keys, with no spelling alias model.
-
-Direct `Callers` applies target-specific correspondence to scope selection,
-then projects the target and same-name call sites through the catalog member
-model. Declaring, parameter, and return types therefore use the same
-generation-scoped definition currency as graph correspondence. Only
-catalog-issued complete projections can join; incomplete projections do not
-fabricate callers. Indeterminate duplicate-artifact projections remain valid
-catalog-scoped currency and join only when their complete keys agree, matching
-the graph contract. If either side cannot bind a signature type, direct caller
-correspondence preserves the exact metadata contract for that component:
-assembly-reference identity or intrinsic-core-library scope plus structured
-type name. This retains callers when dependencies are unavailable without
-collapsing different references or names; resolved definitions still require
-catalog correspondence. When the reachability plan has already established
-that a candidate's declaring reference resolves to the target definition, that
-typed request pair also vouches for exact repeated occurrences of the same type
-in the return or parameter signature. This covers a platform facade whose
-forwarder was proven during scope selection but cannot be replayed by the
-source-relative member policy. The focused gates in
-`CatalogDirectCallerQueryTests` include a deterministic facade/caller image
-whose member replay is forced unavailable; the gate fails without the
-reachability request pair. Those tests cover forwarded non-core-library
-parameters, close overloads, constructed generic calls, matching unresolved
-contracts, reachability-proven facades, and unavailable declaring-type
-correspondence. The real framework gates in `ForwardedCallerEdgeTests` cover
-the corresponding `System.Xml` caller behavior without claiming which
-correspondence branch the installed runtime exercises. Together they close
-[#3513](https://github.com/richlander/dotnet-inspect/issues/3513).
-
-### Slice 6: graph correspondence and cleanup
-
-- Split total graph storage identity from optional resolved member
-  correspondence, including every named signature type.
-- Make unresolved edges visible as incomplete graph evidence.
-- Bind `ScopeGraph` cache lifetime and reuse to its catalog.
-- Remove legacy path, alias, and compatibility helpers.
-- Add architecture gates that prevent direct resolution logic from returning
-  to Analysis or the CLI.
-
-Slice 6 is delivered by
-[#3782](https://github.com/richlander/dotnet-inspect/pull/3782),
-[#3856](https://github.com/richlander/dotnet-inspect/pull/3856), and
-[#3876](https://github.com/richlander/dotnet-inspect/pull/3876), closing
-[#3780](https://github.com/richlander/dotnet-inspect/issues/3780). Metadata
-issues generation-scoped `DefinitionJoinToken` and `UnresolvedBindingKey`
-values. Analysis projects complete open signatures into
-`CatalogMemberJoinKey`, retains total physical storage and typed incomplete
-evidence in `CatalogCallGraphScope`, and serves both graph directions from one
-frozen generation. `CatalogMemberCorrespondencePlanTests`,
-`CatalogCallGraphScopeTests`, and `MemberCallGraphSessionTests` gate
-forwarded declaring/parameter/return types, duplicate and unavailable evidence,
-physical participant deduplication, generation release, and product reuse.
-`CatalogCallGraphScopeTests.FunctionPointerPayloadKeepsOverloadsAndTheirCallersSeparate`
-and `PlanCacheIdentityPreservesRecursiveFunctionPointerPayload` gate the
-catalog plan cache against collapsing function-pointer calling conventions,
-return and parameter types, or custom modifiers (#3911).
-`TypeResolutionContextTests.NestedForwarder_ResolvesFullDeclarationChain`
-gates the nested-forwarder composition from declaration chain through final
-definition.
-`ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod`
-gates the compile-back harness's structured forwarder wiring.
-`ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling`,
-`ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and
-`ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
-gate candidate consistency when resolution tightens a signed forwarder hop.
-`ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure`
-gates the simple-name closure model's version unification for contracts older
-than the running inspector, while
-`ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform`
-gates that the replay never escapes the frozen reference slot to a different
-platform image.
-`CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling` and
-`CompileBackTargets_DeclinesDirectSignedInterfaceSpoof` apply the same check to
-the target assembly's initial platform-signed `AssemblyRef`; unsigned
-hand-authored references retain the prior closure scan. The structured engine
-replays the complete initial binding and forwarding walk through Roslyn's
-simple-name-deduplicated closure, selecting the frozen reference occupying each
-requested name even when its metadata identity differs. It requires the same
-assembly identity, matching defining-image SHA-256 digest, and durable TypeDef
-address.
-`CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage` gates
-that Roslyn references and structured inspection share one frozen acquisition
-generation even when a dependency path is replaced afterward.
-`CompileBackPropertyGetters_SharesOneCompilationClosure` and the cluster/all
-scope gate keep that generation assembly-scoped rather than target-scoped.
-`AssemblyDependencyResolverTests.Acquire_SnapshotBudgetExhaustionIsTyped`
-gates the cumulative retained-image budget, while
-`AuthoredBody_ReusesFrozenRtsCompilationClosure` gates reuse by authored replay.
-
-Claim: direct callers and transitive call graphs share one definition identity.
+This is historical sequencing, not authority over those consumers. The
+[consumer scenario inventory](#consumer-scenario-inventory) points to the
+current ownership boundaries.
 
 ## Gates
 
-### Model gates
+### Contract gates
 
-- Every public outcome arm is enumerated by tests.
-- Every public `TypeResolutionFailure` arm is produced by a focused negative
-  fixture and remains distinguishable to an external consumer.
+- Every public `TypeResolutionOutcome`, `TypeResolutionFailure`,
+  `TypeResolutionAmbiguity`, declaration, binding, correspondence, and
+  projection arm is produced by a focused positive or negative gate and remains
+  externally distinguishable.
 - No public result exposes `MetadataReader`, `PEReader`, or metadata handles.
-- `MetadataTypeDefinitionAddress` cannot be dereferenced until MVID, token
-  table, and row bounds all validate against the target reader.
-- `MetadataTypeDefinitionName` cannot be constructed from a rejected
-  relationship chain.
-- Empty `TypeDef`, `TypeRef`, or `ExportedType` names produce typed
-  `MetadataTypeNameRejection`; they do not throw from untrusted metadata.
-- Independently constructed equal `MetadataTypeDefinitionName` values compare
-  equal through both `Equals` and `==`, hash equally, and hit one
-  declaration/resolution cache entry; `!=` returns false.
-- Independently minted equal `DefinitionJoinToken` and
-  `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
-- Every `DefinitionJoinTokenProjection` arm is produced by a focused gate;
-  cross-catalog and stale keys never receive an `Issued` result.
-- Every `UnresolvedBindingKeyProjection` arm is produced by a focused gate;
-  only `UnboundBinding` and genuine policy `Unavailable` outcomes expose its
-  opaque projection input, and cross-catalog or stale references never receive
-  an `Issued` result.
-- `TypeResolutionRequestComparer` equates exactly the assembly, reference,
-  intrinsic-core-library, and module starts that occupy one frozen manifest
-  entry; requesting registrations and scopes remain identity-bearing.
-- Reusing one `CatalogMemberCorrespondencePlan` does not repeat signature
-  traversal, and repeated named leaves produce one manifest request.
-- `CatalogMemberJoinKey` includes member kind, canonical signature header,
-  vararg required-parameter count, method generic arity, and every named leaf in
-  the open declaring, required parameter, return, modifier, and function-pointer
-  shapes; optional vararg arguments do not enter member identity, and instance
-  and static members remain distinct.
-- A compiler-produced cross-assembly vararg call with optional arguments joins
-  its required-parameter definition and not a lookalike definition whose
-  required parameter list happens to match the expanded call-site list.
-- Embedded vararg function pointers preserve their complete type identity,
-  including post-sentinel parameters, and reject out-of-range required counts.
-- A generic `MemberRef` without a retained open signature cannot fall back to
-  its instantiated signature and receive an exact key; partially retained open
-  signatures are likewise incomplete.
-- `CatalogMemberJoinKey`, `CatalogTypeShape`, correspondence evidence,
-  failures, and projection arms cannot be externally forged or extended.
-- Independently constructed equal reference and intrinsic-core-library
-  `AssemblyBindingTarget` values compare and hash equally and hit one binding
-  cache entry per source domain.
-- Public result hierarchies cannot be externally extended, and product
-  consumers cannot construct correspondence verdict arms.
-- External-compilation gates cannot derive from `AssemblyBindingTarget`,
-  `TypeReferenceOrigin`, or `AssemblyResolutionProvenance`; their
-  private-protected abstract discriminators close the synthesized record copy
-  constructor path.
-- An external fake `IAssemblyBindingPolicy` can return every public descriptor
-  selection through factories but cannot construct catalog candidates.
-- An external fake policy constructs
-  `AssemblyBindingSelectionSnapshot` from one non-null public policy version
-  and one non-null public selection. The constructor rejects null components,
-  and Metadata rejects a null returned snapshot as `InvalidPolicyResult`.
-- `AssemblyBindingSelectionSnapshot_SelectionAndVersionAreAtomic` changes
-  policy state between answer computation and a consumer-side version read
-  and proves no snapshot can pair one state's selection with another state's
-  token.
-- `AssemblyBindingPolicyVersion_ReplacementTokenIsNeverReused` exercises
-  V1-to-V2-to-V3 state replacement and fails the V1-to-V2-to-V1 mutation even
-  when the first and final answers otherwise look compatible.
-- `TypeResolutionContext_RejectsForeignVersionSelectionBeforeInterning`
-  returns every selection arm under a version other than the generation's
-  captured token and proves no descriptor registration, outcome, recipe
-  dependency, cache entry, current generation, or `TypeResolutionContext` is
-  published from its payload. It receives
-  `PolicyVersionChanged(expected, observed)`, distinct from null or invalid
-  policy output.
-- `TypeResolutionContext_CommitVersionChangePublishesNoPolicyAnswer` changes the
-  current policy version after a valid snapshot returns but before the commit
-  comparison and proves no binding or resolution cache entry, current
-  generation, or context is published. Validated acquisition registrations,
-  candidate sessions, inventories, resource-budget consumption, and declaration
-  cache entries may remain available under their existing non-policy keys.
-- `TypeResolutionContext_PostCommitVersionChangeKeepsHistoricalGeneration`
-  changes the policy immediately after the successful commit comparison and
-  proves publication uses only the already-built immutable generation, makes
-  no later policy call, and keys every promoted entry by the captured retired
-  token.
-- `TypeResolutionContext_VersionMismatchHasOneTerminalControlPath` proves cold
-  snapshot mismatch and commit mismatch return the same internal
-  `PolicyVersionChanged` arm, no context, and no binding outcome; a null
-  snapshot remains the distinct `InvalidPolicyResult` verdict.
-- `TypeResolutionCatalog_VersionMismatchPreservesPublicFailureBoundary` proves
-  an unconsumed internal supersession publishes no context or binding or
-  resolution cache entry and reaches the public caller through the existing
-  `InvalidOperationException` boundary rather than a binding outcome.
-- `TypeResolutionCatalog_ReusedVersionCannotResurrectColdAnswer` changes a
-  request's answer across a V1-to-V2-to-V1 mutation and proves the final state
-  cannot return the new answer as V1.
-- `TypeResolutionCatalog_ReusedVersionCannotResurrectCachedAnswer` seeds a V1
-  cache entry, performs the same mutation, and proves the stale V1 entry cannot
-  become current for the final state.
-- `AssemblyBindingSelectionSnapshot_PreservesSelectionEvidence` covers
-  selected descriptors and shadows, all three miss dispositions, unavailable
-  and rejected failures, and ambiguity ordering without rebuilding evidence
-  from display or candidate identity. When #5214 adds a closed selection arm,
-  that issue adds its own snapshot-preservation and version-invalidation gate.
-- `AssemblyReferenceBindingPolicy_PreservesDelegatedSnapshot` proves a
-  structured delegate's exact version and snapshot are forwarded for every
-  target without adapter caching, translation, or interception, and any
-  delegate exception propagates unchanged. The nullable legacy resolver's
-  stable per-inspection cache returns its fixed version and existing
-  translations.
-- `ComposedAssemblyBindingPolicy_MatchingDelegateUsesCompositeVersion` proves a
-  matching delegated snapshot can be interpreted and returned under the
-  captured composite token, then accepted and cached by Metadata.
-- `ComposedAssemblyBindingPolicy_ValidatesDelegatedSnapshots` changes each
-  captured delegate version independently and proves a transforming policy
-  neither interprets the mismatched payload nor relabels it with its own
-  version.
-- `ComposedAssemblyBindingPolicy_DriftRefreshesBeforePropagation` proves a
-  delegated mismatch retires the current composite state, publishes a fresh
-  token with the observed delegate versions before forwarding the foreign
-  snapshot, and permits a subsequent generation to complete under the
-  refreshed state.
-- `ComposedAssemblyBindingPolicy_RouteChangeRequiresFreshVersion` adds a
-  source-relative route and proves no equal request changes routing under the
-  old token; either a fresh policy state is published or #5216 supplies the
-  route in the original complete map.
-- `AssemblyBindingSelectionSnapshot_OriginAndScopeRemainAnswerInputs` proves
-  global and requesting-assembly origins and both scopes remain distinct
-  request inputs even when their governing version token is shared.
-- An external fake policy receives and distinguishes explicit reference and
-  intrinsic-core-library binding targets; no core-library identity is
-  synthesized.
-- An external fake policy can construct every `AssemblyBindingFailureKind`.
-- An external fake policy can construct all three
-  `AssemblyBindingMissDisposition` arms only through the closed missing-result
-  factories.
-- `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition`
-  returns each public missing result from a first tier for an
-  intrinsic-core-library request while a second tier could select. Every
-  wrapper and composite returns `Rejected(InvalidPolicyResult)` without
-  invoking that second tier, and Metadata applies the same rule to a direct
-  final result.
-- `AssemblyBindingMissDisposition_OnlyNoNameOwnerContinues` derives every
-  two-tier result pair from one declaration and proves that only
-  `NoNameOwner` invokes the next tier; selected, ambiguous, unavailable,
-  rejected, `NameOwnedNoMatch`, and `Undifferentiated` remain terminal.
-- `AssemblyBindingMissDisposition_CompleteExhaustionRequired` proves a
-  composite cannot issue `NoNameOwner` when its configured chain omits an
-  independently owner-attested request-eligible tier or while any tier in the
-  complete chain remains unevaluated.
-- `AssemblyBindingMissDisposition_AllNoOwnerRemainsNoOwner` proves a complete,
-  exhausted policy chain containing only `NoNameOwner` results retains that
-  disposition.
-- `AssemblyBindingMissDisposition_UndifferentiatedLegacyMissFailsClosed`
-  proves nullable resolver adapters and unchanged `NotFound()` callers cannot
-  reach a lower tier or become owner-attested evidence.
-- `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` proves all
-  three dispositions remain distinct through `AssemblyBindingOutcome.Missing`,
-  structural `AssemblyBindingSnapshot` comparison, frozen recipe dependencies,
-  and unchanged-version cache reuse.
-- `AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
-  proves a changed observed policy version refreshes a frozen miss and recipe
-  dependency rather than reusing the prior disposition. Same-version answer
-  stability remains a producer obligation; the atomic selection snapshot above
-  governs answer-to-version observation.
-- `NoResolverAssemblyBindingPolicy_ReportsNoNameOwner` proves its complete
-  empty assembly-reference inventory issues `NoNameOwner`, while its
-  intrinsic-core-library behavior remains the existing typed failure.
-- `AssemblyReferenceBindingPolicy_NullRemainsUndifferentiated` proves the
-  nullable resolver adapter neither invents ownership nor permits
-  fallthrough.
-- `KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss`
-  proves a complete frozen inventory reports `NoNameOwner` when the requested
-  name is absent and `NameOwnedNoMatch` when its owner-issued name domain
-  contains the name but no identity candidate is selected.
-- `AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition` covers
-  package, sibling, project, and platform close negatives without deriving
-  ownership from an empty final identity match.
-- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`
-  covers both global and requesting-assembly origins and proves
-  `NameOwnedNoMatch` and `Undifferentiated` remain authoritative.
-- `AssemblyBindingMissDisposition_OriginScopesRemainDistinct` proves global
-  and requesting-assembly requests can carry different owner-issued
-  dispositions and retain separate frozen cache entries.
-- Reusing the canonical descriptor, including `candidate.Assembly`, yields one
-  candidate id, one inventory snapshot, at most one demanded durable session,
-  and `Same` correspondence.
-- A second `ResolvedAssemblyReference.Create` call with identical visible
-  values and the identical `Func<Stream>` instance receives a fresh
-  registration and remains a distinct candidate.
-- Package, platform, project, and local migration adapters each return one
-  stable registration when their owner selects the same candidate through
-  different compatible reference requests.
-- Two version-skewed platform requests that roll forward to one selected entry
-  expose that entry's one `AssemblyDef` identity, canonical provenance, opener,
-  and registration; neither request identity is stored in the descriptor.
-- Per-path legacy resolver instances feed one per-inspection adapter set and
-  cannot mint independent registrations for the same owner-selected entry.
-
-- A user path found in the platform inventory and a forwarder binding to that
-  entry share the platform registration; an unowned copied path remains local.
-- An external policy receives only the requesting registration, can use
-  reference identity to select its owner inventory, and cannot construct a
-  descriptor from that handle or reach the requesting payload through the
-  origin.
-- External acquisition owners can construct every structured provenance arm;
-  no consumer parses a provenance string.
-- Two requesting-assembly origins with the same reference identity and scope
-  occupy different binding-cache entries and may select different candidates;
-  repeated requests from one origin reuse its outcome.
-- A global-origin request remains a distinct cache arm and local policy may
-  return `UnsupportedScope` rather than guessing a source domain.
-- A frozen context rejects an unregistered requesting-assembly origin before
-  policy invocation and neither mutates the catalog nor routes it as global.
-- Unregistered assembly starts and binding origins both produce the
-  registration-bearing `UnregisteredAssembly` arm without reconstructing a
-  descriptor from the opaque handle.
-- External consumers can create assembly-descriptor and assembly-reference
-  requests and can forward an existing `TypeResolutionStart` to another type.
-- External consumers can inspect but cannot forge decoder-produced
-  `TypeReferenceOrigin`.
-- Type name, assembly identity, assembly candidate, provenance, and hop evidence
-  remain separate fields.
-
-The opener-instance and source-specific provenance gates in this list are
-current migration gates, not target artifact-contract gates. Their replacements
-are the authorization, guarded-content, adapter-correspondence, and
-generation-scoping gates named in
-[artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md#required-gates).
+  `MetadataTypeDefinitionAddress.TryResolve` validates MVID, token table, and
+  row bounds before returning a reader-bound handle.
+- `MetadataTypeDefinitionName` construction rejects malformed relationship
+  chains and empty components. Independently constructed equal names compare
+  and hash structurally and occupy one declaration/resolution cache entry.
+- `TypeResolutionRequestComparer` distinguishes all four start arms, requesting
+  registrations, structured identities, type names, and scopes exactly as the
+  frozen manifest does.
+- The focused
+  [binding selection/version models](models/binding-selection-version/README.md)
+  are bounded design evidence. Focused Release gates implement the
+  selection-side snapshot association, foreign-payload exclusion, and final
+  commit ordering; transforming-policy refresh, workspace retry, producer token
+  non-reuse, and full model-to-product correspondence remain unverified.
+- The focused
+  [binding name-ownership model](models/binding-name-ownership/README.md)
+  and its mapped Release gates remain the executable evidence for
+  miss-composition interactions.
+- The focused
+  [binding composition-currency model](models/binding-composition-currency/README.md)
+  is bounded design evidence for complete handoff and finalization
+  interactions; product correspondence remains unverified.
+- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`,
+  `AssemblyBindingMissDisposition_CompleteExhaustionRequired`, and
+  `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` prove that
+  only `NoNameOwner` advances through the concrete fixed chain, incomplete
+  evaluation cannot issue it, and every miss kind survives frozen reuse.
+- `ValidateForRequest_RejectsMissForIntrinsicTarget` and
+  `IntrinsicBindingMiss_IsRejectedBeforeFreezing` prove a target-invalid miss
+  cannot become the final intrinsic result or frozen Metadata evidence.
+- Reusing one acquisition registration yields one catalog candidate, inventory,
+  and demanded durable session. A separately minted registration remains a
+  distinct conservative candidate even when visible descriptor fields match.
+- Binding cache identity includes requesting origin and scope. Equal references
+  from different source domains cannot share policy or resolution outcomes.
+- `ResolvedTypeDefinitionKey` can be compared only by the issuing catalog.
+  Cross-catalog, stale-generation, and duplicate-artifact results remain typed;
+  public consumers cannot forge verdicts or hash raw keys.
+- `DefinitionJoinToken` and `UnresolvedBindingKey` are generation-scoped,
+  catalog-issued projections. Their equality and hashing include the issuing
+  catalog and generation, and stale or foreign inputs never receive issued
+  currency.
+- Type name, assembly identity, acquisition registration, candidate,
+  provenance, durable address, terminal definition, and forwarding hops remain
+  separate fields; no equality or display projection substitutes for another.
+- `TypeForwardingResolutionSafety.cfg` checks the fourteen resolver-state
+  invariants, and `TypeForwardingResolutionLiveness.cfg` checks terminal
+  progress. The six committed mutation configurations must fail their intended
+  scope, cycle, forwarder-success, terminal-ownership, invalid-image, and
+  binding-miss invariants.
 
 ### Metadata gates
 
@@ -4030,10 +2839,9 @@ generation-scoping gates named in
   `ExportedFromModule`, and the cross-assembly engine produces
   `UnsupportedModuleExport` carrying the same `ModuleFileReference`.
 - A decoded `ModuleRef` origin produces
-  `UnsupportedModuleReference(moduleName)` through `FromModule`; Analysis
-  neither manufactures the failure nor treats the name as an assembly.
-- A zero `#Strings` name index is rejected by name construction and retained as
-  undecidable by the caller prefilter.
+  `UnsupportedModuleReference(moduleName)` through `FromModule`; no consumer
+  manufactures the failure or treats the module name as an assembly.
+- A zero `#Strings` name index is rejected by name construction.
 - Intra-image `ExportedType` cycle.
 - Cross-assembly cycle.
 - Relationship-node and hop-budget exhaustion.
@@ -4045,180 +2853,23 @@ generation-scoping gates named in
   resolution recipes as well as binding outcomes; removing either reuse path
   causes the once-only probe or resolution count gate to fail.
 - A request outside the frozen manifest returns `PlanExpansionRequired`, and
-  presentation occurs only after the coordinator advances the generation.
+  no final operation result is exposed until the coordinator advances the
+  generation.
 - An absent frozen binding-only root returns
   `AssemblyBindingOutcome.ExpansionRequired`; type resolution maps that arm to
   `PlanExpansionRequired(Binding(request))`.
-
-### Consumer gates
-
-- `SignatureSpellability_BindsSubjectToSourceModule` creates a subject through
-  the catalog session and rejects cross-reader rows, wrong-table tokens,
-  declaring-type mismatches, and stale MVIDs before signature decode.
-- `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
-  function pointers, generic arguments, and modified types, and proves that a
-  rejected decode exposes no partial request set.
-- `SignatureSpellability_MapsClosedReferenceScopes` produces
-  `FromReference`, `FromAssembly`, direct primitive, and `FromModule` evidence
-  for the four `MetadataTypeReferenceScope` arms.
-- `SignatureSpellability_ResolvesCurrentAssemblyForwarder` proves that a
-  current-assembly occurrence can resolve through an exported-type chain and
-  does not default to a local spellable result.
-- `SignatureSpellability_RequiresLocalArtifactProof` proves that a
-  source-candidate definition remains `LocalRequirement` and that the
-  compatibility projection fails closed without the adjacent owner's typed
-  inclusion/nameability proof.
-- `SignatureSpellability_RetainsUnsupportedModuleReference` proves that a
-  module-scoped occurrence retains `UnsupportedModuleReference` and cannot
-  produce `CanSpell: true`.
-- `SignatureSpellability_DerivesInitialScopePerReference` combines a platform
-  reference and an ordinary package reference in one signature; the first is
-  `Platform`, the second remains `Any`, and a confusable local platform copy is
-  never selected.
-- `SignatureSpellability_MergesModifierParticipation` covers optional-only,
-  required-only, ordinary, and mixed duplicate occurrences. Resolution is
-  required for all; external accessibility is ignored only for an
-  optional-only modifier.
-- `SignatureSpellability_ResolvesNestedForwarderToAccessibleDefinition`
-  uses an external-only signature and proves that a nested exported-type
-  implementation chain reaches an accessible terminal nested `TypeDef` and
-  produces `CanSpell: true`; removing the bounded chain walk or returning a
-  constant false verdict makes the gate fail.
-- `SignatureSpellability_RejectsMissingForwarderTarget` proves that a
-  forwarding row without a bindable terminal assembly retains
-  `UnboundBinding` and cannot produce `CanSpell: true`.
-- `SignatureSpellability_RejectsForwarderTargetMissingType` distinguishes a
-  bound target whose declaration probe returns `NotFound` from a valid
-  forwarded definition.
-- `SignatureSpellability_RejectsInaccessibleTerminalDefinition` proves that
-  terminal top-level and nested visibility, rather than the forwarding row,
-  controls external accessibility.
-- `SignatureSpellability_RejectsInvalidAccessibilityKey` proves that a
-  cross-catalog or stale-generation definition key cannot borrow an
-  accessibility result.
-- `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
-  terminal candidate opener to fail after resolution records its completed
-  inventory and durable-session open count, then proves that accessibility
-  succeeds without increasing that count.
-- `SignatureSpellability_RetainsResolutionFailureKinds` covers ambiguous
-  binding/declaration, malformed nested chains, forwarding cycles, candidate
-  open failure, and relationship/hop-budget exhaustion without collapsing
-  them into one empty or successful result.
-- `SignatureSpellability_UsesCatalogBindingPolicy` proves that exact and
-  version-unified results follow the supplied policy and that removing the
-  legacy local version retry does not change policy-owned outcomes.
-- `SignatureSpellability_ExpandsPlanBeforeVerdict` is the non-vacuity gate for
-  manifest wiring: removing signature-request discovery produces
-  `PlanExpansionRequired`, never a spellable verdict.
-- `SignatureSpellability_CachesResolutionPerRequestAndAccessibilityPerDefinition`
-  proves one resolution per distinct request, one accessibility walk when
-  aliasing requests reach one terminal candidate/token, and no stale reuse by a
-  replacement generation.
-- The `System.Xml.ReaderWriter` to `System.Private.Xml` real-artifact caller
-  resolves through the real platform adapter as `SameDefinition`, not merely
-  as an indeterminate caller retained by a conservative prefilter.
-- Same simple name with a different token does not match.
-- Different culture does not match.
-- An ambiguous local scope does not fabricate a caller.
-- An indeterminate relation is not rejected by a prefilter.
-- A candidate with no matching structured type name is rejected without
-  forwarder resolution.
-- A candidate whose `TypeRef` or `TypeDef` enumeration fails is retained as an
-  indeterminate candidate in both direct and graph projections; the
-  no-matching-name negative gate applies only to complete readable
-  enumerations.
-- A candidate with a matching name through any assembly spelling reaches the
-  shared resolver.
-- A same-named type from another assembly passes the name-only prefilter but is
-  rejected by resolved definition correspondence; the current
-  assembly-sensitive prefilter pins move to this end-to-end gate.
-- Two local or project binding domains resolve the same `AssemblyRef` to their
-  respective private copies without sharing a binding outcome or candidate.
-- A candidate's identity, references, and forwarding inventory are decoded
-  once from its snapshot; opening a later durable session does not decode them
-  again.
-- Resolution caches distinguish origins that structural `TypeRef` equality
-  canonicalizes together.
-- Two source candidates carrying the same structured name and equal
-  `CurrentAssembly`, `IntrinsicCoreLibrary`, `ModuleReference`, or
-  `AssemblyReference` origin values do not share a caller-resolution cache
-  entry.
-- Intrinsic, nil, module, and assembly reference origins remain distinct.
-- The target candidate's own `TypeDef` is retained without a `TypeRef`.
-- A duplicate candidate that the catalog cannot unify is indeterminate rather
-  than same or different by spelling.
-- Direct callers and graph joins report the same catalog-owned
-  duplicate-artifact evidence; neither hashes raw definition keys or drops the
-  edge.
-- A three-copy duplicate class receives one generation-stable indeterminate join
-  token and class-scoped evidence regardless of discovery order.
-- A version-skewed local `--bin` reference is an explicit
-  `IdentityPolicyRequired` incomplete result, not a version-blind caller or an
-  authoritative empty answer.
-- Trusted platform roll-forward resolves the forwarded `XmlReader` fixture even
-  when the generic local resolver's roll-forward default is disabled.
-- A facade outside the caller scope seeds a direct caller through typed
-  resolution, and reverse closure retains callers above it.
-- Every scope-candidate `AssemblyRef` needed for reverse adjacency is present
-  as a binding-only root before freeze; deleting those roots fails the
-  depth-two reverse-closure fixture and the adjacency call-count pin.
-- A scope candidate whose only possible route is an adjacency binding reported
-  `Missing` remains an indeterminate seed, and reverse closure retains callers
-  above it.
-- A scope candidate references a facade only for a non-target type, the facade
-  is outside the scope and forwards to the target assembly, and a caller above
-  that candidate remains reachable through
-  `caller -> facade -> implementation`; the candidate is not a direct seed.
-- An unreadable selected facade retains its incoming scope carrier as an
-  indeterminate seed, so callers above the carrier are not truncated. The
-  fixture supplies verified inventory identity and a failing opener; an
-  unidentifiable local file instead fails before selection as
-  `CandidateUnavailable`.
-- A scope candidate that references only an unrelated type in a separately
-  registered duplicate of the target assembly remains reachable because every
-  candidate in the target's duplicate-artifact correspondence class is a graph
-  root.
-- A depth-two graph caller that reaches the selected member through another
-  method in the target assembly is retained even though it never names the
-  target type.
-- Rendering `Call Graph` before `Callers` and in the opposite order produces
-  the same direct caller set.
-- Discovering an additional candidate advances the catalog generation,
-  invalidates old contexts and graph tokens, and rebuilds instead of
-  reclassifying a token.
-- Fixed-point discovery terminates for stable registrations regardless of root
-  order, and a policy that continually mints registrations reaches the
-  candidate budget and returns `DiscoveryBudgetExceeded`.
-- A completed non-success cached in one generation is not replayed after
-  candidate discovery advances the generation.
-- Definitely unopenable, unknown, unknown-reference, and known-but-ruled-out
-  candidates preserve the current caller-tree builder choice.
-- A cross-catalog definition comparison is a typed mismatch, not `false`.
-- Within one source candidate, a scope without platform acquisition joins the
-  same complete unavailable binding request as an explicitly indeterminate
-  edge; equal requests from different source candidates remain distinct and
-  surface the compatibility diagnostic.
-- Current canonical-simple-name-only joins with different versions, cultures,
-  tokens, or unsupported local facade identities no longer join; both storage
-  nodes and the compatibility diagnostic remain visible.
-- Ambiguous, rejected, and cross-catalog graph types remain visible and cannot
-  join through a shared key.
-- Forwarded declaring, parameter, and return types use resolved correspondence.
-- `Callers` and `Call Graph` agree after the graph migration.
-- Forwarded source acquisition opens the resolver-selected descriptor.
-- Platform type-to-library lookup is deterministic under multiple definition or
-  forwarder candidates and returns typed ambiguity.
-- Unqualified and generic platform patterns retain the current `INumber<T>` and
-  `List`/`List\`1` lookup behavior through `PlatformTypeLookupPattern`.
-- Platform lookup retains case-insensitive, nested `+`/`.`, and primitive-alias
-  behavior.
-- Parallel analysis performs one inventory read per candidate, opens at most
-  one demanded durable session, and shares each declaration probe
-  single-flight.
-- A scope wider than the process file-handle limit still holds at most
-  `MaxConcurrentSourceOpens` source streams, releases every adjacency-only
-  stream, and reports retained-image budget exhaustion as
-  `CandidateOpenFailureKind.ResourceBudget`.
+- `FrozenContext_IsConcurrentAndDoesNotReinvokePolicy`,
+  `Register_ConcurrentSameDescriptor_IsSingleFlight`, and
+  `Session_IsLazySingleFlightPrefetchedAndPlanOwned` prove concurrent
+  resolution performs one policy selection, inventory read, retained-session
+  open, and declaration result per shared key.
+- `Register_SourceOpenConcurrencyNeverExceedsPlanLimit` proves a candidate set
+  wider than the process file-handle limit still holds at most
+  `MaxConcurrentSourceOpens` source streams and releases them after
+  construction.
+- `Session_RetainedImageBudgetReturnsTypedFailure` and the type-resolution
+  resource-budget gate prove retained-image exhaustion remains
+  `CandidateOpenFailureKind.ResourceBudget`, not a partial or empty answer.
 
 ### Architecture gates
 
@@ -4228,46 +2879,26 @@ Prefer dependency and visibility constraints over source scans:
   forwarder declaration for resolution;
 - the cross-assembly engine is the only product API that follows hops;
 - `ResolvedTypeDefinitionKey` has no value equality available to consumers;
-  graph correspondence can hash only catalog-issued join tokens and all other
-  correspondence goes through the catalog comparison API;
-- candidate ids and join-token constructors are internal, and the internal
-  `CatalogMemberJoinKey` factory accepts only catalog-issued
-  `DefinitionJoinToken` or `UnresolvedBindingKey` values;
+  correspondence goes through the catalog comparison API or a catalog-issued
+  projection;
+- candidate ids and projection constructors are internal;
 - external policy assemblies implement `IAssemblyBindingPolicy` without
   `InternalsVisibleTo`; only the Metadata adapter constructs
   `AssemblyBindingOutcome`, and every policy request carries an explicit
   `AssemblyBindingOrigin`;
 - correspondence-bearing result bases use `private protected` constructors and
   every verdict arm uses an internal constructor;
-- Analysis and the CLI cannot access the probe's reader-backed internals;
+- engine-layer consumers cannot access the probe's reader-backed internals;
 - path-only compatibility adapters are internal and deleted with their final
   consumer.
 
-`GraphCorrespondenceArchitectureTests` is the named narrow source/API-usage gate
-for the intentionally public durable address: it fails if graph key or join
-factories consume `ResolvedTypeDefinitionKey`,
-`MetadataTypeDefinitionAddress`, `TypeDefinitionToken`,
-`ResolvedAssemblyReference`, `AssemblyAcquisitionRegistration`, or descriptor
-provenance. Visibility cannot own that part because durable addresses are
-public by design.
-
-`DefinitionCorrespondenceUsageTests` rejects product uses of equality or
-hashing over `ResolvedTypeDefinitionKey`, `ResolvedTypeDefinition`,
-`TypeResolutionOutcome`, `DefinitionCorrespondence`,
-`TypeCorrespondenceFailure`, `CandidateTypeRelation`,
-`TypeDeclarationResult`, or `TypeDeclarationCandidate`; the catalog comparison
-and join-token APIs are the only semantic correspondence surfaces. It also
-rejects `MetadataTypeDefinitionAddress` or bare `TypeDefinitionToken` equality
-in caller, source, API, and graph correspondence producers; those value
-equalities remain allowed only inside one known candidate for
-durable-coordinate handling, declaration probing, and reader-validation code.
-The same gate treats `TypeForwardingHop`, `DuplicateArtifactEvidence`, and
-`DuplicateArtifactCandidateEvidence` as evidence-only classes, never identity
-or correspondence keys. Outside the catalog's registration map and
-acquisition-policy domain routing, it also rejects equality or hashing over
-`ResolvedAssemblyReference` or `AssemblyAcquisitionRegistration`; acquisition
-owners retain handles, and other consumers do not compare them to infer
-correspondence.
+`GraphCorrespondenceArchitectureTests` and
+`DefinitionCorrespondenceUsageTests` are downstream architecture canaries for
+this boundary. They reject semantic equality or hashing over raw resolution
+outcomes, keys, addresses, tokens, hops, descriptors, registrations, and
+evidence classes where the catalog comparison or projection API is required.
+Public durability does not make an address correspondence currency, and
+evidence does not become identity.
 
 A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
@@ -4277,17 +2908,16 @@ Every asserted property names a test that fails when the relevant call site,
 result arm, bound, or discriminator is removed. Existence-only tests do not
 count.
 
-## Disposition of current work
+## Disposition of prior work
 
-- Keep #3437 as the working substrate until Slice 2 replaces its implementation
-  behind the structured contract.
+- #3437 established the working traversal substrate that the structured
+  contract subsequently replaced.
 - Leave #3449 closed.
 - Preserve #3476's real-artifact fixtures, hostile cases, measurements, and
   review findings as requirements. Do not make its alias engine the product
   architecture.
-- Split #3460's general path hardening from forwarder resolution. The
-  forwarder-specific sinks are removed by Slice 4 rather than permanently
-  guarded in place.
+- Keep #3460's general path hardening separate from forwarder resolution.
+  Structured consumers do not construct sibling paths from forwarding targets.
 
 The open issues found during #3476 become model requirements:
 

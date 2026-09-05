@@ -25,6 +25,32 @@ public class CallGraphProjectionTests
     static MemberRef Member(string typeName, string method, params TypeRef[] parameters)
         => new(Type(typeName), method, [.. parameters], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
 
+    static MemberRef ReferencedMember(
+        AssemblyReferenceIdentity assembly,
+        string typeName,
+        string method)
+    {
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    [typeName]))
+            .Name;
+        TypeRef type = TypeRef.Definition(
+            assembly.Name,
+            "Sample",
+            typeName,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(assembly),
+                name));
+        return new(
+            type,
+            method,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+    }
+
     static CallTreePerf Perf(bool inLoop, string? loopHint)
         => new(0, 0, 1, inLoop, loopHint);
 
@@ -403,6 +429,57 @@ public class CallGraphProjectionTests
             site =>
                 site.EdgeId == row.Number - 1
                 && site.Call == second);
+    }
+
+    [Fact]
+    public void FindCalleeTargetRestoresVersionDistinctOccurrenceIdentity()
+    {
+        var v1 = new AssemblyReferenceIdentity(
+            "Versioned.Target",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var v2 = v1 with { Version = new Version(2, 0, 0, 0) };
+        MemberRef focus = Member("Target", "Run");
+        MemberRef calleeV1 = ReferencedMember(v1, "Svc", "Do");
+        MemberRef calleeV2 = ReferencedMember(v2, "Svc", "Do");
+        DirectCall first = Call(focus, calleeV1, 4);
+        DirectCall second = Call(focus, calleeV2, 8);
+        CallTreeNode root = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(calleeV1) with
+                {
+                    DefinitionAssemblyIdentity = v1,
+                    ResolutionAssemblyIdentity = v1,
+                    ParentEdgeCallSites = [first],
+                },
+                Leaf(calleeV2) with
+                {
+                    ResolutionAssemblyIdentity = v2,
+                    ParentEdgeCallSites = [second],
+                },
+            ]);
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(root);
+
+        Assert.Equal(
+            CallGraphRowMatch.Found,
+            projection.FindFocusCalleeTarget(
+                first,
+                out CallGraphNode firstTarget));
+        Assert.Equal(v1, firstTarget.DefinitionAssemblyIdentity);
+        Assert.Equal(v1, firstTarget.OccurrenceAssemblyIdentity);
+
+        Assert.Equal(
+            CallGraphRowMatch.Found,
+            projection.FindFocusCalleeTarget(
+                second,
+                out CallGraphNode secondTarget));
+        Assert.Null(secondTarget.DefinitionAssemblyIdentity);
+        Assert.Equal(v2, secondTarget.OccurrenceAssemblyIdentity);
+        Assert.Same(calleeV2, secondTarget.Member);
     }
 
     [Fact]

@@ -23,99 +23,9 @@ namespace DotnetInspector.Commands;
 
 /// <summary>
 /// Shared helpers for type and member commands.
-/// Also provides a compatibility shim for callers that use ApiCommand.ExecuteAsync directly.
 /// </summary>
 public class ApiCommand
 {
-    public const string Name = "api";
-
-    // ===== Compatibility Shim =====
-
-    public static Task<int> ExecuteAsync(ApiOptions options) => options switch
-    {
-        MemberOptions mo => MemberCommand.ExecuteAsync(mo),
-        TypeOptions to => TypeCommand.ExecuteAsync(to),
-        _ => TypeCommand.ExecuteAsync(ToTypeOptions(options))
-    };
-
-    internal static string? GetDeferredTypeIncompatibleOption(
-        MemberOptions options)
-    {
-        if (options.Focus is not null) return "--focus";
-        if (options.OverloadIndexExplicitlySet) return "--index";
-        if (options.CtorOnly) return "--ctor";
-        if (options.CallerScopeDirectories.Length > 0) return "--bin";
-        if (options.CallerScopePackages.Length > 0) return "--caller-package";
-        if (options.SourceRepositories.Length > 0) return "--repo";
-        if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";
-        return null;
-    }
-
-    internal static TypeOptions ToTypeOptions(ApiOptions options)
-    {
-        var (memberFilter, memberLimit) = options is MemberOptions
-            {
-                RouterDeferredTypeOrMember: true
-            } memberOptions
-            ? SharedParsers.ParseMemberFilter(
-                memberOptions.RouterDeferredTypeMemberValues)
-            : (options.MemberFilter, options.Limit);
-        return new()
-        {
-            TypeName = options.TypeName, PackagePath = options.PackagePath,
-            PackageRangeAddress = options.PackageRangeAddress,
-            AssemblyPath = options.AssemblyPath,
-            PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
-            ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
-            SourceRepositories = options.SourceRepositories,
-            Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
-            ShowDocs = options is MemberOptions
-                {
-                    RouterDeferredTypeOrMember: true,
-                    DocsExplicitlySet: false
-                }
-                    ? false
-                    : options.ShowDocs,
-            DocsExplicitlySet = options.DocsExplicitlySet,
-            UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
-            BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
-            JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
-            Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
-            TabularExplicitlySet = options.TabularExplicitlySet,
-            FormatExplicitlySet = options.FormatExplicitlySet,
-            FormatFlagExplicitlySet = options.FormatFlagExplicitlySet,
-            MarkdownExplicitlySet = options.MarkdownExplicitlySet,
-            Format = options.Format,
-            PlainText = options.PlainText,
-            MermaidOutput = options.MermaidOutput,
-            EmbeddedMermaid = options.EmbeddedMermaid,
-            Bare = options.Bare,
-            NoHeader = options.NoHeader, Limit = memberLimit, MemberLimit = memberLimit,
-            MemberFilter = memberFilter,
-            KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
-            IncludeSections = options.IncludeSections,
-            ExactIncludeSectionsOverride = options.ExactIncludeSectionsOverride,
-            Print = options.Print, PrintRow = options.PrintRow,
-            Value = options.Value, Urls = options.Urls, Paths = options.Paths,
-            Select = options.Select, SelectDefault = options.SelectDefault,
-            Columns = options.Columns, Fields = options.Fields,
-            Discover = options.Discover, Tree = options.Tree,
-            ShapeOutput = options.ShapeOutput,
-            ShapeExplicitlySet = options.ShapeExplicitlySet,
-            Schema = options.Schema, Count = options.Count, Rows = options.Rows,
-            JsonArray = options.JsonArray,
-            PerformanceTriage = options.PerformanceTriage,
-            BodyKindQuery = options.BodyKindQuery,
-            SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
-            RenderConfigWarnings = options.RenderConfigWarnings,
-            RequestAllTaste = options.RequestAllTaste,
-            RequestReadableLocalNames = options.RequestReadableLocalNames,
-            DllPath = options.DllPath,
-            PdbPath = options.PdbPath
-        };
-    }
-
     internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
@@ -427,9 +337,7 @@ public class ApiCommand
         // Selected member details join the fixed overview here: Signature is bounded, while the
         // former info preset also included Decompiled Source and therefore grew with the method
         // body. Broad member lists and member-name overload inventories retain their own compact
-        // summary presets; they need separate bounded overview designs. The deprecated `api` shim
-        // reaches this preamble too but renders nothing at all -- it prints a migration notice and
-        // returns -- so it has no bare -S to convert. See #3547.
+        // summary presets; they need separate bounded overview designs. See #3547.
         //
         // Type listing joins here as of this slice. It previously had no Fixed section to offer --
         // every section it published was a per-kind member table that grows with the assembly -- so
@@ -1339,21 +1247,83 @@ public class ApiCommand
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken = default)
+        => await TryAcquirePdbPathCoreAsync(
+            dllPath,
+            sourceAssembly: null,
+            options,
+            logger,
+            httpClient,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<string?> TryAcquirePdbPathAsync(
+        string dllPath,
+        ResolvedAssemblyReference sourceAssembly,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
+        => await TryAcquirePdbPathCoreAsync(
+            dllPath,
+            sourceAssembly,
+            options,
+            logger,
+            httpClient,
+            cancellationToken,
+            fallbackPackageName,
+            fallbackPackageVersion).ConfigureAwait(false);
+
+    static async Task<string?> TryAcquirePdbPathCoreAsync(
+        string dllPath,
+        ResolvedAssemblyReference? sourceAssembly,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            using var service = sourceAssembly is null
+                ? SourceLinkService.Open(dllPath, logger.Log)
+                : SourceLinkService.Open(sourceAssembly, logger.Log);
             var context = service.Context;
             if (context.NeedsPdb)
             {
                 var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
-                await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                    sourceOptions: options.SourceOptions,
-                    cancellationToken: cancellationToken);
+                pkgName = fallbackPackageName ?? pkgName;
+                pkgVersion = fallbackPackageVersion ?? pkgVersion;
+                if (sourceAssembly is null)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        httpClient,
+                        pkgName,
+                        pkgVersion,
+                        isPlatformAssembly:
+                            !string.IsNullOrEmpty(
+                                options.PlatformAssembly),
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        sourceAssembly,
+                        httpClient,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        cancellationToken: cancellationToken,
+                        fallbackPackageName: pkgName,
+                        fallbackPackageVersion: pkgVersion);
+                }
             }
             return context.PortablePdbPath;
         }
@@ -1361,7 +1331,7 @@ public class ApiCommand
         {
             throw;
         }
-        catch
+        catch when (sourceAssembly is null)
         {
             return null;
         }
@@ -1907,7 +1877,10 @@ public class ApiCommand
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
         bool publicOnly = true, int sourceMetadataToken = 0,
-        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
+        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0,
+        ResolvedAssemblyReference? sourceAssembly = null,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         try
         {
@@ -1944,11 +1917,33 @@ public class ApiCommand
                 var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
+                pkgName = fallbackPackageName ?? pkgName;
+                pkgVersion = fallbackPackageVersion ?? pkgVersion;
 
-                await SourceEnricher.AcquirePdbAsync(context, httpClient,
-                    pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                    sourceOptions: options.SourceOptions);
+                if (sourceAssembly is null)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        httpClient,
+                        pkgName,
+                        pkgVersion,
+                        isPlatformAssembly:
+                            !string.IsNullOrEmpty(
+                                options.PlatformAssembly),
+                        logger.Log,
+                        sourceOptions: options.SourceOptions);
+                }
+                else
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        sourceAssembly,
+                        httpClient,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        fallbackPackageName: pkgName,
+                        fallbackPackageVersion: pkgVersion);
+                }
             }
 
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local
@@ -2502,7 +2497,7 @@ public class ApiCommand
                 options is MemberOptions { MemberSourceTooComplex: true },
                 options is MemberOptions { MemberSourceCoordinatesInvalid: true },
                 (options as MemberOptions)?.MethodSource,
-                options.UserVerbosity < Verbosity.Detailed);
+                options.UserVerbosity >= Verbosity.Detailed);
 
         }
 
@@ -2725,6 +2720,7 @@ public class ApiCommand
                     Row: index + 1,
                     Label: (string?)row.Url,
                     Url: (string?)row.Url,
+                    row.FilePath,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);
@@ -2738,6 +2734,7 @@ public class ApiCommand
                     Row: index + 1,
                     Label: (string?)row.File ?? row.Url,
                     Url: row.Url,
+                    FilePath: row.FilePath,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);
@@ -2748,7 +2745,7 @@ public class ApiCommand
             SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode?.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
@@ -2940,6 +2937,7 @@ public class ApiCommand
             int Row,
             string? Label,
             string? Url,
+            string? FilePath,
             byte[]? Checksum,
             string? ChecksumAlgorithm)>? rows,
         ApiOptions options)
@@ -2958,11 +2956,13 @@ public class ApiCommand
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
             fetcher,
+            selectedSource.FilePath,
             rawUrl,
             selectedSource.ChecksumAlgorithm,
-            selectedSource.Checksum);
+            selectedSource.Checksum,
+            options.SourceRepositories);
         if (fetch.Text is null)
         {
             CommandError.Write(
@@ -3009,7 +3009,7 @@ public class ApiCommand
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
-            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode.Content ?? "",
+            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode?.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
             SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
             SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
@@ -3342,7 +3342,7 @@ public class ApiCommand
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid,
                     memberOptions.MethodSource,
-                    memberOptions.UserVerbosity < Verbosity.Detailed);
+                    memberOptions.UserVerbosity >= Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
@@ -3501,7 +3501,7 @@ public class ApiCommand
         bool sourceTooComplex,
         bool sourceCoordinatesInvalid,
         MethodSourceContext? source,
-        bool reviewerSized)
+        bool detailed)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -3509,29 +3509,27 @@ public class ApiCommand
         view.MemberCode ??= new MemberCodeView();
         if (sourceTooComplex)
         {
-            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-                "diff",
-                "# PDB Source unavailable because PDB source extraction exceeded "
+            view.MemberCode.SourceDiffCode = new SourceDiffOutput(
+                "PDB Source unavailable because PDB source extraction exceeded "
                 + "the lexical complexity limit.");
             return;
         }
         if (sourceCoordinatesInvalid)
         {
-            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-                "diff",
-                "# PDB Source unavailable because portable-PDB sequence-point coordinates "
+            view.MemberCode.SourceDiffCode = new SourceDiffOutput(
+                "PDB Source unavailable because portable-PDB sequence-point coordinates "
                 + "cannot address the verified source.");
             return;
         }
 
-        string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
+        SourceDiffOutput diff = SourceTextDiffRenderer.CreateOutput(
                 // The unavailable note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
                 view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 SectionNames.PdbSource,
                 "Decompiled Source",
-                reviewerSized);
+                detailed);
         if (source is { HasChecksumEvidence: true })
         {
             string location = CSharpText.CSharpIdentifier.ContainRenderedText(
@@ -3549,12 +3547,12 @@ public class ApiCommand
                     + "after CR/LF normalization.",
                 _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
             };
-            diff = $"# PDB source: {location}\n"
-                + $"# Integrity: {integrity}\n"
-                + diff;
+            diff = diff.WithMetadata(
+                new Markout.MarkoutField("PDB source", location),
+                new Markout.MarkoutField("Integrity", integrity));
         }
 
-        view.MemberCode.SourceDiffCode = new Markout.CodeSection("diff", diff);
+        view.MemberCode.SourceDiffCode = diff;
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
@@ -3598,6 +3596,8 @@ public class ApiCommand
                 IntroducedTypeParameterCounts =
                     type.IntroducedTypeParameterCounts,
                 Kind = type.Kind,
+                Layout = type.Layout,
+                MemorySafety = type.MemorySafety,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
                 IsStatic = type.IsStatic,
@@ -3745,6 +3745,8 @@ public class ApiCommand
             IntroducedTypeParameterCounts =
                 type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
+            Layout = type.Layout,
+            MemorySafety = type.MemorySafety,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,

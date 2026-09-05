@@ -58,6 +58,10 @@ public class TypeView
 
     [MarkoutIgnore]
     [JsonIgnore]
+    internal string? SourceFilePath { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
     internal byte[]? SourceChecksum { get; set; }
 
     [MarkoutIgnore]
@@ -333,6 +337,7 @@ public class TypeView
         {
             rows.Add(new TypeSourceFileRow(SourceUrl)
             {
+                FilePath = SourceFilePath,
                 Checksum = SourceChecksum,
                 ChecksumAlgorithm = SourceChecksumAlgorithm,
             });
@@ -342,6 +347,7 @@ public class TypeView
                 .Where(file => file.SourceUrl != null)
                 .Select(file => new TypeSourceFileRow(file.SourceUrl!)
                 {
+                    FilePath = file.FilePath,
                     Checksum = file.SourceChecksum,
                     ChecksumAlgorithm = file.SourceChecksumAlgorithm,
                 }));
@@ -869,6 +875,10 @@ public record TypeSourceFileRow(string Url)
 
     [MarkoutIgnore]
     [JsonIgnore]
+    internal string? FilePath { get; init; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
     internal byte[]? Checksum { get; init; }
 
     [MarkoutIgnore]
@@ -901,6 +911,10 @@ public record MemberSourceLocationRow(
     public int? EndLine { get; init; } = EndLine;
     [MarkoutSkipNull]
     public string? Url { get; init; } = Contain(Url);
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal string? FilePath { get; init; }
 
     [MarkoutIgnore]
     [JsonIgnore]
@@ -1179,7 +1193,7 @@ public class MemberCodeView
     public bool PdbSourceUnavailable { get; set; }
 
     [MarkoutSection(Name = SectionNames.SourceDiff)]
-    public CodeSection SourceDiffCode { get; set; }
+    public SourceDiffOutput? SourceDiffCode { get; set; }
 
     [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
     [MarkoutIgnoreColumnWhen(nameof(CallEvidenceMethodIsEmpty), nameof(CallSiteRow.EvidenceMethod))]

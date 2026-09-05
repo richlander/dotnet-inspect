@@ -123,7 +123,9 @@ public sealed class PackagePayloadAcquisitionTests
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(new FailingHandler());
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(1),
@@ -141,6 +143,7 @@ public sealed class PackagePayloadAcquisitionTests
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
                 () => PackagePayloadAcquisition.AcquireAsync(
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     PackageSourceCoordinate.Create(PackageId, Version),
                     store,
                     cancellationToken:
@@ -708,6 +711,61 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(globalRoot, recursive: true);
             if (Directory.Exists(stagingRoot))
                 Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Dependency resolution can find a forwarded target in the default global-packages root
+    /// while an explicit <c>NUGET_PACKAGES</c> override is active. Exact package replay must
+    /// consult that same secondary root rather than declaring the retained package unavailable.
+    /// </summary>
+    [Fact]
+    public void ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot()
+    {
+        string cacheRoot = TempDirectory();
+        string primaryRoot = TempDirectory();
+        string secondaryRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string packageDirectory = Path.Combine(
+                secondaryRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(packageDirectory);
+            File.WriteAllText(
+                Path.Combine(packageDirectory, ".nupkg.metadata"),
+                $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            File.WriteAllBytes(
+                Path.Combine(
+                    packageDirectory,
+                    $"{PackageId.ToLowerInvariant()}.{Version.ToLowerInvariant()}.nupkg"),
+                [1]);
+
+            IReadOnlyList<CachedPackage> listed =
+                NuGetCache.ListCachedPackageContent(
+                    PackageId,
+                    Version,
+                    [sourceKey],
+                    globalPackagesPaths: [primaryRoot, secondaryRoot]);
+
+            CachedPackage package = Assert.Single(listed);
+            Assert.Equal(packageDirectory, package.ExtractPath);
+            Assert.Equal(sourceKey, package.ProducerKey);
+            Assert.False(package.RequiresArchiveTreeMatch);
+        }
+        finally
+        {
+            foreach (string directory in
+                new[] { cacheRoot, primaryRoot, secondaryRoot })
+            {
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
@@ -2153,11 +2211,13 @@ public sealed class PackagePayloadAcquisitionTests
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromMilliseconds(40),
-            OperationTimeout = TimeSpan.FromSeconds(1),
+            // If both bounds elapse, Operation correctly wins.
+            OperationTimeout = TimeSpan.FromSeconds(30),
         };
         var store = new InMemoryPackageStore();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 new GalleryPayloadHandler(
                     () => new StreamContent(
                         new StallingStream())),
@@ -2171,13 +2231,14 @@ public sealed class PackagePayloadAcquisitionTests
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => PackagePayloadAcquisition.AcquireAsync(
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     PackageSourceCoordinate.Create(PackageId, Version),
                     store,
                     cancellationToken:
                         TestContext.Current.CancellationToken,
                     operationContext: operation));
 
-        Assert.Equal(source.Identity, error.Producer);
+        Assert.Same(source.Source, error.ResultSource);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.Equal(
             new PackageSourceTimeout(
@@ -2508,6 +2569,184 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.True(bodyRead);
         Assert.True(policy.Reservation.Completed);
         Assert.True(policy.Reservation.Disposed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_AwaitsCapacityBeforeReadingPayload(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new RecordingTransferPolicy(
+            onReserve: transfer => Assert.Equal(nupkg.LongLength, transfer.AdvertisedLength),
+            onComplete: () => Assert.Equal(1, store.Commits),
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.False(acquisition.IsCompleted);
+        Assert.False(bodyRead);
+        Assert.True(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+
+        release.SetResult();
+        await acquisition;
+
+        Assert.True(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.True(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_CancellationWhileAwaitingCapacityClosesPayload(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new RecordingTransferPolicy(
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, cancellation.Token);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.False(bodyRead);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => acquisition);
+
+        Assert.False(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+        Assert.False(policy.Reservation.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_AsyncRefusalClosesUnreadPayload(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refusal = new InvalidOperationException("No retained capacity is available.");
+        var policy = new RecordingTransferPolicy(
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+                throw refusal;
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        release.SetResult();
+        Assert.Same(refusal,
+            await Assert.ThrowsAsync<InvalidOperationException>(() => acquisition));
+
+        Assert.False(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+        Assert.False(policy.Reservation.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_CancellationAtCapacityHandoffReleasesReservation(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new RecordingTransferPolicy(
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+                cancellation.Cancel();
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, cancellation.Token);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        release.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => acquisition);
+
+        Assert.False(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+        Assert.False(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+    }
+
+    static async Task AcquireWithTransferPolicyAsync(
+        bool typedSource,
+        MemoryStream payload,
+        IPackageStore store,
+        IPackagePayloadTransferPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        HttpContent Content()
+        {
+            var content = new StreamContent(payload);
+            content.Headers.ContentLength = payload.Length;
+            return content;
+        }
+
+        if (typedSource)
+        {
+            using IPackageSourceClient source =
+                PackageSourceClientFactory.CreateGallery(
+                    PackageSourceAssociation.Create(),
+                    new GalleryPayloadHandler(Content));
+            Assert.IsType<PackageSourcePayloadResult.Acquired>(
+                await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    PackageSourceIdentity.NuGetOrg,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    store,
+                    cancellationToken: cancellationToken,
+                    transferPolicy: policy));
+        }
+        else
+        {
+            using var client = new HttpClient(new NuGetOrgHandler(Content));
+            Assert.IsType<PackagePayloadResult.Acquired>(
+                await PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    store,
+                    cancellationToken: cancellationToken,
+                    transferPolicy: policy));
+        }
     }
 
     // The reservation the host makes from the advertised length is the allocation the body read
@@ -3030,15 +3269,19 @@ public sealed class PackagePayloadAcquisitionTests
 
     sealed class RecordingTransferPolicy(
         Action<PackagePayloadTransfer>? onReserve = null,
-        Action? onComplete = null)
+        Action? onComplete = null,
+        Func<CancellationToken, Task>? beforeReserve = null)
         : IPackagePayloadTransferPolicy
     {
         internal RecordingReservation Reservation { get; } =
             new(onComplete);
 
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer)
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default)
         {
+            if (beforeReserve is not null)
+                await beforeReserve(cancellationToken);
             onReserve?.Invoke(transfer);
             return Reservation;
         }

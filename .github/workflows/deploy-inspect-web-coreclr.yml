@@ -1,17 +1,15 @@
 name: Deploy inspect-web CoreCLR staging
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Deploy inspect-web staging
+    types:
+      - completed
 
 permissions:
+  actions: read
   contents: read
-
-concurrency:
-  group: deploy-inspect-web-coreclr-staging
-  cancel-in-progress: true
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -19,20 +17,62 @@ env:
   DOTNET_SDK_VERSION: '11.0.100-preview.7.26381.103'
 
 jobs:
-  build:
-    name: Build CoreCLR staging artifact
-    if: github.ref == 'refs/heads/main'
+  publish:
+    name: Build and publish latest CoreCLR staging
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.event == 'push'
+    concurrency:
+      group: deploy-inspect-web-coreclr-staging
+      cancel-in-progress: true
+    environment:
+      name: inspect-web-coreclr-staging
+      url: https://coreclr.dotnet-inspect.ca
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Resolve latest successful staging run
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          latest=$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
+              -f branch=main \
+              -f event=push \
+              -f status=success \
+              -f per_page=100 \
+              --jq '.workflow_runs | max_by(.run_number) | [.id, .head_sha] | @tsv'
+          )
+          IFS=$'\t' read -r run_id head_sha <<< "$latest"
+          test -n "$run_id"
+          test -n "$head_sha"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.latest.outputs.head_sha }}
+
+      - name: Download compiler-async staging artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-site
+          path: artifacts/inspect-web-compiler-publish
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.latest.outputs.run_id }}
+          digest-mismatch: error
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           cache: npm
@@ -60,7 +100,7 @@ jobs:
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             -p:VersionPrefix="$version" \
-            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:SourceRevisionId="${{ steps.latest.outputs.head_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
@@ -97,10 +137,78 @@ jobs:
           index="$site/index.html"
           receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
           test -f "$index"
-          jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
-          webcil=$(jq -r '.published_webcil_file' "$receipt")
-          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
-          test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
+          jq -e '
+            .schema == 5
+            and .method == "InspectionEngine.AsyncLoweringCanary"
+            and .lowering == "runtime"
+            and .result == "inspect-web-async-lowering-ok"
+            and .facade_count == 7
+            and .assembly_count == 7
+            and .js_export_method_count == 48
+            and .async_method_count > 0
+            and .compiler_async_method_count == 0
+            and .runtime_async_method_count == .async_method_count
+            and .repository_project_count > 0
+            and (.repository_projects | length) == .repository_project_count
+            and .repository_projects == (.repository_projects | sort | unique)
+            and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
+            and ([.assemblies[].name] == [
+              "InspectWeb.Engine",
+              "InspectWeb.Engine.AnalysisExports",
+              "InspectWeb.Engine.CallGraphExports",
+              "InspectWeb.Engine.CatalogExports",
+              "InspectWeb.Engine.MetadataExports",
+              "InspectWeb.Engine.PackageExports",
+              "InspectWeb.Engine.SourceExports"
+            ])
+            and ([.assemblies[].module] == [
+              "inspect-web-host",
+              "inspect-web-analysis",
+              "inspect-web-call-graph",
+              "inspect-web-catalog",
+              "inspect-web-metadata",
+              "inspect-web-package",
+              "inspect-web-source"
+            ])
+            and all(.assemblies[];
+              .file == (.name + ".dll")
+              and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$"))
+              and .generated_source_file == (.name + ".ts")
+              and (.generated_source_sha256 | test("^[0-9a-f]{64}$"))
+              and .declaration_file == (.module + ".d.ts")
+              and (.declaration_sha256 | test("^[0-9a-f]{64}$"))
+              and .published_js_file == (.module + ".js")
+              and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
+              and .webcil_assembly == .name
+              and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
+              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
+              and .js_export_method_count > 0
+              and .async_method_count > 0
+              and .compiler_async_method_count == 0
+              and .runtime_async_method_count == .async_method_count)
+            and ([.assemblies[].js_export_method_count] | add) == .js_export_method_count
+            and ([.assemblies[].async_method_count] | add) == .async_method_count
+            and ([.assemblies[].compiler_async_method_count] | add) == .compiler_async_method_count
+            and ([.assemblies[].runtime_async_method_count] | add) == .runtime_async_method_count
+            and .smoke.initialized_facades == [.assemblies[] | {
+              assembly: .name,
+              module: .module
+            }]
+            and .smoke.sdk_create_count == 1
+            and .smoke.sdk_runtime_count == 1
+            and .smoke.entry_point_count == 0
+            and .smoke.async_lowering_canary == "inspect-web-async-lowering-ok"
+          ' "$receipt" >/dev/null
+          expected_modules=$(jq -r '.assemblies[].published_js_file' "$receipt" | sort)
+          published_modules=$(find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' -printf '%f\n' | sort)
+          test "$published_modules" = "$expected_modules"
+          while IFS=$'\t' read -r js_file js_sha webcil_file webcil_sha; do
+            test "$(sha256sum "$site/$js_file" | awk '{print $1}')" = "$js_sha"
+            test "$(sha256sum "$site/_framework/$webcil_file" | awk '{print $1}')" = "$webcil_sha"
+          done < <(jq -r '.assemblies[] | [.published_js_file, .published_js_sha256, .published_webcil_file, .published_webcil_sha256] | @tsv' "$receipt")
+          test ! -f "$site/inspect-web-engine.js"
+          test ! -f "$site/inspect-web-engine.ts"
           test -f "$site/staticwebapp.config.json"
           test -f "$api/host.json"
           test -f "$api/functions.metadata"
@@ -129,6 +237,14 @@ jobs:
           test "$import_map_line" -lt "$module_line"
           test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
           grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
+
+      - name: Compare compiler-async and runtime-async receipts
+        shell: bash
+        run: |
+          eng/verify-inspect-web-async-deployment.sh \
+            --compare \
+            artifacts/inspect-web-compiler-publish/async-lowering.json \
+            artifacts/inspect-web-coreclr-publish/async-lowering.json
 
       - name: Upload CoreCLR staged site artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -139,22 +255,6 @@ jobs:
           retention-days: 30
           include-hidden-files: true
 
-  deploy:
-    name: Publish CoreCLR staging
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: inspect-web-coreclr-staging
-      url: https://coreclr.dotnet-inspect.ca
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Download CoreCLR staged site artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: inspect-web-coreclr-site
-          path: artifacts/inspect-web-coreclr-publish
-          digest-mismatch: error
-
       - name: Verify CoreCLR staged site artifact
         shell: bash
         run: |
@@ -164,10 +264,78 @@ jobs:
           index="$site/index.html"
           receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
           test -f "$index"
-          jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
-          webcil=$(jq -r '.published_webcil_file' "$receipt")
-          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
-          test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
+          jq -e '
+            .schema == 5
+            and .method == "InspectionEngine.AsyncLoweringCanary"
+            and .lowering == "runtime"
+            and .result == "inspect-web-async-lowering-ok"
+            and .facade_count == 7
+            and .assembly_count == 7
+            and .js_export_method_count == 48
+            and .async_method_count > 0
+            and .compiler_async_method_count == 0
+            and .runtime_async_method_count == .async_method_count
+            and .repository_project_count > 0
+            and (.repository_projects | length) == .repository_project_count
+            and .repository_projects == (.repository_projects | sort | unique)
+            and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
+            and ([.assemblies[].name] == [
+              "InspectWeb.Engine",
+              "InspectWeb.Engine.AnalysisExports",
+              "InspectWeb.Engine.CallGraphExports",
+              "InspectWeb.Engine.CatalogExports",
+              "InspectWeb.Engine.MetadataExports",
+              "InspectWeb.Engine.PackageExports",
+              "InspectWeb.Engine.SourceExports"
+            ])
+            and ([.assemblies[].module] == [
+              "inspect-web-host",
+              "inspect-web-analysis",
+              "inspect-web-call-graph",
+              "inspect-web-catalog",
+              "inspect-web-metadata",
+              "inspect-web-package",
+              "inspect-web-source"
+            ])
+            and all(.assemblies[];
+              .file == (.name + ".dll")
+              and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$"))
+              and .generated_source_file == (.name + ".ts")
+              and (.generated_source_sha256 | test("^[0-9a-f]{64}$"))
+              and .declaration_file == (.module + ".d.ts")
+              and (.declaration_sha256 | test("^[0-9a-f]{64}$"))
+              and .published_js_file == (.module + ".js")
+              and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
+              and .webcil_assembly == .name
+              and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
+              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
+              and .js_export_method_count > 0
+              and .async_method_count > 0
+              and .compiler_async_method_count == 0
+              and .runtime_async_method_count == .async_method_count)
+            and ([.assemblies[].js_export_method_count] | add) == .js_export_method_count
+            and ([.assemblies[].async_method_count] | add) == .async_method_count
+            and ([.assemblies[].compiler_async_method_count] | add) == .compiler_async_method_count
+            and ([.assemblies[].runtime_async_method_count] | add) == .runtime_async_method_count
+            and .smoke.initialized_facades == [.assemblies[] | {
+              assembly: .name,
+              module: .module
+            }]
+            and .smoke.sdk_create_count == 1
+            and .smoke.sdk_runtime_count == 1
+            and .smoke.entry_point_count == 0
+            and .smoke.async_lowering_canary == "inspect-web-async-lowering-ok"
+          ' "$receipt" >/dev/null
+          expected_modules=$(jq -r '.assemblies[].published_js_file' "$receipt" | sort)
+          published_modules=$(find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' -printf '%f\n' | sort)
+          test "$published_modules" = "$expected_modules"
+          while IFS=$'\t' read -r js_file js_sha webcil_file webcil_sha; do
+            test "$(sha256sum "$site/$js_file" | awk '{print $1}')" = "$js_sha"
+            test "$(sha256sum "$site/_framework/$webcil_file" | awk '{print $1}')" = "$webcil_sha"
+          done < <(jq -r '.assemblies[] | [.published_js_file, .published_js_sha256, .published_webcil_file, .published_webcil_sha256] | @tsv' "$receipt")
+          test ! -f "$site/inspect-web-engine.js"
+          test ! -f "$site/inspect-web-engine.ts"
           test -f "$site/staticwebapp.config.json"
           test -f "$api/host.json"
           test -f "$api/functions.metadata"
@@ -197,8 +365,26 @@ jobs:
           test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
           grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
 
+      - name: Verify newest eligible staging run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SELECTED_RUN_ID: ${{ steps.latest.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          latest_run_id=$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
+              -f branch=main \
+              -f event=push \
+              -f status=success \
+              -f per_page=100 \
+              --jq '.workflow_runs | max_by(.run_number) | .id // empty'
+          )
+          test -n "$latest_run_id"
+          test "$latest_run_id" = "$SELECTED_RUN_ID"
+
       - name: Deploy to CoreCLR staging
-        uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_CORECLR }}
           action: upload

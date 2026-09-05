@@ -6,11 +6,13 @@ import {
 } from "./data.ts";
 import type {
   BrowserPackageDependencies,
+} from "./facades/inspect-web-package.d.ts";
+import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
   BrowserPerformanceMember,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-analysis.d.ts";
 import type { PackageMetadata } from "./metadata-viewer.ts";
 import type {
   AppMemberSurface,
@@ -116,6 +118,7 @@ export interface PackageInspectionDependencies {
 }
 
 export interface PackageInspectionCoordinator {
+  invalidatePackageResults(): void;
   loadDependencies(
     packageModel: AppPackage,
     signature: string,
@@ -163,6 +166,7 @@ export function createPackageInspectionCoordinator(
   dependencies: PackageInspectionDependencies,
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
+  let packageResultGeneration = 0;
   let metadataRequestSequence = 0;
 
   const platformCoordinates = (
@@ -176,6 +180,7 @@ export function createPackageInspectionCoordinator(
   });
 
   const ensureWorkspaceDependencies = async () => {
+    const generation = packageResultGeneration;
     const missing = state.packages.filter(packageModel =>
       !packageModel.isRuntimePack
       && !Object.hasOwn(
@@ -188,11 +193,13 @@ export function createPackageInspectionCoordinator(
       return;
     }
     for (const packageModel of missing) {
+      if (generation !== packageResultGeneration) return;
       const key = workspaceDependencyKey(packageModel);
       if (!packageIsResident(state.packages, packageModel)) continue;
       state.workspaceDependencyLoads.add(key);
       try {
         const result = await dependencies.queryDependencies(packageModel);
+        if (generation !== packageResultGeneration) return;
         if (!packageIsResident(state.packages, packageModel)) continue;
         state.workspaceDependencies[key] = {
           dependencyGroups: result?.dependencyGroups || [],
@@ -205,6 +212,7 @@ export function createPackageInspectionCoordinator(
           delete state.workspaceDependencyErrors[key];
         }
       } catch (error) {
+        if (generation !== packageResultGeneration) return;
         if (!packageIsResident(state.packages, packageModel)) continue;
         state.workspaceDependencies[key] = {
           dependencyGroups: [],
@@ -213,10 +221,13 @@ export function createPackageInspectionCoordinator(
         state.workspaceDependencyErrors[key] =
           dependencies.describeError(error);
       } finally {
-        state.workspaceDependencyLoads.delete(key);
+        if (generation === packageResultGeneration) {
+          state.workspaceDependencyLoads.delete(key);
+        }
       }
     }
 
+    if (generation !== packageResultGeneration) return;
     if (state.atPackageRoot && state.packageLens === "dependencies") {
       dependencies.render();
     }
@@ -224,12 +235,41 @@ export function createPackageInspectionCoordinator(
   };
 
   return {
+    invalidatePackageResults() {
+      packageResultGeneration++;
+      state.workspaceDependencyLoads.clear();
+      state.packageDependencies = null;
+      state.packageDependenciesLoading = false;
+      state.packageDependenciesError = "";
+      state.packageDependenciesKey = "";
+      state.packageIntegrations = null;
+      state.packageIntegrationsLoading = false;
+      state.packageIntegrationsError = "";
+      state.packageIntegrationsKey = "";
+      state.packageOpportunities = null;
+      state.packageOpportunitiesLoading = false;
+      state.packageOpportunitiesError = "";
+      state.packageOpportunitiesKey = "";
+      state.packagePerformance = null;
+      state.packagePerformanceLoading = false;
+      state.packagePerformanceError = "";
+      state.packagePerformanceKey = "";
+      state.packageMetadata = null;
+      state.packageMetadataLoading = false;
+      state.packageMetadataError = "";
+      state.packageMetadataKey = "";
+    },
+
     async loadDependencies(packageModel, signature) {
       if (state.packageDependenciesKey === signature
         && (state.packageDependencies || state.packageDependenciesError)) {
         dependencies.render();
         return;
       }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageDependenciesKey === signature
+        && generation === packageResultGeneration;
       state.packageDependenciesKey = signature;
       state.packageDependencies = null;
       state.packageDependenciesError = "";
@@ -244,10 +284,11 @@ export function createPackageInspectionCoordinator(
       const workspaceKey = workspaceDependencyKey(packageRequest);
       try {
         const result = await dependencies.queryDependencies(packageRequest);
-        if (state.packageDependenciesKey === signature) {
+        if (ownsRequest()) {
           state.packageDependencies = result;
         }
         if (result?.dependencyGroups
+          && generation === packageResultGeneration
           && packageIsResident(state.packages, packageRequest)) {
           state.workspaceDependencies[workspaceKey] = {
             dependencyGroups: result.dependencyGroups,
@@ -261,16 +302,18 @@ export function createPackageInspectionCoordinator(
           }
         }
       } catch (error) {
-        if (state.packageDependenciesKey === signature) {
+        if (ownsRequest()) {
           state.packageDependenciesError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageDependenciesKey === signature) {
+        if (ownsRequest()) {
           state.packageDependenciesLoading = false;
         }
-        dependencies.refreshPackageStats();
-        dependencies.render();
-        await ensureWorkspaceDependencies();
+        if (generation === packageResultGeneration) {
+          dependencies.refreshPackageStats();
+          dependencies.render();
+          await ensureWorkspaceDependencies();
+        }
       }
     },
 
@@ -283,6 +326,10 @@ export function createPackageInspectionCoordinator(
         dependencies.render();
         return;
       }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageIntegrationsKey === signature
+        && generation === packageResultGeneration;
       state.packageIntegrationsKey = signature;
       state.packageIntegrations = null;
       state.packageIntegrationsError = "";
@@ -299,18 +346,20 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageIntegrations(packageModel);
-        if (state.packageIntegrationsKey === signature) {
+        if (ownsRequest()) {
           state.packageIntegrations = result;
         }
       } catch (error) {
-        if (state.packageIntegrationsKey === signature) {
+        if (ownsRequest()) {
           state.packageIntegrationsError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageIntegrationsKey === signature) {
+        if (ownsRequest()) {
           state.packageIntegrationsLoading = false;
         }
-        dependencies.render();
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
       }
     },
 
@@ -321,6 +370,10 @@ export function createPackageInspectionCoordinator(
         dependencies.render();
         return;
       }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageOpportunitiesKey === signature
+        && generation === packageResultGeneration;
       state.packageOpportunitiesKey = signature;
       state.packageOpportunities = null;
       state.packageOpportunitiesError = "";
@@ -337,18 +390,20 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageOpportunities(packageModel);
-        if (state.packageOpportunitiesKey === signature) {
+        if (ownsRequest()) {
           state.packageOpportunities = result;
         }
       } catch (error) {
-        if (state.packageOpportunitiesKey === signature) {
+        if (ownsRequest()) {
           state.packageOpportunitiesError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageOpportunitiesKey === signature) {
+        if (ownsRequest()) {
           state.packageOpportunitiesLoading = false;
         }
-        dependencies.render();
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
       }
     },
 
@@ -359,6 +414,10 @@ export function createPackageInspectionCoordinator(
         dependencies.render();
         return;
       }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packagePerformanceKey === signature
+        && generation === packageResultGeneration;
       state.packagePerformanceKey = signature;
       state.packagePerformance = null;
       state.packagePerformanceError = "";
@@ -375,18 +434,20 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackagePerformance(packageModel);
-        if (state.packagePerformanceKey === signature) {
+        if (ownsRequest()) {
           state.packagePerformance = result;
         }
       } catch (error) {
-        if (state.packagePerformanceKey === signature) {
+        if (ownsRequest()) {
           state.packagePerformanceError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packagePerformanceKey === signature) {
+        if (ownsRequest()) {
           state.packagePerformanceLoading = false;
         }
-        dependencies.render();
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
       }
     },
 
@@ -398,9 +459,11 @@ export function createPackageInspectionCoordinator(
         return;
       }
       const requestSequence = ++metadataRequestSequence;
+      const generation = packageResultGeneration;
       const ownsRequest = () =>
         state.packageMetadataKey === signature
-        && metadataRequestSequence === requestSequence;
+        && metadataRequestSequence === requestSequence
+        && generation === packageResultGeneration;
       state.packageMetadataKey = signature;
       state.packageMetadata = null;
       state.packageMetadataError = "";

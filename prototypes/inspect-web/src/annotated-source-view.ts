@@ -40,6 +40,7 @@ export interface AnnotatedViewState {
 
 interface AnnotatedViewSegment extends SourceSegment {
   selected: boolean;
+  visible: boolean;
 }
 
 interface AnnotatedViewLine {
@@ -72,8 +73,6 @@ export interface AnnotatedView {
   unanchoredFactIds: number[];
   hiddenLines: number;
 }
-
-export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
 
 export const MEDIUM_LABELS: Readonly<Record<SourceMedium, string>> = {
   CSharp: "C#",
@@ -117,6 +116,7 @@ export function buildAnnotatedView(
         // A segment is highlighted only when a targeted node actually covers it, so one node's
         // several separated spans light up without selecting the text between them.
         selected: segment.nodeIds.some(id => targeted.has(id)),
+        visible: isSegmentVisible(segment.media, line.medium, media),
       })),
     }));
 
@@ -167,10 +167,99 @@ export function factsForNode(
   return document.facts.filter(fact => factIds.has(fact.id));
 }
 
+export interface CSharpHighlightingInput {
+  text: string;
+  excludedRanges: readonly {
+    start: number;
+    length: number;
+  }[];
+}
+
+export function csharpHighlightingInput(
+  document: AnnotatedSourceDocument,
+): CSharpHighlightingInput {
+  validateDocument(document);
+  const text = document.text.split("");
+  const excluded = Array.from(
+    { length: document.text.length },
+    () => false);
+  for (const line of buildLines(document.text)) {
+    const medium = lineMedium(document, line);
+    if (medium === "CSharp") continue;
+    if (medium === "Il") {
+      maskRange(text, excluded, line.start, line.end);
+      continue;
+    }
+    for (const segment of segmentsForLine(document, line, [])) {
+      if (segment.media.length > 0
+        && !segment.media.includes("CSharp")) {
+        maskRange(
+          text,
+          excluded,
+          segment.start,
+          segment.start + segment.text.length);
+      }
+    }
+  }
+  return {
+    text: text.join(""),
+    excludedRanges: exclusionRanges(excluded),
+  };
+}
+
+export function csharpHighlightingText(
+  document: AnnotatedSourceDocument,
+): string {
+  return csharpHighlightingInput(document).text;
+}
+
+function maskRange(
+  text: string[],
+  excluded: boolean[],
+  start: number,
+  end: number,
+): void {
+  for (let index = start; index < end; index++) {
+    text[index] = " ";
+    excluded[index] = true;
+  }
+}
+
+function exclusionRanges(
+  excluded: readonly boolean[],
+): CSharpHighlightingInput["excludedRanges"] {
+  const ranges: { start: number; length: number }[] = [];
+  let start = -1;
+  for (let index = 0; index <= excluded.length; index++) {
+    if (excluded[index] === true) {
+      if (start < 0) start = index;
+      continue;
+    }
+    if (start >= 0) {
+      ranges.push({ start, length: index - start });
+      start = -1;
+    }
+  }
+  return ranges;
+}
+
 function isVisible(
   medium: LineMedium,
   media: Readonly<Record<SourceMedium, boolean | undefined>>,
 ): boolean | undefined {
   if (medium === "Mixed") return media.CSharp || media.Il;
   return media[medium] === true;
+}
+
+function isSegmentVisible(
+  segmentMedia: readonly SourceMedium[],
+  effectiveLineMedium: LineMedium,
+  media: Readonly<Record<SourceMedium, boolean | undefined>>,
+): boolean {
+  const candidates = segmentMedia.length > 0
+    ? segmentMedia
+    : effectiveLineMedium === "Mixed"
+      ? (["CSharp", "Il"] as const)
+      : [effectiveLineMedium];
+  return candidates.some(candidate => media[candidate] === true);
 }

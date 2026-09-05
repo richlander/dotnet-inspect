@@ -972,11 +972,11 @@ public static class ResearchDiff
                             ? ResearchChangeKind.Removed
                             : ResearchChangeKind.Changed;
                     string descriptorId = kind switch
-                        {
-                            ResearchChangeKind.Added => "il.operation.added",
-                            ResearchChangeKind.Removed => "il.operation.removed",
-                            _ => "il.hunk.changed",
-                        };
+                    {
+                        ResearchChangeKind.Added => "il.operation.added",
+                        ResearchChangeKind.Removed => "il.operation.removed",
+                        _ => "il.hunk.changed",
+                    };
                     builder.Add(new ResearchChange(
                         subject,
                         ResearchChangeMechanism.IlBody,
@@ -1530,13 +1530,19 @@ public static class ResearchDiff
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
+            AssemblyBindingSelection selection;
             if (request.Target
                 is not AssemblyBindingTarget.AssemblyReference reference)
             {
-                return AssemblyBindingSelection.NotFound();
+                selection = AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.UnsupportedScope));
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
             }
 
             ImmutableArray<ResolvedAssemblyReference> matches =
@@ -1545,13 +1551,22 @@ public static class ResearchDiff
                         assembly.Identity
                             .IsEquivalentTo(reference.Identity))
                     .ToImmutableArray();
-            return matches.Length switch
+            selection = matches.Length switch
             {
-                0 => AssemblyBindingSelection.NotFound(),
+                0 => assemblies.Any(assembly =>
+                        string.Equals(
+                            assembly.Identity.Name,
+                            reference.Identity.Name,
+                            StringComparison.OrdinalIgnoreCase))
+                    ? AssemblyBindingSelection.NameOwnedButNoMatch()
+                    : AssemblyBindingSelection.NameNotOwned(),
                 1 => AssemblyBindingSelection.Found(
                     matches[0]),
                 _ => AssemblyBindingSelection.Multiple(matches),
             };
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                selection);
         }
     }
 

@@ -6506,6 +6506,35 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void PdbMappedSourceIndex_IsIneligibleForFaultAttribution()
+    {
+        var target = new ReturnToSender.RequestedTarget(
+            "Sample.Widget",
+            "M",
+            0,
+            "mss1:synthetic");
+        var member = new ReturnToSenderSourceMember(
+            target.Type,
+            target.Method,
+            target.Overload,
+            target.Signature!,
+            "Widget.cs",
+            "return 42;",
+            MetadataToken: 0x06000001,
+            ModuleVersionId: Guid.NewGuid());
+
+        ReturnToSenderSourceIndex index =
+            ReturnToSenderSourceIndex.FromPdbMappedMembers([member]);
+
+        Assert.True(index.TryFind(target, out var found));
+        Assert.Equal(member, found);
+        Assert.False(index.TryFindForAttribution(
+            target,
+            member.MetadataToken!.Value,
+            out _));
+    }
+
     /// <summary>
     /// Raw source declaration order can differ from metadata order. Without an
     /// exact token correlation, fault attribution must fail closed (#3804).
@@ -7062,12 +7091,13 @@ public class ReturnToSenderPrototypeTests
             Kind = "class",
             TypeParameters = [new TypeParameter { Name = "T", Constraints = ["class"] }],
         };
-        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
-            type,
-            primaryConstructorParameters:
-            [
-                new ApiParameter { Type = "string", Name = "message" }
-            ]));
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                primaryConstructorParameters:
+                [
+                    new ApiParameter { Type = "string", Name = "message" }
+                ]))).Result;
 
         Assert.Contains("public class Class1<T>(string message) where T : class", Assert.Single(result.Units).Source);
     }

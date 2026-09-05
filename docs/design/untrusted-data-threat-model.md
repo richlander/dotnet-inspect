@@ -292,10 +292,36 @@ code is an attacker.
 ### Assemblies are parsed, never loaded
 
 Assembly, metadata, and method-body paths use
-`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`. Product
-inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
-over inspected binaries, module initializers, or dependency resolution that
-executes target code.
+`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`.
+Product inspection contains no `Assembly.Load` call for inspected assemblies.
+
+This is a user-approved partial-gate absence claim. Product projects set
+`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis and
+fail on the dynamic-loading uses that its diagnostics cover. Measured
+2026-09-02 against `IsAotCompatible=true`, those diagnostics are:
+
+- `IL2026` — `Assembly.Load(byte[])`, `Assembly.LoadFrom`, `Assembly.LoadFile`,
+  and `AssemblyLoadContext.LoadFromAssemblyPath`
+- `IL2067` — `Activator.CreateInstance(Type)`
+- `IL2057` — `Type.GetType(string)`
+- `IL3050` — `System.Reflection.Emit`
+
+`src/Directory.Build.props` sets `TreatWarningsAsErrors`, so each is a build
+error rather than a warning. That is a partial gate, not a syntactic scan of
+every `Assembly.Load` overload.
+
+When packaging-affecting changes select it, the CI
+[`pack` job](../../.github/workflows/ci.yml) builds and installs the
+RID-specific NativeAOT tool, then executes canonical package, type, member, and
+platform-library inspections. Those runs are supporting execution evidence,
+not an ordinary product-source-change gate. Unannotated overloads, changes for
+which the smoke is skipped, and inspection paths the smoke does not execute are
+the declared residual.
+
+`Assembly.Load`, `AssemblyLoadContext`, reflection over inspected binaries,
+module initializers, and dependency resolution that executes target code remain
+prohibited design directions. Their absence beyond the partial claim above is
+not asserted as verified here.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This
@@ -322,7 +348,7 @@ identity rather than deriving a path from the requested name. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
 and the sibling/platform/culture/failure-state tests in that class,
 `AssemblyDependencyResolverTests.Select_UnreadableSiblingDoesNotFallThroughToTpa`,
-`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`,
+`AssemblyDependencyResolverTests.AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition`,
 `AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`,
 `AssemblyReferenceTreeResolutionTests.MismatchingPlatformNamedSibling_ShadowsInstalledPlatformFallback`,
 `AssemblyReferenceResolverTests.SiblingResolver_BareOwnerPathUsesCurrentDirectory`,
@@ -737,66 +763,21 @@ preservation, and the display/structured split are gated by
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
-attribute values. Declared custom-attribute SZArray and named-argument counts
-are checked against remaining value-blob bytes before SRM allocates builders
-from those counts, and each declared slot is charged as decode work so a
-hostile four-byte count cannot become a gigabyte-scale argument array or a
-swallowed OOM. The same walk covers each named argument's
-`FieldOrPropType`, name, and value — a named SZArray count or a nested
-named array type is not left for `DecodeValue` to allocate or recurse
-on. Boxed and nested SZArray encodings are walked on a heap work-stack
-and depth-bounded before decode, so a chain of tags cannot overflow the
-native stack even if the policy cap moves. Signature-type skips reuse
-one work-stack per decode (`Clear` at entry) so a wide `int[][]` cannot
-allocate a stack per inner array. That reuse is structural; the path
-gate is `CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`. The
-small-stack gate is the 128 KiB
-`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
-fixed and named arguments use one shared underlying-width oracle, so a
-TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
-full name collides with an earlier row, an over-deep
-`value__` field signature, or a non-fixed-width `value__` primitive
-such as `string`, cannot desynchronize later count reads.
-A serialized enum name that is not a TypeDef in the current image
-stays `int32` unless a caller-supplied resolver found the defining
-image; local TypeDefs still win over that resolver. Guard and SRM
-invoke that resolver with the same normalized name (assembly suffix
-stripped), so a resolver keyed on the simple name cannot skip four
-bytes in the guard and eight in SRM. Absent a defining image, decode
-returns null rather than emitting values from a four-byte skip of an
-eight-byte argument. A defining image does not make a later hostile
-count legal.
-`CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
-SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
-and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
-consumes a SerString rather than four enum bytes.
-A truncated value walk returns `Truncated` and stops remaining work,
-so leftover named-count bytes after a short SZArray cannot be charged
-as 65,535 named arguments. A boxed SZArray of `ENUM` consumes the
-enum-name SerString before the `Int32` count, matching SRM's
-`DecodeNamedArgumentType(isElementType: true)`, so an empty name
-cannot hide a gigabyte-scale builder behind a 9-byte blob and a
-legal boxed enum array is not dropped.
-Declared SZArray leftovers stop once the value blob is exhausted, so a
-jagged constructor signature cannot re-walk the element type once per
-unreadable slot.
-Serialized enum names are normalized the same way SRM's provider sees
-them (assembly suffix stripped, nested `+` matched to the metadata
-index). `CLASS`/`VALUETYPE` constructor parameters special-case only
-`System.Type`; other tokens use the enum-width oracle so a
-`class System.String` argument cannot shift later counts. Generic
-attribute constructors whose parameter is a `VAR` resolve that
-argument through the owning TypeSpec. Earlier generic arguments
-that cannot be skipped, including `FNPTR` and `PTR`+`FNPTR`, fail
-closed instead of leaving the substituted value unconsumed. Earlier
-`CLASS`/`VALUETYPE` arguments are skipped the same way SRM
-`CustomAttributeDecoder.SkipType` does — including treating a
-TypeDefOrRef coded index as another type code — so a TypeDef row 4
-or TypeRef row 4 cannot hide a later SZArray count. A
-substituted type is not itself re-substituted, so a self-referential
-`GENERICINST` `!0` cannot recurse the guard. A budget observer failure
-raised while the guard consults the enum index unwraps to the same
-typed truncation `DecodeValue` already propagated. Every bounded member-name decode and every namespace/name
+attribute values. Custom-attribute value decoding follows the
+[owned decoder contract](custom-attribute-value-decoding.md#the-containment-invariants),
+not a guard followed by SRM decoding. Declared fixed, named, and array slot
+counts are checked against remaining value bytes before count-derived charging
+and materialization. The value tree is walked iteratively; the 128 KiB
+small-stack gate is
+`CustomAttributeValueGuardTests.DeeplyNestedObjectArray_OnSmallNativeStack_IsSafe`.
+Malformed or unsupported structure is refused, while caller-observer and
+resolver failures preserve their origin. Enum resolution and its final
+defaulted-width signal are governed by the decoder's
+[D2 contract](custom-attribute-value-decoding.md#d2--fail-closed-visibly).
+The focused cases below do not establish full D1/D3 certification or the
+dedicated internal-OOM gate; the decoder design owns those remaining gaps.
+
+Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
@@ -853,13 +834,13 @@ pre-decoding rejection.
 `TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
 `OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
 `CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
-`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`,
-`CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`,
+`CustomAttributeValueGuardTests.DeeplyNestedObjectArray_OnSmallNativeStack_IsSafe`,
+`CustomAttributeValueGuardTests.NestedEmptySzArray_IsRefused`,
 `CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
 `CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
 `CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.DuplicateTypeDefEnumName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsSafe`,
+`CustomAttributeValueGuardTests.DuplicateTypeDefEnumName_ResolvesTheDeclaredDefinition`,
+`CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsRefused`,
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
 `CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
@@ -881,7 +862,7 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.LegalSystemTypeArgument_IsSafe`,
 `CustomAttributeValueGuardTests.StringTypedEnumValue_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsSafe`,
+`CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsRefused`,
 `CustomAttributeValueGuardTests.LegalBoxedEnumArray_IsSafe`,
 `CustomAttributeValueGuardTests.LegalBoxedInt32Array_IsSafe`,
 `CustomAttributeValueGuardTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,

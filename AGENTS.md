@@ -16,78 +16,97 @@ documentation.
 
 ### How work runs on this repo
 
-- **Design first and state the basis.** Before starting new work, visibly name
-  one normative owner and exact owned claim, then supporting designs and models
-  by role. If ownership is unclear or multiple, apply the design-scope rules or
-  ask the user; finding design defects is cheaper than finding them in code.
-- **Requested work hot-starts through PR and review.** Agents may branch, commit,
-  push, and open its PR without separate approval. Once eligible, round 1 and
-  replacements inside the current six-round block dispatch automatically; only
-  a new block requires approval. Merge remains separately authorized.
-- **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
-  changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
-  Open the PR and dispatch review without asking or waiting for `ci-required`.
-- **Complicated features need extraordinary evidence and pre-work** before
-  code is written: corpus evidence, an established oracle, a TLA+ model, or a
-  spec developed with close user input are examples of high-value levers.
-  Much of this work is about bounding or making invariant a component's
-  contract — defining those bounds well *is* the design and the architecture.
-  The code itself is easy once the bounds are right.
-- **We practice demo-driven development.** Every PR demonstrates a demo (a
-  mockup for docs-only PRs). Demos find bugs and let later readers grasp the
-  goal quickly. Demos are the accessibility lever; a missing demo is usually a
-  sign that user scenarios were never defined, though we avoid over-fitting to
-  the demo itself.
-- **Adversarial review is the primary way we find unaddressed defects.** Most
-  changes get two-seat review (see [How many reviewers, and from which
-  models](#how-many-reviewers-and-from-which-models)).
-- **Adversarial review is bounded.** Unbounded rounds are themselves a signal
-  that the design doesn't close. When reviewers keep finding things, we listen
-  and often switch back to a design phase to clarify goals, bounds, and
-  approach (see [Stop after six rounds](#stop-after-six-rounds)).
-- **Security focus is targeted, not general-purpose.** The primary scenario is
-  untrusted internet-origin data (packages, symbols, source); the tool never
-  executes code, which narrows the threat model. We don't defend against
-  local or intra-repo actors. `InertString` and `HardenedJson` are the model:
-  construction-time containment threaded through the object model (see
-  [Keep design and adversarial review within
-  scope](#keep-design-and-adversarial-review-within-scope)).
+These practices serve one purpose: build robust, capable features that provide
+foundational capabilities or compelling user experiences. The result should be
+recognizable as conventionally sound, delightfully new or unique, or both.
+
+[`docs/development-practices.md`](docs/development-practices.md) owns the full
+development model and rationale. The binding summary:
+
+- **Start from convention and best practice.** Name and justify any deliberate
+  divergence, whether stricter or looser, and document its scope.
+- **Prefer the simplest sufficient design.** Add complexity only when robust
+  reliability or correctness requires it, or when it enables a compelling
+  user-observable experience.
+- **Design first and state the basis.** Name one normative owner and exact
+  claim, then supporting designs, models, constraints, and evidence by role.
+- **Start architectures from production-host adoption.** Every new architecture,
+  capability, or substrate names its consumer and links an end-to-end tracker
+  that enumerates the production-host adoption path and total step count, even
+  when the component is host-neutral. Test infrastructure may treat its harness
+  as the production host. An alternative to an existing architecture must also
+  track that architecture's retirement. Shared product substrate must plan
+  enablement through both CLI and browser/Wasm hosts; single-consumer or
+  single-host scope requires explicit user approval.
+- **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
+  code. Duplicated host logic triggers a review for a shared abstraction that
+  would also benefit another future host.
+- **Choose rendering strategy deliberately.** Use Markout as the default
+  host-neutral substrate for centralized, multi-format rendering, and call out
+  host-specific rendering that bypasses it. Broad information domains such as
+  call graphs and diffs require a documented structured-typing and format-
+  lowering strategy, whether it uses Markout or another approach.
+- **Demonstrate the pathological case.** Build boundary and failure fixtures;
+  run contract-defining cases in CI and preserve valuable non-CI probes as
+  reproducible design evidence.
+- **Survey analogous implementations.** Use their behavior, omissions, and
+  boundaries as evidence, not authority; transfer code or architecture only
+  when license, provenance, assumptions, and architectural fit all transfer.
+- **Bias toward progress and low carrying cost.** Land independently coherent
+  slices; never present unfinished behavior as supported or preserve CLI flags
+  solely for compatibility. Shipped product skills must match current behavior.
+- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
+  docs-only PRs) without fitting the implementation only to that example.
+- **Treat critical review feedback as a design question first.** Ask whether
+  the owning design addresses it before repairing code; keep paired design
+  work moving quickly when the contract needs clarification.
+- **Use extraordinary pre-work for complicated features.** Corpus evidence,
+  an established oracle, a TLA+ model, or a closely developed specification
+  should bound the contract before implementation.
+- **Hot-start requested work through PR and review.** Agents may branch,
+  commit, push, open the PR, and dispatch eligible rounds without separate
+  approval; merge remains separately authorized.
+- **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
+  `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
+- **Use bounded adversarial review to find design and implementation gaps.**
+  Every non-trivial change gets two seats; repeated findings are evidence to
+  revisit design, and six rounds ends the current review block.
+- **Keep security work inside the repository threat model.** Focus on
+  untrusted internet-origin data and construction-time containment, not local
+  or intra-repository actors unless an owning design explicitly opts in.
 
 > A change spanning Markout and this repo is rare and uses a separate
 > co-development loop: read
 > [`docs/markout-co-development.md`](docs/markout-co-development.md) before
 > touching either repository.
 
-## Session resume
+## Session theme and resume
 
-The transcript survives a resumed session; repository and PR state may not.
-Before continuing:
-
-1. Confirm the worktree, branch, and head from git. Fetch the effective base and
-   re-check the PR per [Canonical round flow](#canonical-round-flow). Do not pull
-   or rebase a pushed branch to catch up.
-2. Rename the window and re-announce the PR as described below.
-3. State which case applies:
-
-- **Mid-stream:** continue, but handle conflicts, failed gates, or moved bases
-  first. Do not revisit decisions already settled in the transcript.
-- **Waiting on the user:** restate the full question and options, then wait.
-- **Task complete:** state what landed and what proves it, then propose the next
-  task without starting it.
-- **Unclear:** explain what the transcript claims and what git shows, then wait.
+Every session has a theme: use one supplied by the user or infer a concise
+purpose from the work. State it at the start and after every resume, and carry
+it in session-status templates. After a PR merges, restate the theme in one or
+two sentences and propose the next work within it; if none remains, say so and
+ask whether to find a new theme or take on ad-hoc work. Follow
+[Agent session state](docs/agent-session-state.md) for the full lifecycle.
 
 ## Making your work findable
 
 This section is tmux-specific and applies only inside a tmux pane — check
 `[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
-attach state to, so skip it entirely. Each window must identify its PR,
-current state, and any decision it needs. Full tmux mechanics and rationale
-live in [Agent session state](docs/agent-session-state.md); this section
-states the binding rules.
+attach state to, so skip it entirely. Each window name must identify its work
+item, domain, and purpose; its pane title reports current activity, while
+window options carry structured state. Full mechanics live in
+[Agent session state](docs/agent-session-state.md).
 
-- **Rename the window** to `pr<number>` (or `i<number>` before a PR exists),
-  always targeting `"${TMUX_PANE:?}"`, and keep it stable except for a
-  `-blocked` or `-conflict` suffix.
+- **Name the window** `PR <number> | <Domain> | <Short description>`, or
+  `Issue <number> | <Domain> | <Short description>` before a PR exists. Keep
+  Domain to one or two words, omit machine and tmux coordinates, and always
+  target `"${TMUX_PANE:?}"`.
+- **Update the pane title** with concise current activity, always targeting
+  `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
+  fallback; replace it at the start of work, after every resume, and at
+  meaningful phase changes with
+  `tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"`.
 - **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
   plus branch or expected head — at the start of work, after every resume, and
   at every round start. Round completions use the
@@ -98,11 +117,11 @@ states the binding rules.
   answer labels — never the report, checkpoint, or evidence itself.
 - **Publish `@agent` and `@agent_state`** after every state change, each as its
   own single command (never inside `if`/`&&`/a loop). `@agent_state` carries
-  `head` and `pr`/`issue`, plus `round`, `reviews`, `blocked`, `waiting`, and
-  `rec` (`continue`, `wait`, `merge`, `split`, `approve`, `stop`); clear both
-  when the window no longer owns the work. `blocked` names an issue/PR a
-  person can act on; `waiting` names tool-evaluable predicates (`check:<name>`,
-  `checks`, `merge`, `review`).
+  `theme`, `head`, and `pr`/`issue`, plus `round`, `reviews`, `blocked`,
+  `waiting`, and `rec` (`continue`, `wait`, `merge`, `split`, `approve`,
+  `stop`); clear both when the window no longer owns the work. `blocked` names
+  an issue/PR a person can act on; `waiting` names tool-evaluable predicates
+  (`check:<name>`, `checks`, `merge`, `review`).
 - **Signal `HELP`** with a persistent state plus one best-effort
   `tmux display-message` nudge when blocked on a human decision; clear it once
   the decision arrives.
@@ -119,10 +138,10 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 - **Base movement alone does not remove it.** Classify the landed range per
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving); a no-interaction
-  classification keeps the label through the integration.
-- **Remove it** before a new round, author change, conflict recovery, restack,
-  unresolved finding, or draft transition — anything that spends the clean
-  reviews or reopens the head to a fresh finding.
+  classification keeps the label on the unchanged reviewed head.
+- **Remove it and expire recorded merge authorization** before a new round,
+  author change, conflict recovery, restack, base-ref retarget, unresolved
+  finding, or draft transition — anything that spends the clean reviews.
 
 ## User-directed workflow adjustments
 
@@ -130,36 +149,8 @@ The user may adjust a sequencing gate for a specific task or PR. Follow that
 direction, record its scope and evidentiary consequence, and preserve every
 other requirement. An adjustment does not make failed validation successful,
 make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
-
-### Standing adjustments
-
-- **Review ordinary non-Markdown changes in parallel with CI:** requires user
-  approval; conflict recovery is the explicit exception. A CI failure requiring
-  an author change still supersedes the attempt, and all findings carry forward.
-- **Auto-merge on the final push:** once every required review is review-clean,
-  or the intended final head/base carries an approved exact-head
-  trivial-interaction waiver, the user may authorize auto-merge for that exact
-  candidate; the agent may ask. If the head or base moves after arming, disarm
-  and ask again before arming the new exact candidate. Review that head first
-  unless the user approves its exact-head trivial-interaction waiver.
-- **"CI is ready":** the user's statement that CI has no failures and the PR is
-  mergeable. Trust it without re-checking and move to the next task, such as
-  dispatching the next round's reviewers.
-- **Authorizing the next round before CI completes:** the agent does not need
-  to check CI status first; proceed with the authorized round.
-- **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head against one exact analyzed base tip,
-  offered only for a `main`-targeting PR or bottom open stack slice whose
-  waiver lineage starts at one immutable review-clean head and recorded base
-  (a renewal may only integrate a further moved base from that same lineage).
-  Every overlap must resolve mechanically — analyzed base side verbatim, or
-  drop the PR's change to that file — and the cumulative diff against the
-  newest base must stay a subset of the original reviewed diff with no
-  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
-  absent on the integration head; any later head or base movement expires the
-  decision, and any semantic conflict resolution or new authored change
-  requires ordinary re-review. Evidence to publish before asking:
-  [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
+The standing adjustments and their exact evidence requirements live in
+[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ## Before changing files
 
@@ -238,6 +229,19 @@ over-broad-design recovery procedure live in
   normative changes need focused efforts joined by a thin composition map.
 - State boundaries and contracts as simply as possible. Never translate current
   or planned implementation into prose; code implements the contract.
+- When product correctness joins facts across components, model the same
+  owner-issued join currency — version, generation, identity, receipt, handle,
+  or composite key — and preserve the association, freshness, and replacement
+  semantics that make the product join sound. The model may abstract the
+  currency's concrete representation.
+- Let TLA+ module dependencies mirror product dependencies: consume stable
+  owner-issued definitions and behaviors through named instances instead of
+  copying them, and recheck the imported properties in each composition. A
+  bounded result for one instance is evidence, not a proof transferred to
+  another. Put contract-defining configurations in
+  `eng/tla-expected-exit-codes.txt` so CI enforces their exact semantic
+  verdict; see
+  [TLA+ methodology](docs/tla-plus-methodology.md#compose-models-along-product-boundaries).
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
   Do not start or broaden into one without the user's explicit request or
@@ -268,6 +272,9 @@ over-broad-design recovery procedure live in
 - Treat identifiers, provenance, local evidence, correspondence, and
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
+- Put independently compiled inspected test inputs under `fixtures/<owner>/`;
+  keep test infrastructure under `tests/` and production code under `src/`.
+  Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
 - Use inclusive terminology: "allow list"/"deny list", never
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").
@@ -285,7 +292,9 @@ trust-boundary and containment guidance:
 [`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
 For a credible external-input threat, first define its actor, input path,
 boundary, containment invariant, and enforcement gate in the owning design.
-Prefer construction-time containment (`HardenedJson`, `InertText.InertString`).
+Prefer typed construction-time containment such as `InertText.InertString`;
+when that shape is unavailable, a centralized entry point such as
+`HardenedJson` is weaker but still auditable.
 
 ### Platform compatibility
 
@@ -328,6 +337,8 @@ compiler-generated IL shapes differ in Debug.
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
 | Artifact contracts | `dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release` |
+| Row selection | `dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release` |
+| Section-row shaping | `dotnet run --project src/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
@@ -344,25 +355,26 @@ Test-tool activation (`ilasm`/`ildasm`/`mdv`), the IL round-trip commands, and
 the `IsPackable`/`VersionPrefix` release rules live in
 [`docs/dev-environment.md`](docs/dev-environment.md#test-tooling-activation).
 
-### Package acquisition and throwaway probes
-
-If nuget.org is disabled and restore reports `NU1603` for an uncached pin, or
-you need a throwaway probe, see
-[`docs/dev-environment.md`](docs/dev-environment.md) for the source-override
-and file-based-app commands.
-
 ## Evidence and validation
 
-Match evidence to the claim and use the smallest existing check that proves it.
-Detailed practices — matching evidence to claim types, the style-oracle
-consultation procedure, and the harness/product boundary — live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Two rules
+Use the smallest sufficient set of claims and gates: state only what the user
+goal or an owned boundary or contract requires, and add only evidence that
+proves it. Inherit existing platform contracts unless a new dependency, API,
+or design calls one into question. Detailed practices live in
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
 are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only
   when it runs in the suite's Release configuration; use runtime opt-ins, not
   `[Conditional("DEBUG")]`.
+- **Composition absence-claim coverage is a user choice.** Before asserting
+  that a product or repository boundary contains no dependency, runtime, API
+  family, prohibited construct, or unsupported platform capability, propose
+  full, partial, or no gate coverage. Negatively phrased algorithmic correctness
+  properties use ordinary contract gates. The
+  [evidence guide](docs/evidence-and-validation.md#absence-claims-choose-their-coverage)
+  owns the detailed rules.
 - **Harnesses don't manufacture the evidence they check.** They own
   orchestration, fixtures, oracles, and reporting, but must exercise
   product-owned artifact construction — never construct, normalize, or repair
@@ -392,8 +404,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
 4. **A round that pushes a fix is not review-clean.** Only the replacement head
    can earn that.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
-   CI and GitHub's live mergeability immediately before every merge attempt,
-   even when `review-clean` is present.
+   CI and GitHub's live mergeability immediately before every merge attempt.
 6. **A round closes only when reconciled and its applicable gates are green.**
    For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
@@ -402,8 +413,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
-   Auto-merge armed at the user's direction is that authorization; see
-   [Standing adjustments](#standing-adjustments).
+   A recorded exact-head merge authorization satisfies this rule; see the
+   [user-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ### Canonical round flow
 
@@ -439,37 +450,42 @@ returned finding forward.
 
 Spend review only on a pushed, settled head formed by the canonical cycle.
 Record the exact head and effective base. If a conflict, author change,
-finding, or restack moves the head, form a replacement through the cycle again
-unless the user approves the exact-head trivial-interaction waiver below. While
-a candidate is locked, do not push or integrate other than for recovery; a
-non-mutating fetch is allowed to re-establish state after a resume and for
-carry-forward analysis. Before merge, confirm live GitHub readiness — see
-[Merge preflight](docs/round-orchestration.md#merge-preflight).
+finding, restack, or base-ref retarget changes the candidate, form a replacement
+through the cycle unless the user approves the exact-head waiver below. While a
+candidate is locked, do not push or integrate other than for recovery; a
+non-mutating fetch is allowed for resume and carry-forward analysis. Before
+merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orchestration.md#merge-preflight).
 
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
 head, or a head with a pending/approved trivial-interaction waiver, and
-`origin/main` moves, assess the landed range before doing anything else — do
-not integrate blindly and do not start another round by default. A base
-movement beyond a waiver's recorded base expires it before classification. An
-upper stack slice follows its parent instead: parent movement is a restack
-requiring review at the new head.
+an agent observes that `origin/main` moved while the PR remains open, assess the
+landed range before an agent-driven merge or mutation — do not integrate
+blindly and do not start another round by default. An upper stack slice follows
+its parent instead: parent movement is a restack requiring review at the new
+head.
 
 After a non-mutating fetch, classify the landed range into exactly one
 outcome, act on it, and report the classification and action as normal session
 output before changing labels or dispatching reviewers; re-classify only when
 the landed range itself changes, not on every poll. Merging still needs a live
-readiness check and explicit user authorization regardless of classification.
+readiness check and explicit user authorization.
+The analysis is a point-in-time decision aid, not an exact-base lock: later base
+movement does not trigger branch integration or CI chasing; exact-base
+revalidation needs a merge queue, not repeated branch updates.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-The four outcomes: **no interaction** (keep `review-clean`, integrate by SHA,
-skip re-running anything — the common case), **trivial interaction**
-(overlaps resolve mechanically; remove `review-clean`, integrate, run affected
-gates, offer the exact-head re-review waiver), **significant interaction, no
-conflict** (remove `review-clean`, re-run validation and CI, re-dispatch
-reviewers as a normal round), and **merge conflict requiring semantic
-resolution** (treat as an author change under
+The four outcomes: **no interaction** (keep the reviewed or waived head
+unchanged, preserve its state and merge authorization, and start no new CI run
+or other gate — the common case), **trivial interaction** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, run affected gates, and offer the exact-head
+re-review waiver), **significant interaction, no conflict** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
+as a normal round), and **merge conflict requiring semantic resolution**
+(expire authorization, disable any armed auto-merge first, and recover under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
@@ -477,11 +493,12 @@ resolution** (treat as an author change under
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
+| Everything else | **GPT-6 Astra**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
 When uncertain, use the standard round. Second-seat selection by prior clean
 count lives in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster). A MAI-Code
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch IDs live
+in [Agent model mapping](docs/agent-models.md). A MAI-Code
 quick read on unsettled work is neither tier: it gets no isolated worktree or
 fixed head and satisfies no review tier — label its findings as early
 feedback, since the settled PR still requires its full round.
@@ -522,22 +539,10 @@ checkpoint and split mechanics:
 
 ## Lead with the demo
 
-Validation proves correctness; a demo shows value. Post the intended demo early
-enough to change the implementation.
-
-For a network-accessible inspect-web demo, follow
-[`docs/runbooks/inspect-web-demo-hosting.md`](docs/runbooks/inspect-web-demo-hosting.md).
-A local HTTP listener or successful `curl` is not a user-visible demo.
-
-A useful demo:
-
-- shows a real canonical invocation and its real output;
-- includes before and after for a fix;
-- says what to notice; and
-- still works for a neighboring scenario, proving the implementation was not
-  fitted to the sample.
-
-Put it under `## Demo` above validation in the PR body.
+Put `## Demo` above validation in every PR body. Show the real scenario and
+output, before and after for a fix, and a neighboring case; use a mockup for
+documentation-only work. [Development Practices](docs/development-practices.md#lead-with-the-demo)
+owns the full contract and the inspect-web hosting pointer.
 
 ## PR and CI discipline
 
@@ -551,8 +556,10 @@ Put it under `## Demo` above validation in the PR body.
   `ci-required` unless parallel review is approved or conflict recovery applies.
   Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. If an hour passes without an authored change while an
-  independent gate hasn't started, fix the sequencing or record the blocker.
+  instead of polling. During a bounded wait, fetch the live base and locally
+  test each new tip for conflicts; never report budget exhaustion without
+  checking the final tip. If an hour passes without an authored change while
+  an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
   concludes `success`, and a missing aggregate is not green. Never require a
@@ -561,12 +568,11 @@ Put it under `## Demo` above validation in the PR body.
   non-action boundary, and exact validation.
 - `review-clean` is advisory, not a merge-eligibility claim (see
   [Keep the review-clean label current](#keep-the-review-clean-label-current)).
-  Confirm current-head CI and GitHub's live mergeability at the moment of any
+  Confirm current-head CI and GitHub's live mergeability for every agent-driven
   merge attempt or readiness statement.
 - Never merge without explicit authorization for that PR. A clean review,
-  green CI, or readiness comment is not authorization. User-directed auto-merge
-  authorizes only the exact reviewed head or an approved trivial-interaction
-  waiver's exact head/base pair.
+  green CI, or readiness comment is not authorization. A recorded merge
+  authorization applies only to its exact head/base ref and valid evidence.
 
 ### Stacked PRs for multi-slice issues
 
@@ -581,7 +587,8 @@ that race in the same files. `docs/stacked-prs.md` owns the mechanics.
   its parent; only the bottom open slice uses `main`. During a GitHub outage,
   branch from the recorded last-known base or parent, then update and
   validate bottom-up on recovery before pushing.
-- Merge bottom-up and confirm each retargeted diff still shows only its slice.
+- Merge bottom-up. After each merge, complete the theme handoff; if another
+  slice remains, propose confirming its retargeted diff as the next task.
 - Restacking your own slices is the exception to the no-force-push rule. Use
   `--force-with-lease` and post a `range-diff` proving only the base changed.
 - Apply review depth and the canonical eligibility table per slice and

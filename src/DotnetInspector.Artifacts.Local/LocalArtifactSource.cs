@@ -82,9 +82,10 @@ public sealed record LocalArtifactDiagnostic :
 /// <c>LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration</c>.
 /// Pre-open rejection of stable non-regular entries is gated by
 /// <c>LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen</c>.
-/// Directory acquisition remains unverified.
+/// Bounded directory acquisition is gated by the three
+/// <c>LocalDirectoryAcquisition_*</c> tests.
 /// </remarks>
-public static class LocalArtifactSource
+public static partial class LocalArtifactSource
 {
     public static async ValueTask<ArtifactAcquisitionOutcome>
         AcquireFileAsync(
@@ -127,7 +128,7 @@ public static class LocalArtifactSource
                 observedLastWriteTimeUtc);
             ArtifactContribution contribution = scope.Register(
                 provenance,
-                () => OpenSnapshot(snapshot),
+                _ => OpenSnapshot(snapshot),
                 kind: "local-file");
             return new ArtifactAcquisitionOutcome.Acquired(
                 [contribution],

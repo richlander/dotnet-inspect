@@ -48,10 +48,84 @@ Classify it as a scope proposal, robustness idea, design question, or
 non-blocking observation. A concern that materially expands functionality or
 the threat model is not a landing requirement without operator approval.
 
+Treat critical feedback as a design question before prescribing a repair.
+Determine whether the owning design already states the required behavior, is
+silent or contradictory, or whether the concern would change another owner's
+contract. When the design already covers the case, identify the implementation
+or evidence failure. When it does not, report the resolution as design work or,
+for a cross-owner expansion, as a scope proposal rather than jumping directly
+to a code fix.
+
 A mutation is useful evidence only when it represents a plausible regression
 of promised behavior. The fact that an artificial mutation survives a gate
 does not by itself justify another gate. Prefer evidence from public product
 outcomes over tests that inspect seams introduced only for the test.
+
+Require the smallest set of claims and gates sufficient for the stated user
+goal and owned boundaries. Do not demand a feature-specific platform,
+portability, safety, or composition claim merely because the repository values
+that property. When the exact head uses only supported dependencies and
+mechanisms, inherit the existing contract without another claim or gate.
+Require additional claims and evidence only when a new dependency, API, or
+design creates a concrete reason to question that contract, and name that
+trigger. Existing repository-required gates remain applicable.
+
+Treat conventions, best practices, and analogous implementations as
+comparative evidence, not authority. A deliberate divergence is not a defect
+merely because it is unusual; connect it to an owned-claim violation and
+observable consequence. An analogous implementation's behavior or omission is
+relevant only when its assumptions transfer.
+
+Review the current slice for the behavior it presently promises. Residual
+hardening or follow-up work is not a defect when the current contract is
+independently coherent, behavior-safe, visibly fails outside its support, and
+does not depend on that later work for correctness. Do report success-shaped
+unfinished behavior or a slice whose current correctness depends on a future
+change.
+
+When a candidate adds or expands an architecture, capability, substrate, host
+path, or broad rendering domain, review only design properties visible in the
+exact head and facts supplied in the candidate frame. The frame must state the
+complexity basis; named consumer, focused issue, overall end-to-end tracker,
+enumerated production-host adoption path and total step count, any applicable
+existing-architecture retirement plan, and any applicable approval record and
+exact scope; and rendering strategy, or explain why each does not apply.
+
+Verify that the stated complexity basis identifies a specific reliability or
+correctness requirement or user-observable experience, and that the visible
+design's added complexity serves that basis. Do not independently judge whether
+an experience is compelling. Verify that the design matches its named consumer
+and counted production-host adoption plan, keeps reusable concepts host-neutral
+and hosts reasonably thin, and does not depend on unplanned later work for the
+current slice's correctness. Host-neutrality does not remove the requirement
+to explain how and in how many steps the architecture reaches observable host
+behavior. Test infrastructure may name its routinely exercising harness as the
+production host. Shared substrate must plan benefit and enablement through both
+the CLI and browser/Wasm hosts. An alternative to an existing architecture
+must track that architecture's migration and retirement. For substrate
+intentionally limited to one consumer or host, the frame must supply the
+recorded approval and exact approved scope. Treat that record as a
+candidate-formation fact: verify that the design conforms to it, but do not
+infer, grant, or broaden approval.
+
+For rendering, verify that structured information survives to the rendering
+boundary. Markout is the default host-neutral, multi-format substrate. A
+host-specific path that bypasses it must identify the host, rationale, typed
+input model, and lowering boundary. A broad information domain must document
+where structured typing lives and who owns each format lowering, whether it
+uses Markout or another approach.
+
+Do not accept claimed non-applicability at face value. Verify from the
+normative owner, change intent, changed surfaces, and exact-head diff that the
+candidate does not add or expand an architecture, capability, substrate, host
+path, or broad rendering domain. When a design establishes that boundary, the
+explanation must name its exact section. If the supplied facts and exact-head
+evidence do not establish non-applicability, return a framing defect.
+
+Push on the named pathological or boundary case. When accepting or rejecting
+that case is part of the supported contract, require exact-head gate evidence.
+A preserved non-CI fixture is design evidence, not the enforcing gate; the
+candidate must name the ordinary gate or mark the property unverified.
 
 If the design contains substantial machinery primarily to constrain trusted
 components, report that once as a design or proportionality concern. Do not
@@ -64,10 +138,20 @@ contract findings. Ignore style preferences and speculative hardening. A clean
 result is successful: if no qualifying findings remain, report **CLEAN** and
 name the exact reviewed head.
 
+Use the candidate's stated user purpose to explain consequence, not to create a
+subjective taste gate. Do not block because a feature seems insufficiently
+foundational, compelling, conventional, delightful, new, or unique unless the
+owning claim defines a concrete observable requirement.
+
 Do not begin review if the candidate context contains unresolved placeholders,
 names multiple normative owners, or cannot connect the supported input to the
-claimed consequence. Return the framing defect instead of inventing a broader
-review property.
+claimed consequence. For an applicable architecture, capability, substrate,
+host, or rendering change, also stop when the required complexity basis; named
+consumer, focused issue, overall end-to-end tracker, production-host adoption
+path or total step count, or applicable existing-architecture retirement plan;
+applicable approval record or exact scope; or rendering strategy is incomplete
+or absent. Return the framing defect instead of inventing the missing plan,
+approval, or broader review property.
 
 Treat the assigned review worktree as read-only. Do not run `git reset`,
 `git add`, or `git commit`; do not rebase or checkout another revision. Put
@@ -83,7 +167,8 @@ For every finding, provide:
 - exact owned claim violated;
 - concrete consequence;
 - exact-head evidence or a reproducible probe; and
-- the smallest plausible fix direction.
+- the smallest plausible resolution direction: design, evidence, or
+  implementation.
 
 Separate blocking findings from non-blocking observations and scope proposals.
 Do not turn a scope proposal into a defect by assigning it a severity. If there

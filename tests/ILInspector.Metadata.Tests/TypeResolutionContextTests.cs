@@ -620,7 +620,7 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
-    public void UnresolvedBindingKey_PreservesEveryBindingCoordinate()
+    public void UnresolvedBindingKey_PreservesEveryApplicableBindingCoordinate()
     {
         byte[] firstOwnerImage =
             BuildAssembly("FirstOwner", definesType: false);
@@ -699,10 +699,6 @@ public class TypeResolutionContextTests
                 target,
                 firstOrigin,
                 AssemblyResolutionScope.Platform,
-                TypeName()),
-            TypeResolutionRequest.FromCoreLibrary(
-                firstOwner,
-                AssemblyResolutionScope.Any,
                 TypeName()),
         ];
         TypeResolutionRequest[] requests =
@@ -1532,12 +1528,176 @@ public class TypeResolutionContextTests
             AssemblyBindingFailureKind.CandidateUnavailable,
             Assert.IsType<AssemblyBindingOutcome.Unavailable>(
                 context.Bind(bindingRequest)).Failure.Kind);
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(bindingRequest))
+                .Failure.CandidateFailureKind);
         Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
             Assert.IsType<TypeResolutionOutcome.Rejected>(
                 second.Resolve(referenceRequest)).Failure);
         Assert.IsType<AssemblyBindingOutcome.Unavailable>(
             second.Bind(bindingRequest));
         Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
+    public void BindingFailure_PreservesMalformedCandidateReason()
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "malformed selected assembly"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Found(malformed));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
+    }
+
+    [Fact]
+    public void BindingFailure_PreservesMalformedOriginReason()
+    {
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                Identity("Owner"),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException(
+                "Policy must not run."));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
+        Assert.Empty(policy.Requests);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void MultipleBindingFailure_PrefersTypedAdmissionFailureRegardlessOfOrder(
+        bool malformed,
+        bool admissionFirst)
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference formatRejected =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    malformed
+                        ? MetadataAdmissionCleanupTests
+                            .BuildMalformedMetadataRoot()
+                        : MetadataAdmissionCleanupTests
+                            .BuildManagedWindowsMetadata(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("format rejected"));
+        ResolvedAssemblyReference unreadable =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => throw new IOException("unreadable"),
+                AssemblyResolutionProvenance.Local("unreadable"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Multiple(
+                admissionFirst
+                    ? [formatRejected, unreadable]
+                    : [unreadable, formatRejected]));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            malformed
+                ? CandidateOpenFailureKind.InvalidImage
+                : CandidateOpenFailureKind.UnsupportedMetadataFormat,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            malformed
+                ? MetadataRootMalformedReason.InvalidSignature
+                : null,
+            failure.MetadataRootReason);
     }
 
     [Fact]
@@ -1622,9 +1782,65 @@ public class TypeResolutionContextTests
             Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
                 Assert.IsType<TypeResolutionOutcome.Rejected>(
                     context.Resolve(request)).Failure).Budget);
-        Assert.IsType<AssemblyBindingOutcome.Unavailable>(
-            context.Bind(binding));
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            failure.CandidateFailureKind);
         Assert.Empty(policy.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MultipleBindingFailure_ResourceBudgetOutranksFormatFailure(
+        bool budgetFirst)
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("malformed"));
+        ResolvedAssemblyReference overBudget = Descriptor(targetImage);
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Multiple(
+                budgetFirst
+                    ? [overBudget, malformed]
+                    : [malformed, overBudget]));
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions { MaxCandidates = 1 });
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [malformed, owner, overBudget],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            failure.CandidateFailureKind);
+        Assert.Null(failure.MetadataRootReason);
     }
 
     [Fact]
@@ -1812,6 +2028,33 @@ public class TypeResolutionContextTests
                 Assert.IsType<AssemblyBindingOutcome.Resolved>(
                     second.Bind(binding)).ShadowedAssemblies));
         Assert.Equal(0, shadowOpens);
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
+    public void IntrinsicBindingMiss_IsRejectedBeforeFreezing()
+    {
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Platform);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NameNotOwned());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        var rejected = Assert.IsType<AssemblyBindingOutcome.Rejected>(
+            context.Bind(binding));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
         Assert.Single(policy.Requests);
     }
 
@@ -2213,7 +2456,7 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
-    public void PolicyVersionChange_DuringDiscoveryRejectsFreeze()
+    public void PolicyVersionChange_AfterMatchingSelectionRejectsFreeze()
     {
         byte[] facadeImage = BuildAssembly(
             "Facade",
@@ -2232,6 +2475,160 @@ public class TypeResolutionContextTests
                 [facade],
                 [request]));
         Assert.Equal(1, policy.CallCount);
+    }
+
+    [Fact]
+    public void PolicyVersionChange_StopsBeforeNextSelection()
+    {
+        var first = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("First")),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var second = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Second")),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var policy = new VersionChangingPolicy();
+        using var catalog = new TypeResolutionCatalog();
+
+        Assert.Throws<InvalidOperationException>(
+            () => catalog.CreateContext(
+                policy,
+                roots: [],
+                bindingRequests: [first, second],
+                requests: []));
+
+        Assert.Equal(1, policy.CallCount);
+    }
+
+    [Fact]
+    public void ForeignPolicySnapshot_IsRejectedBeforePayloadInterpretation()
+    {
+        int openCount = 0;
+        ResolvedAssemblyReference selected = Descriptor(
+            BuildAssembly("Selected", definesType: true),
+            () => openCount++);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(selected.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var policy = new ScriptedSnapshotPolicy(
+            currentVersion: new AssemblyBindingPolicyVersion(),
+            snapshotVersion: new AssemblyBindingPolicyVersion(),
+            AssemblyBindingSelection.Found(selected));
+        using var catalog = new TypeResolutionCatalog();
+
+        Assert.Throws<InvalidOperationException>(
+            () => catalog.CreateContext(
+                policy,
+                roots: [],
+                bindingRequests: [request],
+                requests: []));
+
+        Assert.Equal(1, policy.CallCount);
+        Assert.Equal(0, openCount);
+
+        policy.SetState(
+            policy.Version,
+            policy.Version,
+            AssemblyBindingSelection.NameNotOwned());
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [],
+            bindingRequests: [request],
+            requests: []);
+
+        Assert.Equal(2, policy.CallCount);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                context.Bind(request)).Disposition);
+    }
+
+    [Fact]
+    public void FinalPolicyVersionChange_PublishesNoGenerationOrPolicyCache()
+    {
+        byte[] baselineImage =
+            BuildAssembly("Baseline", definesType: true);
+        ResolvedAssemblyReference baseline = Descriptor(baselineImage);
+        TypeResolutionRequest baselineRequest =
+            TypeResolutionRequest.FromAssembly(
+                baseline,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext baselineContext =
+            catalog.CreateContext(
+                NoResolverAssemblyBindingPolicy.Instance,
+                [baseline],
+                [baselineRequest]);
+        ResolvedTypeDefinitionKey baselineKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                baselineContext.Resolve(baselineRequest)).Definition.Key;
+
+        byte[] targetImage = BuildAssembly("Target", definesType: true);
+        byte[] facadeImage = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: ReadIdentity(targetImage));
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            facade,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        var version = new AssemblyBindingPolicyVersion();
+        var policy = new ScriptedSnapshotPolicy(
+            version,
+            version,
+            AssemblyBindingSelection.Found(target),
+            nextVersion: new AssemblyBindingPolicyVersion());
+
+        Assert.Throws<InvalidOperationException>(
+            () => catalog.CreateContext(
+                policy,
+                [facade],
+                [request]));
+
+        Assert.Equal(1, policy.CallCount);
+        Assert.IsType<DefinitionCorrespondence.Same>(
+            catalog.Compare(baselineKey, baselineKey));
+
+        AssemblyBindingPolicyVersion retryVersion = policy.Version;
+        Assert.NotSame(version, retryVersion);
+        policy.SetState(
+            retryVersion,
+            retryVersion,
+            AssemblyBindingSelection.NameNotOwned());
+        using TypeResolutionContext retry = catalog.CreateContext(
+            policy,
+            [facade],
+            [request]);
+
+        Assert.Equal(2, policy.CallCount);
+        Assert.IsNotType<TypeResolutionOutcome.Resolved>(
+            retry.Resolve(request));
+    }
+
+    [Fact]
+    public void NullPolicySnapshot_RemainsInvalidPolicyOutput()
+    {
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Missing")),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new NullSnapshotPolicy(),
+            roots: [],
+            bindingRequests: [request],
+            requests: []);
+
+        var rejected = Assert.IsType<AssemblyBindingOutcome.Rejected>(
+            context.Bind(request));
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
     }
 
     [Theory]
@@ -2941,7 +3338,7 @@ public class TypeResolutionContextTests
     }
 
     sealed class RecordingPolicy(
-        Func<AssemblyBindingRequest, AssemblyBindingSelection> select)
+        Func<AssemblyBindingRequest, AssemblyBindingSelection?> select)
         : IAssemblyBindingPolicy
     {
         readonly object _gate = new();
@@ -2949,11 +3346,17 @@ public class TypeResolutionContextTests
         public AssemblyBindingPolicyVersion Version { get; } = new();
         public List<AssemblyBindingRequest> Requests { get; } = [];
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
         {
             lock (_gate)
                 Requests.Add(request);
-            return select(request);
+            AssemblyBindingSelection? selection = select(request);
+            return selection is null
+                ? null!
+                : new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
         }
     }
 
@@ -2963,11 +3366,15 @@ public class TypeResolutionContextTests
             new();
         public int CallCount { get; private set; }
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
         {
+            AssemblyBindingPolicyVersion version = Version;
             CallCount++;
             Version = new AssemblyBindingPolicyVersion();
-            return AssemblyBindingSelection.NotFound();
+            return new AssemblyBindingSelectionSnapshot(
+                version,
+                AssemblyBindingSelection.NotFound());
         }
     }
 
@@ -2981,10 +3388,18 @@ public class TypeResolutionContextTests
             new();
         public int CallCount { get; private set; }
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
         {
-            CallCount++;
-            return Missing(_disposition);
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                CallCount++;
+                return Missing(_disposition);
+
+            }
         }
 
         public void Advance(AssemblyBindingMissDisposition next)
@@ -2992,5 +3407,63 @@ public class TypeResolutionContextTests
             _disposition = next;
             Version = new AssemblyBindingPolicyVersion();
         }
+    }
+
+    sealed class ScriptedSnapshotPolicy : IAssemblyBindingPolicy
+    {
+        AssemblyBindingPolicyVersion _snapshotVersion;
+        AssemblyBindingSelection _selection;
+        AssemblyBindingPolicyVersion? _nextVersion;
+
+        internal ScriptedSnapshotPolicy(
+            AssemblyBindingPolicyVersion currentVersion,
+            AssemblyBindingPolicyVersion snapshotVersion,
+            AssemblyBindingSelection selection,
+            AssemblyBindingPolicyVersion? nextVersion = null)
+        {
+            Version = currentVersion;
+            _snapshotVersion = snapshotVersion;
+            _selection = selection;
+            _nextVersion = nextVersion;
+        }
+
+        public AssemblyBindingPolicyVersion Version { get; private set; }
+        internal int CallCount { get; private set; }
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            CallCount++;
+            var snapshot = new AssemblyBindingSelectionSnapshot(
+                _snapshotVersion,
+                _selection);
+            if (_nextVersion is { } nextVersion)
+            {
+                Version = nextVersion;
+                _nextVersion = null;
+            }
+
+            return snapshot;
+        }
+
+        internal void SetState(
+            AssemblyBindingPolicyVersion currentVersion,
+            AssemblyBindingPolicyVersion snapshotVersion,
+            AssemblyBindingSelection selection,
+            AssemblyBindingPolicyVersion? nextVersion = null)
+        {
+            Version = currentVersion;
+            _snapshotVersion = snapshotVersion;
+            _selection = selection;
+            _nextVersion = nextVersion;
+        }
+    }
+
+    sealed class NullSnapshotPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) => null!;
     }
 }

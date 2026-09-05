@@ -10,11 +10,8 @@
     <IsAotCompatible>false</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Remove="Fixtures/**/*.cs" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
@@ -27,27 +24,33 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
     <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
-    <ProjectReference Include="../../src/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
-    <ProjectReference Include="Fixtures/StateMachines/ILInspector.Metadata.StateMachineFixtures.csproj" />
-    <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
-    <ProjectReference Include="Fixtures/SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
-    <ProjectReference Include="Fixtures/ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
+    <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
       <Aliases>extensionold</Aliases>
     </ProjectReference>
-    <ProjectReference Include="Fixtures/ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj">
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj">
       <Aliases>extensionnew</Aliases>
     </ProjectReference>
     <!-- New-rules unsafe fixture: a member declared `unsafe` with no pointer in
          its signature is stamped [RequiresUnsafeAttribute]; used to verify the
          API surface marks it unsafe. -->
-    <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj">
+      <Aliases>legacyunsafe</Aliases>
+    </ProjectReference>
     <!-- #1741 fixture: DiffAsmTarget exposes two overloads whose parameter types
          share the FQN Shared.Token but come from different assemblies (LibA vs
          LibB). Used to prove the structural signature keeps them distinct. -->
-    <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
   </ItemGroup>
 
 </Project>

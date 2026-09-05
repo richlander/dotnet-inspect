@@ -48,7 +48,9 @@ internal static class SourceEnricher
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
         => PdbAcquisitionService.AcquireAsync(
             context,
             assembly,
@@ -56,7 +58,9 @@ internal static class SourceEnricher
             log,
             cacheOnly,
             sourceOptions,
-            cancellationToken);
+            cancellationToken,
+            fallbackPackageName,
+            fallbackPackageVersion);
 
     // ===== Verbosity-Aware Enrichment Gateways =====
 
@@ -105,7 +109,16 @@ internal static class SourceEnricher
 
     // ===== Single-Type Enrichment =====
 
-    internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    internal static async Task EnrichTypeWithSourceInfoAsync(
+        ApiType apiType,
+        string typeName,
+        string dllPath,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        ResolvedAssemblyReference? sourceAssembly = null,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
         {
@@ -115,7 +128,9 @@ internal static class SourceEnricher
 
         try
         {
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            using var service = sourceAssembly is null
+                ? SourceLinkService.Open(dllPath, logger.Log)
+                : SourceLinkService.Open(sourceAssembly, logger.Log);
             var context = service.Context;
 
             if (!context.HasMetadata)
@@ -125,10 +140,33 @@ internal static class SourceEnricher
             }
 
             var (packageName, packageVersion) = ResolvePackageInfo(options, dllPath);
+            packageName = fallbackPackageName ?? packageName;
+            packageVersion = fallbackPackageVersion ?? packageVersion;
 
-            await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
-                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                sourceOptions: options.SourceOptions);
+            if (sourceAssembly is null)
+            {
+                await AcquirePdbAsync(
+                    context,
+                    httpClient,
+                    packageName,
+                    packageVersion,
+                    isPlatformAssembly:
+                        !string.IsNullOrEmpty(
+                            options.PlatformAssembly),
+                    logger.Log,
+                    sourceOptions: options.SourceOptions);
+            }
+            else
+            {
+                await AcquirePdbAsync(
+                    context,
+                    sourceAssembly,
+                    httpClient,
+                    logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    fallbackPackageName: packageName,
+                    fallbackPackageVersion: packageVersion);
+            }
 
             if (!context.HasPdb)
             {
@@ -164,7 +202,8 @@ internal static class SourceEnricher
             var sourceInfo = service.ResolveTypeSource(typeName);
             if (sourceInfo == null)
             {
-                if (apiType.DefinitionName is not null
+                if (sourceAssembly is null
+                    && apiType.DefinitionName is not null
                     && await TryEnrichFromForwardedAssemblyAsync(
                         apiType,
                         typeName,
@@ -186,7 +225,7 @@ internal static class SourceEnricher
                 options,
                 logger);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (sourceAssembly is null)
         {
             logger.Log($"Error enriching source info: {ex.Message}");
         }
@@ -237,7 +276,8 @@ internal static class SourceEnricher
         }
 
         List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)> typeSourceInfo = [];
-        Dictionary<string, (string Url, string? Algorithm, byte[]? Checksum)> allSourcesToFetch = [];
+        Dictionary<string, (string Url, string FilePath, string? Algorithm, byte[]? Checksum)>
+            allSourcesToFetch = [];
 
         foreach (var apiType in types)
         {
@@ -250,6 +290,7 @@ internal static class SourceEnricher
                 AddSourceFetch(
                     allSourcesToFetch,
                     sourceInfo.SourceUrl,
+                    sourceInfo.SourceFilePath ?? "",
                     sourceInfo.ChecksumAlgorithm,
                     sourceInfo.Checksum);
                 if (sourceInfo.AdditionalSourceFiles != null)
@@ -261,6 +302,7 @@ internal static class SourceEnricher
                             AddSourceFetch(
                                 allSourcesToFetch,
                                 additional.SourceUrl,
+                                additional.FilePath,
                                 additional.ChecksumAlgorithm,
                                 additional.Checksum);
                         }
@@ -283,11 +325,13 @@ internal static class SourceEnricher
             new ParallelOptions { MaxDegreeOfParallelism = 16 },
             async (sourceFetch, ct) =>
             {
-                var result = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var result = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
                     fetcher,
+                    sourceFetch.FilePath,
                     sourceFetch.Url,
                     sourceFetch.Algorithm,
                     sourceFetch.Checksum,
+                    options.SourceRepositories,
                     ct);
                 contentCache[SourceFetchKey(
                     sourceFetch.Url,
@@ -821,11 +865,13 @@ internal static class SourceEnricher
         foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
         {
             logger.Log("Fetching SourceLink source.");
-            var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+            var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
                 fetcher,
+                filePath,
                 url,
                 algorithm,
-                checksum);
+                checksum,
+                options.SourceRepositories);
             string? content = fetch.Text;
             if (content is null)
             {
@@ -870,13 +916,14 @@ internal static class SourceEnricher
     }
 
     private static void AddSourceFetch(
-        Dictionary<string, (string Url, string? Algorithm, byte[]? Checksum)> sources,
+        Dictionary<string, (string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sources,
         string url,
+        string filePath,
         string? algorithm,
         byte[]? checksum)
         => sources.TryAdd(
             SourceFetchKey(url, algorithm, checksum),
-            (url, algorithm, checksum));
+            (url, filePath, algorithm, checksum));
 
     private static string SourceFetchKey(
         string url,

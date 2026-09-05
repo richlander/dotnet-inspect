@@ -28,6 +28,11 @@ on:
   merge_group:
     types: [checks_requested]
 
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -48,7 +53,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Detect what changed to determine which jobs to run
+  # Plan the validations selected by this exact candidate.
   #
   # This entry job uses the GA image deliberately. Every workflow run waits on
   # it before path-gated jobs can be selected, so preview-image capacity must
@@ -56,30 +61,19 @@ jobs:
   # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     timeout-minutes: 10
     outputs:
-      code: ${{ steps.filter.outputs.code }}
-      csharpdiff: ${{ steps.filter.outputs.csharpdiff }}
-      decompiler: ${{ steps.filter.outputs.decompiler }}
-      docs: ${{ steps.filter.outputs.docs }}
-      ildiff: ${{ steps.filter.outputs.ildiff }}
-      ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
-      packaging: ${{ steps.filter.outputs.packaging }}
-      shipped: ${{ steps.filter.outputs.shipped }}
-      web: ${{ steps.filter.outputs.web }}
-      skills: ${{ steps.filter.outputs.skills }}
+      plan: ${{ steps.plan.outputs.plan }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
-          # Full history. Change detection diffs against github.event.before,
-          # which is not always the immediate parent: a push advances main by
-          # more than one commit whenever two PRs merge back to back or a
-          # batch is pushed. fetch-depth: 2 left that commit outside the
-          # shallow clone and the diff died with "Invalid symmetric difference
-          # expression", taking the whole run with it.
+          # Full history. The planner must resolve both exact endpoint commits;
+          # a push's before commit is not always the immediate parent.
           fetch-depth: 0
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
 
@@ -103,54 +97,203 @@ jobs:
           dotnet run --project tools/DecompilerHarness -c Release --
           --verify-authored-corpus-history
 
-      # GitHub limits one workflow expression scalar to 21,000 characters.
-      # Keep the classifier in a tested script so adding another path cannot
-      # invalidate the workflow before any job is created.
-      - name: Detect changes
-        id: filter
+      - name: Plan changes
+        id: plan
         shell: bash
-        run: eng/ci-detect-changes.sh
+        run: |
+          set -euo pipefail
+          evidence_directory="${RUNNER_TEMP}/ci-plan"
+          mkdir -p "$evidence_directory"
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              event_name="pull-request"
+              base_sha=$(git rev-parse --verify 'HEAD^1')
+              ;;
+            merge_group)
+              event_name="merge-group"
+              base_sha="$CI_EVENT_BASE_SHA"
+              ;;
+            push)
+              event_name="push"
+              base_sha="$CI_EVENT_BASE_SHA"
+              ;;
+            *)
+              echo "Unsupported CI planning event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          plan=$(
+            dotnet run eng/ci-plan.cs -- "$event_name" \
+              --base "$base_sha" \
+              --candidate "$GITHUB_SHA" \
+              --evidence-directory "$evidence_directory" \
+              --repository "$GITHUB_WORKSPACE"
+          )
+          if [[ "$plan" == *$'\n'* ]]; then
+            echo "ci-plan emitted more than one line" >&2
+            exit 1
+          fi
+          jq -e '
+            type == "object"
+            and .schemaVersion == 2
+            and .status == "planned"
+          ' <<< "$plan" > /dev/null
+          printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
         env:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BEFORE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
-          CI_PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
+          CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+
+      - name: Upload TLA+ scope evidence
+        if: fromJSON(steps.plan.outputs.plan).validations.tla
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}
+          path: ${{ runner.temp }}/ci-plan/${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}
+          if-no-files-found: error
+          retention-days: 1
 
   # Lint markdown files
   markdownlint:
     needs: changes
-    if: needs.changes.outputs.docs == 'true'
+    if: fromJSON(needs.changes.outputs.plan).validations.markdownlint
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run markdownlint
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
 
+  # Upholds the bar in docs/tla-plus-methodology.md for TLA+ models changed by
+  # this candidate: SANY parses every selected module, and TLC runs the selected
+  # directories' .cfg files to completion. Contract-defining configurations in
+  # eng/tla-expected-exit-codes.txt must produce their exact semantic verdict;
+  # unlisted legacy configurations retain the coherent-verdict policy because
+  # some are negative controls without machine-readable expectations.
+  tla-plus:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.tla
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download TLA+ scope evidence
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}
+          path: ${{ runner.temp }}/ci-plan
+
+      - name: Self-test TLA+ runner scope
+        shell: bash
+        run: eng/test-tla-checks.sh
+
+      # Ubuntu 26.04's default-jre metapackage resolves to OpenJDK 25,
+      # matching the Java pin in docs/runbooks/tla-plus-setup.md.
+      - name: Install Java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-jre
+
+      - name: Cache tla2tools.jar
+        id: cache-tla
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/tlaplus/tla2tools.jar
+          # Include the asset digest so a later pin cannot reuse cached bytes
+          # from a different build.
+          key: tla2tools-v1.8.0-ab323b79802aedc3
+
+      # Pinned per docs/runbooks/tla-plus-setup.md: upstream v1.8.0 is a
+      # rolling channel whose prior assets disappear. Fetch the immutable
+      # mirrored build instead of the mutable upstream tag.
+      - name: Download tla2tools.jar
+        if: steps.cache-tla.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/share/tlaplus
+          curl -fLo ~/.local/share/tlaplus/tla2tools.jar \
+            https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar
+
+      # A cache key alone is not an integrity check: substituted release bytes
+      # or a poisoned cache entry would otherwise execute unverified bytecode
+      # via the "Run TLA+ checks" step below with no diagnostic. Verify on
+      # every run -- cache hits included -- not only after a fresh download.
+      - name: Verify tla2tools.jar checksum
+        run: |
+          set -euo pipefail
+          echo "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f  $HOME/.local/share/tlaplus/tla2tools.jar" \
+            | sha256sum -c -
+
+      - name: Run TLA+ checks
+        shell: bash
+        env:
+          TLA_SCOPE_ARTIFACT: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}
+          TLA_SCOPE_FRAMING: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.framing }}
+          TLA_SCOPE_RECORD_COUNT: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.recordCount }}
+          TLA_SCOPE_SHA256: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.sha256 }}
+        run: |
+          set -euo pipefail
+          if [ "$TLA_SCOPE_ARTIFACT" != "ci-plan-tla-paths0" ]; then
+            echo "::error::The TLA+ scope artifact identity is unsupported."
+            exit 1
+          fi
+          if [ "$TLA_SCOPE_FRAMING" != "pathBytesNulTerminated" ]; then
+            echo "::error::The TLA+ scope framing is unsupported."
+            exit 1
+          fi
+          scope_file="${RUNNER_TEMP}/ci-plan/${TLA_SCOPE_ARTIFACT}"
+          if [ ! -f "$scope_file" ]; then
+            echo "::error::The planned TLA+ scope evidence is missing."
+            exit 1
+          fi
+          actual_sha256=$(sha256sum "$scope_file" | cut -d ' ' -f 1)
+          if [ "$actual_sha256" != "$TLA_SCOPE_SHA256" ]; then
+            echo "::error::The TLA+ scope evidence digest does not match the plan."
+            exit 1
+          fi
+          actual_record_count=$(
+            LC_ALL=C tr -cd '\000' < "$scope_file" |
+              wc -c |
+              tr -d '[:space:]'
+          )
+          if [ "$actual_record_count" != "$TLA_SCOPE_RECORD_COUNT" ]; then
+            echo "::error::The TLA+ scope evidence record count does not match the plan."
+            exit 1
+          fi
+          export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
+          # Tighter than the script's 600s local-dev default: this repo's
+          # shared CI runners are slower than a typical contributor
+          # machine, and a per-invocation cap this size still leaves ample
+          # room under the job's timeout-minutes even if several configs
+          # hit it (a hit is a warning, not a failure -- see
+          # eng/run-tla-checks.sh).
+          export TLA_CHECK_TIMEOUT_SECONDS=120
+          eng/run-tla-checks.sh --changed-files0 < "$scope_file"
+
   inspect-web:
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
 
   # Shipped skills are embedded Markdown resources. A SKILL.md-only PR does
   # not need the full product matrix, but it must still prove that every
   # focused skill is registered and embedded and that every resource resolves.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: prototypes/inspect-web/package-lock.json
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -196,18 +339,14 @@ jobs:
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
-      - name: Audit shipped browser dependencies
-        working-directory: prototypes/inspect-web
-        # The runtime libraries are lockfile dependencies, so advisories against the code that
-        # reaches a user's browser are visible to `npm audit`. `--audit-level=info` is the
-        # strictest setting and is not the default: npm falls back to `low`, which passes a
-        # package whose advisories are all `info`. No `--omit=dev`, because that filters by
-        # where a package is declared rather than by whether it ships -- Vite is a
-        # devDependency and its helpers are in the bundle.
-        run: npm audit --audit-level=info
-
       - name: Check generated inspect-web TypeScript facade for drift
         run: eng/generate-inspect-web-engine-facade.sh --check
+
+      - name: Test shared-runtime multi-facade canary
+        run: eng/test-inspect-web-multi-facade-canary.sh
+
+      - name: Test managed-operation bridge Browser/Wasm canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
 
       - name: Typecheck generated ts-jsexport facade
         run: eng/test-ts-jsexport-typescript.sh
@@ -235,10 +374,29 @@ jobs:
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
-          test -f "$site/inspect-web-engine.js"
-          cmp \
-            prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js \
-            "$site/inspect-web-engine.js"
+          expected_modules=$(
+            printf '%s\n' \
+              inspect-web-host.js \
+              inspect-web-package.js \
+              inspect-web-metadata.js \
+              inspect-web-analysis.js \
+              inspect-web-source.js \
+              inspect-web-call-graph.js \
+              inspect-web-catalog.js |
+              sort
+          )
+          published_modules=$(
+            find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' \
+              -printf '%f\n' |
+              sort
+          )
+          test "$published_modules" = "$expected_modules"
+          while IFS= read -r module; do
+            cmp \
+              "prototypes/inspect-web/engine/wwwroot/$module" \
+              "$site/$module"
+          done <<< "$expected_modules"
+          test ! -f "$site/inspect-web-engine.js"
           test ! -f "$site/inspect-web-engine.ts"
           # The site is deployed from this artifact, so the headers have to be verified
           # where they ship. The toolchain test pins them in the source file; this checks
@@ -291,8 +449,9 @@ jobs:
         working-directory: prototypes/inspect-web
         run: >
           node
-          scripts/verify-published-engine-facade.ts
+          scripts/verify-published-engine-facades.ts
           ../../artifacts/inspect-web-publish/wwwroot
+          production
 
       - name: Test browser engine
         run: >
@@ -310,6 +469,18 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm test
 
+      - name: Install Firefox for Annotated Source browser tests
+        working-directory: prototypes/inspect-web
+        run: npx playwright install --with-deps firefox
+
+      - name: Test Annotated Source in Firefox
+        working-directory: prototypes/inspect-web
+        run: npm run test:browser
+
+      - name: Test published Worker browser binding
+        working-directory: prototypes/inspect-web
+        run: npm run inspect-web-worker-browser-binding
+
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
 
@@ -319,14 +490,14 @@ jobs:
 
   skill-gate:
     needs: changes
-    if: needs.changes.outputs.skills == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.skillGate
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -341,16 +512,7 @@ jobs:
 
       - name: Run embedded skill tests
         shell: bash
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/skill-tests.xml"
-          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-            -class "DotnetInspector.Tests.SkillCommandTests" \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Skill test filter selected no tests." >&2
-            exit 1
-          fi
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
 
   # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
   # 26.04 compatibility suites run daily in Deep Inspect, where
@@ -369,7 +531,7 @@ jobs:
   # Inspect, and release publishing continue to exercise ubuntu-26.04.
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.test
     permissions:
       contents: read
       packages: read
@@ -383,10 +545,10 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -401,6 +563,12 @@ jobs:
 
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Test dependency policy
+        run: dotnet run --project eng/DependencyPolicy.Tests -c Release --no-build
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
       - name: Run MethodSemantics NativeAOT probe
         run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
@@ -465,7 +633,7 @@ jobs:
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test
         id: package_fixture
@@ -476,14 +644,14 @@ jobs:
           DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="package-fixture-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
-            -method '*Package_Manifest_RendersToolManifestRows*' \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Package fixture test filter selected no tests." >&2
-            exit 1
-          fi
+            --filter-method '*Package_Manifest_RendersToolManifestRows*' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
             exit 1
@@ -495,6 +663,18 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run ecosystem registry tests
+        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+
+      - name: Run row-selection tests
+        run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
+
+      - name: Run section-row tests
+        run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
+
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
 
@@ -505,7 +685,7 @@ jobs:
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
       - name: Run fixture catalog tests
-        run: dotnet run --project tests/DotnetInspector.Fixtures.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
@@ -519,7 +699,7 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
@@ -536,7 +716,7 @@ jobs:
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run analysis tests (fast)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # The runtime-async compiler switch changes IL lowering without changing
       # whether the fixture builds. Run the focused owner gates so CI proves
@@ -544,14 +724,18 @@ jobs:
       - name: Run JSExport runtime-async wire gates
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/jsexport-runtime-async-wire-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="jsexport-runtime-async-wire-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
-            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
-            -method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
-            -method '*RuntimeAsync*' \
-            -xml "$results"
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
+            --filter-method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
+            --filter-method '*RuntimeAsync*' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
             echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
             exit 1
@@ -570,16 +754,24 @@ jobs:
       - name: Run ts-jsexport generator acceptance gates
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/ts-jsexport-generator-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="ts-jsexport-generator-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
-            -xml "$results"
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
+            ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
             ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportContractsTests \
             ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
           do
             if ! grep -Fq "type=\"$class\"" "$results"; then
@@ -587,13 +779,16 @@ jobs:
               exit 1
             fi
           done
-          negative_results="$RUNNER_TEMP/ts-jsexport-negative-tests.xml"
+          negative_results_name="ts-jsexport-negative-tests.xml"
+          negative_results="$results_dir/$negative_results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
-            -method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
-            -method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
-            -xml "$negative_results"
+            --filter-method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
+            --filter-method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            --filter-method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
+            --report-xunit \
+            --report-xunit-filename "$negative_results_name" \
+            --results-directory "$results_dir"
           for method in \
             Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
             Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
@@ -605,6 +800,9 @@ jobs:
             fi
           done
 
+      - name: Run ts-jsexport context NativeAOT gate
+        run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
+
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
 
@@ -613,12 +811,12 @@ jobs:
       # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
       # Deep Inspect / full local runs.
       - name: Restore vendored ILAssembler
-        if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
+        if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
         run: bash eng/restore-ilassembler.sh
 
       - name: Run IL round-trip tests (fast)
-        if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+        if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # Terminal checks: the suites above still report their results when
       # acquisition fails, but the lane must not go green having silently
@@ -637,6 +835,39 @@ jobs:
           echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
 
+  # Pull-request and merge-group candidates validate dependency policy in the
+  # full test job above. Pushes to main need a focused second look at the
+  # composed tree: two independently green PRs can introduce a forbidden edge
+  # only when both are present, and the full test matrix intentionally skips
+  # post-merge runs.
+  dependency-policy:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.dependencyPolicy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
+
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
   # net11 only — so net11-only API usage on the fallback path is invisible until
@@ -646,15 +877,15 @@ jobs:
   # SDK / nuget.org.
   build-net10:
     needs: changes
-    if: needs.changes.outputs.shipped == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.buildNet10
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -708,7 +939,7 @@ jobs:
   # a set-only case-ID comparison would still be incomplete.
   decompiler-gates:
     needs: changes
-    if: needs.changes.outputs.decompiler == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
     runs-on: ubuntu-26.04
     # Job timeout raised 55 -> 65 with the step timeout below (#3827).
     # The two must move together: the design depends on the *step* timeout
@@ -723,10 +954,10 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -839,15 +1070,15 @@ jobs:
   # coverage without forcing most PRs through extra work.
   csharp-diff-smoke:
     needs: changes
-    if: needs.changes.outputs.csharpdiff == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.csharpDiffSmoke
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -863,8 +1094,8 @@ jobs:
       - name: Build C# Diff harness and fixtures
         run: |
           dotnet build tools/CSharpDiffHarness/CSharpDiffHarness.csproj -c Release
-          dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-          dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 
       - name: Run C# Diff baseline smoke
         shell: bash
@@ -940,15 +1171,15 @@ jobs:
   # IL Diff-specific changes get a focused snapshot/baseline JSONL smoke.
   il-diff-smoke:
     needs: changes
-    if: needs.changes.outputs.ildiff == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.ilDiffSmoke
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -964,8 +1195,8 @@ jobs:
       - name: Build IL Diff harness and fixtures
         run: |
           dotnet build tools/IlDiffHarness/IlDiffHarness.csproj -c Release
-          dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-          dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 
       - name: Run IL Diff baseline smoke
         shell: bash
@@ -1044,15 +1275,15 @@ jobs:
   # skip it, which removes packaging work from the hot PR path.
   pack:
     needs: changes
-    if: needs.changes.outputs.packaging == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.pack
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -1098,7 +1329,7 @@ jobs:
           if-no-files-found: error
 
       - name: Install tool from local packages
-        run: dotnet tool install --global dotnet-inspect --add-source ./artifacts/package/release --no-cache
+        run: dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache
 
       - name: Smoke test - version
         run: |
@@ -1152,10 +1383,14 @@ jobs:
           grep -q "JsonSerializer" smoke-member.md
           grep -q "Serialize" smoke-member.md
 
-      - name: Smoke test - platform command
+      - name: Smoke test - platform library
         run: |
-          dotnet-inspect platform list > smoke-platform.txt || true
-          cat smoke-platform.txt
+          dotnet-inspect library System.Private.CoreLib -v:q --json > smoke-platform.json
+          cat smoke-platform.json
+          jq -e '
+            .source == "Platform"
+            and .assembly_info.assembly_name == "System.Private.CoreLib"
+          ' smoke-platform.json > /dev/null
 
       - name: Validate markdown output
         run: |
@@ -1204,6 +1439,99 @@ jobs:
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
   # `failure` or `skipped` is what closes that path.
   #
+  # CodeQL code scanning. Each language is a separate lane so a change can
+  # pay only for the extractors its file types need: the C# lane alone costs
+  # roughly nine minutes and is a fixed cost, unrelated to how much C#
+  # changed. Lane selection is by file extension rather than by the project
+  # graph the build gates use, because CodeQL analyzes whole source trees.
+  #
+  # These lanes are not gated on the pre-merge event. Code scanning alerts are
+  # reported against the default branch, so skipping analysis on pushes to
+  # main would freeze that baseline at whatever last ran before a merge. A
+  # push applies this same routing rather than re-analyzing the whole tree, so
+  # it does not bound a mis-routed lane; the weekly full analysis in
+  # codeql-scheduled.yml is that bound.
+  #
+  # Push-time analysis is skipped for Dependabot-authored commits. This
+  # repository allows only squash merging, so merging a Dependabot pull
+  # request produces a Dependabot-authored commit on main, and GitHub gives
+  # workflows running on such a commit read-only permissions. The SARIF upload
+  # needs security-events: write, which a job cannot grant itself, so the job
+  # would fail with "403: Resource not accessible by integration" and turn
+  # ci-required red on main. Both identities are checked because they differ:
+  # on a squash merge the actor is the maintainer who merged, not Dependabot,
+  # so an actor-only guard would never fire. The pull-request run still
+  # analyzes the change: code scanning always accepts uploads from a
+  # pull_request event. Only the default-branch baseline refresh is deferred,
+  # to the weekly scan.
+  # https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible
+  codeql-actions:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlActions
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:actions
+
+  codeql-csharp:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # Buildless extraction, matching what default setup ran here. It
+          # needs no SDK and no restored solution, so this lane does not
+          # duplicate the build the test matrix already performs.
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:csharp
+
+  codeql-javascript:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
   # Like `changes`, this always-run terminal gate uses the GA image so preview
   # capacity cannot leave an otherwise-complete PR waiting for its required
   # status. Path-gated jobs retain ubuntu-26.04 coverage.
@@ -1214,15 +1542,20 @@ jobs:
       - inspect-web
       - skill-gate
       - test
+      - dependency-policy
+      - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
-      # expensive jobs except inspect-web also skip on pushes to main. That
-      # passes the gate by design; the allow list below distinguishes
+      # expensive jobs except inspect-web and dependency-policy skip on pushes
+      # to main. That passes the gate by design; the allow list below distinguishes
       # "correctly not run" from "ran and failed".
       - build-net10
       - decompiler-gates
       - csharp-diff-smoke
       - il-diff-smoke
       - pack
+      - codeql-actions
+      - codeql-csharp
+      - codeql-javascript
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1240,7 +1573,7 @@ jobs:
           )
         | "\(.key)=\(.value.result)"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # A hand-maintained `needs` list is an allow list, and an allow list that
       # nothing checks goes stale silently: add a job to this workflow, forget

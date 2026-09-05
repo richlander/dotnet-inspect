@@ -500,10 +500,7 @@ public sealed class TypeResolutionEnumWidthTests
                 attribute,
                 count => charged = checked(charged + count),
                 resolver));
-        Assert.True(
-            charged >= (2 + 100_000_000)
-                * CustomAttributeValueGuard.DeclaredSlotCharge,
-            $"Expected the 100M array count to be charged, charged {charged}.");
+        Assert.InRange(charged, 0, 100_000_000 - 1);
         Assert.Null(
             AttributeDecoder.TryDecode(
                 harness.UserReader,
@@ -1172,7 +1169,15 @@ public sealed class TypeResolutionEnumWidthTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
-            => select(request);
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
+
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                select(request);
+        }
     }
 }

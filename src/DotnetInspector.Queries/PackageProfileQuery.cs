@@ -17,7 +17,8 @@ public sealed record PackagePrefixProfileRequest(
 /// </summary>
 public sealed record PackageProfileQueryContext(
     IPackageSourceClient Source,
-    PackagePrefixProfileRequest Request);
+    PackagePrefixProfileRequest Request,
+    NuGetOperationContext? OperationContext = null);
 
 /// <summary>
 /// One package whose latest listed manifest was projected by a package profile.
@@ -28,7 +29,7 @@ public sealed record PackageProfileMatch(
     ImmutableArray<string> Owners,
     long TotalDownloads,
     bool Verified,
-    PackageSourceIdentity Producer,
+    PackageSourceResultIdentity Source,
     PackageManifestFacts Manifest);
 
 /// <summary>The stage at which one package-profile item failed.</summary>
@@ -47,7 +48,7 @@ public enum PackageProfileFailureKind
 public sealed record PackageProfileFailure(
     string? PackageId,
     string? Version,
-    PackageSourceIdentity Producer,
+    PackageSourceResultIdentity Source,
     PackageProfileFailureKind Kind,
     string Message,
     PackageManifestFailureReason? ManifestFailureReason = null);
@@ -57,7 +58,7 @@ public sealed record PackageProfileFailure(
 /// </summary>
 public sealed record PackageProfileSummary(
     string Prefix,
-    PackageSourceIdentity Producer,
+    PackageSourceResultIdentity Source,
     int Candidates,
     int Matches,
     int Failures,
@@ -108,13 +109,15 @@ public static class PackageProfileQuery
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackagePrefixProfileRequest request,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
     {
         var events = ImmutableArray.CreateBuilder<PackageProfileEvent>();
         await foreach (PackageProfileEvent profileEvent in ExecuteAsync(
             source,
             request,
-            cancellationToken).ConfigureAwait(false))
+            cancellationToken,
+            operationContext).ConfigureAwait(false))
         {
             events.Add(profileEvent);
         }
@@ -125,7 +128,8 @@ public static class PackageProfileQuery
     public static async IAsyncEnumerable<PackageProfileEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackagePrefixProfileRequest request,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(request);
@@ -136,21 +140,21 @@ public static class PackageProfileQuery
                 request.Prefix,
                 request.MaximumPackages,
                 request.IncludePrerelease,
-                cancellationToken).ConfigureAwait(false);
-        if (search is PackageSourceOperationResult<PackageSearchResult>.Failed
-            searchFailure)
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        if (search.Failure is { } searchFailure)
         {
             yield return new PackageProfileEvent.Failure(
                 new PackageProfileFailure(
                     PackageId: null,
                     Version: null,
-                    searchFailure.Failure.Producer,
+                    searchFailure.Source,
                     PackageProfileFailureKind.Search,
-                    searchFailure.Failure.Message));
+                    searchFailure.Message));
             yield return new PackageProfileEvent.Completed(
                 new PackageProfileSummary(
                     request.Prefix,
-                    source.Identity,
+                    source.Source,
                     Candidates: 0,
                     Matches: 0,
                     Failures: 1,
@@ -159,8 +163,9 @@ public static class PackageProfileQuery
         }
 
         PackageSearchResult searchResult =
-            ((PackageSourceOperationResult<PackageSearchResult>.Succeeded)search)
-            .Value;
+            search.Value
+            ?? throw new InvalidOperationException(
+                "The package source search completed without a value or failure.");
         PackageSearchMatch[] searchMatches =
         [
             .. searchResult.Matches.Take(request.MaximumPackages + 1),
@@ -173,13 +178,13 @@ public static class PackageProfileQuery
                 new PackageProfileFailure(
                     PackageId: null,
                     Version: null,
-                    source.Identity,
+                    source.Source,
                     PackageProfileFailureKind.SearchContract,
                     "The package source returned more matches than requested."));
             yield return new PackageProfileEvent.Completed(
                 new PackageProfileSummary(
                     request.Prefix,
-                    source.Identity,
+                    source.Source,
                     Candidates: 0,
                     Matches: 0,
                     Failures: 1,
@@ -210,7 +215,9 @@ public static class PackageProfileQuery
             if (!metadataIsValid
                 || expectedCoordinate is null
                 || candidate.Candidate.Coordinate != expectedCoordinate
-                || candidate.Candidate.Producer != source.Identity
+                || !ReferenceEquals(
+                    candidate.Candidate.Source,
+                    source.Source)
                 || candidate.Candidate.DiscoveryContract
                     != PackageDiscoveryContract.KeywordSearch
                 || candidate.Candidate.ListingState
@@ -241,29 +248,30 @@ public static class PackageProfileQuery
                 await source.GetManifestAsync(
                     coordinate.PackageId,
                     coordinate.Version,
-                    cancellationToken).ConfigureAwait(false);
-            if (manifestResult
-                is PackageSourceOperationResult<PackageSourceManifest>.Failed
-                    manifestFailure)
+                    cancellationToken,
+                    operationContext).ConfigureAwait(false);
+            if (manifestResult.Failure is { } manifestFailure)
             {
                 failures++;
                 yield return new PackageProfileEvent.Failure(
                     new PackageProfileFailure(
                         candidate.Metadata.Id,
                         candidate.Metadata.Version,
-                        manifestFailure.Failure.Producer,
+                        manifestFailure.Source,
                         PackageProfileFailureKind.ManifestAcquisition,
-                        manifestFailure.Failure.Message));
+                        manifestFailure.Message));
                 continue;
             }
 
             PackageSourceManifest manifest =
-                ((PackageSourceOperationResult<PackageSourceManifest>.Succeeded)
-                    manifestResult).Value;
+                manifestResult.Value
+                ?? throw new InvalidOperationException(
+                    "The package source manifest operation completed without a value or failure.");
             if (manifest.Coordinate != coordinate
-                || manifest.Producer != candidate.Candidate.Producer
-                || manifest.Producer != source.Identity
-                || manifest.TransportKind != source.Kind)
+                || !ReferenceEquals(
+                    manifest.Source,
+                    candidate.Candidate.Source)
+                || !ReferenceEquals(manifest.Source, source.Source))
             {
                 failures++;
                 yield return Failure(
@@ -275,7 +283,7 @@ public static class PackageProfileQuery
 
             PackageManifestFactsResult manifestFacts =
                 PackageManifestFactsQuery.Execute(
-                    manifest.Content,
+                    manifest.Content.ToArray(),
                     coordinate);
             if (manifestFacts is PackageManifestFactsResult.Failed
                 manifestFailureResult)
@@ -301,7 +309,7 @@ public static class PackageProfileQuery
                     ],
                     candidate.Metadata.TotalDownloads,
                     candidate.Metadata.Verified,
-                    candidate.Candidate.Producer,
+                    candidate.Candidate.Source,
                     ((PackageManifestFactsResult.Available)manifestFacts)
                         .Value));
         }
@@ -309,7 +317,7 @@ public static class PackageProfileQuery
         yield return new PackageProfileEvent.Completed(
             new PackageProfileSummary(
                 request.Prefix,
-                source.Identity,
+                source.Source,
                 candidates,
                 matches,
                 failures,
@@ -325,7 +333,7 @@ public static class PackageProfileQuery
             new PackageProfileFailure(
                 candidate.Metadata.Id,
                 candidate.Metadata.Version,
-                candidate.Candidate.Producer,
+                candidate.Candidate.Source,
                 kind,
                 message,
                 manifestFailureReason));

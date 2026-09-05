@@ -208,10 +208,11 @@ many primary subject payloads may be acquired. Output shape controls how
 already-selected data is projected or reduced. These cardinalities are
 independent.
 
-The result-limit gestures in this section describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records the
-current implementation status and required gates.
+The result-limit gestures in this section describe historical
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
+behavior, not a released or implementation-ready contract. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 `--versions` selects a version **Vector** while retaining package focus. A bare
 package's Vector is newest-first. A `Package@A..B` Vector instead preserves the
@@ -391,6 +392,236 @@ diff type presence
 Because the CLI is stateless, source and focus selectors must be repeated when
 changing operations. That repetition is not a reason to conflate the commands;
 it makes the transition explicit and reproducible.
+
+### Selection / discovery
+
+`match` carries a third transition on the same axis: whether the second operand
+is supplied or discovered.
+
+```text
+match A B            pairwise: how do these two methods relate?
+match A --similar    discovery: which methods should I match against A?
+```
+
+Both keep one source and one structural focus. `--similar` changes only the
+arity of the *candidate* side, from one named member to a bounded ranked
+population. It is not a different noun, so it stays under `match` rather than
+becoming a `clone` command that would split one identity-agnostic workflow
+between competing nouns.
+
+The two directions compose, and the transition runs one way:
+
+```text
+match A --similar          discover ranked candidates
+  -> match A B             pairwise relation for one selected candidate
+  -> match A B --implementation   decompiled drill-down for that pair
+```
+
+Discovery ranks; it does not decide. A rank is a selection step, so the output
+must disclose that it establishes no relation, no semantic equivalence, and no
+authorship or copying claim. `--implementation` is rejected in discovery mode:
+it is a pairwise drill-down and must not run for every ranked row.
+
+The disclosure names only the transition that is actually available, and names
+the image that transition must be given. A `--library` argument names exactly
+one image, so the seed and the candidate population coincide in the ordinary
+case: the transition is pairwise `match` against that same library, and the
+printed token is the promise that it will work. The ordinary same-image
+disclosure therefore retains that direct image's exact `--library` address
+rather than printing only a generic instruction
+(`Similar_SameImage_StillNamesThePairwiseTransition`).
+
+They come apart only through type forwarding. When the named library forwards
+the seed's type, the rows that retrieval ranks are defined by the forwarded-to
+image, not by the facade the caller typed. A MethodDef token addresses a row
+only in the image that owns it, so a disclosure that named the facade — or named
+no image at all — would hand back an address the caller cannot resolve. The
+disclosure therefore names the defining image and the exact `--library` value
+that resolves the printed tokens, which keeps the pairwise transition available
+rather than withdrawing it. Comparing candidates drawn from two *different*
+images remains outside this command: Analysis ranks by portable structural
+categories and establishes no cross-reader correspondence, and pairwise `match`
+compares two methods within one retained assembly. That capability is
+issue #5269, a separate effort under its own owner, not a disclosure this
+command may imply it already has. Discovery enforces this rather than relying on
+the shape of the ordinary case: when the seed and the candidate type resolve to
+different images, the run is refused before retrieval, naming both images
+(`Similar_RefusesACandidateTypeDefinedInAnotherImage`). Names are likewise
+projected only from the rows an image defines, so a forwarded type can never
+label a local row with a name from another assembly
+(`Names_DoNotLabelALocalRowWithAForwardedTypesName`).
+When a named seed addresses a forwarded type whose target is unavailable,
+selection reports the retained typed resolver failure and exact target assembly
+identity rather than misclassifying the valid `Type.Member` selector as
+malformed
+(`Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget`).
+
+The disclosed address must also still exist once the command exits. Package
+extraction and cache paths are implementation details, so naming the extracted
+image can satisfy every rule above while still handing back a path the caller
+cannot replay. A candidate image drawn from a package is therefore disclosed as
+the resolved exact package coordinate, exact package-relative asset, and TFM.
+That includes the ordinary case where the package image is also the image the
+caller named: the original package spelling may float to another version, so it
+cannot be the replay address for a printed MethodDef token. The exact address
+survives package ranges and same-named assets in other TFMs. A caller-supplied
+local `.nupkg` is likewise disclosed by its canonical absolute path from the
+discovery working directory rather than by a relative spelling that another
+directory can reinterpret
+(`Similar_RelativeLocalPackageReplayIsIndependentOfTheNextWorkingDirectory`).
+User-supplied `--source`, `--add-source`, and `--nugetconfig` selectors are part
+of that address because they authorize which cached producer may serve the
+package offline. Explicit config paths are made absolute so the next command
+does not reinterpret them against another working directory. When package
+resolution used the ambient `NuGet.Config` hierarchy, the address also carries
+the absolute discovery directory through `--nugetconfig-directory`; replay
+discovers the same hierarchy rather than a hierarchy rooted at its later
+working directory. This context is captured for every discovery source shape
+that can resolve package dependencies, including a local `.nupkg` and a
+directly named library whose global-cache location supplies package context
+(`Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory`,
+`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
+Relative
+local source paths are likewise disclosed as their canonical absolute paths
+from the discovery working directory
+(`ReplaySources_MakesRelativeLocalSourcesIndependentOfTheNextWorkingDirectory`).
+The disclosure names its shell dialect and uses POSIX-shell quoting on Unix or
+PowerShell quoting on Windows; it does not present one dialect as shell-neutral
+(`ShellCommandQuote_UsesTheDeclaredDialect`). A source value that the URL
+diagnostic policy would redact cannot be embedded in an executable disclosure;
+package-backed discovery rejects that transition and directs the caller to put
+the source in `nuget.config` instead of either omitting its authority or
+printing credential-bearing text. When version selection narrows a wider source
+set, a config-only replay remains sufficient only when package source mapping
+already restricts that package to the selected producers; otherwise the
+transition is rejected rather than printing the selected producer's protected
+URL
+(`Similar_ExactPackageReplayRetainsExplicitSourceAuthorityOffline`,
+`ReplaySources_RejectAValueThatDiagnosticsWouldRedact`,
+`ReplaySources_AcceptHarmlessUrlNormalization`,
+`ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory`).
+When range or floating resolution selects an exact version, only the sources
+that reported that selected version authorize its replay. The disclosure
+retains that selected producer set, not the wider source set that participated
+in discovery, while preserving the original config path or config-discovery
+directory for matching credentials, aliases, and mapping
+(`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`,
+`Similar_SelectedVersionReplayRetainsAmbientConfigDirectory`).
+That restriction belongs to the package identity whose version was selected.
+If a tool wrapper redirects acquisition to another package, the wrapper's
+reporting sources do not transfer to the target; replay of the final package
+uses its own package-specific ambient source policy
+(`Similar_RangeToolWrapperReplayUsesFinalPackageSourcePolicy`).
+Every exact replay selector -- package coordinate, library selector, TFM,
+source, additional source, config file, and config-discovery directory -- must
+also survive the output channel's required rendering containment without
+changing spelling. Discovery refuses the transition when containment would
+rewrite any selector, or when a selector contains the delimiter used by the
+disclosure's Markdown code span, rather than emitting a command that names
+another asset or renders as another command
+(`Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused`,
+`Similar_ReplaySourceContainingMarkdownDelimiter_IsRefused`).
+Package-coordinate replay and forwarded dependency discovery use package
+acquisition's same source-authorized, admitted cache selection. Product-owned
+app-cache payloads precede ordered global-package roots, inadmissible payloads
+fall through, and a global payload is eligible only when its retained producer
+is authorized. Cache lookup uses NuGet's case-insensitive package-version
+identity and the cache's canonical lowercase path spelling, so a mixed-case
+prerelease dependency resolves the same retained archive as its exact replay.
+Discovery therefore resolves forwarding against the same physical package
+image that the disclosed exact replay selects; an active `NUGET_PACKAGES`
+override also does not hide a retained target in the default secondary root
+(`ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay`,
+`ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
+`Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload`,
+`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`,
+`Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
+`Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
+supplied directly outlives the command and is disclosed by its canonical path
+(`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,
+`ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact`).
+When a package-backed candidate came from a relative `NUGET_PACKAGES` override,
+the selected global-packages root depends on the discovery working directory
+and cannot be represented by the package replay arguments. Discovery refuses
+that transition and directs the caller to make the override absolute before
+rerunning; it does not print an address that another directory will reinterpret
+(`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
+When configured global-packages roots contain one another, package context is
+classified against the most-specific containing root and an outer root whose
+relative shape is not a package layout does not end the search. This retains
+the package provenance and source authority required by the disclosed address
+(`ResolveAll_NestedPackageRootsUseTheMostSpecificPackageContext`).
+
+The candidate population follows the disclosure rules rather than the focus
+rules. Type-scoped retrieval is the bounded default and is inferred from the
+seed's declaring type; whole-assembly search changes the cost class and so
+requires an explicit `--assembly-wide`. Both scopes are evaluated in the image
+that defines the seed, so widening the scope can never search strictly less than
+narrowing it did.
+
+Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
+while `--max-results` and `--max-methods` move the product retrieval limits.
+When discovery required `--all` to resolve a non-public seed, the disclosed
+pairwise address retains `--all`; the stateless transition must be able to
+resolve the same seed before it can consume the candidate token
+(`Similar_NonPublicSeedDisclosureRetainsAll`).
+Structured output retains every candidate, per-method outcome, blocker, and
+receipt regardless of `--top`, so a text-shaping flag can never silently discard
+evidence. The per-method outcomes are what make the receipt's aggregate counts
+attributable: a count of skipped methods that names no method is not evidence.
+
+The disclosure follows the rendering rather than the format's convenience.
+Markdown carries it as a paragraph and structured output as a field, but table,
+TSV, and JSONL carry rows without prose, so it is written to stderr. That keeps
+the obligation unconditional without corrupting a parsed stream.
+
+The tabular formats emit exactly one row shape: the ranked candidates. Discovery
+also produces a seed, a scope, a retrieval disposition, a receipt, and blockers,
+and those are not candidate rows. Emitting them as extra tables would give
+`--table`, `--tsv`, and `--jsonl` two or three incompatible schemas in one
+stream, which the output-shape contract forbids. They travel to stderr as notes
+beside the disclosure, so the parsed stream stays single-shaped while the
+context remains visible. Markdown and structured output, which can carry several
+shapes, keep all of it inline.
+
+Discovery prints a metadata token on every ranked row, which is a promise that
+the row is directly addressable by the pairwise transition. Honoring that
+promise means the token grammar belongs to `match`'s shared selector resolution
+rather than to discovery alone; a token that only discovery can read would make
+the printed transition false for overloads and multi-accessor properties.
+
+A MethodDef token is a dense table row index, not an identity, so the promise
+holds only against the image that owns the row. A selector token is therefore
+resolved against the one image named by `--library` and is rejected when that
+image does not define it. Resolving a token against a merged surface — which
+includes forwarded types whose rows live elsewhere — binds it to whichever type
+collides first, which returns a confidently wrong member at exit 0 rather than a
+failure. That is the one outcome this command must never produce, so the row is
+range-checked against the image's MethodDef table before any comparison runs.
+
+A selector's origin is a physical-file identity, so it is canonicalized and then
+compared ordinally. The spelling arrives by two routes — a forwarded type's
+defining image and a resolved type's extraction path — and `./Foo.dll` and its
+absolute path are one file. Canonicalizing reconciles those routes. A token
+selector contributes no third route: it is anchored to the named library by
+construction, so it cannot introduce an origin the caller did not type.
+
+Because `--library` names one image, two origins can differ only by forwarding,
+which the metadata layer resolves to a real defining path. Two case-only
+spellings of one file can no longer reach that comparison at all, so the
+canonicalization rule needs no tie-breaking policy for them. Discovery-only
+options are rejected outright on the pairwise path rather than being silently
+accepted and ignored, and that rejection is raised in the parse layer as well,
+so a caller who supplies one selector and a discovery flag is pointed at
+`--similar` rather than asked for a second selector.
+
+Containment is a property of the structured document, not of its callers. The
+Markout row gate covers views, and a JSON document is not one, so the document
+records contain their own metadata-derived strings. That includes the failure
+document, whose detail is the query layer's own spelling of a missing or
+ambiguous target and can carry a metadata exception's message. JSON escaping is
+not containment: a parser restores the original control character, so an escaped
+bidi override would reach a JSON consumer intact.
 
 ## Timeline and bisect consequences
 

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindSettingsPanel,
+  reconcileStyleTaste,
   renderSettingsView,
-  renderTastePopover,
   type SettingsPanelBindingActions,
   styleCatalogGroupsHtml,
 } from "../src/settings-panel.ts";
@@ -59,15 +59,13 @@ class FakeRoot {
     assert.deepEqual(
       [...this.selectorQueries].sort(),
       [
-        "all:#taste-popover [data-taste]",
         "all:.settings-seg[data-theme]",
         "all:.settings-taste [data-taste]",
         "one:#home-settings",
-        "one:#open-settings",
+        "one:#settings-backdrop",
         "one:#settings-close",
+        "one:#settings-dialog",
         "one:#settings-taste-clear",
-        "one:#taste-btn",
-        "one:#taste-clear",
       ].sort());
   }
 }
@@ -77,7 +75,6 @@ function recordingActions(calls: string[]): SettingsPanelBindingActions {
     onClose: () => calls.push("close"),
     onOpen: from => calls.push(`open:${from}`),
     onTasteClear: () => calls.push("clear"),
-    onTasteOpenToggle: () => calls.push("taste-open"),
     onTasteToggle: taste => calls.push(`taste:${taste}`),
     onThemeSelect: theme => calls.push(`theme:${theme}`),
   };
@@ -101,17 +98,17 @@ const styleOptions = [
   { id: "expanded-braces", tier: "layout", title: "Expanded braces", summary: "Always use braces." },
 ];
 
-test("settings bindings dispatch entry controls and contain taste clicks", () => {
+test("style taste reconciliation drops retired catalog choices", () => {
+  assert.deepEqual(
+    reconcileStyleTaste(
+      ["readable-local-names", "expanded-braces"],
+      styleOptions),
+    ["expanded-braces"]);
+});
+
+test("settings bindings dispatch the home entry control", () => {
   const root = new FakeRoot();
   const home = root.add("#home-settings", new FakeElement());
-  const workbench = root.add("#open-settings", new FakeElement());
-  const taste = root.add("#taste-btn", new FakeElement());
-  const propagation = { stopped: false };
-  const event = fakeDom.event({
-    stopPropagation: () => {
-      propagation.stopped = true;
-    },
-  });
   const calls: string[] = [];
 
   bindSettingsPanel(
@@ -122,11 +119,6 @@ test("settings bindings dispatch entry controls and contain taste clicks", () =>
   assert.deepEqual(calls, []);
   home.dispatch("click");
   assert.deepEqual(calls, ["open:home"]);
-  workbench.dispatch("click");
-  assert.deepEqual(calls, ["open:home", "open:workbench"]);
-  taste.dispatch("click", event);
-  assert.deepEqual(calls, ["open:home", "open:workbench", "taste-open"]);
-  assert.equal(propagation.stopped, true);
 });
 
 test("settings bindings dispatch valid settings-page controls", () => {
@@ -163,29 +155,6 @@ test("settings bindings dispatch valid settings-page controls", () => {
     "theme:dark",
     "theme:light",
     "taste:readable-locals",
-    "clear",
-  ]);
-});
-
-test("taste popover bindings dispatch its optional controls", () => {
-  const root = new FakeRoot();
-  const taste = new FakeElement({ taste: "expanded-braces" });
-  const missingTaste = new FakeElement();
-  root.addAll("#taste-popover [data-taste]", taste, missingTaste);
-  const clear = root.add("#taste-clear", new FakeElement());
-  const calls: string[] = [];
-  bindSettingsPanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
-  root.assertSelectorQueries();
-
-  taste.dispatch("change");
-  missingTaste.dispatch("change");
-  clear.dispatch("click");
-
-  assert.deepEqual(calls, [
-    "taste:expanded-braces",
-    "taste:",
     "clear",
   ]);
 });
@@ -265,33 +234,6 @@ test("style catalog renders nothing when empty without an error", () => {
   assert.equal(html, "");
 });
 
-test("taste popover shows a reset button once a style is active", () => {
-  const html = renderTastePopover(
-    { styleTiers, styleOptions, styleCatalogError: "", taste: ["readable-locals"] },
-    escapeHtml);
-
-  assert.match(html, /id="taste-popover"/);
-  assert.match(html, /id="taste-clear"/);
-  assert.doesNotMatch(html, /opcode-faithful/);
-});
-
-test("taste popover shows the default state when nothing is active", () => {
-  const html = renderTastePopover(
-    { styleTiers, styleOptions, styleCatalogError: "", taste: [] },
-    escapeHtml);
-
-  assert.doesNotMatch(html, /id="taste-clear"/);
-  assert.match(html, /default · opcode-faithful/);
-});
-
-test("taste popover falls back to an empty-catalog message", () => {
-  const html = renderTastePopover(
-    { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
-    escapeHtml);
-
-  assert.match(html, /Style catalog unavailable\.<\/div>/);
-});
-
 test("settings view marks the active theme segment", () => {
   const html = renderSettingsView({
     theme: "light",
@@ -304,22 +246,19 @@ test("settings view marks the active theme segment", () => {
   assert.match(html, /class="settings-seg " data-theme="dark" aria-pressed="false"/);
 });
 
-test("settings view labels the close button by return destination", () => {
+test("settings view renders modal semantics and one close action", () => {
   const workbenchHtml = renderSettingsView({
     theme: "dark",
     settingsReturn: "workbench",
     styleCatalog: { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
     escapeHtml,
   });
-  const homeHtml = renderSettingsView({
-    theme: "dark",
-    settingsReturn: "home",
-    styleCatalog: { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
-    escapeHtml,
-  });
-
-  assert.match(workbenchHtml, /back to workbench ✕/);
-  assert.match(homeHtml, /back to home ✕/);
+  assert.match(workbenchHtml, /id="settings-dialog"/);
+  assert.match(workbenchHtml, /role="dialog"/);
+  assert.match(workbenchHtml, /aria-modal="true"/);
+  assert.match(workbenchHtml, /aria-labelledby="settings-title"/);
+  assert.match(workbenchHtml, /id="settings-title" tabindex="-1">Settings/);
+  assert.match(workbenchHtml, /id="settings-close"[^>]*>Close/);
 });
 
 test("settings view reports the active style count and a reset control", () => {

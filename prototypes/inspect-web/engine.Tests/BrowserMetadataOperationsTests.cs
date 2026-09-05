@@ -1,8 +1,11 @@
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InertText;
+
+using InspectWeb.Engine.MetadataFacade;
 
 namespace InspectWeb.Engine.Tests;
 
@@ -21,7 +24,7 @@ public sealed class BrowserMetadataOperationsTests
                         .Assemblies));
 
         BrowserAssemblyMetadata result =
-            InspectionEngine.ProjectMetadataAssembly(
+            MetadataExports.ProjectMetadataAssembly(
                 "InspectWeb.Engine.Tests.dll",
                 available.Value);
 
@@ -60,12 +63,55 @@ public sealed class BrowserMetadataOperationsTests
             overview.Headers);
 
         BrowserAssemblyMetadata result =
-            InspectionEngine.ProjectMetadataAssembly(
+            MetadataExports.ProjectMetadataAssembly(
                 "InspectWeb.Engine.Tests.dll",
                 truncated);
 
         Assert.Equal("v4.0.30319", result.MetadataVersion);
         Assert.True(result.MetadataVersionTruncated);
+    }
+
+    [Fact]
+    public void MetadataOverview_ProjectsManagedReadyToRunHeader()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        MetadataImageOverview overview = Assert.IsType<
+            AssemblyContextEntry<MetadataImageOverview>.Available>(
+                Assert.Single(
+                    AssemblyContextMetadataImageQuery.Execute(group)
+                        .Assemblies))
+            .Value;
+        MetadataCorHeaderSummary cor = Assert.IsType<MetadataCorHeaderSummary>(
+            overview.Headers.Cor);
+        var readyToRun = new MetadataImageOverview(
+            overview.MetadataVersion,
+            overview.Kind,
+            overview.IsAssembly,
+            overview.MetadataOffset,
+            overview.MetadataSize,
+            overview.Heaps,
+            overview.Tables,
+            new MetadataImageHeaders(
+                overview.Headers.Machine,
+                overview.Headers.ImageCharacteristics,
+                overview.Headers.Subsystem,
+                overview.Headers.DllCharacteristics,
+                overview.Headers.IsPE32Plus,
+                new MetadataCorHeaderSummary(
+                    cor.MajorRuntimeVersion,
+                    cor.MinorRuntimeVersion,
+                    cor.Flags,
+                    cor.EntryPointTokenOrRelativeVirtualAddress,
+                    new DirectoryEntry(0x1234, 96))));
+
+        BrowserAssemblyMetadata result =
+            MetadataExports.ProjectMetadataAssembly(
+                "ReadyToRun.dll",
+                readyToRun);
+
+        Assert.Equal(0x1234, result.Headers.ManagedNativeHeaderRva);
+        Assert.Equal(96, result.Headers.ManagedNativeHeaderSize);
     }
 
     [Fact]
@@ -83,7 +129,7 @@ public sealed class BrowserMetadataOperationsTests
                     maxRows: 1));
 
         BrowserMetadataWindow result =
-            InspectionEngine.ProjectMetadataWindow(
+            MetadataExports.ProjectMetadataWindow(
                 "InspectWeb.Engine.Tests.dll",
                 (int)TableIndex.TypeDef,
                 query);
@@ -107,7 +153,7 @@ public sealed class BrowserMetadataOperationsTests
                 HeapKind.String);
 
         BrowserHeapListing result =
-            InspectionEngine.ProjectHeapListing(
+            MetadataExports.ProjectHeapListing(
                 "InspectWeb.Engine.Tests.dll",
                 HeapKind.String,
                 query);
@@ -149,7 +195,7 @@ public sealed class BrowserMetadataOperationsTests
                 new MetadataTableWindowRequest(TableIndex.TypeDef));
 
         BrowserMetadataWindow result =
-            InspectionEngine.ProjectMetadataWindow(
+            MetadataExports.ProjectMetadataWindow(
                 "Requested.dll",
                 (int)TableIndex.TypeDef,
                 query);
@@ -159,7 +205,7 @@ public sealed class BrowserMetadataOperationsTests
                 group.Participants[0],
                 HeapKind.String);
         BrowserHeapListing heapResult =
-            InspectionEngine.ProjectHeapListing(
+            MetadataExports.ProjectHeapListing(
                 "Requested.dll",
                 HeapKind.String,
                 heapQuery);
@@ -167,7 +213,7 @@ public sealed class BrowserMetadataOperationsTests
             query.Subject,
             new InvalidDataException($"failure {bidi} detail"));
         BrowserMetadataWindow failedResult =
-            InspectionEngine.ProjectMetadataWindow(
+            MetadataExports.ProjectMetadataWindow(
                 "Requested.dll",
                 (int)TableIndex.TypeDef,
                 failed);
@@ -203,10 +249,17 @@ public sealed class BrowserMetadataOperationsTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 }

@@ -21,13 +21,12 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(6, routes.Length);
+        Assert.Equal(5, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
         AssertRoute(routes[2], "/credits", "/index.html");
-        AssertRoute(routes[3], "/credits/", "/index.html");
+        AssertRoute(routes[3], "/demos", "/index.html");
         AssertRoute(routes[4], "/query", "/index.html");
-        AssertRoute(routes[5], "/query/", "/index.html");
         Assert.Equal(
             "dotnet-isolated:8.0",
             config.RootElement
@@ -54,13 +53,30 @@ public class BrowserStaticWebAppConfigTests
             "PreserveNewest",
             (string?)content.Attribute("CopyToPublishDirectory"));
 
+        XElement runtimeLoaderTarget = Assert.Single(
+            project.Descendants("Target"),
+            element =>
+                (string?)element.Attribute("Name") ==
+                "PublishInspectWebRuntimeLoader");
+        Assert.Equal(
+            "PublishInspectWebFrontendIndex",
+            (string?)runtimeLoaderTarget.Attribute("AfterTargets"));
+        XElement runtimeLoaderCommand = Assert.Single(
+            runtimeLoaderTarget.Elements("Exec"));
+        Assert.Contains(
+            "publish-runtime-loader.ts",
+            (string?)runtimeLoaderCommand.Attribute("Command"));
+        Assert.Contains(
+            "$(PublishDir)wwwroot",
+            (string?)runtimeLoaderCommand.Attribute("Command"));
+
         XElement verificationTarget = Assert.Single(
             project.Descendants("Target"),
             element =>
                 (string?)element.Attribute("Name") ==
                 "VerifyPublishedInspectWebSite");
         Assert.Equal(
-            "PublishInspectWebFrontendIndex",
+            "PublishInspectWebRuntimeLoader",
             (string?)verificationTarget.Attribute("AfterTargets"));
         XElement verificationCommand = Assert.Single(
             verificationTarget.Elements("Exec"));
@@ -94,6 +110,21 @@ public class BrowserStaticWebAppConfigTests
         Assert.Equal(
             routeKeys.Length,
             routeKeys.Distinct(StringComparer.Ordinal).Count());
+
+        // Azure Static Web Apps normalizes a trailing slash away when matching
+        // routes, so "/credits" and "/credits/" collide even though they are
+        // distinct strings above. That collision failed deployment twice
+        // (#4634, then reintroduced by #5039): catch it here instead of at
+        // deploy time.
+        string[] normalizedRouteKeys =
+        [
+            .. routeKeys.Select(
+                key => key.Length > 1 ? key.TrimEnd('/') : key),
+        ];
+
+        Assert.Equal(
+            normalizedRouteKeys.Length,
+            normalizedRouteKeys.Distinct(StringComparer.Ordinal).Count());
     }
 
     private static void AssertRoute(

@@ -38,12 +38,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.target_ref }}
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -78,15 +78,15 @@ jobs:
 
       - name: Run CLI tests
         if: inputs.suite == 'cli'
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run services tests
         if: inputs.suite == 'services'
-        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release && dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release && dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run analysis tests
         if: inputs.suite == 'analysis'
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run decompiler tests
         if: inputs.suite == 'decompiler'

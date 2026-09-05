@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -6,8 +7,12 @@ import {
   type SourceInspectionDependencies,
   type SourceInspectionState,
 } from "../src/source-inspection.ts";
-import type { BrowserSource } from "../src/inspect-web-engine.d.ts";
+import type {
+  BrowserSource,
+  BrowserTypeSourceResult,
+} from "../src/facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
+import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 
 function source(text: string): BrowserSource {
   return {
@@ -16,6 +21,18 @@ function source(text: string): BrowserSource {
     url: "https://example.test/source.cs",
     pdbSourceLimitation: null,
     text,
+  };
+}
+
+function typeSource(text: string): BrowserTypeSourceResult {
+  return {
+    version: 1,
+    kind: "Succeeded",
+    value: source(text),
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
   };
 }
 
@@ -29,6 +46,10 @@ function focusSnapshot(selector = "#member-filter"): MemberFocusSnapshot {
     navigationScrollTop: null,
     focusLost: false,
   };
+}
+
+function sourceText(value: BrowserSource | null): string | undefined {
+  return value?.text;
 }
 
 function inspectionState(
@@ -70,13 +91,21 @@ function inspectionDependencies(
   state: SourceInspectionState,
   overrides: Partial<Omit<SourceInspectionDependencies, "state">> = {},
 ): SourceInspectionDependencies {
+  let nextOperationId = 1;
   return {
     state,
+    operationAuthority: createOperationAuthorityPage({
+      allocation: {
+        createId: () => `source-operation-${nextOperationId++}`,
+      },
+    }),
     queryMemberSource: async () => source("member"),
-    queryTypeSource: async () => source("type"),
+    queryTypeSource: async () => typeSource("type"),
     queryGraphSource: async () => source("graph"),
     memberSourceHasConcreteOverload: () => true,
     cancelEngineSourceRequest: () => {},
+    cancelTypeSourceRequest: () => {},
+    reportOperationDiagnostic: () => undefined,
     describeError: error =>
       error instanceof Error ? error.message : String(error),
     render: () => {},
@@ -92,6 +121,45 @@ function deferred<T>() {
     resolve = accept;
   });
   return { promise, resolve };
+}
+
+test("Source composition uses shell actions and a full-area loaded surface", () => {
+  const appSource = readFileSync(
+    new URL("../src/dotnet-inspect.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    appSource,
+    /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
+  assert.match(
+    appSource,
+    /class="working-surface-actions" role="group" aria-label="\$\{packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+  assert.match(
+    appSource,
+    /contextualActionsHtml: annotatedPageContext \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
+  assert.doesNotMatch(
+    appSource,
+    /class="legacy-application-actions"/);
+  assert.match(
+    appSource,
+    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}\$\{sourceWorkingSurface \? " source-working-surface" : ""\}/);
+  assert.match(
+    appSource,
+    /case "source":\s*return renderTypeSourceHtml\(item\);/);
+  assert.match(
+    appSource,
+    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
+});
+
+async function promiseSettled(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  void promise.then(() => {
+    settled = true;
+    return undefined;
+  });
+  await Promise.resolve();
+  return settled;
 }
 
 test("hidden source work is cancelled through the shared engine boundary", () => {
@@ -286,7 +354,7 @@ test("type source caches an owned result without repainting a hidden surface", a
     inspectionDependencies(state, {
       queryTypeSource: async () => {
         queries++;
-        return source("type");
+        return typeSource("type");
       },
       renderPreservingMemberFocus: fallback => {
         renders++;
@@ -312,6 +380,259 @@ test("type source caches an owned result without repainting a hidden surface", a
   await coordinator.loadTypeSource(request);
   assert.equal(queries, 1);
   assert.equal(renders, 2);
+});
+
+test("type source replacement suppresses stale publication without cancelling the replacement", async () => {
+  const firstQuery = deferred<BrowserTypeSourceResult>();
+  const secondQuery = deferred<BrowserTypeSourceResult>();
+  let cancellations = 0;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: (_operationId, request) =>
+        request.type === "Example.First"
+          ? firstQuery.promise
+          : secondQuery.promise,
+      cancelTypeSourceRequest: () => cancellations++,
+    }));
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    taste: "[]",
+    isVisible: () => true,
+  };
+
+  const firstLoad = coordinator.loadTypeSource({
+    ...request,
+    signature: "first",
+    type: "Example.First",
+  });
+  const secondLoad = coordinator.loadTypeSource({
+    ...request,
+    signature: "second",
+    type: "Example.Second",
+  });
+
+  assert.equal(cancellations, 1);
+  assert.equal(state.typeSourceKey, "second");
+  firstQuery.resolve(typeSource("stale"));
+  await firstLoad;
+  assert.equal(state.typeSource, null);
+  assert.equal(state.typeSourceLoading, true);
+
+  secondQuery.resolve(typeSource("current"));
+  await secondLoad;
+  assert.equal(sourceText(state.typeSource), "current");
+  assert.equal(state.typeSourceLoading, false);
+});
+
+test("synchronous type source failure cannot cancel a reentrant replacement", async () => {
+  const replacementQuery = deferred<BrowserTypeSourceResult>();
+  let cancellations = 0;
+  let replacementLoad: Promise<void> | undefined;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  let coordinator!: ReturnType<typeof createSourceInspectionCoordinator>;
+  coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: (_operationId, request) => {
+        if (request.type === "Example.First") {
+          replacementLoad = coordinator.loadTypeSource({
+            signature: "second",
+            packageId: "Example.Package",
+            version: "1.2.3",
+            framework: "net10.0",
+            assembly: "Example.Package",
+            type: "Example.Second",
+            taste: "[]",
+            isVisible: () => true,
+          });
+          throw new Error("first activation failed");
+        }
+        return replacementQuery.promise;
+      },
+      cancelTypeSourceRequest: () => cancellations++,
+    }));
+
+  await coordinator.loadTypeSource({
+    signature: "first",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.First",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.equal(cancellations, 1);
+  assert.equal(state.typeSourceKey, "second");
+  assert.equal(state.typeSourceLoading, true);
+  replacementQuery.resolve(typeSource("replacement"));
+  assert.ok(replacementLoad);
+  await replacementLoad;
+  assert.equal(sourceText(state.typeSource), "replacement");
+  assert.equal(state.typeSourceLoading, false);
+});
+
+test("synchronous type source failure does not repeat reentrant cancellation", async () => {
+  let cancellations = 0;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  let coordinator!: ReturnType<typeof createSourceInspectionCoordinator>;
+  coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: () => {
+        assert.equal(coordinator.cancelCurrentRequest(), true);
+        throw new Error("activation failed after cancellation");
+      },
+      cancelTypeSourceRequest: () => cancellations++,
+    }));
+
+  await coordinator.loadTypeSource({
+    signature: "first",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.First",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.equal(cancellations, 1);
+  assert.equal(state.typeSourceKey, "");
+  assert.equal(state.typeSourceLoading, false);
+  assert.equal(state.typeSourceError, "");
+});
+
+test("legacy member source takeover cancels the authoritative type operation first", async () => {
+  const typeQuery = deferred<BrowserTypeSourceResult>();
+  let cancellations = 0;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: async () => typeQuery.promise,
+      cancelTypeSourceRequest: () => cancellations++,
+    }));
+  const typeLoad = coordinator.loadTypeSource({
+    signature: "type",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    taste: "[]",
+    isVisible: () => false,
+  });
+
+  await coordinator.loadMemberSource({
+    signature: "member",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    taste: "[]",
+    isCurrent: () => true,
+  });
+
+  assert.equal(cancellations, 1);
+  assert.equal(state.memberSource?.text, "member");
+  assert.equal(state.typeSource, null);
+  typeQuery.resolve(typeSource("stale type"));
+  await typeLoad;
+  assert.equal(state.typeSource, null);
+});
+
+test("current type source failures remain visible and restore focus", async () => {
+  const renders: Array<string | null> = [];
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: async () => {
+        throw new Error("type source unavailable");
+      },
+      renderPreservingMemberFocus: fallback => {
+        renders.push(fallback?.selector ?? null);
+        return fallback ?? focusSnapshot("#type-list");
+      },
+    }));
+
+  await coordinator.loadTypeSource({
+    signature: "type",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.equal(state.typeSourceError, "type source unavailable");
+  assert.equal(state.typeSourceLoading, false);
+  assert.deepEqual(renders, [null, "#type-list"]);
+});
+
+test("type cancellation completes logically before the query quiesces", async () => {
+  const query = deferred<BrowserTypeSourceResult>();
+  let cancellations = 0;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: async () => query.promise,
+      cancelTypeSourceRequest: () => cancellations++,
+    }));
+  const load = coordinator.loadTypeSource({
+    signature: "type",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.equal(coordinator.cancelCurrentRequest(), true);
+  assert.equal(cancellations, 1);
+  assert.equal(state.typeSourceLoading, false);
+  assert.equal(state.typeSourceKey, "");
+  assert.equal(await promiseSettled(load), false);
+
+  query.resolve(typeSource("late"));
+  await load;
+  assert.equal(state.typeSource, null);
+  assert.equal(coordinator.cancelCurrentRequest(), false);
+  assert.equal(cancellations, 1);
 });
 
 test("closing graph source invalidates its result and cancels the engine", async () => {

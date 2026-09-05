@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
+using CSharpText;
 using DotnetInspector.CSharpBodySlicer;
 using ILInspector.Findings;
 using ILInspector.Metadata;
@@ -19,6 +20,25 @@ public enum SourceChecksumVerification
     Mismatch,
 }
 
+public enum PdbMemberSourceOutcome
+{
+    Complete,
+    PortablePdbUnavailable,
+    PortablePdbAcquisitionFailed,
+    SourceMappingUnavailable,
+    SourceDocumentUnavailable,
+    ChecksumUnavailable,
+    ChecksumUnsupported,
+    ChecksumMismatch,
+    SourceAcquisitionUnavailable,
+    SourceAcquisitionFailed,
+    NoVouchedDeclaration,
+    SourceTooComplex,
+    InvalidSequencePointCoordinates,
+    SourceExtractionFailed,
+    InspectionFailed,
+}
+
 public sealed record PdbMemberSourceInspection(
     FindingInspection<string> Lines,
     string? Text,
@@ -26,7 +46,13 @@ public sealed record PdbMemberSourceInspection(
     SourceDocumentObservation? Document,
     SourceChecksumVerification? ChecksumVerification)
 {
-    public bool IsComplete => Lines.Value is FindingInspection<string>.Complete;
+    public bool IsComplete =>
+        Lines.Value is FindingInspection<string>.Complete;
+
+    public PdbMemberSourceOutcome Outcome { get; init; } =
+        Lines.Value is FindingInspection<string>.Complete
+            ? PdbMemberSourceOutcome.Complete
+            : PdbMemberSourceOutcome.InspectionFailed;
 }
 
 public sealed record PdbTypeSourceInspection(
@@ -64,7 +90,8 @@ public static class PdbSourceAcquisition
         ArgumentNullException.ThrowIfNull(error);
         return Failed(
             subject,
-            $"Portable PDB acquisition failed: {error.Message}");
+            $"Portable PDB acquisition failed: {error.Message}",
+            PdbMemberSourceOutcome.PortablePdbAcquisitionFailed);
     }
 
     public static PdbTypeSourceInspection TypePdbAcquisitionFailed(
@@ -188,6 +215,17 @@ public static class PdbSourceAcquisition
         string? url = document.ResolvedUrl ?? mapping.SourceUrl;
         if (url is not { Length: > 0 })
         {
+            if (document.Storage != SourceDocumentStorage.Embedded
+                && document.ResolutionStatus
+                    == SourceDocumentResolutionStatus.Rejected)
+            {
+                return TypeFailed(
+                    subject,
+                    "The SourceLink mapping for the selected source document was rejected.",
+                    mapping,
+                    document);
+            }
+
             return TypeAbsent(
                 document.Storage == SourceDocumentStorage.Embedded
                     ? "Embedded PDB-source retrieval is not available."
@@ -207,6 +245,15 @@ public static class PdbSourceAcquisition
                 cancellationToken).ConfigureAwait(false);
         if (fetch.Bytes is null)
         {
+            if (fetch.Failure == SourceFetchFailureKind.NotFound)
+            {
+                return TypeAbsent(
+                    "The resolved SourceLink document was not found.",
+                    mapping,
+                    document,
+                    SourceChecksumVerification.Unavailable);
+            }
+
             return TypeFailed(
                 subject,
                 fetch.Failure switch
@@ -255,7 +302,8 @@ public static class PdbSourceAcquisition
         {
             return Failed(
                 subject,
-                "A matching portable PDB remains unresolved after acquisition.");
+                "A matching portable PDB remains unresolved after acquisition.",
+                PdbMemberSourceOutcome.PortablePdbUnavailable);
         }
 
         var memberInspection = SourceLinkFindings.InspectMemberSources(
@@ -263,9 +311,17 @@ public static class PdbSourceAcquisition
             subject,
             new MemberSourceQuery(new HashSet<int> { metadataToken }));
         if (memberInspection.Value is FindingInspection<MemberSourceObservation>.Absent absent)
-            return Absent(absent.Detail ?? "PDB source mapping is unavailable.");
+        {
+            return Absent(
+                absent.Detail ?? "PDB source mapping is unavailable.",
+                PdbMemberSourceOutcome.SourceMappingUnavailable);
+        }
         if (memberInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
-            return Failed(failed.Error);
+        {
+            return Failed(
+                failed.Error,
+                PdbMemberSourceOutcome.InspectionFailed);
+        }
 
         var memberComplete = (FindingInspection<MemberSourceObservation>.Complete)
             memberInspection.Value;
@@ -275,16 +331,28 @@ public static class PdbSourceAcquisition
             .ThenBy(static candidate => candidate.DocumentRowId)
             .FirstOrDefault();
         if (mapping is null)
-            return Absent("The selected member has no portable-PDB source mapping.");
+        {
+            return Absent(
+                "The selected member has no portable-PDB source mapping.",
+                PdbMemberSourceOutcome.SourceMappingUnavailable);
+        }
 
         var documentInspection = SourceLinkFindings.InspectSourceDocuments(
             source,
             subject,
             new SourceDocumentQuery(mapping.CanonicalPath));
         if (documentInspection.Value is FindingInspection<SourceDocumentObservation>.Absent documentAbsent)
-            return Absent(documentAbsent.Detail ?? "PDB source document is unavailable.");
+        {
+            return Absent(
+                documentAbsent.Detail ?? "PDB source document is unavailable.",
+                PdbMemberSourceOutcome.SourceDocumentUnavailable);
+        }
         if (documentInspection.Value is FindingInspection<SourceDocumentObservation>.Failed documentFailed)
-            return Failed(documentFailed.Error);
+        {
+            return Failed(
+                documentFailed.Error,
+                PdbMemberSourceOutcome.InspectionFailed);
+        }
 
         var documentComplete = (FindingInspection<SourceDocumentObservation>.Complete)
             documentInspection.Value;
@@ -292,12 +360,17 @@ public static class PdbSourceAcquisition
             mapping,
             documentComplete.Findings.Select(static finding => finding.Payload));
         if (document is null)
-            return Absent("The selected member's source document is not in the portable PDB.");
+        {
+            return Absent(
+                "The selected member's source document is not in the portable PDB.",
+                PdbMemberSourceOutcome.SourceDocumentUnavailable);
+        }
         if (document.ChecksumAlgorithm is not { Length: > 0 }
             || document.Checksum is not { Length: > 0 })
         {
             return Absent(
                 "The portable PDB does not provide a usable source checksum.",
+                PdbMemberSourceOutcome.ChecksumUnavailable,
                 mapping,
                 document,
                 SourceChecksumVerification.Unavailable);
@@ -326,9 +399,35 @@ public static class PdbSourceAcquisition
 
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
+            if (document.Storage != SourceDocumentStorage.Embedded
+                && document.ResolutionStatus
+                    == SourceDocumentResolutionStatus.Rejected)
+            {
+                return Failed(
+                    subject,
+                    "The SourceLink mapping for the selected source document was rejected.",
+                    PdbMemberSourceOutcome.SourceAcquisitionFailed,
+                    mapping,
+                    document);
+            }
+
+            if (document.Storage != SourceDocumentStorage.Embedded
+                && source.SourceLinkMap.Status == SourceLinkMapStatus.Unusable)
+            {
+                return Failed(
+                    subject,
+                    "The SourceLink map is unusable: "
+                        + (source.SourceLinkMap.Error
+                            ?? "the map contains no usable document mappings"),
+                    PdbMemberSourceOutcome.InspectionFailed,
+                    mapping,
+                    document);
+            }
+
             return Absent(document.Storage == SourceDocumentStorage.Embedded
                 ? "Embedded PDB-source retrieval is not available."
-                : "The selected source document has no fetchable SourceLink URL.");
+                : "The selected source document has no fetchable SourceLink URL.",
+                PdbMemberSourceOutcome.SourceAcquisitionUnavailable);
         }
 
         var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
@@ -339,11 +438,22 @@ public static class PdbSourceAcquisition
             cancellationToken).ConfigureAwait(false);
         if (fetch.Bytes is null)
         {
+            if (fetch.Failure == SourceFetchFailureKind.NotFound)
+            {
+                return Absent(
+                    "The resolved SourceLink document was not found.",
+                    PdbMemberSourceOutcome.SourceAcquisitionUnavailable,
+                    mapping,
+                    document,
+                    SourceChecksumVerification.Unavailable);
+            }
+
             if (fetch.Failure == SourceFetchFailureKind.ValidationFailed)
             {
                 return Failed(
                     subject,
                     "Fetched PDB source does not match the portable-PDB checksum.",
+                    PdbMemberSourceOutcome.ChecksumMismatch,
                     mapping,
                     document,
                     SourceChecksumVerification.Mismatch);
@@ -360,7 +470,8 @@ public static class PdbSourceAcquisition
                     SourceFetchFailureKind.StorageFailed =>
                         "The source-content store failed.",
                     _ => "Could not fetch PDB source.",
-                });
+                },
+                PdbMemberSourceOutcome.SourceAcquisitionFailed);
         }
 
         return FromContent(mapping, document, fetch.Bytes, methodName, subject);
@@ -473,6 +584,47 @@ public static class PdbSourceAcquisition
             verification);
     }
 
+    public static async Task<VerifiedSourceTextResult> AcquireVerifiedSourceTextAsync(
+        SourceFetcher fetcher,
+        string? localPath,
+        string url,
+        string? checksumAlgorithm,
+        byte[]? checksum,
+        IReadOnlyList<string>? repositoryPaths = null,
+        CancellationToken cancellationToken = default,
+        bool allowLocalSource = true)
+    {
+        ArgumentNullException.ThrowIfNull(fetcher);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        byte[]? content = allowLocalSource
+            ? TryReadVerifiedLocalSource(localPath, checksumAlgorithm, checksum)
+            : null;
+        content ??= LocalRepoSourceAcquisition.TryReadVerifiedRepoBlob(
+            url,
+            checksumAlgorithm,
+            checksum,
+            repositoryPaths ?? []);
+        if (content is not null)
+        {
+            var verification = VerifyChecksum(
+                checksumAlgorithm,
+                checksum,
+                content);
+            return new VerifiedSourceTextResult(
+                DecodeSourceText(content),
+                null,
+                verification);
+        }
+
+        return await FetchVerifiedSourceTextAsync(
+            fetcher,
+            url,
+            checksumAlgorithm,
+            checksum,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public static PdbMemberSourceInspection FromContent(
         MemberSourceObservation mapping,
         SourceDocumentObservation document,
@@ -491,6 +643,7 @@ public static class PdbSourceAcquisition
         {
             return Absent(
                 "The portable PDB does not provide a usable source checksum.",
+                PdbMemberSourceOutcome.ChecksumUnavailable,
                 mapping,
                 document,
                 verification);
@@ -506,6 +659,9 @@ public static class PdbSourceAcquisition
                         $"The source checksum algorithm '{document.ChecksumAlgorithm}' is unsupported.",
                     _ => "Fetched PDB source does not match the portable-PDB checksum.",
                 },
+                verification == SourceChecksumVerification.Unsupported
+                    ? PdbMemberSourceOutcome.ChecksumUnsupported
+                    : PdbMemberSourceOutcome.ChecksumMismatch,
                 mapping,
                 document,
                 verification);
@@ -527,6 +683,7 @@ public static class PdbSourceAcquisition
                 // not a substitute.
                 return Absent(
                     "The selected member's PDB source range does not identify one declaration that can be shown.",
+                    PdbMemberSourceOutcome.NoVouchedDeclaration,
                     mapping,
                     document,
                     verification);
@@ -538,6 +695,30 @@ public static class PdbSourceAcquisition
                 memberText,
                 mapping,
                 document,
+                verification)
+            {
+                Outcome = PdbMemberSourceOutcome.Complete,
+            };
+        }
+        catch (Exception ex) when (ex is CSharpTextComplexityException
+            or TextFindingComplexityException)
+        {
+            return Failed(
+                subject,
+                $"Could not extract the PDB member source: {ex.Message}",
+                PdbMemberSourceOutcome.SourceTooComplex,
+                mapping,
+                document,
+                verification);
+        }
+        catch (InvalidSequencePointCoordinatesException ex)
+        {
+            return Failed(
+                subject,
+                $"Could not extract the PDB member source: {ex.Message}",
+                PdbMemberSourceOutcome.InvalidSequencePointCoordinates,
+                mapping,
+                document,
                 verification);
         }
         catch (Exception ex) when (ex is ArgumentException
@@ -547,6 +728,7 @@ public static class PdbSourceAcquisition
             return Failed(
                 subject,
                 $"Could not extract the PDB member source: {ex.Message}",
+                PdbMemberSourceOutcome.SourceExtractionFailed,
                 mapping,
                 document,
                 verification);
@@ -813,7 +995,9 @@ public static class PdbSourceAcquisition
         return reader.ReadToEnd();
     }
 
-    static PdbMemberSourceInspection Absent(string detail)
+    static PdbMemberSourceInspection Absent(
+        string detail,
+        PdbMemberSourceOutcome outcome)
         => new(
             new FindingInspection<string>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
@@ -821,10 +1005,14 @@ public static class PdbSourceAcquisition
             Text: null,
             Mapping: null,
             Document: null,
-            ChecksumVerification: null);
+            ChecksumVerification: null)
+        {
+            Outcome = outcome,
+        };
 
     static PdbMemberSourceInspection Absent(
         string detail,
+        PdbMemberSourceOutcome outcome,
         MemberSourceObservation mapping,
         SourceDocumentObservation document,
         SourceChecksumVerification verification)
@@ -835,20 +1023,28 @@ public static class PdbSourceAcquisition
             Text: null,
             mapping,
             document,
-            verification);
+            verification)
+        {
+            Outcome = outcome,
+        };
 
     static PdbMemberSourceInspection Failed(
-        InspectionError error)
+        InspectionError error,
+        PdbMemberSourceOutcome outcome)
         => new(
             new FindingInspection<string>.Failed(error),
             Text: null,
             Mapping: null,
             Document: null,
-            ChecksumVerification: null);
+            ChecksumVerification: null)
+        {
+            Outcome = outcome,
+        };
 
     static PdbMemberSourceInspection Failed(
         FindingSubject subject,
         string reason,
+        PdbMemberSourceOutcome outcome,
         MemberSourceObservation? mapping = null,
         SourceDocumentObservation? document = null,
         SourceChecksumVerification? verification = null)
@@ -858,7 +1054,10 @@ public static class PdbSourceAcquisition
             Text: null,
             mapping,
             document,
-            verification);
+            verification)
+        {
+            Outcome = outcome,
+        };
 
     static PdbTypeSourceInspection TypeAbsent(
         string detail,

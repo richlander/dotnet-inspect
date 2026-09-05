@@ -70,6 +70,52 @@ and maps matches plus `NoCounterpart` nodes into the existing selected-node
 comparison. The explicit-input overload is an internal construction seam for
 focused presentation tests; it is not a portable input contract.
 
+`CSharpBodyDiff.CompareMemberEndpoints` is the total endpoint-topology entry
+point for rendered-line and semantic body comparison. Its caller supplies a
+`CSharpMemberDiffEndpoint.Present` with an exact method definition or an
+explicit `CSharpMemberDiffEndpoint.SubjectAbsent`; the adapter performs no
+selector resolution or cross-version correspondence. Each present endpoint
+becomes a `Complete`, `NoApplicableInput`, or `Failed` Finding inspection. The
+resulting `CSharpMemberEndpointComparison` always retains both Finding subjects
+and the exact `FindingComparison<CSharpCanonicalLine>`. It contains a
+`CSharpBodyDiffResult` only for `Complete`/`Complete`, which is the only
+topology that invokes the pair-dependent semantic body differ.
+
+This path does not infer absence from a null source, handle, or body. RVA-zero
+methods are present but `NoApplicableInput`; only the explicit endpoint arm is
+`SubjectAbsent`. The producer gates are
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
+`CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
+`PresentEndpoint_RejectsNullAndNilEvidence` in
+`CSharpMemberEndpointComparisonTests`. The one-sided addition gate proves the
+product value of the explicit absent arm: Decompiler emits every canonical C#
+line from the present method as an added Finding while the pair-dependent
+`CSharpBodyDiffResult` remains absent.
+
+This adapter is the C# native-producer prerequisite consumed by the Research
+producer session under
+[#5441](https://github.com/richlander/dotnet-inspect/issues/5441) in the
+user-approved focused decomposition tracked by
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706). It is one
+producer-owned adapter, not a shared substrate. Its endpoint sum type is the
+simplest contract that preserves explicit presence and absence while preventing
+the pair-dependent body algorithm from running outside `Complete`/`Complete`.
+It adds no CLI, browser, presentation, or rendered-output surface, so host
+enablement and rendering strategy are not applicable to this slice; later
+Research and Queries consumers own those boundaries. The
+`decompiler-dependencies` dependency-policy rule provides full project- and
+assembly-graph coverage for the claim that this API remains below Research and
+accepts no Research dependency.
+
+The older assembly-wide and `CompareMembers` paths retain their current
+missing-body compatibility behavior while existing consumers migrate. That
+behavior is not emitted by `CompareMemberEndpoints`, where endpoint topology
+owns the state.
+
 The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
 `Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
 changed and moved. After provenance establishes identity, the issuer classifies
@@ -172,20 +218,23 @@ correspond to decompiler nodes. Checksum agreement proves that the bytes match
 the Portable PDB declaration, not that they were the physical syntax tree that
 produced the MethodDef.
 
-Normal verbosity renders standard unified hunks with three context lines,
-retains at most five emitted hunk examples and 80 lines per logical hunk, and
-reports `Partial` with the omitted counts when either bound is crossed. A
-logical hunk split around omitted middle lines consumes two emitted examples;
-the five-example budget still applies. Detailed
-verbosity (`-v:d`) retains the complete line stream. Both forms identify the
-PDB source location and distinguish exact document-byte checksum agreement
-from agreement after CR/LF normalization.
-`SourceTextDiffRendererTests.
-ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange` and
-`ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure`, plus
-`ReviewerSizedDiff_BoundsTheNumberOfHunkExamples` and
-`ReviewerSizedDiff_BoundsEmittedFragmentsFromOversizedHunks`, gate the bounded
-projection.
+Normal verbosity reports factual added, removed, changed, and moved line
+counts from the producer-owned `AnalysisDiff<string>`. Changed and moved are
+independent facets, so the same Before and After population can contribute to
+both; unequal correspondence cardinalities remain explicit. Detailed
+verbosity (`-v:d`) lowers that analysis to a complete Markout
+`MappedTextDiff` through the host-neutral `DotnetInspector.Presentation`
+adapter. Stable unchanged one-to-one correspondences become presentation
+anchors; every other relation becomes conventional removal and addition text,
+so movement identity is intentionally absent from the rendered patch while
+remaining available to statistics. Both forms identify the PDB source location
+and distinguish exact document-byte checksum agreement from agreement after
+CR/LF normalization.
+`TextFindingsTests` gates the complete source-line relation partition,
+including unequal replacement populations, moved lines, line-ending
+equivalence, and final-line terminators. `SourceTextDiffRendererTests` gates
+factual summaries, overlapping changed/moved facets, and complete Markout
+lowering.
 `CommandExecutionTests.
 Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence` gates the
 normal/detailed boundary, and
@@ -210,14 +259,19 @@ PDB source is unavailable.
 
 ## Research admission and target-correspondence boundary
 
-**Status:** target design for #4771.
+**Status:** target design for #4771 with the Research target-resolution boundary
+implemented through complete correspondence.
 [Research admission and identity](#research-admission-and-identity) and
-[Side-local requests and attempts](#side-local-requests-and-attempts) are
-implemented and verified. Complete census, correspondence keys, absence proof,
-and producer handoff remain unimplemented and unverified until their named
-gates in
+[Side-local requests and attempts](#side-local-requests-and-attempts), plus
+complete census, correspondence keys and outcomes, positive absence proof, and
+the retained producer-facing endpoint evidence under
+[Complete census and correspondence](#complete-census-and-correspondence), are
+implemented and verified by their named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
-land.
+and the owning sections. The native C# and IL producer adapters and their
+inspection-topology classification are implemented and verified by their
+owning sections. The Research local producer-session and completion boundary
+is specified below but remains unimplemented.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
@@ -383,8 +437,10 @@ gates;
 `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets` gate
 the remaining properties below. The correspondence-key, absence-proof, and
 census obligations this section mentions belong to
-[Complete census and correspondence](#complete-census-and-correspondence) and
-remain unimplemented; nothing in this slice constructs or consumes them.
+[Complete census and correspondence](#complete-census-and-correspondence).
+They are implemented downstream of terminal side-local attempts and exposed
+through the complete `ResearchTargetResolution`; the named gates in that
+section verify their construction and independent final validation.
 
 Planning input is caller-authored and Research-owned. One
 `ResearchTargetPlanningRequest` carries the admitted population, an explicit
@@ -538,10 +594,10 @@ can leave the same stable target at another position.
 
 ### Complete census and correspondence
 
-**Status:** unimplemented and unverified. Its named gates are listed under
+**Status:** implemented and verified by the named gates under
 [Target-resolution migration and gates](#target-resolution-migration-and-gates).
-`ResearchTargetResolution` exposes complete terminal attempts today; it exposes
-no census, correspondence key, correspondence outcome, or absence proof.
+`ResearchTargetResolution` exposes complete terminal attempts, side-local
+censuses, correspondence keys and outcomes, taint, and positive absence proofs.
 
 After every attempt in a scope is terminal, Research performs one complete
 census per domain and side. A domain-side census is complete when the admitted
@@ -550,10 +606,11 @@ a non-ambiguous domain it proves either that the sole input attempt is terminal
 or that no input occupies that domain and side. It is **healthy** only when
 every required attempt is `Resolved` or `NotFound`. A domain is **blocked**
 when either side contains an `Ambiguous`, `Rejected`, `Unavailable`, or
-`Failed` attempt outcome. Those outcomes may conceal a target only inside their
-own domain because domain participates in every target key. A blocked domain
-establishes no semantic pair, absence, addition, or removal, but does not
-suppress a healthy domain in the same scope.
+`Failed` attempt outcome, or when an admitted input is unevaluated because an
+exact-address selection designated another input. That evidence may conceal a
+target only inside its own domain because domain participates in every target
+key. A blocked domain establishes no semantic pair, absence, addition, or
+removal, but does not suppress a healthy domain in the same scope.
 
 Only a healthy domain reaches key construction. Research derives typed
 `ResearchStrictTargetKey` and `ResearchTargetCorrespondenceKey` values from
@@ -563,17 +620,26 @@ owner-issued target evidence:
   relationship role, and the exact `MetadataMethodAddress` for a physical
   method. A non-method-like target instead retains its exact `MemberAnchor`
   with role `None`; and
-- the correspondence key retains scope, domain, relationship role, and the
-  canonical body identity produced by `ResearchMemberIdentity` from the exact
-  `ResolvedMemberTarget`. It erases side, admitted-input identity, assembly
-  version, MVID, and MethodDef token. For role `None`, it retains the exact API
-  `MemberAnchor` canonical identity because no body identity exists.
+- the correspondence key retains scope, domain, relationship role, and a
+  Research-owned body identity projected from the exact Analysis-issued
+  `MethodIdentity` for the resolved MethodDef. It erases side, admitted-input
+  identity, assembly version, MVID, MethodDef token, and generic-parameter
+  names. For role `None`, it retains the exact API `MemberAnchor` canonical
+  identity because no body identity exists.
 
-The Research body identity preserves physical declaring type, member name,
-generic arity, open parameter types, conversion return shape, and projected
-extension body target. Nested-type spelling flows through the existing
-API-to-body bridge. Distinct assembly domains, overload shapes, relationship
-roles, extension bodies, and nested types therefore remain distinct even when
+The Research body identity projects the structured physical declaring and
+signature `TypeRef` shapes into Research-owned inert type identity. The
+projection retains only the simple assembly name, exact metadata definition
+name, structural element and argument shapes, generic kind and position, and
+array rank; it does not retain Analysis resolution provenance or generic
+parameter display names. The body identity also preserves the selected
+declaration name and open parameter shape normalized for its accessor role,
+generic arity, conversion return shape, and the Analysis-issued extension
+projection. Analysis generic parameters participate by kind and position, and
+exact metadata definition names preserve namespace
+and nested-type segments separately. Distinct assembly domains, overload
+shapes, relationship roles, extension bodies, and nested types therefore
+remain distinct even when
 a display name matches.
 
 The key grammar and constructors are Research-owned. Metadata does not group
@@ -581,6 +647,12 @@ targets into Research correspondence domains, and callers do not author or
 parse either key. Rendered assembly identities, list position, normalized
 display text, selector strings, and `ResearchSubjectKey.Id` are not
 correspondence keys.
+
+If Metadata selection succeeds but the admitted Analysis index has no complete
+structured `MethodIdentity` for that MethodDef, the attempt remains `Resolved`.
+Research emits `CounterpartUnavailable` with `BodyIdentityUnavailable` taint
+and no correspondence key rather than converting selection success into a
+failure or comparing a lossy textual fallback.
 
 Correspondence is scope-local and has these closed outcomes:
 
@@ -619,7 +691,8 @@ Blocked-domain handling has precedence over key construction in that domain.
 When a domain is blocked, no `Paired`, `BeforeOnly`, `AfterOnly`, or `Absent`
 outcome forms there. Every resolved target in that domain becomes exactly one
 `CounterpartUnavailable` outcome whose taint evidence retains the complete
-domain-local blocking-attempt set. If no target resolved, one
+domain-local blocking-attempt set and any exact unevaluated input
+dispositions. If no target resolved, one
 `DomainUnavailable` outcome keeps the failure visible instead of producing an
 empty correspondence-outcome set. Other domains proceed from their own census.
 
@@ -668,21 +741,23 @@ the transition as a Research-owned body verdict.
 `CounterpartUnavailable` and `DomainUnavailable` never manufacture a completed
 producer endpoint set. The later session keeps the Research unavailability
 visible and does not turn it into absence, inapplicability, or producer failure.
-The shared Finding topology is implemented and verified by its owning
-document. The adjacent producer obligations remain unimplemented and
-unverified; each native producer migration supplies its own gates.
+The shared Finding topology and both native producer adapters are implemented
+and verified by their owning documents and named gates. The Research session
+that will compose those typed results remains unimplemented and unverified.
 
 ### Resolution result and failure boundary
 
-**Status:** the scope, domain, request, and attempt half is implemented by
-`ResearchTargetResolver.Resolve` and its construction boundary,
-`ResearchTargetResolutionValidator`.
+**Status:** implemented by `ResearchTargetResolver.Resolve`,
+`ResearchTargetCorrespondenceBuilder`, and the construction boundary,
+`ResearchTargetResolutionValidator`. The resolver publishes the complete
+scope, domain, request, attempt, census, correspondence-key, absence-proof,
+taint, and outcome result described in
+[Complete census and correspondence](#complete-census-and-correspondence).
 `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`,
 `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`, and
 `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets` are
-the named gates. The correspondence-outcome half of this section is
-unimplemented; `ResearchTargetResolution` exposes no correspondence outcome,
-key, or absence proof today.
+the result-lifetime gates; the complete-census section names the correspondence
+construction and validation gates.
 
 One `ResearchTargetResolution` accounts for the complete admitted operation. It
 contains immutable operation, question, scope, domain, input, request, and
@@ -732,20 +807,22 @@ Migration preserves owner and dependency direction:
    implementation-comparison profile. This step has landed.
 2. Research adds that profile's Metadata-target adapter, exact relationship
    roles, durable target keys, and typed expected-failure outcomes. Metadata's
-   resolver and diagnostics remain unchanged. The adapter, relationship roles,
-   and typed expected-failure outcomes have landed; the durable target keys
-   have not.
+   resolver and diagnostics remain unchanged. This step has landed.
 3. Research adds complete domain-local census, correspondence, and absence
    proof. No producer is invoked and no inspection topology is classified.
+   This step has landed.
 4. The ResearchQueries companion consumes the admission API and constructs its
    Queries-owned receipt for both profiles. Body-signal target resolution
    remains on its compatibility path until Queries prerequisite #4777 supplies
    exact Metadata target evidence; Research does not compensate for that
    missing input.
-5. After the Findings topology and focused native-producer migrations land,
-   rank 4 consumes complete correspondence outcomes to create work items.
-   Producer adapters classify endpoint topology and retain their native typed
-   results; Research adds no generic body disposition.
+5. The Findings topology and focused native-producer migrations have landed.
+   Rank 4 under
+   [#5441](https://github.com/richlander/dotnet-inspect/issues/5441)
+   consumes complete correspondence outcomes to create work items. Its target
+   design is specified below, but its Research implementation remains
+   unimplemented. Producer adapters classify endpoint topology and retain their
+   native typed results; Research adds no generic body disposition.
 6. Rank 6 later migrates the implementation-comparison public path from string
    target identities and publishes the outer result. Body-signal migration
    follows #4777 independently.
@@ -755,12 +832,14 @@ listed under
 [Research admission and identity](#research-admission-and-identity),
 [Side-local requests and attempts](#side-local-requests-and-attempts), and
 [Resolution result and failure boundary](#resolution-result-and-failure-boundary).
-The census, key, absence, producer-handoff, and string-key contract remains
-unimplemented until these named non-vacuity gates land:
+The census, key, absence, producer-handoff, and string-key contract is verified
+by these named non-vacuity gates:
 
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
 - `ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity`
 - `ResearchTargetKeys_PreserveDomainSignatureExtensionAndRelationshipRole`
+- `ResearchTargetKeys_UseTupleErasedCanonicalTypes`
+- `ResearchTargetKeys_UseTypedBodyIdentityForGenericAndNestedCollisions`
 - `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
 - `ResearchTargetCensus_BlockedDomainTaintsResolvedTargetsOnBothSides`
 - `ResearchTargetCensus_BlockedDomainWithoutResolvedTargetsIsVisible`
@@ -824,13 +903,765 @@ This boundary does not define:
   body-topology classification;
 - work-item construction, producer cataloging or execution, native C#/IL
   comparison, scratch state, or Research completion;
-- direct-member comparison adapters, designated arbitrary method pairing, or
+- direct-member comparison adapters, the separately specified
+  [designated-pair admission](#research-designated-pair-admission), or
   ReturnToSender behavior;
 - outer-result publication, CLI selection or presentation, row integrity, or
   exit behavior;
 - Source, PDB, network, cache, retry, or authored-source acquisition; or
 - a global stage catalog, shared attempt ledger, cross-component lifecycle, or
   end-to-end revival of the abandoned implementation-diff design.
+
+## Research designated-pair admission
+
+**Status:** implemented by `ResearchDesignatedPairAdmission` and the
+designated-pair overload of `ResearchProducerSessionRequest`, tracked by
+[#5877](https://github.com/richlander/dotnet-inspect/issues/5877).
+The design was established by
+[#5891](https://github.com/richlander/dotnet-inspect/pull/5891).
+The named Release gates below cover the Research boundary; Queries and host
+adoption remain separate deliveries.
+
+`ILInspector.Research` owns one claim:
+
+> An explicit designation associates exactly one resolved Before method and
+> one resolved After method from the same admitted question with local
+> producer work, without asserting that the methods correspond by identity.
+
+The immediate consumer is the Queries
+[direct-member adapter](direct-member-comparison.md). CLI `match`, round-trip,
+authored rebuild, and browser comparison need to compare methods they already
+selected, including differently named methods in different assemblies.
+Metadata owns each selected target and physical address; Analysis owns module
+and body evidence; Findings and the native C#/IL adapters own endpoint
+classification and comparison. This section imports those contracts and
+changes only Research's association and session work basis.
+
+### Designation boundary
+
+Admission consumes the exact implementation-comparison population, one
+complete `ResearchTargetResolution` for that population, and two exact
+`ResearchTargetAttempt` values from that resolution, explicitly ordered Before
+then After. The population and resolution must satisfy the existing identity
+closure. Both attempts belong to the same admitted operation and question,
+and each request names its corresponding side-local implementation input.
+Attempts from another resolution are not interchangeable even when their
+addresses or labels agree.
+
+Each endpoint must have a `Resolved` outcome with a non-`None` relationship
+role and a physical `MetadataMethodAddress`. Its own domain-side census must
+be healthy. These are the existing resolution facts, not a new lookup by
+signature, token, label, or path. The two endpoints may have different scopes,
+domains, declaring types, names, or relationship roles. Carried selections and
+exact-address selections are both eligible after successful resolution; this
+boundary does not select, forward, or retarget a member.
+
+Only the selected domain-side censuses gate designation. An exact-address
+selection requests its designated input and leaves other inputs
+`NotRequested`; the opposite side of that scope may therefore be blocked.
+That irrelevant opposite census does not block an independently resolved
+endpoint on another scope. A blocked selected census, ambiguous selected
+domain, failed attempt, or API-only target still prevents admission.
+Unrelated domains and correspondence outcomes remain intact in the complete
+resolution; designation neither filters them out nor reclassifies them.
+
+No equal correspondence key or projectable structured body identity is
+required. `SelectionDrift` and `BodyIdentityUnavailable` remain authoritative
+for ordinary correspondence but do not invalidate otherwise eligible physical
+designations. The ordinary correspondence builder and its `Paired`,
+one-sided, absent, and unavailable outcomes remain unchanged. Designation is
+an explicit request, never an automatic retry or fallback after unsuccessful
+correspondence.
+
+Two occurrences of the same physical method are valid. They still occupy
+different Before/After admitted input identities; equal underlying content
+does not collapse those occurrences. Requiring one question is deliberate:
+the named consumer requests one pair, not a join across independent questions.
+
+### Owner-issued association and non-success
+
+Successful admission issues an inert `ResearchDesignatedPair` retaining the
+exact resolution and both exact attempts in side order. It is the association
+currency: its owner-issued reference identity distinguishes separate
+admissions, while its retained operation, question, requests, admitted input
+identities, roles, Metadata addresses, and module evidence identify what was
+designated. Repeating admission may issue another pair over the same
+predecessors; it does not replace or mutate them. No display string,
+concatenated key, or fabricated correspondence stands in for this association.
+
+An invalid association, such as foreign resolution, foreign attempt,
+cross-question pairing, or reversed sides, returns typed rejection. An
+associated endpoint that is unresolved, blocked, or lacks a physical method
+returns typed unavailability retaining its side and original target/census
+evidence or missing-address reason. If both endpoints are unavailable, both
+causes are retained in Before/After order. Neither non-success issues a pair,
+session, or work identity, nor invokes a producer. A missing designation is
+not a one-sided comparison and cannot authorize `SubjectAbsent`.
+
+Admission opens no content and adds no resource lifetime. The pair retains
+only the existing inert resolution evidence, not the admitted population or
+its borrowed descriptors, resolvers, or body indexes. A pair is admissible
+input to a session, not evidence that later input access or native inspection
+will succeed. The session still validates exact input access under
+[its existing contract](#input-access-limits-and-cleanup).
+
+For a workspace-selected pair, Queries consumes its own successful side-local
+composition receipts before requesting this association. Research consumes
+their exact Research attempts, not Queries receipt types. The existing
+[two-sided handoff](research-workspace-target-composition.md#two-sided-comparison-handoff)
+owns terminal selection and binding-policy validity; this admission grants no
+permission to bypass either.
+
+### Handoff to the local producer session
+
+A session request chooses exactly one typed work basis: all correspondence
+outcomes of its resolution, or one admitted `ResearchDesignatedPair` from that
+exact resolution and population. There is no mixed roster or caller-supplied
+work list. The existing correspondence request retains its meaning and
+ordering; a designated request does not also schedule the resolution's
+correspondence outcomes.
+
+The designated work domain is that one pair crossed with requested local
+producer kinds in catalog order. Every item retains the exact pair association
+instead of a correspondence outcome, alongside its existing fresh session/work
+identity and producer kind. Thus requesting C# and IL body yields exactly two
+items even if the resolution contains other scopes or unavailable
+correspondences. The completion validator derives the selected work basis,
+order, endpoint binding, and native result kind; it does not merely check item
+count or matching display text.
+
+Both designated endpoints adapt as exact present physical methods, never
+subject absence. Each native endpoint's subject key/identity is its own
+Metadata anchor's `CanonicalSignature`, also used as its display/label.
+Before and After subjects may differ. This is endpoint-local producer
+attribution, not the pair's identity or a new correspondence key; role,
+address, module, and occurrence association remain in the retained pair.
+Native result validation checks each subject against its respective endpoint,
+not against a shared invented member name. The native adapters already accept
+separate subjects and perform no member correspondence.
+
+The existing sequential coordinator, C#/IL catalog, input-stage validation and
+reuse, native result arms, cleanup, cancellation, and atomic completion apply
+unchanged. A bodyless MethodDef reaches the native adapter and may become
+`NoApplicableInput`; Research does not reject it merely for lacking a body.
+Access failure remains Research unavailability; native failure remains native
+evidence. Cancellation after the final invocation still prevents completion.
+This is an alternate work basis, not another executor, completion type,
+producer topology, or cleanup protocol. Completion accounts for the requested
+comparison, not API correspondence or runtime equivalence.
+
+### Designated-pair demo and gates
+
+Design mockup, not a new CLI spelling or runtime transcript:
+
+```text
+One admitted question
+  Before occurrence: Alpha.dll, Left.Normalize(int), exact MethodDef
+  After occurrence:  Beta.dll, Right.Clean(int), exact MethodDef
+Two exact-address selections -> two successful side-local attempts
+Explicit designation -> ResearchDesignatedPair(Before attempt, After attempt)
+Local session, requested IL body + C#
+  work 1: exact pair / C#      -> native C# endpoint comparison
+  work 2: exact pair / IL body -> native IL endpoint comparison
+```
+
+Notice that the selected methods need not have the same identity and that the
+session still uses catalog order. The neighboring same-method case retains
+two occurrences; the bodyless case retains native inapplicability. Supplying
+the same token from the wrong image must remain non-success, not another
+method's comparison. An ordinary same-scope correspondence request with
+divergent resolved keys must still report its existing `SelectionDrift`.
+
+The following outcome gates run in `ResearchProducerSessionTests` in the
+Release `ILInspector.Research.Tests` executable. The existing
+`ResearchProducerCompletion_RetainsNoBorrowedResourcesOrPresentation` gate also
+covers the pair, work-basis, and pair-admission result types.
+
+| Gate | Required observation |
+| --- | --- |
+| `ResearchDesignatedPair_AdmitsExactSideLocalMethods` | Real compiled methods with different names, types, domains, and scopes admit; same-method occurrences remain distinct; exact-address opposite-side blocking is irrelevant. |
+| `ResearchDesignatedPair_PreservesAssociationFailures` | A foreign-resolution attempt, cross-question or reversed pair, unresolved/API-only target, blocked selected census, and wrong-image address cannot issue a pair; both endpoint causes survive when applicable. |
+| `ResearchDesignatedPair_DoesNotRequireCorrespondence` | Divergent roles/keys and missing structured body identity do not prevent otherwise valid physical designation; ordinary drift and absence results are unchanged. |
+| `ResearchDesignatedSession_RetainsExactPairAndNativeResults` | C#/IL work has exact pair/catalog order and per-side native subjects; bodyless/native-failed neighbors preserve producer topology; unrelated correspondences cause no extra invocation or acquisition. |
+| `ResearchDesignatedSession_PreservesAtomicTermination` | Reuse of the same pair mints fresh session/work identities; final-invocation cancellation and input/cleanup failure preserve existing terminal and exact-once cleanup behavior. |
+
+Fixtures must use product-issued targets and native producer results, not
+manufacture successful results or repair producer output. The same-image
+neighbor and wrong-image fixture establish association behavior, not a new
+mutable-file or local-actor threat model.
+
+### Designated-pair basis and delivery
+
+The baseline is explicit old/new endpoint comparison, already supported by
+`ImplementationDiff.CompareMembers` and both native endpoint adapters.
+Ordinary Research correspondence is useful analogous evidence precisely
+because it refuses unequal keys: changing that refusal would answer the wrong
+question. An owner-issued pair and a closed alternate work basis are the
+simplest sufficient distinction. Admission is an immutable association check;
+the sequential session and its lifetime protocol are unchanged. No new
+stateful interaction calls for a TLA+ model.
+
+This Research implementation is #5877, delivery step 18 of the counted
+[#4706 adoption/retirement tracker](https://github.com/richlander/dotnet-inspect/issues/4706),
+not completion of its Queries or host adoption. At design introduction the tracker had 18
+remaining runtime deliveries: 9 on each local CLI/browser path, 13 on each
+Source-enabled host path, and 7 on the comparison-tool path. Step 18 precedes
+the Queries adapter (step 6), then CLI/browser/tools adopt at steps 8/9/10.
+The tracker and the
+[adapter ledger](direct-member-comparison.md#adoption-and-retirement-ledger)
+own those paths and final legacy Queries/Research retirement at steps 16/17.
+The tracker owns subsequent status/count changes.
+
+Adding this substrate does not retire `ImplementationDiff.CompareMembers`,
+its Source-dependent callers, or their projections. Queries population,
+workspace composition, publication, host rendering, and Source adoption remain
+separate work. This section adds no output schema: downstream CLI lowering
+uses the planned shared Markout presentation path, and browser adoption
+consumes typed evidence under its own host contract.
+
+## Research local producer session and completion
+
+**Status:** implemented by `ResearchProducerSession`,
+`ResearchProducerSessionValidator`, and the Research-owned models in
+`ResearchProducerSessionModels.cs`, tracked by
+[#5820](https://github.com/richlander/dotnet-inspect/issues/5820).
+`ResearchProducerSessionTests` contains the named implementation gates below.
+The design was established by
+[#5441](https://github.com/richlander/dotnet-inspect/issues/5441).
+The ILDiff owner now supplies its focused typed-inspection adapter through
+`IlAssemblyDiff.CompareMemberEndpoints`, gated by the owner-specific tests named
+in [IL diff canonicalization boundary](il-diff-canonicalization.md). The C#
+owner now supplies `CSharpBodyDiff.CompareMemberEndpoints`, gated by the
+owner-specific tests named in
+[Structural body comparison](#structural-body-comparison). Their shared
+adoption contract remains
+[Finding producer guidance](finding-producers.md#admit-body-topology-before-native-comparison).
+The delivered prerequisites were tracked by
+[#5443](https://github.com/richlander/dotnet-inspect/issues/5443) and
+[#5444](https://github.com/richlander/dotnet-inspect/issues/5444).
+The separately specified
+[designated work basis](#research-designated-pair-admission) uses the same
+coordinator and completion protocol; its additional gates are listed above.
+
+This boundary is owned by `ILInspector.Research`. It turns one complete target
+resolution into exact local C# and IL/body work, retains each producer's native
+typed result, and publishes one inert Research completion. It does not make
+target correspondence, endpoint topology, and comparison outcome into one
+shared verdict.
+
+### Imported contracts
+
+The session consumes owner-issued contracts without redefining them:
+
+| Owner | Imported contract |
+| --- | --- |
+| Research target resolution | One exact admitted operation, complete correspondence outcomes, resolved endpoints, positive absence proofs, and typed unavailability. |
+| Findings | `Complete`, `SubjectAbsent`, `NoApplicableInput`, and `Failed` endpoint inspection topology and its transition. |
+| `ILInspector.Decompiler` | One total C# endpoint adapter that returns its native typed result for every explicit endpoint combination, invoking its pair algorithm internally only for `Complete`/`Complete`. |
+| `ILInspector.ILDiff` | One total IL endpoint adapter that returns its native typed result for every explicit endpoint combination, invoking its pair algorithm internally only for `Complete`/`Complete`. |
+
+The Research session owns only catalog membership, requested producer
+selection, work-item identity and accounting, invocation order, its borrowed
+input access, its own limits and cleanup, and atomic completion. The imported
+producer result remains authoritative even when its topology contains a failed
+endpoint or its semantic and Finding projections disagree.
+
+### Session request and catalog
+
+One request carries the exact `ResearchAdmittedPopulation` and
+`ResearchTargetResolution` for the same implementation-comparison operation,
+and a non-empty set of requested local producer kinds. The resolution overload
+uses all correspondence outcomes; the designated-pair overload chooses the
+alternate work basis specified above. Research validates the
+complete question, input, scope, domain, and correspondence identity closure
+before it opens input content or invokes a producer. Equal-looking identities,
+a foreign resolution, an unsupported profile, an empty producer selection, or
+an unknown producer kind is a typed pre-execution rejection that exposes no
+work-item identity or partial session.
+
+The initial catalog is closed:
+
+- **C#** binds the C# owner's typed endpoint adapter and native body
+  comparison; and
+- **IL body** binds the ILDiff owner's typed endpoint adapter and native body
+  comparison.
+
+Catalog membership is Research-owned and derives from one declaration. A
+caller selects cataloged kinds but cannot supply a delegate, producer object,
+service-located implementation, display name, or string identifier. Source,
+body signals, API comparison, and ReturnToSender are not hidden catalog
+entries. Adding one is a separate producer-adoption effort and changes the
+declared catalog and its totality gates.
+
+`ResearchProducerCatalog_AdmitsEveryDeclaredLocalKind` and
+`ResearchProducerSession_RejectsForeignPopulationResolutionAndCatalogShapes`
+are the implementation gates for this section.
+
+### Exact work domain
+
+For the correspondence work basis, Research derives one work item for every
+pair in the Cartesian product of:
+
+1. every correspondence outcome in the exact collection order carried by this
+   target resolution; and
+2. every requested kind in declared catalog order.
+
+This product includes `CounterpartUnavailable` and `DomainUnavailable`.
+Including them makes Research unavailability exactly accounted; those items
+terminate without endpoint adaptation or producer invocation. Omitting an
+item, adding an item, changing its correspondence, duplicating a kind, or
+reordering by display text rejects completion.
+
+Each work item has a fresh opaque Research identity parented by the admitted
+operation and exact request. It retains its exact correspondence outcome and
+declared producer kind. It is not identified by ordinal, member display,
+selector text, `ResearchSubjectKey`, producer descriptor text, or a
+concatenated key. Repeating the session request against the same admitted
+population and target resolution mints fresh session and work-item identities
+without changing those predecessor identities.
+
+The correspondence collection's position has no identity meaning and need not
+be stable across separately issued target resolutions; Research preserves only
+the exact order in this input. Execution is strictly sequential in
+correspondence order followed by catalog order. This is the normative
+Browser/Wasm baseline and requires no threads.
+
+`ResearchProducerWorkItems_DeriveExactOrderedCorrespondenceCatalogProduct`,
+`ResearchProducerWorkItems_KeepUnavailableCorrespondenceWithoutInvocation`,
+and `ResearchProducerWorkItemIdentities_AreFreshOwnerIssuedReferences` are the
+implementation gates for this section.
+
+### Endpoint adaptation and native results
+
+For a healthy correspondence outcome, Research supplies the producer adapter
+with only its exact retained endpoint evidence:
+
+| Correspondence | Before evidence | After evidence |
+| --- | --- | --- |
+| `Paired` | resolved target | resolved target |
+| `BeforeOnly` | resolved target | key-absence proof |
+| `AfterOnly` | key-absence proof | resolved target |
+| `Absent` | domain-absence proof | domain-absence proof |
+
+Research supplies a positive absence proof through the producer's explicit
+subject-absence input. It does not construct a Finding inspection or label a
+resolved endpoint as `Complete`, `NoApplicableInput`, or `Failed`; the total
+producer adapter owns endpoint classification and native result construction.
+A null reader, handle, body, collection, or native result authorizes no state.
+Input access or validation that prevents the adapter from receiving its exact
+endpoint is retained as Research unavailability, not translated into subject
+absence or no applicable input.
+
+The body-producer subject for paired or one-sided correspondence is the exact
+`ResearchTargetCorrespondenceKey.CanonicalIdentity` retained by that
+correspondence. A both-absent domain uses its exact scope's declaring-type
+intent and normalized Metadata selector. Both sides receive the same logical
+subject. The subject is producer payload identity, not work-item identity.
+
+A resolved API-only target whose relationship role is `None` has no
+`MetadataMethodAddress` that either body-producer endpoint can admit. Research
+retains that item as `EndpointAddressUnavailable` and invokes no producer. It
+does not reinterpret the missing physical endpoint as producer-owned
+`NoApplicableInput`; a bodyful/bodyless MethodDef pair still reaches both
+native adapters, which classify the bodyless side themselves.
+
+Research invokes only the producer's total endpoint adapter and never calls its
+pair algorithm directly. The imported producer contract ensures that every
+explicit endpoint combination returns a native result and that only
+`Complete`/`Complete` reaches the pair algorithm. All other non-failed
+combinations retain the native inspection transition without pair invocation;
+a failed endpoint prevents pair invocation and remains visible in the native
+result.
+
+A cataloged work item returns one of three closed Research outcomes:
+
+- **Produced** retains the exact producer-native result, including its endpoint
+  topology, Finding comparison, semantic projection, and native failures; or
+- **Research unavailable** retains the exact unavailable correspondence or
+  Research-owned input-access failure and no producer result; or
+- **Research failed** retains one bounded diagnostic for an escaped producer
+  exception and no producer result.
+
+These names describe orchestration, not semantic equality or producer success.
+A `Produced` item may contain a native failed endpoint, non-exact comparison,
+or cross-validation failure. Research does not translate those into a generic
+body disposition, collapse C# and IL result shapes, manufacture
+`PairFinding<T>` values, or reconstruct rows from producer messages.
+
+One native failure or escaped producer exception is local to that work item and
+does not suppress another item. A null result, wrong target, missing topology
+transition, or result for another work item is a producer-contract violation
+that fails the Research session rather than becoming a native failure-shaped
+result.
+
+`ResearchProducerAdapters_MapExactCorrespondenceEvidence`,
+`ResearchProducerAdapters_ClassifyNoEndpointInsideResearch`,
+`ResearchProducerSession_InvokesOnlyTotalNativeAdapters`,
+`ResearchProducerResults_RetainExactNativeTopologyAndPayload`, and
+`ResearchProducerException_IsLocalAndDoesNotSuppressIndependentWork` are the
+implementation gates for this section. The first, third, and fourth require
+owner-produced fixtures for paired bodyful bodies, one-sided subject absence,
+paired bodyful/bodyless methods, both-absent targets, failed endpoint
+inspection, escaped producer failure, and unavailable correspondence; mocks
+that manufacture native results are insufficient. The C# and ILDiff adoption
+issues own the gates proving pair-algorithm suppression.
+
+### Input access, limits, and cleanup
+
+The session may borrow admitted assembly descriptors, resolvers, and Analysis
+body indexes only while it runs. Its closed owned-resource inventory contains
+one Research-opened input stage for each admitted implementation input needed
+by a healthy work item. An input stage owns the metadata/PE reader stack opened
+from that exact descriptor and resolver; the borrowed descriptor, resolver,
+and body index do not become owned resources. Research acquires no content
+outside the admitted population.
+
+Before an input stage can serve an item, Research revalidates its
+assembly/module identity and body-index association against the exact admitted
+input and resolved target evidence. A reopened or changed input that no longer
+matches cannot serve a producer. Stage acquisition either transfers one
+complete owned stage or releases its partial internals before returning typed
+input-access failure.
+
+The complete derived work roster is the Research execution budget: each work
+item is attempted at most once, each required admitted input has at most one
+live stage, and only one producer adapter invocation is active at a time.
+Execution never truncates the roster, silently skips an item, or publishes a
+prefix. Native producers retain their own decode, canonicalization, row,
+scratch, and allocation limits; Research does not widen them or reinterpret
+their bounded failure.
+
+Research records one keyed cleanup outcome for every completely acquired input
+stage. Cleanup is attempted after all work, after cancellation is observed,
+and after a Research or producer-contract failure. Every stage is attempted
+exactly once in reverse acquisition order; one cleanup failure does not prevent
+attempts for the others. The record retains bounded Research diagnostics,
+never raw exceptions or an unkeyed exception graph.
+
+Any Research-owned cleanup failure prevents successful completion. Producer
+results already materialized in memory are not published as a partial success.
+The typed Research terminal outcome is the only handoff for this cleanup; an
+adjacent consumer receives no authority to reopen a stage or reinterpret its
+outcome.
+
+`ResearchProducerSession_AccountsForTheExactWorkBudget`,
+`ResearchProducerSession_UsesOnlyValidatedAdmittedInputAccess`,
+`ResearchProducerSession_OwnsOnlyExactInputStages`,
+`ResearchProducerCleanup_AccountsForEveryOwnedResourceExactlyOnce`, and
+`ResearchProducerCleanup_FailurePreventsCompletionWithoutSuppressingCleanup`
+are the implementation gates for this section.
+
+### Atomic completion and cancellation
+
+The session has four terminal arms:
+
+- **Rejected** carries one typed pre-execution reason and no session or
+  work-item identity;
+- **Completed** carries one `ResearchProducerCompletion` after every work item
+  is terminal and every owned input stage closed successfully;
+- **Failed** carries one bounded Research validation, producer-contract, or
+  cleanup failure plus the complete cleanup-outcome set, but no completion; or
+- **Cancelled** carries the complete cleanup-outcome set, including any cleanup
+  failure, but no completion or exposed work-item identity.
+
+One successful `ResearchProducerCompletion` contains the exact admitted
+operation and session identity, the complete ordered work-item roster, and
+exactly one terminal outcome for every item. Its validator re-derives the
+request, catalog selection, selected work product, parent identities,
+endpoint-evidence binding, producer-result kind, result order, and cleanup
+success before construction. Missing, duplicate, stale, foreign, or merely
+name-equal evidence rejects publication.
+
+Completion means Research finished and accounted for the requested work; it
+does not mean every producer endpoint was complete or every native comparison
+was exact. Consumers must inspect the retained native topology and result.
+
+Every terminal arm is inert. A completion may retain opaque Research
+identities, the exact inert target correspondence or designated-pair evidence,
+Research input-access diagnostics, successful cleanup outcomes, and native producer
+result values that their owners permit beyond execution. Failure and
+cancellation may retain their bounded Research diagnostic and complete cleanup
+outcomes. No arm retains an assembly descriptor, resolver, body index, metadata
+or PE reader, stream, callback, producer, delegate, service provider, scratch
+collection, lease, cleanup authority, raw exception, display-only row, or
+mutable caller collection. Native typed display evidence already owned by a
+producer result is native result data, not a Research-created presentation row.
+
+Cancellation remains cancellation and is not a work-item outcome, failure, or
+partial completion. The sequential coordinator observes it before resource
+acquisition and between producer invocations. A synchronous native invocation
+that has started may finish under its owner's contract; Research then observes
+cancellation, performs complete cleanup, and returns the `Cancelled` arm.
+Cleanup failure remains visible in that arm without changing cancellation into
+completion or failure. Retrying mints fresh session and work-item identities.
+
+`ResearchProducerCompletion_AccountsForEveryWorkItemExactlyOnce`,
+`ResearchProducerCompletion_RejectsBrokenCrossLinksAndNativeKinds`,
+`ResearchProducerCompletion_RetainsNoBorrowedResourcesOrPresentation`,
+`ResearchProducerCancellation_ExposesNoPartialWorkOrCompletion`,
+`ResearchProducerCancellation_RetainsEveryCleanupOutcome`, and
+`ResearchProducerCancellation_RetryMintsFreshSessionAndWorkItems` are the
+implementation gates for this section.
+
+### Design basis and migration
+
+This contract follows the repository's established finite-roster pattern:
+owner-issued identity, complete deterministic work derivation, typed local
+non-success, sequential execution, and publication only after final
+validation. It deliberately diverges from a general task scheduler: the
+catalog is closed, the baseline is single-threaded, and results are not streamed.
+That smaller contract is sufficient for two local producers, preserves
+Browser/Wasm operation, and prevents completion from racing cleanup.
+
+The contract adds no mutable generation, concurrent publication, distributed
+participant, or new close protocol. Its only state transition is a sequential
+single-owner invocation that composes existing target, producer, and cleanup
+outcomes before atomic publication. A TLA+ model would duplicate those owner
+contracts without checking a new concurrency or lifecycle claim, so no model
+is required for this design.
+
+Implementation proceeds in focused owner order:
+
+1. ILDiff and C# have adopted the shared Findings endpoint topology and exposed
+   their typed adapters and native results under
+   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444) and
+   [#5443](https://github.com/richlander/dotnet-inspect/issues/5443).
+2. Research implements its catalog, exact work derivation, sequential session,
+   input access, cleanup, and completion validator through
+   `ResearchProducerSession`.
+3. The Research completion becomes available to the separately owned rank-5
+   direct-member and rank-6 publication efforts; this design specifies neither
+   adoption.
+4. Source remains a later dependent producer and body-signal target migration
+   follows
+   [#4777](https://github.com/richlander/dotnet-inspect/issues/4777)
+   independently.
+
+### Producer-session non-goals
+
+This boundary does not define:
+
+- Queries population sealing, correspondence receipts, acquisition planning,
+  host authorization, outer-result publication, or cleanup for Queries-owned
+  resources;
+- Metadata selection, Analysis body identity, target correspondence,
+  forwarding traversal, or workspace composition;
+- Finding inspection states or transitions, C# or IL endpoint classification,
+  native algorithms, result construction, internal limits, or failure
+  semantics;
+- API, body-signal, ReturnToSender, Source, PDB, network, cache, retry, or
+  authored-source producers;
+- the Queries direct-member adapter, string-key compatibility, CLI selection,
+  presentation, row limits, exit behavior, or Markout changes;
+- a caller-extensible plugin catalog, dynamic producer discovery, result
+  streaming, concurrent or parallel work execution, shared cross-component
+  budget, or global cleanup authority; or
+- an end-to-end operation lifecycle or revival of the abandoned broad design.
+
+## Research authored-source comparison
+
+**Status:** target design for [#5901](https://github.com/richlander/dotnet-inspect/issues/5901),
+Research delivery step 12 of
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706), advancing
+Slice 4 of [#2673](https://github.com/richlander/dotnet-inspect/issues/2673).
+The independent-population behavior below is **unimplemented and unverified**.
+`ILInspector.Research` is the single owner.
+
+The claim is:
+
+> Requested authored-source comparison accounts for the selected admitted
+> member population independently of C#/IL change verdicts, preserves each
+> endpoint's verified source evidence or non-success, and never changes what
+> either local mechanism reports.
+
+### Existing behavior and design basis
+
+The `Source` mechanism and CLI `--pdb-source` already exist. Research's
+`WithPdbSourceComparisons` can retain a Source-only member, but the CLI currently
+acquires source only for `ImplementationDiffResult.Members`: the local
+changed-member projection. No local changes means no Source acquisition.
+That is enrichment of known implementation changes, not independent discovery
+of authored changes across two versions.
+
+The smallest sufficient change is to compose Source over the admitted target
+population rather than that changed-row list. Reuse the existing Research
+association, Findings topology, and exact text-line mechanism; do not introduce
+a second member matcher, C# parser, or equivalence oracle. Conventional
+two-revision text diffs are the baseline. Their lines are useful evidence, but
+file names and line alignment do not establish member identity.
+
+The analogous local implementation is the existing PDB-source enrichment,
+including its separately labelled unavailable and failed rows. The
+[member source comparison query](member-source-comparison-query.md) demonstrates
+independent endpoint availability, but compares PDB source with decompilation
+for **one** MethodDef. Its
+[presentation adapter](member-source-diff-presentation.md) aligns those unlike
+representations; that normalization is not a two-version authored-source policy.
+
+### Immediate input and output boundary
+
+Research consumes the exact admitted operation, its owner-issued target
+correspondence or designated-pair association, and completed local prerequisite
+accounting. It also consumes the side-associated verified source snapshots or
+typed acquisition non-success supplied by acquisition step 11. That acquisition
+contract and runtime remain prerequisites; the current caller-supplied
+`FindingInspection<string>` plus a display subject is not a substitute for
+their exact association.
+
+The snapshot boundary must supply enough owner-issued evidence to identify the
+retained source occurrence and physical method, the vouched source unit and
+text, document/checksum provenance, and unavailable or failed acquisition.
+Research consumes that evidence; it does not define how Services constructs,
+verifies, slices, bounds, or retains it. Step 11 must settle the concrete
+contract before step 12 implementation. No URL fetch, Git lookup, PDB reader,
+source reparsing, or host capability policy moves into this composition.
+
+The result retains the selected target association, both side-local source
+outcomes, and the native `text.line` inspection/comparison when applicable.
+Document checksum evidence remains attached to the document from which the
+member text was extracted, not mislabelled as a checksum of normalized text.
+It distinguishes exact byte correspondence from the acquisition owner's
+accepted line-ending-normalized correspondence. Neither establishes repository
+authenticity or proves which physical syntax tree produced the shipped IL.
+
+This composition does not add Source to the closed **local** C#/IL catalog or
+redefine local session completion. Successful local prerequisite accounting
+does not mean equal implementations: a completed native producer may contain
+different or unavailable evidence. Source eligibility depends on its exact
+target and source inputs, not a favorable C# or IL verdict. Rejected, failed,
+or cancelled prerequisite operations cannot be promoted into a completed
+Source operation. Their existing outcomes remain visible.
+
+### Population and association
+
+The requested population comes from the admitted selection and its complete
+Research target outcomes, before changed-only presentation filtering. Every
+selected target has Source accounting even when C# and IL are exact. A target
+without the prerequisites for acquisition/comparison retains that reason;
+it is not silently dropped. Source not requested is not Source unchanged.
+
+Each Before and After snapshot stays bound to its side-local source occurrence
+and exact physical target. Cross-version correspondence remains Research-owned;
+an explicit designated pair retains its different identities rather than
+claiming that designation proved correspondence. Matching file names, URLs,
+source text, bare tokens, or line positions cannot supply that association.
+Equal tokens in different images remain different physical endpoints.
+
+The comparison unit is the source owner's vouched member declaration, not the
+whole repository or every declaration in a fetched file. For an accessor that
+unit may be its containing property/event; retain that scope rather than
+labelling the observation an accessor-body-only edit. Research does not expand
+ambiguous, partial, or unsupported source into a plausible member. Missing
+evidence for a compatible comparison unit is unavailable.
+
+### Text and outcome semantics
+
+Two complete, compatible source endpoints use `ILInspector.Text`'s exact
+ordered line semantics and native Findings. CR, LF, and CRLF boundaries are
+equivalent under that owner. Other supplied text remains significant:
+Research does not strip comments, attributes, directives, indentation, or
+literal content, nor regenerate authored C#. Normalization already performed
+by the acquisition/slicing owner stays disclosed as part of the source unit.
+This is textual declaration change, not syntax-tree or semantic equivalence.
+
+Complete source on both sides permits an explicit unchanged or changed
+observation. Both outcomes remain available in typed evidence even when a
+changed-only view omits unchanged rows. In particular, an empty local change
+list cannot erase a Source change, and empty Source edit rows alone cannot
+establish unchanged source.
+
+Missing symbols, mapping, verified bytes, or a vouched declaration for a
+present member mean unavailable Source, not an added/removed declaration.
+Retain native endpoint topology and acquisition reasons; do not project
+one-sided `NoApplicableInput` as an authored edit merely because the other
+side has text. Only Research's positive `SubjectAbsent` proof may support
+one-sided member addition/removal evidence, with verified text on the present
+side. That evidence describes subject topology, not a two-text modification.
+An acquisition or inspection failure stays failed evidence, never unchanged
+or a semantic edit.
+
+Source non-success does not discard completed C#/IL evidence. No combined
+`IsExact` conclusion substitutes for the three mechanism outcomes. Source
+equality does not establish IL equality; IL equality does not establish source
+equality. This operation does not compile source or attribute a discrepancy to
+the decompiler, compiler, author, or build environment.
+
+### Consumer adoption and retirement
+
+The consumers are the existing CLI Implementation Diff and the planned
+browser/Wasm workspace comparison. #4706 remains the single counted adoption
+and retirement ledger: **18 delivery steps**, with **13 on each Source-enabled
+host path**. CLI uses steps 1, 2, 3, 4, 5, 18, 6, 7, 8, 11, 12, 13, 14;
+browser uses 9 instead of 8 and 15 instead of 14. These shared steps are not
+summed, and this design is not another delivery step.
+
+Step 11 supplies acquisition; this section owns Research step 12; Queries
+step 13 supplies public execution/publication; CLI step 14 and browser step 15
+adopt it after their local paths. This is sequencing, not a definition of
+those owners' internals. The user-visible population change lands through
+those host adoptions, not by claiming this documentation changes the command.
+
+During migration, replace the old caller-provided Source attachment, including
+`CompareMembersWithPdbSource`, and CLI changed-member-only acquisition. Preserve
+their supported comparisons and typed failures through the new path rather
+than retaining a hidden legacy route. Queries and Research final retirement
+remain steps 16 and 17; this design does not complete them.
+
+Structured endpoint outcomes, native comparisons, and provenance survive to
+presentation. Host adoptions use the shared Markout lowering for ordinary CLI
+formats and the browser comparison surface. They must preserve the distinction
+between unavailable evidence and no edits without reconstructing identity or
+verdicts from rendered lines. This section defines no row schema, new flag,
+browser transport, or UI interaction.
+
+### Demo and outcome gates
+
+This is a **design mockup**, using two fixture package versions, not current
+command output:
+
+```bash
+dotnet-inspect diff --package SourceDiffFixture@1.0.0..1.1.0 \
+  --type Sample.Counter --member Value \
+  -S "Implementation Diff" --pdb-source
+```
+
+```text
+Before authored declaration: public int Value() => 1 + 2;
+After authored declaration:  public int Value() => 3;
+
+Current behavior: no C#/IL changes, so Source is not acquired.
+After adoption:
+  C#         unchanged under its native comparison
+  IL         unchanged under its native comparison
+  PDB Source changed: the selected declaration text differs
+```
+
+The neighboring case has equal authored text but different shipped IL: Source
+is unchanged while the IL difference remains. With one endpoint's PDB absent,
+Source is unavailable, not a removed declaration. The browser's corresponding
+two-version selection consumes the same outcome evidence, not CLI output.
+
+Planned Release gates below are **unimplemented and unverified**. The existing
+`ResearchDiffTests` Source comparison cases and
+`DiffCommandTests.BuildImplementationDiffView_LabelsPdbSourceAsIndependentLane`
+cover legacy projection only; they do not prove population independence.
+
+| Gate owner | Required observation |
+| --- | --- |
+| Research step 12 | A real compiler-produced constant-folding pair has exact C#/IL and changed verified Source; the member remains accounted for. |
+| Research step 12 | Equal source with differing IL retains both outcomes; unavailable or failed Source preserves completed local evidence. |
+| Research step 12 | Source request accounts for selected unchanged, changed, and unavailable targets; no request makes no Source claim. |
+| Research step 12 | Present member with one unavailable source has no authored addition/removal; positive member absence retains its distinct topology. |
+| Research step 12 | Two exact methods with the same token in different images retain their own source evidence; a source-unit mismatch stays unavailable. |
+| Research step 12 | Changes to comments, directives, literals, and declaration scope follow retained text semantics rather than decompiler formatting policy. |
+| Queries/CLI/browser steps 13-15 | Public two-version selection demonstrates the same Source-only change and unavailable neighbor with explicit acquisition capability and independent local results. |
+
+Acquisition fixtures exercise product-owned verification and member extraction,
+not caller-invented success snapshots. A pinned real-package demonstration
+supplements the hermetic compiler fixture at host adoption; network availability
+does not become a unit-test oracle. This pure evidence composition adds no
+concurrent protocol requiring a new model. It adds no new platform exception;
+all runtime dependencies must preserve the existing CLI/browser contract.
 
 ## Research comparison model
 

@@ -1,7 +1,9 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
@@ -30,11 +32,118 @@ public class AssemblySetResolutionSessionTests
                 "acquire API surface",
                 failure.Operation);
             Assert.Equal(path, failure.SourceAssemblyPath);
+            Assert.Equal(
+                nameof(MalformedMetadataRootException),
+                failure.Kind);
+            Assert.Equal(
+                "The assembly metadata root is malformed "
+                    + "(UnmappableMetadataDirectory).",
+                failure.Detail);
             Assert.Empty(surface.Types);
         }
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void BuildApiSurface_UnsupportedMetadataFormatNamesTheMechanism()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-surface-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildWindowsMetadataImage());
+        try
+        {
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build([path]));
+
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(surface.InspectionFailures);
+            Assert.Equal("acquire API surface", failure.Operation);
+            Assert.Equal(path, failure.SourceAssemblyPath);
+            Assert.Equal(
+                nameof(UnsupportedMetadataFormatException),
+                failure.Kind);
+            Assert.Equal(
+                "Windows Metadata is not a supported metadata format.",
+                failure.Detail);
+            Assert.Empty(surface.Types);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] BuildWindowsMetadataImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
+    public void BuildApiSurface_MetadataStreamCountOverflowPreservesHealthyNeighbor()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "assembly-set-overflow-").FullName;
+        string overflowPath = Path.Combine(directory, "Overflow.dll");
+        string healthyPath =
+            typeof(AssemblySetResolutionSessionTests).Assembly.Location;
+        try
+        {
+            File.WriteAllBytes(
+                overflowPath,
+                OverflowMetadataStreamCount(
+                    File.ReadAllBytes(healthyPath)));
+
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build(
+                        [overflowPath, healthyPath]));
+
+            Assert.NotEmpty(surface.Types);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(surface.InspectionFailures);
+            Assert.Equal("InvalidImage", failure.Kind);
+            Assert.Equal(overflowPath, failure.SourceAssemblyPath);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -77,6 +186,34 @@ public class AssemblySetResolutionSessionTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void BuildApiSurface_PreservesResolverLineageAcrossForwardedConstraint()
+    {
+        string unrelated =
+            FixtureCatalog.ServicesRouteLearningUnrelated.AssemblyPath();
+        string consumer =
+            FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath();
+        _ = FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle");
+        _ = FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("base");
+
+        ApiSurface surface =
+            Assert.IsType<ApiSurface>(
+                AssemblySetSurfaceBuilder.Build(
+                    // The first root is the fallback and cannot resolve the
+                    // forwarding chain owned by the second root.
+                    [unrelated, consumer]));
+
+        ApiType consumerType = Assert.Single(
+            surface.Types,
+            static type =>
+                type.FullName
+                    == "DotnetInspector.Services.RouteLearning.Consumer`1");
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(consumerType.TypeParameters).TypeKind);
+        Assert.Empty(surface.InspectionFailures);
     }
 
     [Fact]
@@ -187,6 +324,24 @@ public class AssemblySetResolutionSessionTests
         {
             File.Delete(path);
         }
+    }
+
+    static byte[] OverflowMetadataStreamCount(byte[] image)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
     }
 
     static byte[] BuildDependency()

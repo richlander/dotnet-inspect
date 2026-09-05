@@ -81,7 +81,8 @@ public sealed class PackageRootBinding
     public static PackageRootBinding CreateFromSource(
         AcquiredPackageSourcePayload payload,
         string? selectionTargetFramework = null,
-        string? runtimeIdentifier = null)
+        string? runtimeIdentifier = null,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         if (runtimeIdentifier is not null
@@ -105,6 +106,7 @@ public sealed class PackageRootBinding
         return Create(
             payload,
             payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
@@ -118,12 +120,14 @@ public sealed class PackageRootBinding
     /// </summary>
     public static PackageRootBinding CreateFromResolved(
         AcquiredPackagePayload payload,
-        string? selectionTargetFramework = null)
+        string? selectionTargetFramework = null,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         return Create(
             payload,
             payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
@@ -134,7 +138,8 @@ public sealed class PackageRootBinding
 
     static PackageRootBinding Create(
         object acquiredPayload,
-        string packageId,
+        string coordinatePackageId,
+        string displayPackageId,
         string packageVersion,
         IPackageContent content,
         string producerKey,
@@ -142,6 +147,14 @@ public sealed class PackageRootBinding
         string? targetFramework,
         string? runtimeIdentifier)
     {
+        if (!displayPackageId.Equals(
+                coordinatePackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "A package Root display id must identify the acquired package.",
+                nameof(displayPackageId));
+        }
         if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
         {
             throw new ArgumentException(
@@ -151,7 +164,7 @@ public sealed class PackageRootBinding
 
         var root = new PackageRootRealization(
             content,
-            packageId,
+            displayPackageId,
             packageVersion,
             targetFramework,
             runtimeIdentifier);
@@ -163,7 +176,7 @@ public sealed class PackageRootBinding
         string? effectiveRuntimeIdentifier =
             runtimeIdentifier;
         if (!RealizedMemberCoordinate.Package.TryCreate(
-                packageId,
+                coordinatePackageId,
                 packageVersion,
                 producerKey,
                 effectiveFramework,
@@ -272,9 +285,13 @@ public sealed record PackageAssemblyContextRealizationOptions
     public int MaxAssembliesPerRole { get; init; } = int.MaxValue;
 
     /// <summary>
-    /// The retained-image budget across both roles. Distinct surface and
-    /// implementation groups receive half each.
+    /// The retained-byte budget for one package realization.
     /// </summary>
+    /// <remarks>
+    /// Artifact-backed realization divides this budget between the artifact
+    /// generation and the resulting role groups. Distinct surface and
+    /// implementation groups divide the role-group share again.
+    /// </remarks>
     public long MaxAggregateRetainedImageBytes { get; init; } =
         AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
 
@@ -307,8 +324,19 @@ public sealed class PackageAssemblyRoleParticipant
         PackageRootRealization package,
         PackageCompileAsset asset,
         AssemblyContextParticipant participant)
+        : this(package.Identity, asset, participant)
     {
-        Package = package.Identity;
+    }
+
+    internal PackageAssemblyRoleParticipant(
+        PackageRootIdentity package,
+        PackageCompileAsset asset,
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(asset);
+        ArgumentNullException.ThrowIfNull(participant);
+        Package = package;
         Asset = asset;
         Participant = participant;
     }
@@ -318,6 +346,19 @@ public sealed class PackageAssemblyRoleParticipant
     public PackageCompileAsset Asset { get; }
 
     public AssemblyContextParticipant Participant { get; }
+}
+
+/// <summary>
+/// Reports that selected package surface and implementation assets cannot form
+/// an exact assembly-role correspondence.
+/// </summary>
+public sealed class PackageAssemblyRoleCorrespondenceException :
+    InvalidOperationException
+{
+    internal PackageAssemblyRoleCorrespondenceException(string message)
+        : base(message)
+    {
+    }
 }
 
 /// <summary>
@@ -392,6 +433,45 @@ public sealed partial class InspectionWorkspace
         PackageAssemblyContextRealizationOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        PackageRoleRealizationPreparation preparation =
+            PreparePackageRoleRealization(
+                packages,
+                options,
+                cancellationToken);
+        if (preparation.SurfaceAssets.IsEmpty)
+        {
+            return new PackageAssemblyContextRealization(
+                roles: null,
+                [],
+                []);
+        }
+
+        ImmutableArray<RoleAssembly> surfaceRole =
+            CreateRole(
+                preparation.SurfaceAssets,
+                preparation.GroupBudget,
+                preparation.Options,
+                cancellationToken);
+        ImmutableArray<RoleAssembly> implementationRole = preparation.Shared
+            ? surfaceRole
+            : CreateRole(
+                preparation.ImplementationAssets,
+                preparation.GroupBudget,
+                preparation.Options,
+                cancellationToken);
+        return CreatePackageAssemblyContextRealization(
+            preparation,
+            surfaceRole,
+            implementationRole,
+            cancellationToken);
+    }
+
+    internal static PackageRoleRealizationPreparation
+        PreparePackageRoleRealization(
+        IEnumerable<PackageRootRealization> packages,
+        PackageAssemblyContextRealizationOptions? options,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(packages);
         options ??= new PackageAssemblyContextRealizationOptions();
         options.Validate();
@@ -410,28 +490,30 @@ public sealed partial class InspectionWorkspace
                 "Package realization cannot contain a null package.",
                 nameof(packages));
         }
-        ImmutableArray<PackageRootRealization> selectedPackages =
-            [.. packageRoots.Where(package => package.AssetSelection.IsSelected)];
-
-        if (selectedPackages.IsEmpty)
-        {
-            return new PackageAssemblyContextRealization(
-                roles: null,
-                [],
-                []);
-        }
 
         ImmutableArray<RoleAsset> surfaceAssets =
         [
-            .. selectedPackages.SelectMany(package =>
-                package.AssetSelection.Assets.Select(asset =>
-                    new RoleAsset(package, asset))),
+            .. packageRoots.SelectMany(
+                (package, packageIndex) =>
+                    package.AssetSelection.IsSelected
+                        ? package.AssetSelection.Assets.Select(asset =>
+                            new RoleAsset(
+                                packageIndex,
+                                package,
+                                asset))
+                        : []),
         ];
         ImmutableArray<RoleAsset> implementationAssets =
         [
-            .. selectedPackages.SelectMany(package =>
-                package.AssetSelection.ImplementationAssets.Select(asset =>
-                    new RoleAsset(package, asset))),
+            .. packageRoots.SelectMany(
+                (package, packageIndex) =>
+                    package.AssetSelection.IsSelected
+                        ? package.AssetSelection.ImplementationAssets.Select(
+                            asset => new RoleAsset(
+                                packageIndex,
+                                package,
+                                asset))
+                        : []),
         ];
         ValidateAssetCount(surfaceAssets.Length, options);
         ValidateAssetCount(implementationAssets.Length, options);
@@ -446,21 +528,26 @@ public sealed partial class InspectionWorkspace
         if (hasSeparateImplementation)
             ValidateAssets(implementationAssets, groupBudget, options);
 
-        ImmutableArray<RoleAssembly> surfaceRole =
-            CreateRole(surfaceAssets, groupBudget, options, cancellationToken);
-        ImmutableArray<RoleAssembly> implementationRole = shared
-            ? surfaceRole
-            : CreateRole(
-                implementationAssets,
-                groupBudget,
-                options,
-                cancellationToken);
+        return new PackageRoleRealizationPreparation(
+            surfaceAssets,
+            implementationAssets,
+            shared,
+            groupBudget,
+            options);
+    }
+
+    PackageAssemblyContextRealization CreatePackageAssemblyContextRealization(
+        PackageRoleRealizationPreparation preparation,
+        ImmutableArray<RoleAssembly> surfaceRole,
+        ImmutableArray<RoleAssembly> implementationRole,
+        CancellationToken cancellationToken)
+    {
         ImmutableArray<PackageAssemblyRoleCorrespondence> correspondences =
             Correspondences(surfaceRole, implementationRole);
         cancellationToken.ThrowIfCancellationRequested();
         var roleOptions = new AssemblyContextGroupOptions
         {
-            MaxRetainedImageBytes = groupBudget,
+            MaxRetainedImageBytes = preparation.GroupBudget,
         };
 
         PackageAssemblyContextRoles roles = CreatePackageAssemblyContextRoles(
@@ -469,7 +556,7 @@ public sealed partial class InspectionWorkspace
                 ? null
                 : implementationRole.Select(entry => entry.Assembly),
             correspondences,
-            shareImplementationGroup: shared,
+            shareImplementationGroup: preparation.Shared,
             surfaceOptions: roleOptions,
             implementationOptions: roleOptions);
         try
@@ -510,40 +597,60 @@ public sealed partial class InspectionWorkspace
             options.MaxAssemblyEntryBytes);
         for (int index = 0; index < assets.Length; index++)
         {
-            RoleAsset asset = assets[index];
             cancellationToken.ThrowIfCancellationRequested();
-            AssemblyResolutionProvenance provenance =
-                AssemblyResolutionProvenance.Package(
-                    asset.Package.PackageId,
-                    asset.Package.PackageVersion,
-                    asset.Asset.TargetFramework,
-                    rid: null);
-            string fallbackName = "RejectedPackageAsset"
-                + index.ToString(CultureInfo.InvariantCulture);
-            var fallbackIdentity = new AssemblyReferenceIdentity(
-                fallbackName,
-                Version: null,
-                Culture: null,
-                PublicKeyToken: null);
-            Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
-            ResolvedAssemblyReference assembly =
-                ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
-                    openRead,
-                    fallbackIdentity,
-                    provenance,
-                    out bool usedFallbackIdentity);
-            assemblies.Add(new RoleAssembly(
-                asset.Package,
-                asset.Asset,
-                assembly,
-                IdentityDecoded: !usedFallbackIdentity));
+            assemblies.Add(
+                CreateRoleAssembly(
+                    assets[index],
+                    entryLimit,
+                    index));
         }
 
         return assemblies.MoveToImmutable();
     }
 
-    static Stream OpenEntry(RoleAsset asset, long maxExpandedBytes)
+    static RoleAssembly CreateRoleAssembly(
+        RoleAsset asset,
+        long entryLimit,
+        int roleIndex)
     {
+        Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
+                openRead,
+                RejectionCarrierIdentity(roleIndex),
+                PackageProvenance(asset),
+                out bool usedFallbackIdentity);
+        return new RoleAssembly(
+            asset.PackageIndex,
+            asset.Package,
+            asset.Asset,
+            assembly,
+            IdentityDecoded: !usedFallbackIdentity);
+    }
+
+    static AssemblyResolutionProvenance PackageProvenance(
+        RoleAsset asset) =>
+        AssemblyResolutionProvenance.Package(
+            asset.Package.PackageId,
+            asset.Package.PackageVersion,
+            asset.Asset.TargetFramework,
+            rid: null);
+
+    static AssemblyReferenceIdentity RejectionCarrierIdentity(
+        int roleIndex) =>
+        new(
+            "RejectedPackageAsset"
+                + roleIndex.ToString(CultureInfo.InvariantCulture),
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+
+    static Stream OpenEntry(
+        RoleAsset asset,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!asset.Package.Content.TryOpenEntry(
                 asset.Asset.Path,
                 maxExpandedBytes,
@@ -556,6 +663,7 @@ public sealed partial class InspectionWorkspace
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return new BoundedPackageEntryStream(
                 stream,
                 maxExpandedBytes);
@@ -636,13 +744,10 @@ public sealed partial class InspectionWorkspace
         var implementationsByAsset = new Dictionary<RoleAsset, RoleAssembly>(
             implementations.Length,
             RoleAssetIdentityComparer.Instance);
-        var implementationsByName =
-            new Dictionary<ImplementationNameKey, RoleAsset>(
-                implementations.Length,
-                ImplementationNameKeyComparer.Instance);
         foreach (RoleAssembly implementation in implementations)
         {
             var roleAsset = new RoleAsset(
+                implementation.PackageIndex,
                 implementation.Package,
                 implementation.Asset);
             if (!implementationsByAsset.TryAdd(roleAsset, implementation))
@@ -650,32 +755,23 @@ public sealed partial class InspectionWorkspace
                 throw new InvalidOperationException(
                     "Package asset selection produced duplicate implementation role assets.");
             }
-            implementationsByName.TryAdd(
-                new ImplementationNameKey(
-                    implementation.Package,
-                    implementation.Asset.AssemblyName),
-                roleAsset);
         }
 
         var pairs =
             ImmutableArray.CreateBuilder<PackageAssemblyRoleCorrespondence>();
         foreach (RoleAssembly surface in surfaces)
         {
-            RoleAsset implementationAsset;
-            if (surface.Asset.Kind == PackageCompileAssetKind.Library)
-            {
-                implementationAsset = new RoleAsset(
-                    surface.Package,
+            PackageCompileAsset? selectedImplementation =
+                surface.Package.AssetSelection.FindImplementationAsset(
                     surface.Asset);
-            }
-            else if (!implementationsByName.TryGetValue(
-                new ImplementationNameKey(
-                    surface.Package,
-                    surface.Asset.AssemblyName),
-                out implementationAsset!))
+            if (selectedImplementation is null)
             {
                 continue;
             }
+            var implementationAsset = new RoleAsset(
+                surface.PackageIndex,
+                surface.Package,
+                selectedImplementation);
 
             if (!implementationsByAsset.TryGetValue(
                 implementationAsset,
@@ -692,7 +788,7 @@ public sealed partial class InspectionWorkspace
                 && !surface.Assembly.Identity.IsEquivalentTo(
                     implementation.Assembly.Identity))
             {
-                throw new InvalidOperationException(
+                throw new PackageAssemblyRoleCorrespondenceException(
                     "The selected reference and implementation assets have "
                     + "different assembly identities.");
             }
@@ -756,13 +852,10 @@ public sealed partial class InspectionWorkspace
         return right.All(remaining.Remove) && remaining.Count == 0;
     }
 
-    sealed record RoleAsset(
+    internal sealed record RoleAsset(
+        int PackageIndex,
         PackageRootRealization Package,
         PackageCompileAsset Asset);
-
-    sealed record ImplementationNameKey(
-        PackageRootRealization Package,
-        string AssemblyName);
 
     sealed class RoleAssetIdentityComparer : IEqualityComparer<RoleAsset>
     {
@@ -783,33 +876,19 @@ public sealed partial class InspectionWorkspace
                 StringComparer.Ordinal.GetHashCode(asset.Asset.Path));
     }
 
-    sealed class ImplementationNameKeyComparer :
-        IEqualityComparer<ImplementationNameKey>
-    {
-        internal static ImplementationNameKeyComparer Instance { get; } = new();
-
-        public bool Equals(
-            ImplementationNameKey? left,
-            ImplementationNameKey? right) =>
-            ReferenceEquals(left, right)
-            || (left is not null
-                && right is not null
-                && ReferenceEquals(left.Package, right.Package)
-                && left.AssemblyName.Equals(
-                    right.AssemblyName,
-                    StringComparison.OrdinalIgnoreCase));
-
-        public int GetHashCode(ImplementationNameKey key) =>
-            HashCode.Combine(
-                RuntimeHelpers.GetHashCode(key.Package),
-                StringComparer.OrdinalIgnoreCase.GetHashCode(key.AssemblyName));
-    }
-
-    sealed record RoleAssembly(
+    internal sealed record RoleAssembly(
+        int PackageIndex,
         PackageRootRealization Package,
         PackageCompileAsset Asset,
         ResolvedAssemblyReference Assembly,
         bool IdentityDecoded);
+
+    internal sealed record PackageRoleRealizationPreparation(
+        ImmutableArray<RoleAsset> SurfaceAssets,
+        ImmutableArray<RoleAsset> ImplementationAssets,
+        bool Shared,
+        long GroupBudget,
+        PackageAssemblyContextRealizationOptions Options);
 
     sealed class BoundedPackageEntryStream : Stream
     {

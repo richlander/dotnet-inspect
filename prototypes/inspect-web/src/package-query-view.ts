@@ -3,12 +3,17 @@ import type {
   QueryFacetTerm,
   QueryResultRow,
 } from "./package-query.ts";
+import { renderBrand } from "./brand.ts";
+import { focusRenderedElement } from "./scope-bar.ts";
+
+const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
 
 export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
+  onResultPressure: () => void;
   onRowOpen: (packageId: string, version: string) => void;
   onRun: (prefix: string) => void;
 }
@@ -19,7 +24,7 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "workspace" }
+  | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -27,18 +32,13 @@ export type PackageQueryFocusSnapshot =
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
 
-interface FocusableQueryElement extends Element {
-  readonly dataset: DOMStringMap;
-  focus(): void;
-}
-
-interface SelectableQueryElement extends FocusableQueryElement {
+interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
 }
 
 function isFocusableQueryElement(
   element: Element | null,
-): element is FocusableQueryElement {
+): element is HTMLElement {
   return element !== null
     && "dataset" in element
     && "focus" in element
@@ -46,7 +46,7 @@ function isFocusableQueryElement(
 }
 
 function supportsSelectionRange(
-  element: FocusableQueryElement,
+  element: HTMLElement,
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
@@ -71,7 +71,7 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  if (active.id === "package-query-workspace") return { kind: "workspace" };
+  if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -103,8 +103,8 @@ export function restorePackageQueryFocus(
     case "prefix":
       target = root.querySelector("#package-query-prefix");
       break;
-    case "workspace":
-      target = root.querySelector("#package-query-workspace");
+    case "product":
+      target = root.querySelector("#package-query-product");
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -134,12 +134,12 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
-  if (!isFocusableQueryElement(target)) {
+  if (!isFocusableQueryElement(target) || !focusRenderedElement(target)) {
     target = root.querySelector("#package-query-prefix");
     usedFallback = true;
   }
   if (!isFocusableQueryElement(target)) return "none";
-  target.focus();
+  if (usedFallback && !focusRenderedElement(target)) return "none";
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
@@ -168,7 +168,6 @@ export function bindPackageQueryView(
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
-
   root.querySelector("#package-query-back")
     ?.addEventListener("click", actions.onBack);
   root.querySelector<HTMLFormElement>("#package-query-form")
@@ -180,16 +179,43 @@ export function bindPackageQueryView(
     const input = event.currentTarget;
     if (input instanceof HTMLInputElement) actions.onPrefixInput(input.value);
   });
-  root.querySelectorAll<HTMLElement>("[data-query-row-open]").forEach(button =>
-    button.addEventListener("click", () => actions.onRowOpen(
-      button.dataset.queryRowOpen ?? "",
-      button.dataset.queryRowVersion ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-facet]").forEach(button =>
     button.addEventListener("click", () => actions.onFacetToggle(
       button.dataset.queryFacet ?? "",
       prefixInput()?.value ?? "")));
+  bindPackageQueryStreamControls(root, actions);
+  const queryMain = root.querySelector<HTMLElement>(".query-main");
+  const reportResultPressure = () => {
+    if (queryMain && packageQueryNeedsMoreMatches(queryMain)) {
+      actions.onResultPressure();
+    }
+  };
+  queryMain?.addEventListener("scroll", reportResultPressure);
+  reportResultPressure();
+  return {
+    disconnect() {
+      queryMain?.removeEventListener("scroll", reportResultPressure);
+    },
+  };
+}
+
+function bindPackageQueryStreamControls(
+  root: ParentNode,
+  actions: PackageQueryBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-query-row-open]").forEach(button =>
+    button.addEventListener("click", () => actions.onRowOpen(
+      button.dataset.queryRowOpen ?? "",
+      button.dataset.queryRowVersion ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-cancel]").forEach(button =>
     button.addEventListener("click", actions.onCancel));
+}
+
+export function packageQueryNeedsMoreMatches(
+  main: Pick<HTMLElement, "clientHeight" | "scrollHeight" | "scrollTop">,
+): boolean {
+  return main.scrollHeight - main.scrollTop - main.clientHeight
+    <= PACKAGE_QUERY_PRESSURE_DISTANCE_PX;
 }
 
 function renderRow(
@@ -206,7 +232,7 @@ function renderRow(
           <h2>${escapeHtml(row.packageId)}</h2>
           <span class="query-row-version">${escapeHtml(row.version)}</span>
         </div>
-        <span class="query-tier query-tier-nuspec">nuspec</span>
+        <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}</span>
       </div>
       <ul class="query-evidence">${evidence}</ul>
       <div class="query-row-meta">
@@ -236,6 +262,36 @@ function renderFacet(
     </button>`;
 }
 
+function renderFacets(
+  facets: readonly QueryFacetTerm[],
+  activeKeys: ReadonlySet<string>,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const renderedGroups = new Set<string>();
+  return facets.map(facet => {
+    if (!facet.displayGroupId) {
+      return renderFacet(facet, activeKeys, escapeHtml);
+    }
+    if (renderedGroups.has(facet.displayGroupId)) return "";
+    renderedGroups.add(facet.displayGroupId);
+    const groupFacets = facets.filter(candidate =>
+      candidate.displayGroupId === facet.displayGroupId);
+    return `
+      <div
+        class="query-facet-group"
+        role="group"
+        aria-label="${escapeHtml(
+          facet.displayGroupLabel ?? facet.label)}">
+        ${groupFacets
+          .map(groupFacet => renderFacet(
+            groupFacet,
+            activeKeys,
+            escapeHtml))
+          .join("")}
+      </div>`;
+  }).join("");
+}
+
 function renderCompletionFooter(
   outcome: PackageQueryState["outcome"],
   escapeHtml: (value: unknown) => string,
@@ -263,6 +319,42 @@ function renderCompletionFooter(
     </div>`;
 }
 
+function renderStreamingCancel(
+  state: PackageQueryState,
+): string {
+  return state.outcome.completion.kind === "streaming" && state.request
+    ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
+    : "";
+}
+
+function renderProgress(
+  outcome: PackageQueryState["outcome"],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (outcome.completion.kind !== "streaming" || outcome.progress.length === 0)
+    return "";
+
+  const checkpoints = outcome.progress.map(progress => {
+    const label = progress.phase === "search"
+      ? "Source search"
+      : progress.phase === "manifest"
+        ? "Manifests"
+        : "Package content";
+    const detail = progress.phase === "search"
+      ? progress.completed === progress.limit ? "ready" : "running"
+      : `${progress.completed.toLocaleString()} of up to ${progress.limit.toLocaleString()}`;
+    return `
+      <div class="query-progress-item">
+        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(detail)}</strong></div>
+        <progress value="${progress.completed}" max="${progress.limit}"></progress>
+      </div>`;
+  }).join("");
+  return `
+    <div class="query-progress" aria-label="Query progress">
+      ${checkpoints}
+    </div>`;
+}
+
 function renderEmptyState(
   state: PackageQueryState,
   escapeHtml: (value: unknown) => string,
@@ -273,7 +365,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">⌕</span>
         <h2>Query nuget.org</h2>
-        <p>Enter a package ID prefix, then narrow the live result stream with nuspec facets. No package archive is downloaded.</p>
+        <p>Enter a package ID prefix, then narrow the live result stream with product facets.</p>
       </section>`;
   }
   if (completion.kind === "cancelled") {
@@ -321,8 +413,61 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceHref?: string;
   escapeHtml: (value: unknown) => string;
+}
+
+function renderFailures(
+  state: PackageQueryState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return state.outcome.failures.length
+    ? `
+      <section class="query-failures">
+        <strong>Some package source work failed</strong>
+        <ul>${state.outcome.failures
+          .map(failure => `<li>${escapeHtml(failure)}</li>`)
+          .join("")}</ul>
+      </section>`
+    : "";
+}
+
+function renderResults(
+  state: PackageQueryState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const rows = state.outcome.rows
+    .map(row => renderRow(row, escapeHtml))
+    .join("");
+  return rows
+    ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
+    : state.outcome.completion.kind === "streaming" && state.request
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${renderCompletionFooter(state.outcome, escapeHtml)}`
+      : renderEmptyState(state, escapeHtml);
+}
+
+export function patchPackageQueryStream(
+  root: ParentNode,
+  options: Pick<RenderPackageQueryOptions, "state" | "escapeHtml">,
+  actions: PackageQueryBindingActions,
+): boolean {
+  const failures = root.querySelector<HTMLElement>(
+    "#package-query-failure-region");
+  const cancel = root.querySelector<HTMLElement>(
+    "#package-query-cancel-region");
+  const results = root.querySelector<HTMLElement>(
+    "#package-query-results");
+  if (!failures || !cancel || !results) return false;
+
+  failures.innerHTML = renderFailures(options.state, options.escapeHtml);
+  cancel.innerHTML = renderStreamingCancel(options.state);
+  results.innerHTML = renderResults(options.state, options.escapeHtml);
+  bindPackageQueryStreamControls(root, actions);
+
+  const queryMain = root.querySelector<HTMLElement>(".query-main");
+  if (queryMain && packageQueryNeedsMoreMatches(queryMain)) {
+    actions.onResultPressure();
+  }
+  return true;
 }
 
 export function renderPackageQueryView(
@@ -333,62 +478,45 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceHref = "/",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
-  const facets = availableFacets
-    .map(facet => renderFacet(facet, activeKeys, escapeHtml))
-    .join("");
-  const failures = state.outcome.failures.length
-    ? `
-      <section class="query-failures">
-        <strong>Some package source work failed</strong>
-        <ul>${state.outcome.failures
-          .map(failure => `<li>${escapeHtml(failure)}</li>`)
-          .join("")}</ul>
-      </section>`
-    : "";
-  const rows = state.outcome.rows
-    .map(row => renderRow(row, escapeHtml))
-    .join("");
-  const results = rows
-    ? `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
-    : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as their manifests are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
-      : renderEmptyState(state, escapeHtml);
+  const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
+  const failures = renderFailures(state, escapeHtml);
+  const results = renderResults(state, escapeHtml);
 
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        <a id="package-query-workspace" class="brand" href="${escapeHtml(workspaceHref)}" aria-label="dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <button id="package-query-back" type="button">Back</button>
+        ${renderBrand({ id: "package-query-product" })}
+        <div class="query-page-navigation">
+          <button id="package-query-back" type="button">Back</button>
+        </div>
       </header>
       <main class="query-main">
         <div class="query-heading">
-          <p class="query-kicker">nuspec-only · nuget.org</p>
+          <p class="query-kicker">manifest + bounded package content · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
-          <p>Find packages by product-owned manifest and source facets without downloading package archives.</p>
+          <p>Find packages by product-owned source, manifest, and package-content facets.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
-          <label for="package-query-prefix">Package ID prefix</label>
-          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Microsoft.Extensions." required maxlength="100" />
+          <label for="package-query-prefix">Package ID prefix (<code>*</code> optional)</label>
+          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="System.*" required maxlength="100" />
           <button id="package-query-run" type="submit">Run query</button>
-          ${state.outcome.completion.kind === "streaming" && state.request
-            ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
-            : ""}
+          <span id="package-query-cancel-region">${renderStreamingCancel(state)}</span>
         </form>
         ${navigationError
           ? `<div class="query-navigation-error">${escapeHtml(navigationError)}</div>`
           : ""}
-        ${failures}
+        <div id="package-query-failure-region">${failures}</div>
         <div class="query-layout">
           <aside class="query-facet-rail" aria-label="Package query facets">
             <h2>Facets</h2>
             <p>Every change starts a fresh request.</p>
             <div class="query-facets">${facets}</div>
+            <p class="query-facet-disclosure">Content facets download up to 20 candidate package archives.</p>
           </aside>
-          <section class="query-results" aria-label="Package query results">
+          <section id="package-query-results" class="query-results" aria-label="Package query results">
             ${results}
           </section>
         </div>

@@ -5,6 +5,8 @@ import {
   bindPackageQueryView,
   capturePackageQueryFocus,
   capturePackageQueryScroll,
+  packageQueryNeedsMoreMatches,
+  patchPackageQueryStream,
   renderPackageQueryView,
   restorePackageQueryFocus,
   restorePackageQueryScroll,
@@ -12,6 +14,7 @@ import {
 } from "../src/package-query-view.ts";
 import {
   appendFailure,
+  appendProgress,
   appendRows,
   createQueryRequest,
   emptyOutcome,
@@ -32,7 +35,43 @@ const escapeHtml = (value: unknown) => String(value)
 
 const NUSPEC_FACET: QueryFacetTerm = { key: "tfm-out-of-support", label: "out-of-support only", tier: "nuspec" };
 const DOWNLOAD_FACET: QueryFacetTerm = { key: "downloads-1m", label: "1M+ downloads", tier: "nuspec" };
-const FACETS: readonly QueryFacetTerm[] = [NUSPEC_FACET, DOWNLOAD_FACET];
+const TOOL_FACETS: readonly QueryFacetTerm[] = [
+  {
+    key: "package.query.dotnet-tool",
+    label: ".NET Tool",
+    tier: "nuspec",
+    selectionGroupId: "package.query.dotnet-tool-format",
+    displayGroupId: "package.query.display.dotnet-tool",
+    displayGroupLabel: ".NET tool format",
+  },
+  {
+    key: "package.query.dotnet-tool-v1",
+    label: "v1",
+    tier: "package-content",
+    selectionGroupId: "package.query.dotnet-tool-format",
+    displayGroupId: "package.query.display.dotnet-tool",
+    displayGroupLabel: ".NET tool format",
+  },
+  {
+    key: "package.query.dotnet-tool-v2",
+    label: "v2",
+    tier: "package-content",
+    selectionGroupId: "package.query.dotnet-tool-format",
+    displayGroupId: "package.query.display.dotnet-tool",
+    displayGroupLabel: ".NET tool format",
+  },
+];
+const SKILL_FACET: QueryFacetTerm = {
+  key: "package.query.embedded-skill",
+  label: "embedded SKILL.md",
+  tier: "package-content",
+};
+const FACETS: readonly QueryFacetTerm[] = [
+  NUSPEC_FACET,
+  ...TOOL_FACETS,
+  DOWNLOAD_FACET,
+  SKILL_FACET,
+];
 
 function row(packageId: string): QueryResultRow {
   return {
@@ -54,17 +93,18 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
-test("the persistent brand opens the resident workspace", () => {
+test("the query header keeps home and Back without Query or Workspace buttons", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
     availableFacets: FACETS,
-    workspaceHref: "/?package=Example&version=1.0.0",
     escapeHtml,
   });
 
+  assert.doesNotMatch(html, /application-scope/);
+  assert.match(html, /id="package-query-back" type="button">Back<\/button>/);
   assert.match(
     html,
-    /id="package-query-workspace" class="brand" href="\/\?package=Example&amp;version=1\.0\.0" aria-label="dotnet inspect workspace"/);
+    /id="package-query-product" class="brand" href="\/" aria-label="dotnet inspect home"/);
 });
 
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
@@ -95,8 +135,47 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /1M\+ downloads/);
   assert.match(html, /streaming…/);
   assert.match(html, /data-query-cancel="1"/);
+  assert.match(html, />Open in workspace<\/button>/);
+  assert.doesNotMatch(html, /application-scope/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
   assert.doesNotMatch(html, /class="query-footer" role="status"/);
+});
+
+test("streaming progress renders with and without matching rows", () => {
+  const progress = appendProgress(
+    appendProgress(emptyOutcome(), {
+      phase: "search",
+      completed: 1,
+      limit: 1,
+    }),
+    {
+      phase: "manifest",
+      completed: 14,
+      limit: 20,
+    });
+  const withoutRows = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("System.*"),
+      outcome: progress,
+    },
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+  const withRows = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("System.*"),
+      outcome: appendRows(progress, [row("System.Text.Json")]),
+    },
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(withoutRows, /Source search/);
+  assert.match(withoutRows, /Manifests/);
+  assert.match(withoutRows, /14 of up to 20/);
+  assert.match(withoutRows, /<progress value="14" max="20">/);
+  assert.match(withRows, /System\.Text\.Json/);
+  assert.match(withRows, /14 of up to 20/);
 });
 
 test("result rows render typed producer identity instead of a source literal", () => {
@@ -131,6 +210,50 @@ test("facet buttons expose pressed state without shipping promoted placeholders"
     html,
     /data-query-facet="downloads-1m"[\s\S]*aria-pressed="false"/);
   assert.doesNotMatch(html, /promoted|Deepen/);
+});
+
+test("tool format facets render as one independently selectable segmented control", () => {
+  const state: PackageQueryState = {
+    request: withFacet(
+      createQueryRequest("Microsoft."),
+      TOOL_FACETS[2]!),
+    outcome: appendRows(emptyOutcome(), [row("A")]),
+  };
+
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /class="query-facet-group"[\s\S]*role="group"[\s\S]*aria-label="\.NET tool format"/);
+  assert.match(
+    html,
+    /data-query-facet="package\.query\.dotnet-tool"[\s\S]*>\s*\.NET Tool\s*<\/button>[\s\S]*data-query-facet="package\.query\.dotnet-tool-v1"[\s\S]*>\s*v1\s*<\/button>[\s\S]*data-query-facet="package\.query\.dotnet-tool-v2"[\s\S]*aria-pressed="true"[\s\S]*>\s*v2\s*<\/button>/);
+  assert.match(html, />\s*embedded SKILL\.md\s*<\/button>/);
+  assert.match(
+    html,
+    /Content facets download up to 20 candidate package archives/);
+});
+
+test("package-content results disclose their evidence tier", () => {
+  const state: PackageQueryState = {
+    request: withFacet(createQueryRequest("Contoso."), SKILL_FACET),
+    outcome: appendRows(emptyOutcome(), [{
+      ...row("Contoso.Skill"),
+      tier: "package-content",
+    }]),
+  };
+
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(html, /query-tier-package-content">package-content</);
 });
 
 test("a facet catalog failure remains visible beside an empty facet rail", () => {
@@ -331,7 +454,12 @@ class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly id: string;
   focusCount = 0;
+  hidden = false;
+  rendered = true;
   scrollTop = 0;
+  scrollHeight = 0;
+  clientHeight = 0;
+  innerHTML = "";
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
   selectionRange: readonly [number, number] | null = null;
@@ -351,12 +479,23 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
+  removeEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter(candidate => candidate !== listener));
+  }
+
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) listener(fakeDom.event());
   }
 
   focus() {
     this.focusCount++;
+  }
+
+  checkVisibility() {
+    return this.rendered;
   }
 
   setSelectionRange(start: number, end: number) {
@@ -405,9 +544,9 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({}, "package-query-workspace"),
-      selector: "#package-query-workspace",
-      replacement: new FakeElement({}, "package-query-workspace"),
+      active: new FakeElement({}, "package-query-product"),
+      selector: "#package-query-product",
+      replacement: new FakeElement({}, "package-query-product"),
     },
     {
       active: new FakeElement({}, "package-query-back"),
@@ -503,6 +642,26 @@ test("a vanished query control reports prefix fallback", () => {
   }
 });
 
+test("a CSS-hidden query control reports prefix fallback", () => {
+  const active = new FakeElement({}, "package-query-back");
+  const replacement = new FakeElement({}, "package-query-back");
+  replacement.rendered = false;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const root = new FakeRoot(active);
+  root.add("#package-query-back", replacement);
+  root.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "fallback");
+  assert.equal(replacement.focusCount, 0);
+  assert.equal(prefix.focusCount, 1);
+});
+
 test("an unfocused query render does not move focus into the prefix", () => {
   const body = new FakeElement();
   const prefix = new FakeElement({}, "package-query-prefix");
@@ -551,6 +710,7 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     onCancel: () => calls.push("cancel"),
     onFacetToggle: key => calls.push(`facet:${key}`),
     onPrefixInput: () => {},
+    onResultPressure: () => calls.push("pressure"),
     onRowOpen: (id, version) => calls.push(`open:${id}:${version}`),
     onRun: () => {},
   };
@@ -568,4 +728,82 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     "facet:tfm-out-of-support",
     "cancel",
   ]);
+});
+
+test("query result pressure starts within 600 pixels of the current end", () => {
+  assert.equal(packageQueryNeedsMoreMatches({
+    scrollTop: 200,
+    clientHeight: 800,
+    scrollHeight: 1601,
+  }), false);
+  assert.equal(packageQueryNeedsMoreMatches({
+    scrollTop: 201,
+    clientHeight: 800,
+    scrollHeight: 1601,
+  }), true);
+});
+
+test("bindPackageQueryView reports near-end scroll pressure and disconnects it", () => {
+  const root = new FakeRoot();
+  const main = new FakeElement();
+  main.clientHeight = 800;
+  main.scrollHeight = 1800;
+  root.add(".query-main", main);
+  let pressure = 0;
+  const binding = bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => { pressure++; },
+    onRowOpen: () => {},
+    onRun: () => {},
+  });
+
+  main.scrollTop = 401;
+  main.dispatch("scroll");
+  assert.equal(pressure, 1);
+
+  binding.disconnect();
+  main.dispatch("scroll");
+  assert.equal(pressure, 1);
+});
+
+test("patchPackageQueryStream updates only dynamic query regions", () => {
+  const root = new FakeRoot();
+  const failures = new FakeElement();
+  const cancel = new FakeElement();
+  const results = new FakeElement();
+  const main = new FakeElement();
+  main.clientHeight = 800;
+  main.scrollHeight = 1600;
+  main.scrollTop = 800;
+  root.add("#package-query-failure-region", failures);
+  root.add("#package-query-cancel-region", cancel);
+  root.add("#package-query-results", results);
+  root.add(".query-main", main);
+  const state: PackageQueryState = {
+    request: createQueryRequest("Contoso."),
+    outcome: appendRows(emptyOutcome(), [row("Contoso.One")]),
+  };
+  let pressure = 0;
+
+  const patched = patchPackageQueryStream(
+    fakeDom.parentNode(root),
+    { state, escapeHtml },
+    {
+      onBack: () => {},
+      onCancel: () => {},
+      onFacetToggle: () => {},
+      onPrefixInput: () => {},
+      onResultPressure: () => { pressure++; },
+      onRowOpen: () => {},
+      onRun: () => {},
+    });
+
+  assert.equal(patched, true);
+  assert.match(results.innerHTML, /Contoso\.One/);
+  assert.match(cancel.innerHTML, /data-query-cancel="1"/);
+  assert.equal(failures.innerHTML, "");
+  assert.equal(pressure, 1);
 });

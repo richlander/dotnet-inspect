@@ -3,16 +3,20 @@ import type {
   BrowserHomeDemoMember,
   BrowserHomeDemoResolved,
   BrowserWorkspaceShareTab,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-catalog.d.ts";
 import {
   encodeWorkspaceShareState,
   type WorkspaceShareEncoder,
   type WorkspaceUrlState,
 } from "./workspace-navigation.ts";
+import {
+  isRoutedEntryPath,
+  ROUTED_ENTRY_PATHS,
+} from "./entry-routes.ts";
 
 /**
  * Browser host adapters over product home demos exported by the Wasm engine
- * (`ListHomeDemos` / `ResolveHomeDemo` → `ProductInspectionDemos`).
+ * (`ListHomeDemos` / `ResolveHomeDemo` -> `EcosystemPackCatalog`).
  *
  * Catalog ids/titles/summaries and resolved coordinates come from C#. This
  * module owns only the Browser projection into the long-form share transport.
@@ -49,10 +53,19 @@ function getProductHomeDemoCatalog(): readonly ProductHomeDemoCatalogEntry[] {
   return catalogEntries;
 }
 
+export function productHomeDemoCatalog():
+  readonly ProductHomeDemoCatalogEntry[] {
+  return getProductHomeDemoCatalog();
+}
+
 export function isProductHomeDemoId(
   value: string | undefined | null,
 ): value is ProductHomeDemoId {
   return typeof value === "string" && catalogIdSet.has(value);
+}
+
+export function isProductHomeDemosPath(pathname: string): boolean {
+  return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.demos);
 }
 
 function locationHref(
@@ -62,7 +75,7 @@ function locationHref(
   const params = new URLSearchParams();
   params.set("package", state.package);
   params.set("w", encodeWorkspaceShareState(state, encode));
-  return `?${params.toString()}`;
+  return `/?${params.toString()}`;
 }
 
 const BROWSER_RUNTIME_PACKAGE = "Microsoft.NETCore.App";
@@ -147,6 +160,7 @@ export function productHomeDemoLocationHref(
     package: focusTab.kind === "group"
       ? BROWSER_RUNTIME_PACKAGE
       : focusTab.source,
+    subject: null,
     tabs,
     contexts: [{
       id: "g0",
@@ -165,22 +179,19 @@ export function productHomeDemoLocationHref(
   }, encode);
 }
 
-/**
- * Pending home-row paint while the Wasm engine catalog is not yet installed.
- * Layout-only placeholders — titles come from `ListHomeDemos` after bootstrap.
- */
-export const HOME_DEMO_PENDING_SLOT_COUNT = 8;
-
-export function homeDemoRowHtml(
+export function homeDemosEntryHtml(
   enginePending: boolean,
+  catalogError: string,
   escapeHtml: (value: string) => string,
 ): string {
   const catalog = getProductHomeDemoCatalog();
-  if (catalog.length > 0) {
-    return catalog.map(entry =>
-      `<button class="home-demo" data-home-demo="${escapeHtml(entry.id)}" ${enginePending ? "disabled" : ""}><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.summary)}</small></button>`).join("");
-  }
-  if (!enginePending) return "";
-  return Array.from({ length: HOME_DEMO_PENDING_SLOT_COUNT }, () =>
-    `<button class="home-demo home-demo-pending" type="button" disabled aria-hidden="true"><strong>&nbsp;</strong><small>&nbsp;</small></button>`).join("");
+  const disabled = enginePending || Boolean(catalogError) || catalog.length === 0;
+  const count = enginePending
+    ? "Loading catalog"
+    : catalogError
+      ? "Catalog unavailable"
+      : catalog.length === 0
+        ? "No demos available"
+        : `${catalog.length} available`;
+  return `<button id="home-demos" class="home-demo" type="button" ${disabled ? "disabled" : ""}><strong>Demos</strong><small>${escapeHtml(count)}</small></button>`;
 }
