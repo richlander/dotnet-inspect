@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
   </ItemGroup>
 
 </Project>

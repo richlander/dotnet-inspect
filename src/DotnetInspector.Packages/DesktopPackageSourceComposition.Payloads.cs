@@ -58,40 +58,67 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext operation = operationContext ?? ownedOperation!;
         _ = operation.ResolveInvocationToken(cancellationToken);
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(packageId, normalizedVersion);
-        return await AcquireCoordinateAsync(
-            packageId, coordinate, createStore, sourceOptions, log, operation,
-            limits, transferPolicy, failures).ConfigureAwait(false);
+        PackageAcquisitionCandidateResult resolution =
+            ResolvePinnedCandidate(
+                coordinate,
+                sourceOptions,
+                cancellationToken,
+                operation);
+        failures.AddRange(resolution.Failures);
+        if (resolution.Candidate is not { } candidate)
+            return new(null, null, failures);
+
+        return await AcquireCandidateAsync(
+            candidate,
+            createStore,
+            log,
+            operation,
+            limits,
+            transferPolicy,
+            failures).ConfigureAwait(false);
     }
 
-    private async Task<ConfiguredPackagePayloadResult> AcquireCoordinateAsync(
-        string packageId,
-        PackageSourceCoordinate coordinate,
+    private async Task<ConfiguredPackagePayloadResult> AcquireCandidateAsync(
+        PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
-        NuGetSourceOptions? sourceOptions,
         Action<string>? log,
         NuGetOperationContext operation,
         PackagePayloadLimits? limits,
         IPackagePayloadTransferPolicy? transferPolicy,
-        List<PackageAuthorityFailure> failures,
-        HashSet<ConfiguredPackageAuthority>? reportingAuthorities = null)
+        List<PackageAuthorityFailure> failures)
     {
+        if (!candidate.HasIssuer(_candidateIssuer))
+        {
+            throw new InvalidOperationException(
+                "The package acquisition candidate belongs to another source composition.");
+        }
+
         try
         {
             operation.ThrowIfExpired();
-            IReadOnlyList<PackageSource> sources = ResolveEligibleSources(
-                packageId, sourceOptions, failures);
             List<(AuthorityEntry Entry, IPackageStore Store)> entries = [];
-            foreach (PackageSource source in sources
-                         .OrderBy(source => LocalPackageSourceIdentity.IsLocalSource(source.Url) ? 0 : 1)
-                         .ThenBy(source => source.Url, StringComparer.Ordinal))
+            foreach (PackageAcquisitionAuthorityEvidence evidence in
+                candidate.Authorities
+                    .OrderBy(evidence =>
+                        evidence.Authority.Kind
+                            == ConfiguredPackageAuthorityKind.LocalFolder
+                            ? 0
+                            : 1)
+                    .ThenBy(
+                        evidence => evidence.Authority.Source.Url,
+                        StringComparer.Ordinal))
             {
                 operation.ThrowIfExpired();
-                if (TryGetEligibleAuthority(source, failures) is not { } entry)
-                    continue;
+                ConfiguredPackageAuthority authority = evidence.Authority;
+                if (!_authoritiesByAssociation.TryGetValue(
+                        authority.Association,
+                        out AuthorityEntry? entry)
+                    || !ReferenceEquals(entry.Authority, authority))
+                {
+                    throw new InvalidOperationException(
+                        "The package acquisition candidate names an unknown or retired configured authority.");
+                }
                 RequireAuthority(entry.Client.Source, entry);
-                if (reportingAuthorities is not null
-                    && !reportingAuthorities.Contains(entry.Authority))
-                    continue;
                 IPackageStore store = createStore(entry.Authority, entry.Client.Source.Producer);
                 entries.Add((entry, store));
             }
@@ -103,7 +130,9 @@ public sealed partial class DesktopPackageSourceComposition
                 operation.ThrowIfExpired();
                 AcquiredPackageSourcePayload? cached =
                     await PackagePayloadAcquisition.TryGetCachedAsync(
-                        coordinate, entry.Client.Source.Producer.Key, store,
+                        candidate.Coordinate,
+                        entry.Client.Source.Producer.Key,
+                        store,
                         limits, log, operation.OperationToken).ConfigureAwait(false);
                 operation.ThrowIfExpired();
                 if (cached is not null)
@@ -114,13 +143,16 @@ public sealed partial class DesktopPackageSourceComposition
             {
                 operation.ThrowIfExpired();
                 log?.Invoke(
-                    $"Acquiring {coordinate.PackageId} {coordinate.Version} from "
+                    $"Acquiring {candidate.Coordinate.PackageId} {candidate.Coordinate.Version} from "
                     + $"{PackageSourceDisplay.ForDiagnostics(entry.Source)}.");
                 try
                 {
                     PackageSourcePayloadResult result =
                         await PackagePayloadAcquisition.AcquireAuthorizedAsync(
-                            entry.Client, coordinate, store, operation,
+                            entry.Client,
+                            candidate.Coordinate,
+                            store,
+                            operation,
                             log, limits, transferPolicy).ConfigureAwait(false);
                     operation.ThrowIfExpired();
                     RequireAuthority(entry.Client.Source, entry);

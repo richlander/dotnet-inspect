@@ -923,15 +923,9 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
-                    resolution.Authority is null ? resolution.ProducerKey : null,
-                    target.IsLocalFile
-                        ? PackageIntegrationAcquisition.Local(
-                            nuspec?.PackageName,
-                            nuspec?.Version)
-                        : PackageIntegrationAcquisition.Remote(
-                            resolution,
-                            packageName,
-                            version),
+                    resolution,
+                    nuspec?.PackageName,
+                    nuspec?.Version,
                     options);
             }
 
@@ -4662,8 +4656,9 @@ public class PackageCommand
         string packageArg,
         string packageName,
         string version,
-        string? selectedProducerKey,
-        PackageIntegrationAcquisition acquisition,
+        PackageExtractionResult extraction,
+        string? nuspecPackageId,
+        string? nuspecVersion,
         InspectionOptions options)
     {
         PackageLibrarySelectionResult? selectionResult =
@@ -4803,25 +4798,38 @@ public class PackageCommand
         PackageIntegrationsWorkspace? createdIntegrationsWorkspace = null;
         if (requiresGroupedIntegrations)
         {
-            if (ShouldUseArtifactBackedPackageIntegrations(
-                    isLocalFile,
-                    selectionResult.TargetFramework,
-                    selectedProducerKey,
-                    selected.Select(selection =>
-                        Path.GetRelativePath(
-                                extractPath,
-                                selection.Path)
-                            .Replace('\\', '/'))))
+            PackageInspectionInput input;
+            PackageRootBinding? packageRoot = null;
+            if (isLocalFile)
             {
-                (
-                    PackageRootBinding? packageRoot,
-                    string? acquisitionFailure) =
+                input = PackageInspectionInput.CreateLocal(
+                    new FileSystemPackageContent(
+                        extractPath,
+                        extraction.NupkgPath,
+                        extraction.FromCache,
+                        extraction.ProducerKey ?? "local-package"),
+                    nuspecPackageId,
+                    nuspecVersion);
+            }
+            else if (extraction.AcquiredPayload is { } acquired)
+            {
+                input = PackageInspectionInput.CreateFromPayload(acquired);
+            }
+            else
+            {
+                if (extraction.Authority is not null)
+                {
+                    CommandError.Write(
+                        "The selected package authority did not retain its acquired payload.");
+                    return 1;
+                }
+                (packageRoot, string? acquisitionFailure) =
                     await AcquirePackageRootBindingAsync(
                         httpClient,
                         packageName,
                         version,
-                        selectionResult.TargetFramework!,
-                        selectedProducerKey!,
+                        selectionResult.TargetFramework,
+                        extraction.ProducerKey,
                         options,
                         logger.Log);
                 if (packageRoot is null)
@@ -4831,7 +4839,18 @@ public class PackageCommand
                         ?? "The package artifact workspace could not be acquired.");
                     return 1;
                 }
+                input = PackageInspectionInput.CreateFromBinding(packageRoot);
+            }
 
+            if (packageRoot is not null
+                && ShouldUsePackageCompileRoles(
+                    isLocalFile,
+                    selectionResult.TargetFramework,
+                    extraction.ProducerKey,
+                    selected.Select(selection =>
+                        Path.GetRelativePath(extractPath, selection.Path)
+                            .Replace('\\', '/'))))
+            {
                 createdIntegrationsWorkspace =
                     await PackageIntegrationsWorkspace
                         .TryCreateArtifactBackedAsync(
@@ -4839,29 +4858,23 @@ public class PackageCommand
                             extractPath,
                             packageRoot,
                             includeIntegrationOpportunities);
-                if (createdIntegrationsWorkspace is null)
-                {
-                    createdIntegrationsWorkspace =
-                        PackageIntegrationsWorkspace.Create(
-                            integrationAssemblies,
-                            acquisition,
-                            includeIntegrationOpportunities:
-                                includeIntegrationOpportunities);
-                }
-                else
+                if (createdIntegrationsWorkspace is not null)
                 {
                     logger.Log(
                         $"Using artifact-backed package Integrations for {selectionResult.TargetFramework}.");
                 }
             }
-            else
+            if (createdIntegrationsWorkspace is null)
             {
                 createdIntegrationsWorkspace =
-                    PackageIntegrationsWorkspace.Create(
+                    await PackageIntegrationsWorkspace.CreateSelectedAsync(
                         integrationAssemblies,
-                        acquisition,
+                        extractPath,
+                        input,
                         includeIntegrationOpportunities:
                             includeIntegrationOpportunities);
+                if (createdIntegrationsWorkspace.ContextGroupCount > 0)
+                    logger.Log("Using artifact-backed selected-entry package Integrations.");
             }
         }
 
@@ -5079,6 +5092,10 @@ public class PackageCommand
         ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
         ArgumentNullException.ThrowIfNull(failures);
         ArgumentNullException.ThrowIfNull(inspectAsync);
+
+        if (workspace.HasNoAssembly(path))
+            // No Integration participant exists; ordinary native/metadata inspection still applies.
+            return inspectAsync(null, null, null);
 
         if (workspace.TryGetPreflightFailure(
                 path,
@@ -5361,7 +5378,7 @@ public class PackageCommand
         IReadOnlyList<PackageLibrarySelection> Libraries,
         string? TargetFramework);
 
-    internal static bool ShouldUseArtifactBackedPackageIntegrations(
+    internal static bool ShouldUsePackageCompileRoles(
         bool isLocalFile,
         string? selectedTargetFramework,
         string? selectedProducerKey,
@@ -5380,11 +5397,14 @@ public class PackageCommand
             HttpClient httpClient,
             string packageName,
             string version,
-            string targetFramework,
-            string selectedProducerKey,
+            string? targetFramework,
+            string? selectedProducerKey,
             InspectionOptions options,
             Action<string>? log)
     {
+        if (string.IsNullOrWhiteSpace(selectedProducerKey))
+            return (null, "The selected package has no authorized content producer.");
+
         var sourceAuthorization =
             new SourcePolicyPackageSourceAuthorization(
                 options.SourceOptions);
@@ -5418,7 +5438,9 @@ public class PackageCommand
                 new PackageCoordinate(
                     packageName,
                     version,
-                    targetFramework,
+                    PackageCoordinateResolver.IsAcquisitionTargetText(targetFramework)
+                        ? targetFramework
+                        : null,
                     RuntimeIdentifier: null),
                 selectedSources,
                 log,

@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler;
+using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
 
 using InspectWeb.Engine;
@@ -36,7 +37,7 @@ public static partial class SourceExports
         int metadataToken,
         string styleOptionsJson)
     {
-        BrowserAnnotatedSource annotated = await MemberAnnotatedSourceAsync(
+        MemberSourceProjection source = await ProjectMemberAsync(
             packageId,
             version,
             targetFramework,
@@ -47,13 +48,25 @@ public static partial class SourceExports
             memberSignature,
             selectorKey,
             metadataToken,
-            styleOptionsJson);
+            styleOptionsJson,
+            factRows: false);
+        BrowserAnnotatedSource annotated = BrowserAnnotatedSource.Create(
+            source.Document,
+            source.Provenance,
+            source.ContextLimitation,
+            source.InvocationDestinations,
+            source.DestinationUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
     }
 
-    static async Task<BrowserAnnotatedSource> MemberAnnotatedSourceAsync(
+    /// <summary>
+    /// One Research-issued Finding census projected through its Facts and Annotated Source views.
+    /// The receipt scopes every non-null fact-row key and every document fact-id sidecar key.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryMemberFindingCensus(
         string packageId,
         string version,
         string targetFramework,
@@ -65,6 +78,47 @@ public static partial class SourceExports
         string selectorKey,
         int metadataToken,
         string styleOptionsJson)
+    {
+        MemberSourceProjection source = await ProjectMemberAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            typeQueryId,
+            memberName,
+            memberSignature,
+            selectorKey,
+            metadataToken,
+            styleOptionsJson,
+            factRows: true);
+        BrowserMemberFindingCensus census = BrowserMemberFindingCensus.Create(
+            source.Projection.FactCensusReceipt,
+            source.Projection.Facts,
+            source.Document,
+            source.Projection.SourceDocumentFactIdentities,
+            source.Provenance,
+            source.ContextLimitation,
+            source.InvocationDestinations,
+            source.DestinationUnavailableReason);
+        return JsonSerializer.Serialize(
+            census,
+            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
+    }
+
+    static async Task<MemberSourceProjection> ProjectMemberAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string typeQueryId,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson,
+        bool factRows)
     {
         _ = memberSignature;
         await using BrowserMemberResolution.ScopedResolution resolved =
@@ -92,6 +146,7 @@ public static partial class SourceExports
                         memberName,
                         MethodToken: resolution.BodyToken,
                         SourceDocument: true,
+                        FactRows: factRows,
                         InvocationDestinations: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
@@ -123,7 +178,8 @@ public static partial class SourceExports
                 ]
                 : null;
 
-        return BrowserAnnotatedSource.Create(
+        return new MemberSourceProjection(
+            projection.Projection,
             document,
             $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
                 + $"{participant.Coordinate.Version} {participant.Asset.Path}",
@@ -135,4 +191,12 @@ public static partial class SourceExports
                 ? BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
     }
+
+    private sealed record MemberSourceProjection(
+        ResearchViews.MemberProjectionResult Projection,
+        AnnotatedSourceDocument Document,
+        string Provenance,
+        string? ContextLimitation,
+        BrowserAnnotatedSourceInvocationDestination[]? InvocationDestinations,
+        BrowserAnnotatedSourceCapabilityUnavailableReason DestinationUnavailableReason);
 }
