@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Presentation.Tests" />
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.PackageQueries" />
     <!--
       The companion query assembly reuses the participant loop and the group's snapshot access so

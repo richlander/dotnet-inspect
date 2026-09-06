@@ -2714,8 +2714,8 @@ test("static hosting sends its security headers on every static response", () =>
   // These are response-header protections, so nothing in the source tree can stand in for
   // them: a linter reads the markup this project ships, while these constrain what a
   // browser will do with it once shipped. `nosniff` stops content-type guessing on the
-  // JSON, TSV and wasm this site serves, and the other three are the cheap defaults that
-  // need no coordination with page content.
+  // JSON, TSV and wasm this site serves. CSP's hash is filled after the SDK publishes
+  // the import map; the published-artifact browser gate checks the resulting policy.
   //
   // "static" in this test's name is load-bearing. Azure Static Web Apps does not apply
   // `globalHeaders` to responses produced by the managed functions under `/api/*`; those
@@ -2727,6 +2727,7 @@ test("static hosting sends its security headers on every static response", () =>
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{{IMPORT_MAP_HASH}}'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https:; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
   });
 
   // Azure Static Web Apps returns the union of `globalHeaders` and a matching route's
@@ -2757,7 +2758,7 @@ test("static hosting sends its security headers on every static response", () =>
   // global headers without naming any of them. Azure has acknowledged this since 2022
   // (Azure/static-web-apps#739): a route with `redirect` returns neither `globalHeaders`
   // nor its own `headers`. Such a route passes the disjointness check above while serving
-  // a 302 with none of the four headers on it, which is exactly the silent weakening this
+  // a 302 with none of the security headers on it, which is exactly the silent weakening this
   // test exists to prevent. There are no redirect routes today; this keeps it that way
   // rather than waiting for one to be added and quietly punch a hole.
   const redirecting = staticWebAppConfig.routes
@@ -2766,7 +2767,7 @@ test("static hosting sends its security headers on every static response", () =>
 
   assert.deepEqual(redirecting, [],
     "Azure Static Web Apps omits `globalHeaders` on redirect responses "
-      + "(Azure/static-web-apps#739), so this route would answer without any of the four "
+      + "(Azure/static-web-apps#739), so this route would answer without any of the security "
       + "headers while the config still reads as though they are global; serve the "
       + "redirect from a route that does not use `redirect`, or narrow this test's claim "
       + "deliberately");

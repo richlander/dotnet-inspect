@@ -14,6 +14,22 @@ public static class JsonWireMemberRules
         IsSerialized(member, JsonWireDirection.Both);
 
     /// <summary>
+    /// The direction-independent membership rule, additionally requiring every
+    /// same-assembly named value type to remain accessible to the generated
+    /// serializer context.
+    /// </summary>
+    public static bool IsSerialized(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        IsSerialized(
+            member,
+            JsonWireDirection.Both,
+            assemblyIdentity,
+            typesByScopedIdentity);
+
+    /// <summary>
     /// True when the member appears in the contract for at least one of the
     /// requested <paramref name="directions"/>.
     /// </summary>
@@ -41,11 +57,27 @@ public static class JsonWireMemberRules
         return member.Kind switch
         {
             "property" => IsSerializedProperty(member, directions),
-            "field" => member.HasJsonInclude
-                && IsSourceGeneratorAccessible(member.Accessibility),
+            "field" => member.HasJsonInclude,
             _ => false,
         };
     }
+
+    /// <summary>
+    /// True when the member appears in the contract for at least one of the
+    /// requested <paramref name="directions"/>, and every same-assembly named
+    /// value type remains accessible to the generated serializer context.
+    /// </summary>
+    public static bool IsSerialized(
+        ApiMember member,
+        JsonWireDirection directions,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            && IsSerialized(member, directions);
 
     /// <summary>
     /// True when the member's presence differs between serialization and
@@ -55,6 +87,27 @@ public static class JsonWireMemberRules
     public static bool IsDirectionSensitive(ApiMember member) =>
         IsSerialized(member, JsonWireDirection.Serialize)
             != IsSerialized(member, JsonWireDirection.Deserialize);
+
+    /// <summary>
+    /// True when the member's presence differs between serialization and
+    /// deserialization after accounting for same-assembly value-type
+    /// accessibility.
+    /// </summary>
+    public static bool IsDirectionSensitive(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        IsSerialized(
+            member,
+            JsonWireDirection.Serialize,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            != IsSerialized(
+                member,
+                JsonWireDirection.Deserialize,
+                assemblyIdentity,
+                typesByScopedIdentity);
 
     /// <summary>
     /// True when deserialization may bind a getter-only property, or a
@@ -99,6 +152,84 @@ public static class JsonWireMemberRules
                 member.Accessibility,
                 member.HasJsonInclude);
     }
+
+    /// <summary>
+    /// True when deserialization may bind the member through a constructor
+    /// shape this projection does not currently model, provided the member's
+    /// value type remains accessible to the generated serializer context.
+    /// </summary>
+    public static bool RequiresConstructorBindingEvidence(
+        ApiType declaringType,
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            && RequiresConstructorBindingEvidence(
+                declaringType,
+                member);
+
+    /// <summary>
+    /// True when a <c>[JsonInclude]</c> member references a same-assembly value
+    /// type that ordinary top-level source generation cannot access, but a
+    /// nested serializer context rooted inside the same declaring type could.
+    /// This is a real runtime distinction that the current surface model does
+    /// not project, so callers must fail visibly rather than silently drop the
+    /// member.
+    /// </summary>
+    public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
+        ApiType declaringType,
+        ApiMember member,
+        JsonWireDirection directions,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (assemblyIdentity is null
+            || contextDefinitionName is null
+            || !member.HasJsonInclude
+            || !RequiresWireParticipationOrConstructorBinding(
+                declaringType,
+                member,
+                directions))
+        {
+            return false;
+        }
+
+        IReadOnlyList<ApiTypeReferenceIdentity>? references =
+            member.SignatureModel?.ReturnTypeReferences;
+        if (references is null || references.Count == 0)
+            return false;
+
+        return !HasAccessibleValueType(
+                member,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName: null)
+            && HasAccessibleValueType(
+                member,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName);
+    }
+
+    public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName) =>
+        RequiresContextRelativeValueTypeAccessibilityEvidence(
+            new ApiType(),
+            member,
+            JsonWireDirection.Both,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName);
 
     /// <summary>
     /// True when the member carries authentic <c>[JsonIgnore]</c> metadata that
@@ -180,11 +311,350 @@ public static class JsonWireMemberRules
         string? accessibility = hasAccessor is true
             ? accessorAccessibility
             : memberAccessibility;
-        return hasJsonInclude
-            ? IsSourceGeneratorAccessible(accessibility)
-            : accessibility is null;
+        return hasJsonInclude || accessibility is null;
     }
 
-    static bool IsSourceGeneratorAccessible(string? accessibility) =>
-        accessibility is null or "internal" or "protected internal";
+    static bool RequiresWireParticipationOrConstructorBinding(
+        ApiType declaringType,
+        ApiMember member,
+        JsonWireDirection directions) =>
+        IsSerialized(member, directions)
+        || ((directions & JsonWireDirection.Deserialize)
+                != JsonWireDirection.None
+            && RequiresConstructorBindingEvidence(
+                declaringType,
+                member));
+
+    static bool HasAccessibleValueType(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+        => HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName: null);
+
+    static bool HasAccessibleValueType(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (assemblyIdentity is null)
+            return true;
+
+        IReadOnlyList<ApiTypeReferenceIdentity>? references =
+            member.SignatureModel?.ReturnTypeReferences;
+        if (references is null || references.Count == 0)
+            return true;
+
+        return references.All(reference =>
+            IsAccessibleValueTypeReference(
+                reference,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName));
+    }
+
+    static bool IsAccessibleValueTypeReference(
+        ApiTypeReferenceIdentity reference,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+        => IsAccessibleValueTypeReference(
+            reference,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName: null);
+
+    static bool IsAccessibleValueTypeReference(
+        ApiTypeReferenceIdentity reference,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (!reference.Assembly.Equals(assemblyIdentity))
+            return true;
+
+        return typesByScopedIdentity.TryGetValue(
+                reference,
+                out ApiType? type)
+            && IsAccessibleValueType(
+                type,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName);
+    }
+
+    static bool IsAccessibleValueType(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+        => IsAccessibleValueType(
+            type,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName: null);
+
+    static bool IsAccessibleValueType(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (!IsSourceGeneratorTypeAccessible(
+                type,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName))
+            return false;
+
+        if (type.DefinitionName?.Segments.Length is not > 1)
+            return true;
+
+        ApiTypeReferenceIdentity? declaringTypeIdentity =
+            DeclaringTypeIdentity(type, assemblyIdentity);
+        return declaringTypeIdentity is not null
+            && typesByScopedIdentity.TryGetValue(
+                declaringTypeIdentity,
+                out ApiType? declaringType)
+            && IsAccessibleValueType(
+                declaringType,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName);
+    }
+
+    static ApiTypeReferenceIdentity? DeclaringTypeIdentity(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity)
+    {
+        if (type.DefinitionName?.Segments.Length is not > 1)
+            return null;
+
+        int separator = type.FullName.LastIndexOf('.');
+        if (separator < 0)
+            return null;
+
+        MetadataTypeDefinitionNameResult parentName =
+            MetadataTypeDefinitionName.Create(
+                type.DefinitionName.Namespace,
+                [.. type.DefinitionName.Segments[..^1]]);
+        return parentName is MetadataTypeDefinitionNameResult.Valid
+            {
+                Name: var definitionName,
+            }
+            ? new ApiTypeReferenceIdentity(
+                assemblyIdentity,
+                type.FullName[..separator],
+                definitionName)
+            : null;
+    }
+
+    static bool IsSourceGeneratorTypeAccessible(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (type.Accessibility is null or "internal" or "protected internal")
+            return true;
+
+        if (contextDefinitionName is null
+            || type.DefinitionName is not { Segments.Length: > 1 } definitionName)
+        {
+            return false;
+        }
+
+        return type.Accessibility switch
+        {
+            "private"
+                when contextDefinitionName.Namespace
+                    == definitionName.Namespace =>
+                ContextIsNestedWithin(
+                    contextDefinitionName.Segments,
+                    definitionName.Segments[..^1]),
+            "protected" or "private protected" =>
+                ContextCanReachProtectedDeclaringType(
+                    definitionName,
+                    contextDefinitionName,
+                    assemblyIdentity,
+                    typesByScopedIdentity),
+            _ => false,
+        };
+    }
+
+    static bool ContextCanReachProtectedDeclaringType(
+        MetadataTypeDefinitionName definitionName,
+        MetadataTypeDefinitionName contextDefinitionName,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        IReadOnlyList<string> declaringSegments =
+            definitionName.Segments[..^1];
+        foreach (MetadataTypeDefinitionName contextContainer
+            in ContextContainerDefinitionNames(contextDefinitionName))
+        {
+            if (DefinitionNamesEqual(
+                    contextContainer.Namespace,
+                    contextContainer.Segments,
+                    definitionName.Namespace,
+                    declaringSegments))
+            {
+                return true;
+            }
+
+            if (TryGetType(
+                    contextContainer,
+                    assemblyIdentity,
+                    typesByScopedIdentity,
+                    out ApiType? contextType)
+                && contextType is not null
+                && InheritsFrom(
+                    contextType,
+                    definitionName.Namespace,
+                    declaringSegments,
+                    assemblyIdentity,
+                    typesByScopedIdentity))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static IEnumerable<MetadataTypeDefinitionName>
+        ContextContainerDefinitionNames(
+        MetadataTypeDefinitionName contextDefinitionName)
+    {
+        for (int count = 1;
+            count < contextDefinitionName.Segments.Length;
+            count++)
+        {
+            MetadataTypeDefinitionNameResult containerName =
+                MetadataTypeDefinitionName.Create(
+                    contextDefinitionName.Namespace,
+                    [.. contextDefinitionName.Segments[..count]]);
+            if (containerName is MetadataTypeDefinitionNameResult.Valid
+                { Name: var definitionName })
+            {
+                yield return definitionName;
+            }
+        }
+    }
+
+    static bool TryGetType(
+        MetadataTypeDefinitionName definitionName,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        out ApiType? type)
+    {
+        string fullName = string.IsNullOrEmpty(definitionName.Namespace)
+            ? string.Join(".", definitionName.Segments)
+            : $"{definitionName.Namespace}."
+                + string.Join(".", definitionName.Segments);
+        return typesByScopedIdentity.TryGetValue(
+            new ApiTypeReferenceIdentity(
+                assemblyIdentity,
+                fullName,
+                definitionName),
+            out type);
+    }
+
+    static bool InheritsFrom(
+        ApiType type,
+        string expectedNamespace,
+        IReadOnlyList<string> expectedSegments,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        var visited = new HashSet<ApiType>(
+            ReferenceEqualityComparer.Instance);
+        ApiType? current = type;
+        while (current is not null
+            && visited.Add(current)
+            && current.BaseTypeReference is { } baseTypeReference
+            && baseTypeReference.Assembly.Equals(assemblyIdentity))
+        {
+            if (DefinitionNamesEqual(
+                    baseTypeReference.DefinitionName?.Namespace,
+                    baseTypeReference.DefinitionName?.Segments,
+                    expectedNamespace,
+                    expectedSegments))
+            {
+                return true;
+            }
+
+            if (!typesByScopedIdentity.TryGetValue(
+                    baseTypeReference,
+                    out current))
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    static bool DefinitionNamesEqual(
+        string? leftNamespace,
+        IReadOnlyList<string>? leftSegments,
+        string rightNamespace,
+        IReadOnlyList<string> rightSegments)
+    {
+        if (!string.Equals(
+                leftNamespace,
+                rightNamespace,
+                StringComparison.Ordinal)
+            || leftSegments is null
+            || leftSegments.Count != rightSegments.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < leftSegments.Count; index++)
+        {
+            if (!string.Equals(
+                    leftSegments[index],
+                    rightSegments[index],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool ContextIsNestedWithin(
+        IReadOnlyList<string> contextSegments,
+        IReadOnlyList<string> declaringSegments)
+    {
+        if (contextSegments.Count <= declaringSegments.Count)
+            return false;
+
+        for (int index = 0; index < declaringSegments.Count; index++)
+        {
+            if (!string.Equals(
+                    contextSegments[index],
+                    declaringSegments[index],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

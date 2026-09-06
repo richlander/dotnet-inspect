@@ -1453,9 +1453,38 @@ lets the sanitization comment name a gate that is monitoring rather than
 enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
 demand.
 
-A Content-Security-Policy remains separate follow-up work for browser-enforced
-resource restrictions. Bundling Prism does not establish such a policy or
-prohibit intentional package, API, or Wasm acquisition traffic.
+`staticwebapp.config.json` owns the browser's enforcing Content-Security-Policy
+on static responses. It follows the
+[standard CSP directives](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy)
+and [.NET's Wasm CSP guidance](https://learn.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy):
+same-origin scripts and workers, `wasm-unsafe-eval` for .NET, and a SHA-256 hash
+for the SDK-generated inline import map. It does not grant JavaScript
+`unsafe-eval` or `unsafe-inline`. Objects, frames, form submissions, and
+embedding the site are denied; the existing `<base href="/">` remains permitted.
+
+Two compatibility allowances are deliberate. `style-src 'unsafe-inline'`
+preserves application styles and Mermaid's generated style elements and
+attributes. HTTPS connections and images remain permitted for package, symbol,
+SourceLink, icon, and documentation acquisition; `data:` images remain permitted.
+This is script-execution defense in depth, not a destination allow list or a
+replacement for the existing acquisition policies and DOMPurify.
+
+After .NET fills the import map, `publish-content-security-policy.ts` substitutes
+its hash into the published hosting configuration. It hashes browser-normalized
+line endings without trimming the script text, rejects a missing, empty, or
+duplicate map, and regenerates from the source template on every publish.
+Deploy the published configuration alongside its matching `index.html`, not
+the source template or Vite's empty import map.
+
+`test/content-security-policy.test.ts` gates hash generation and republication.
+The existing published Worker Firefox gate serves the artifact's actual
+`globalHeaders`; `browser/content-security-policy.spec.ts` checks the exact
+header/hash, page startup, blocked unapproved scripts, and Mermaid rendering.
+The neighboring Worker tests cover cold/warm managed calls and restart under
+the same policy. These are bounded compatibility and enforcement checks, not
+exhaustive coverage of every route or interaction. Azure's managed `/api/*`
+responses do not inherit static `globalHeaders`; Vite development serving is
+also outside this deployment policy.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
