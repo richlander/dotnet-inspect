@@ -1016,7 +1016,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<void> {
         trendOutput,
         `${JSON.stringify(trendPoint, null, 2)}\n`,
       );
-      console.log(`Wrote ${trendOutput}`);
+      console.error(`Wrote ${trendOutput}`);
     } else {
       console.error(
         "No trend point written because the report is not comparable.",
