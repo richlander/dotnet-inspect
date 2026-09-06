@@ -5,6 +5,7 @@ using System.Linq;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
@@ -119,6 +120,48 @@ public class UnsafeEmitterTests
         var output = DecompileNew(nameof(NewFixtures.InvokeFunctionPointer));
 
         Assert.Contains("callback(x)", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void UpdatedRules_UnavailableCalleeContractDoesNotInventUnsafeContext()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var pointer = TypeRef.Pointer(int32);
+        var callee = new MethodRef(
+            TypeRef.Definition("Dependency", "Fixtures", "Library"),
+            "GetPointer",
+            pointer,
+            [],
+            HasThis: false)
+        {
+            MemorySafetyRulesState = MemorySafetyRulesState.Updated,
+            MemorySafetyContractUnavailable = true,
+        };
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(
+            new Call(callee, isVirtual: false, [])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "Call",
+            TypeRef.Definition("Consumer", "Fixtures", "Consumer"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.DoesNotContain("unsafe", result.Output);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
     }
 
     [Fact]
@@ -237,6 +280,22 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_CrossAssemblySafePointerCall_NeedsNoUnsafeBlock()
+    {
+        var result = DecompileResult(
+            typeof(ChainB).Assembly.Location,
+            typeof(ChainB).FullName!,
+            nameof(ChainB.AwaitSafePointer));
+
+        Assert.True(
+            result.Fidelity == DecompilationFidelity.Full,
+            $"{result.Fidelity}: {result.Output}{Environment.NewLine}{string.Join(Environment.NewLine, result.Diagnostics)}");
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("return await LibraryA.SafePointerTask", result.Output);
+        Assert.DoesNotContain("unsafe", result.Output);
+    }
+
+    [Fact]
     public void LegacyModule_RequiresUnsafeCall_EmitsNoUnsafeBlock()
     {
         // A legacy module relies on the member `unsafe` modifier for its body
@@ -293,7 +352,7 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void UnsafeBodyModifierFact_TracksSkipLocalsInitStackAlloc()
+    public void UnsafeBodyModifierFact_UpdatedSkipLocalsInitUsesExplicitBlock()
     {
         var unsafeResult = DecompileResult(
             typeof(NewFixtures).Assembly.Location,
@@ -304,8 +363,52 @@ public class UnsafeEmitterTests
             typeof(NewFixtures).FullName!,
             nameof(NewFixtures.StackAllocDefault));
 
-        Assert.True(unsafeResult.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe", unsafeResult.Output);
+        Assert.False(unsafeResult.RequiresUnsafeBodyModifier);
         Assert.False(safeResult.RequiresUnsafeBodyModifier);
+    }
+
+    [Fact]
+    public void UnsafeBodyModifierFact_LegacyNestedLambdaOperationRequiresMemberContext()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var pointer = TypeRef.Pointer(int32);
+        var callback = TypeRef.Definition(
+            "Synthetic",
+            "Synthetic",
+            "Callback");
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(new LoadIndirect(
+            int32,
+            new LoadArgument(0, "pointer", pointer))));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var block = new Block();
+        block.Add(new Return(new Lambda(
+            callback,
+            [new Parameter("pointer", pointer)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Synthetic", "Owner"),
+            new MethodSignature(
+                callback,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.True(result.RequiresUnsafeBodyModifier);
+        Assert.DoesNotContain("unsafe\n{", result.Output);
     }
 
     [Fact]
@@ -584,6 +687,54 @@ public class UnsafeEmitterTests
                 < output.IndexOf("unsafe", StringComparison.Ordinal),
             "the pointer local declaration must be hoisted above the unsafe block:\n" + output);
         Assert.Contains("_ = V_0;", output);
+    }
+
+    [Fact]
+    public void LegacyPointerLocalWhoseScopeCrossesAwait_DeclinesVisibly()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(
+            0,
+            bytePointer,
+            new StackAllocate(new Constant(8, int32))));
+        block.Add(new ExpressionStatement(
+            new AwaitExpression(
+                new LoadArgument(0, "task", task),
+                resultType: null)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, bytePointer)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(
+                voidType,
+                [new Parameter("task", task)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [bytePointer],
+            body)
+        {
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new UnsafeAwaitBoundaryPass().Run(function, PassContext.None);
+        var result = CSharpPrinter.Print(function);
+        string output = Assert.IsType<string>(result.Output);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.False(result.ContainsAwaitExpression);
+        Assert.Contains("legacy pointer lifetime cannot be scoped outside await", output);
+        Assert.DoesNotContain("unsafe\n{", output);
+        Assert.DoesNotContain("await task", output);
+        Assert.Equal(output, CSharpPrinter.Print(function).Output);
     }
 
     [Fact]
@@ -916,15 +1067,10 @@ public class UnsafeEmitterTests
 
     // ---- Recompile rail: the new-rules output is valid, warning-free C# ----
     //
-    // The fidelity/compile-back rails recompile *without* the
-    // updated-memory-safety-rules feature, so they can never surface CS9081 on a
-    // hoisted stackalloc declaration that dropped `scoped`. These tests close that
-    // gap: they recompile the actual decompiled new-rules output and fail if it
-    // warns. CS9081 ("a stackalloc result may be exposed outside the method") is a
-    // ref-safety diagnostic independent of the new-rules feature, so the pinned
-    // Roslyn package surfaces it today; enabling the feature flag below is a no-op
-    // now but turns this into a full new-rules semantic check once the package
-    // advances to a compiler that implements the rules.
+    // The ordinary fidelity/compile-back rails derive the feature from the source
+    // module. These focused tests compile the actual decompiled new-rules output
+    // with the feature explicitly enabled, so both unsafe-context failures and
+    // ref-safety warnings such as CS9081 remain observable.
 
     [Fact]
     public void NewRulesModule_StackAllocSkipInit_RecompilesScopedWithoutWarning()

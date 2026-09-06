@@ -191,9 +191,10 @@ internal static class RenderAbSensor
         var diffs = new List<(string Key, string Before, string After, DiffClass Class, SemanticTransition Semantic)>();
         var semanticRegressions = new List<(string Key, string Before, string After, ValidityCheck.RenderedBodyResult BeforeValidity, ValidityCheck.RenderedBodyResult AfterValidity)>();
         var references = ValidityCheck.RuntimeReferences();
-        var parseOptions = ValidityCheck.ParseOptions();
         var compileOptions = ValidityCheck.CompileOptions();
         var semanticContexts = new Dictionary<string, SemanticContext?>(StringComparer.Ordinal);
+        var parseOptionsByAssembly = new Dictionary<string, CSharpParseOptions>(
+            StringComparer.Ordinal);
 
         foreach (var kvp in current)
         {
@@ -212,6 +213,14 @@ internal static class RenderAbSensor
                 {
                     context = sample.PrecomputedSemanticContext ?? BuildSemanticContext(sample);
                     semanticContexts[kvp.Key] = context;
+                }
+                if (!parseOptionsByAssembly.TryGetValue(
+                    sample.AssemblyPath,
+                    out var parseOptions))
+                {
+                    parseOptions =
+                        CompilerFeatureOptions.ParseOptions(sample.AssemblyPath);
+                    parseOptionsByAssembly[sample.AssemblyPath] = parseOptions;
                 }
                 var beforeValidity = CheckSemantic(
                     context,

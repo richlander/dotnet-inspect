@@ -155,14 +155,20 @@ internal sealed class CrossAssemblyTypeResolver
         callee = UpgradeTypeReferences(callee);
         bool needsRefKinds = NeedsParameterRefKinds(callee);
         bool needsGenerated = NeedsGeneratedFacts(callee);
-        bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
+        bool needsUnsafe = resolveRequiresUnsafe
+            && callee.RequiresUnsafeFact == MetadataFactState.Unknown
+            && !callee.MemorySafetyContractUnavailable;
+        bool needsMemorySafety =
+            callee.MemorySafetyRulesState is null
+            && !callee.MemorySafetyRulesUnavailable;
         bool needsExtension = NeedsExtensionFacts(callee);
         bool needsDelegate = NeedsDelegateFact(callee);
         bool needsOperator = NeedsOperatorFact(callee);
         bool needsAccessor = NeedsAccessorFact(callee);
         bool needsReturnDynamic = NeedsReturnDynamicFact(callee);
         bool needsReturnArrayElementDynamic = NeedsReturnArrayElementDynamicFact(callee);
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsMemorySafety
+            && !needsExtension && !needsDelegate
             && !needsOperator && !needsAccessor && !needsReturnDynamic
             && !needsReturnArrayElementDynamic)
             return callee;
@@ -194,7 +200,21 @@ internal sealed class CrossAssemblyTypeResolver
             HasRefReadOnlyParameters = needsRefKinds && resolved.ParameterRefKinds.State != ParameterRefKindFacts.Unknown
                 ? resolved.ParameterRefKinds.HasRefReadOnlyParameters
                 : callee.HasRefReadOnlyParameters,
-            RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
+            RequiresUnsafe = callee.RequiresUnsafe
+                || needsUnsafe && resolved.RequiresUnsafe,
+            RequiresUnsafeFact = callee.RequiresUnsafeFact == MetadataFactState.Unknown
+                && needsUnsafe
+                    ? resolved.RequiresUnsafeFact
+                    : callee.RequiresUnsafeFact,
+            MemorySafetyRulesState = needsUnsafe || needsMemorySafety
+                ? resolved.MemorySafetyRulesState
+                : callee.MemorySafetyRulesState,
+            MemorySafetyRulesUnavailable = needsUnsafe || needsMemorySafety
+                ? resolved.MemorySafetyRulesUnavailable
+                : callee.MemorySafetyRulesUnavailable,
+            MemorySafetyContractUnavailable = needsUnsafe || needsMemorySafety
+                ? resolved.MemorySafetyContractUnavailable
+                : callee.MemorySafetyContractUnavailable,
             ReturnIsDynamic = needsReturnDynamic ? resolved.ReturnIsDynamic : callee.ReturnIsDynamic,
             ReturnArrayElementIsDynamic = needsReturnArrayElementDynamic
                 ? resolved.ReturnArrayElementIsDynamic
@@ -870,7 +890,6 @@ internal sealed class CrossAssemblyTypeResolver
             var reader = assembly.Reader;
             var typeDef = reader.GetTypeDefinition(handle);
             bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes());
-            bool typeRequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, typeDef);
 
             // Multiple full-signature matches are malformed or ambiguous.
             // Returning no facts is safer than selecting by metadata order.
@@ -898,9 +917,29 @@ internal sealed class CrossAssemblyTypeResolver
                     return null;
 
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
+                RequiresUnsafeContractResult requiresUnsafeContract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        assembly.MemorySafety,
+                        methodHandle);
+                MetadataFactState requiresUnsafeFact =
+                    requiresUnsafeContract.State;
+                bool requiresUnsafe =
+                    requiresUnsafeContract.IsExplicit;
+                if (!requiresUnsafeContract.HasNormalizedContract
+                    && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
+                        reader,
+                        method))
+                {
+                    requiresUnsafeFact = MetadataFactState.Yes;
+                    requiresUnsafe = true;
+                }
                 match = new ResolvedMethodFacts(
                     parameterRefKinds,
-                    typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
+                    requiresUnsafe,
+                    requiresUnsafeFact,
+                    requiresUnsafeContract.RulesState,
+                    requiresUnsafeContract.RulesUnavailable,
+                    requiresUnsafeContract.ContractUnavailable,
                     MethodDefinitionFacts.ReturnDynamicFact(
                         reader,
                         method,
@@ -1902,6 +1941,10 @@ internal sealed class CrossAssemblyTypeResolver
     readonly record struct ResolvedMethodFacts(
         ParameterRefKindResult ParameterRefKinds,
         bool RequiresUnsafe,
+        MetadataFactState RequiresUnsafeFact,
+        MemorySafetyRulesState? MemorySafetyRulesState,
+        bool MemorySafetyRulesUnavailable,
+        bool MemorySafetyContractUnavailable,
         MetadataFactState ReturnIsDynamic,
         MetadataFactState ReturnArrayElementIsDynamic,
         MetadataFactState CompilerGenerated,

@@ -29,6 +29,7 @@ public sealed class WithExpressionPass : IIrPass
         IReadOnlyList<IrNode> Consumed,
         IrExpression Receiver,
         IReadOnlyList<InitializerEntry> Entries,
+        MethodRef CloneMethod,
         LoadStackSlot Use);
 
     static Plan? TryBuild(IrFunction function, StoreStackSlot seed, Call clone)
@@ -93,7 +94,12 @@ public sealed class WithExpressionPass : IIrPass
             if (!consumedSet.Contains(statements[i]))
                 return null;
 
-        return new Plan(consumed, clone.Arguments[0], entries, outsideUses[0]);
+        return new Plan(
+            consumed,
+            clone.Arguments[0],
+            entries,
+            clone.Callee,
+            outsideUses[0]);
     }
 
     static bool IsRecordCloneCall(Call clone)
@@ -144,7 +150,10 @@ public sealed class WithExpressionPass : IIrPass
         foreach (var entry in plan.Entries)
             entry.Arguments[0].Detach();
 
-        var withExpression = new WithExpression(plan.Receiver, plan.Entries);
+        var withExpression = new WithExpression(
+            plan.Receiver,
+            plan.Entries,
+            plan.CloneMethod);
         withExpression.InheritSourceOffset(plan.Receiver);
         plan.Use.ReplaceWith(withExpression);
     }

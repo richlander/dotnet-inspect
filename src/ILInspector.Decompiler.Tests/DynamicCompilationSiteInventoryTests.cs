@@ -61,7 +61,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Optimization / parse-option matrices intrinsic to the claim.
             ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + reconstruction seams: compiles the complex-iterator source under Debug and Release, and a parameterized Release inline-array-collection iterator (single-loop and conditional-yield shapes) whose dead buffer local must stay eliminated across the two seams that carry MoveNext locals into the kickoff (#3221)."),
-            ["CompilerFeatureOptionsTests.cs"] = (1, "Parse-option matrix: varies LanguageVersion/feature flags across compilations."),
+            ["CompilerFeatureOptionsTests.cs"] = (2, "Parse-option matrix: varies LanguageVersion/feature flags across compilations and directly probes rejecting diagnostics without requiring successful emit."),
 
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
@@ -132,12 +132,15 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #4732 adds TypeRefDecoderRecursionTests.cs (1 site): compiles the
     //     Decompiler's bounded invalid-rank output and proves it cannot bind as
     //     another array shape.
+    //   #5495 adds a second CompilerFeatureOptionsTests.cs site (1 -> 2):
+    //     directly obtains rejecting diagnostics to prove legacy and updated
+    //     memory-safety replay remain observably distinct under Roslyn 5.9.
     //   #5473 adds a second site to AuthoredRebuildFidelityTests.cs (1 -> 2):
     //     emits checksum-bearing portable-PDB fixtures for live source
     //     acquisition, absence, and failure gates.
-    //   Combined: 44 files, 55 sites.
+    //   Combined: 44 files, 56 sites.
     const int ExpectedDynamicFiles = 44;
-    const int ExpectedDynamicSites = 55;
+    const int ExpectedDynamicSites = 56;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

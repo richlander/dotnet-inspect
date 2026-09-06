@@ -122,4 +122,69 @@ public class RefArgumentRenderingTests
         Assert.Contains("Unsafe.Unbox<int>(o)", output);
         Assert.DoesNotContain("out (int)o", output);
     }
+
+    [Fact]
+    public void PointerArgumentWithUnknownRefKind_IsUnverified()
+    {
+        var refInt = TypeRef.ByRef(Int32);
+        var intPointer = TypeRef.Pointer(Int32);
+        var callee = new MethodRef(
+            TypeRef.CoreLib("System", "Sample"),
+            "Exchange",
+            Int32,
+            [refInt],
+            HasThis: false);
+        var argument = new LoadArgument(0, "p", intPointer);
+        var call = new Call(callee, isVirtual: false, [argument]);
+        var constructor = new NewObject(
+            callee with
+            {
+                DeclaringType = TypeRef.CoreLib("System", "Holder"),
+                Name = ".ctor",
+                ReturnType = TypeRef.CoreLib("System", "Void"),
+                HasThis = true,
+            },
+            [new LoadArgument(0, "p", intPointer)]);
+
+        Assert.True(call.HasUnverifiedByRefArgument);
+        Assert.True(constructor.HasUnverifiedByRefArgument);
+    }
+
+    [Fact]
+    public void PointerValuedInArgument_DoesNotDereferenceThePointerValue()
+    {
+        var intPointer = TypeRef.Pointer(Int32);
+        var callee = new MethodRef(
+            TypeRef.CoreLib("System", "Sample"),
+            "Read",
+            Int32,
+            [TypeRef.ByRef(intPointer)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.In],
+        };
+        var block = new Block(0);
+        block.Add(new Return(new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "p", intPointer)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Holder"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("p", intPointer)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Contains("Read(p)", output);
+        Assert.DoesNotContain("Read(in *p)", output);
+        Assert.DoesNotContain("Read(*p)", output);
+    }
 }

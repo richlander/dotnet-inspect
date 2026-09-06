@@ -72,4 +72,151 @@ public class BoolToIntNormalizationPassTests
 
         Assert.IsType<Comparison>(store.Value);
     }
+
+    [Fact]
+    public void StackSlotNormalization_UpdatesLoadsToTheMaterializedIntType()
+    {
+        var comparison = new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: true,
+            new LoadArgument(0, "flag", Bool),
+            new Constant(false, Bool));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(
+            StoreStackSlot.DupSlotBase,
+            comparison));
+        block.Add(new Return(new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadStackSlot(StoreStackSlot.DupSlotBase, Bool),
+            new Constant(1, Int32))));
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Object"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("flag", Bool)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new BoolToIntNormalizationPass().Run(
+            function,
+            PassContext.None);
+        new ArithmeticBoolOperandPass().Run(
+            function,
+            PassContext.None);
+
+        var store = Assert.IsType<StoreStackSlot>(block.Children[0]);
+        Assert.IsType<Conditional>(store.Value);
+        var returned = Assert.IsType<Return>(block.Children[1]);
+        var add = Assert.IsType<Binary>(returned.Value);
+        var load = Assert.IsType<LoadStackSlot>(add.Left);
+        Assert.Equal(Int32, load.ResultType);
+    }
+
+    [Fact]
+    public void StackSlotNormalization_DoesNotRetypeMixedJoinStores()
+    {
+        var comparison = new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: true,
+            new LoadArgument(0, "flag", Bool),
+            new Constant(false, Bool));
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, comparison));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "flag", Bool)));
+        second.Add(new Return(new LoadStackSlot(0, Bool)));
+        container.Add(second);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Object"),
+            new MethodSignature(
+                Bool,
+                [new Parameter("flag", Bool)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new BoolToIntNormalizationPass().Run(
+            function,
+            PassContext.None);
+
+        var load = Assert.Single(
+            function.Descendants.OfType<LoadStackSlot>());
+        Assert.Equal(Bool, load.ResultType);
+    }
+
+    [Fact]
+    public void StackSlotNormalization_DoesNotRetypeNestedFunctionSlots()
+    {
+        var comparison = new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: true,
+            new LoadArgument(0, "flag", Bool),
+            new Constant(false, Bool));
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new Return(new LoadStackSlot(
+            StoreStackSlot.DupSlotBase,
+            Bool)));
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            TypeRef.Definition(
+                "Synthetic",
+                "System",
+                "Func`1"),
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            StoreStackSlot.DupSlotBase,
+            comparison));
+        block.Add(new ExpressionStatement(lambda));
+        block.Add(new Return(new LoadStackSlot(
+            StoreStackSlot.DupSlotBase,
+            Bool)));
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Object"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("flag", Bool)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new BoolToIntNormalizationPass().Run(
+            function,
+            PassContext.None);
+
+        Assert.Equal(
+            Bool,
+            Assert.Single(
+                lambda.Body.Descendants.OfType<LoadStackSlot>())
+                .ResultType);
+        Assert.Equal(
+            Int32,
+            Assert.Single(
+                function.Body.DescendantsOutsideNestedFunctions
+                    .OfType<LoadStackSlot>())
+                .ResultType);
+    }
 }
