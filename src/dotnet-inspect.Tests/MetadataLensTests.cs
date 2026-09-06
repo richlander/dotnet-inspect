@@ -290,7 +290,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task MetadataLens_MissingManifestRoot_FailsWithoutCliFallback()
+    public async Task MetadataLens_MissingManifestRoot_IsInapplicableWithoutCliFallback()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
@@ -302,12 +302,14 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "ReadyToRun manifest metadata root is absent.",
-            error,
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            MetadataHeadingPrefix,
+            output,
             StringComparison.Ordinal);
+        Assert.Equal(
+            $"Note: 1 matched section has no data: {MetadataSectionNames.Image}.",
+            error.Trim());
     }
 
     [Fact]
@@ -531,6 +533,28 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(MetadataSectionNames.Image, DiscoveryNames(output));
+    }
+
+    [Fact]
+    public async Task MetadataRoot_EffectiveDiscoveryMissingRoot_IsInapplicable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--metadata-root",
+            "r2r-manifest",
+            "-D",
+            SectionCategoryNames.Metadata,
+            "--effective",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Note: category '{SectionCategoryNames.Metadata}' has no data for this query",
+            error.Trim());
     }
 
     [Theory]

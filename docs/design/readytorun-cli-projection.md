@@ -27,13 +27,15 @@ The `library` command exposes two independent explicit gestures:
    `@Metadata` image, table, and heap operation.
 
 The default metadata root remains `cli`. Selecting `r2r-manifest` never falls
-back to CLI metadata: an absent manifest is an error, and malformed ReadyToRun
-or metadata-root structure remains a visible typed-query failure.
+back to CLI metadata: an absent manifest makes the selected metadata sections
+inapplicable, while malformed ReadyToRun or metadata-root structure remains a
+visible typed-query failure.
 
 The Release gates are the ReadyToRun and metadata-lens cases in
 `dotnet-inspect.Tests`. They cover explicit disclosure, image and section
 facts, selected-root provenance, table and heap operations from the selected
-root, missing- and malformed-root failure, and unchanged default suppression.
+root, missing-root inapplicability, malformed-root failure, and unchanged
+default suppression.
 
 ## User gestures
 
@@ -112,7 +114,8 @@ root remain unchanged.
 - No ReadyToRun advertisement makes `@ReadyToRun` inapplicable.
 - A malformed advertisement or section directory is a failed ReadyToRun query,
   not an absent result.
-- No section 112 after an explicit `r2r-manifest` request is a command error.
+- No section 112 after an explicit `r2r-manifest` request makes the selected
+  metadata sections inapplicable.
 - A malformed manifest is a failed metadata query and never falls back to the
   CLI root.
 - A heap coordinate is resolved against the selected root; an invalid address

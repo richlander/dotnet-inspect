@@ -793,9 +793,6 @@ public class LibraryCommand
                 {
                     return 1;
                 }
-                if (RejectMissingMetadataRoot(inspection))
-                    return 1;
-
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, subject, null, null, isPlatformAssembly: true,
                     options, context.HttpClient, logger);
@@ -977,12 +974,6 @@ public class LibraryCommand
                 {
                     return 1;
                 }
-                foreach (var inspected in inspections)
-                {
-                    if (RejectMissingMetadataRoot(inspected))
-                        return 1;
-                }
-
                 bool identifierAuditIncomplete =
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
@@ -1164,9 +1155,6 @@ public class LibraryCommand
                 {
                     return 1;
                 }
-                if (RejectMissingMetadataRoot(inspection))
-                    return 1;
-
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, subject, null, null, isPlatformAssembly: false,
                     options, context.HttpClient, logger);
@@ -1829,21 +1817,6 @@ public class LibraryCommand
             ? null
             : "--metadata-root requires a library path, package, or --platform "
                 + "with -D because effective discovery must inspect an image.";
-    }
-
-    private static bool RejectMissingMetadataRoot(LibraryInspection inspection)
-    {
-        if (inspection.MetadataImageResult
-            is not MetadataImageResult.MissingRoot missing)
-        {
-            return false;
-        }
-
-        string name = missing.Root == MetadataRootKind.ReadyToRunManifest
-            ? "ReadyToRun manifest"
-            : missing.Root.ToString();
-        CommandError.Write($"{name} metadata root is absent.");
-        return true;
     }
 
     private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
@@ -3050,6 +3023,16 @@ public class LibraryCommand
         }
         if (emptySection is null)
             return false;
+
+        // A requested alternate root that is not present makes the metadata lens
+        // inapplicable. Preserve the ordinary no-data outcome even for an exact
+        // metadata section instead of treating absence as an empty producer failure.
+        if (MetadataSectionNames.IsMetadataSection(section)
+            && inspections.All(static inspection =>
+                inspection.MetadataImageResult is MetadataImageResult.MissingRoot))
+        {
+            return false;
+        }
 
         bool explainedByFailure = inspections.Any(inspection =>
             (inspection.InspectionFailures ?? []).Any(failure =>
