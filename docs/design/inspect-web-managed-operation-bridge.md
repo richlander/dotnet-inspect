@@ -735,11 +735,12 @@ token and allowance. It does not simulate receiver liveness or replay policy.
 Negative controls omit the later waiter or release finalization before the
 pending-lease observation.
 
-The immediate consumers remain the managed bridge and its existing generated
-canary, step 3 of the four-step #5419 adoption path. This slice does not wire
-production reporter registration between facade readiness and Worker `Ready`,
-add the idle-compatible optimization, change #5093 liveness policy, or migrate
-the #5420 source feature. Those remain production composition work, not hidden
+The sender's first consumers were the managed bridge and its existing generated
+canary, step 3 of the four-step #5419 adoption path. The Worker now binds this
+sender through its
+[production registration adapter](inspect-web-worker-runtime.md#managed-reporter-registration).
+Idle-compatible optimization and migration of the #5420 source feature remain
+production composition work, not hidden
 requirements for using the explicit sender in its current harness.
 
 ## Target boundary sequence
