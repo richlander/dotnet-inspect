@@ -84,6 +84,7 @@ function recordingActions(calls: string[]): ScopeBarBindingActions {
   return {
     onApplicationScopeSelect: value =>
       calls.push(`application:${value}`),
+    onLibraryLensSelect: value => calls.push(`library:${value}`),
     onMemberSectionSelect: value => calls.push(`member:${value}`),
     onPackageLensSelect: value => calls.push(`package:${value}`),
     onScopeSelect: value => calls.push(`scope:${value}`),
@@ -179,14 +180,22 @@ test("typed tab focus rejects a CSS-hidden replacement", () => {
   assert.equal(replacement.focused, false);
 });
 
-test("package scope bindings dispatch only scope and package-lens controls", () => {
+test("package and library bindings dispatch their distinct controls", () => {
   const root = new FakeRoot();
   const workspaceScope = new FakeElement({ scope: "workspace" });
   const packageScope = new FakeElement({ scope: "package" });
   const typeScope = new FakeElement({ scope: "type" });
   const dependencies = new FakeElement({ packageLens: "dependencies" });
-  root.add("[data-scope]", workspaceScope, packageScope, typeScope);
+  const libraryScope = new FakeElement({ scope: "library" });
+  const references = new FakeElement({ libraryLens: "references" });
+  root.add(
+    "[data-scope]",
+    workspaceScope,
+    packageScope,
+    libraryScope,
+    typeScope);
   root.add("[data-package-lens]", dependencies);
+  root.add("[data-library-lens]", references);
   const calls: string[] = [];
   bindScopeBar(
     fakeDom.parentNode(root),
@@ -194,14 +203,18 @@ test("package scope bindings dispatch only scope and package-lens controls", () 
 
   workspaceScope.dispatch("click");
   packageScope.dispatch("click");
+  libraryScope.dispatch("click");
   typeScope.dispatch("click");
   dependencies.dispatch("click");
+  references.dispatch("click");
 
   assert.deepEqual(calls, [
     "scope:workspace",
     "scope:package",
+    "scope:library",
     "scope:type",
     "package:dependencies",
+    "library:references",
   ]);
 });
 
@@ -216,7 +229,7 @@ test("workspace application scope is separate from the subject ladder", () => {
 
   assert.match(
     html,
-    /data-scope="package"[^>]*role="tab" aria-selected="false" tabindex="0"[\s\S]*data-scope="type"/);
+    /data-scope="package"[^>]*role="tab" aria-selected="false" tabindex="0"[\s\S]*data-scope="library"[\s\S]*data-scope="type"/);
   assert.doesNotMatch(html, /data-scope="workspace"/);
   assert.doesNotMatch(html, /package-coordinate-controls|class="[^"]* lens(?: |")/);
 });
@@ -347,10 +360,26 @@ test("package scope marks only the package segment and the active package lens",
   });
 
   assert.match(html, /data-scope="package"[^>]*role="tab" aria-selected="true"/);
+  assert.match(html, /data-scope="library"[^>]*role="tab" aria-selected="false"/);
   assert.match(html, /data-scope="type"[^>]*role="tab" aria-selected="false"/);
   assert.doesNotMatch(html, /data-scope="member"/);
   assert.match(html, /class="[^"]*\blens active" data-package-lens="dependencies"/);
   assert.doesNotMatch(html, /class="[^"]*\blens active" data-package-lens="overview"/);
+});
+
+test("library scope marks the library segment and active library lens", () => {
+  const html = renderScopeBar({
+    scope: "library",
+    strip: [["overview", "Overview"], ["references", "References"]],
+    activeStripId: "references",
+    stripAttribute: "data-library-lens",
+    escapeHtml,
+  });
+
+  assert.match(html, /data-scope="library"[^>]*role="tab" aria-selected="true"/);
+  assert.match(html, /data-scope="type"[^>]*role="tab" aria-selected="false"/);
+  assert.match(html, /class="[^"]*\blens active" data-library-lens="references"/);
+  assert.match(html, /aria-label="Library lenses"/);
 });
 
 test("workspace-only availability leaves the separate subject ladder empty", () => {
@@ -365,7 +394,7 @@ test("workspace-only availability leaves the separate subject ladder empty", () 
 
   assert.doesNotMatch(
     html,
-    /data-scope="workspace"|data-scope="package"|data-scope="type"/);
+    /data-scope="workspace"|data-scope="package"|data-scope="library"|data-scope="type"/);
 });
 
 test("type scope marks the type segment and renders the fixed type lenses", () => {

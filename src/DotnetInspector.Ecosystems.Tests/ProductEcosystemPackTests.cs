@@ -156,6 +156,19 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
+    public void ShippedToolPackagesMatchLiteralPolicy()
+    {
+        Assert.Collection(
+            EcosystemPackCatalog.Discover(),
+            platform => Assert.Empty(platform.ToolPackages),
+            extensions => Assert.Empty(extensions.ToolPackages),
+            aspNetCore => Assert.Empty(aspNetCore.ToolPackages),
+            aspire => Assert.Equal(
+                new PackageCoordinate("Aspire.Cli"),
+                Assert.Single(aspire.ToolPackages)));
+    }
+
+    [Fact]
     public void ShippedDemoManifestMatchesLiteralPolicy()
     {
         var expected = new[]
