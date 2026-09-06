@@ -2981,6 +2981,13 @@ destination host's own source authorization, transfer policy, and payload
 limits. Host caches, registries, credential handling, and worker transport stay
 outside this owner entirely.
 
+Binding factories use one runtime identifier for acquisition and selection.
+Decoding therefore requires the selection runtime to equal the acquisition
+coordinate's already validated runtime, including agreement on absence.
+This also rejects invalid runtime syntax without duplicating the coordinate
+owner's grammar. Acquisition and selection frameworks may still differ;
+framework-neutral acquisition with a real selection target remains valid.
+
 ##### Release gates
 
 In `SparsePackageAssemblyProjectionTests`:
@@ -2999,7 +3006,8 @@ In `PackageRootAcquisitionTests`:
 `ExplicitCoordinate_UnauthorizedSourcesFailVisibly`,
 `ExactRequest_UnauthorizedProducerFailsVisibly`,
 `Token_RoundTripsExactRequest`, `Token_RejectsMalformedOrNonCanonicalInput`,
-and `ExplicitRequest_StatesItsTargetContract`.
+`Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
+`ExplicitRequest_StatesItsTargetContract`.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test

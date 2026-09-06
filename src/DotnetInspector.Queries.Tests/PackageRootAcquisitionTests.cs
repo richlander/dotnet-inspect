@@ -309,6 +309,8 @@ public sealed class PackageRootAcquisitionTests
             {
                 Request(Framework, null, Framework, null),
                 Request(Framework, "win-x64", Framework, "win-x64"),
+                Request(Framework, null, "netstandard2.0", null),
+                Request(Framework, "win-x64", "netstandard2.0", "win-x64"),
                 Request(null, null, "netstandard2.0", null),
                 Request(null, null, null, null),
             })
@@ -410,6 +412,30 @@ public sealed class PackageRootAcquisitionTests
                 $"Decoding should have refused: {candidate ?? "<null>"}");
             Assert.Null(decoded);
         }
+    }
+
+    [Theory]
+    [InlineData(null, "win-x64")]
+    [InlineData(null, "not a rid")]
+    [InlineData("win-x64", null)]
+    [InlineData("win-x64", "linux-x64")]
+    [InlineData("win-x64", "not a rid")]
+    public void Token_RejectsSelectionRuntimeNotIssuedByBinding(
+        string? acquisitionRuntimeIdentifier,
+        string? selectionRuntimeIdentifier)
+    {
+        string token = Token(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            acquisitionRuntimeIdentifier,
+            Framework,
+            selectionRuntimeIdentifier);
+
+        Assert.False(
+            PackageRootReacquisitionRequest.TryDecode(token, out var decoded));
+        Assert.Null(decoded);
     }
 
     [Fact]

@@ -300,6 +300,15 @@ public sealed class PackageRootReacquisitionRequest :
             return false;
         }
 
+        // Unlike framework targets, binding-issued runtime targets cannot differ.
+        if (!string.Equals(
+                fields[6],
+                coordinate.RuntimeIdentifier,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         PackageArtifactRootRequest decoded = PackageArtifactRootRequest.Create(
             coordinate,
             fields[5],
