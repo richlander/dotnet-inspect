@@ -150,85 +150,7 @@ public static class ProjectAssetsParser
 
         try
         {
-            var json = File.ReadAllText(assetsPath);
-            using var doc = HardenedJson.Parse(json);
-
-            if (!doc.RootElement.TryGetProperty("targets", out var targets))
-                return results;
-
-            var selectedTfm = SelectTargetFramework(targets, tfmFilter);
-
-            if (selectedTfm == null)
-                return results;
-
-            log?.Invoke($"Using target framework: {selectedTfm}");
-
-            if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
-                return results;
-
-            var targetDeps = targets.GetProperty(selectedTfm);
-
-            foreach (var dep in targetDeps.EnumerateObject())
-            {
-                var parts = dep.Name.Split('/');
-                if (parts.Length != 2) continue;
-
-                var packageName = parts[0];
-                var version = parts[1];
-
-                if (!libraries.TryGetProperty(dep.Name, out var libInfo))
-                    continue;
-
-                if (libInfo.TryGetProperty("type", out var typeElem) && typeElem.GetString() == "project")
-                    continue;
-
-                if (!libInfo.TryGetProperty("path", out var pathElem))
-                    continue;
-
-                var packagePath = pathElem.GetString();
-                if (string.IsNullOrEmpty(packagePath))
-                    continue;
-                if (!StorePath.TryResolveUnderRoot(
-                    nugetCache,
-                    packagePath,
-                    out string? packageDirectory))
-                {
-                    LogRejectedPath(
-                        log,
-                        "libraries[].path",
-                        "the global packages root");
-                    continue;
-                }
-
-                if (dep.Value.TryGetProperty("compile", out var compile))
-                {
-                    foreach (var asm in compile.EnumerateObject())
-                    {
-                        if (!asm.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        if (asm.Name.Contains("_._"))
-                            continue;
-
-                        if (!StorePath.TryResolveUnderRoot(
-                            packageDirectory,
-                            asm.Name,
-                            out string? fullPath))
-                        {
-                            LogRejectedPath(
-                                log,
-                                "targets[].compile",
-                                "its package root");
-                            continue;
-                        }
-
-                        if (File.Exists(fullPath))
-                        {
-                            results.Add((fullPath, packageName, version));
-                        }
-                    }
-                }
-            }
+            ParseCore(assetsPath, tfmFilter, log, nugetCache, results, includeMissing: false);
         }
         catch (Exception ex)
         {
@@ -236,6 +158,133 @@ public static class ProjectAssetsParser
         }
 
         return results;
+    }
+
+    internal static List<(string Path, string PackageName, string Version)> ParseForInventory(
+        string assetsPath, string? tfmFilter)
+    {
+        List<(string Path, string PackageName, string Version)> results = [];
+        try
+        {
+            ParseCore(assetsPath, tfmFilter, null, NuGetCache.GetNuGetCachePath(), results, includeMissing: true);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new JsonException("The project assets document has invalid JSON structure.", ex);
+        }
+        return results;
+    }
+
+    static void ParseCore(
+        string assetsPath,
+        string? tfmFilter,
+        Action<string>? log,
+        string nugetCache,
+        List<(string Path, string PackageName, string Version)> results,
+        bool includeMissing)
+    {
+        var json = File.ReadAllText(assetsPath);
+        using var doc = HardenedJson.Parse(json);
+
+        if (includeMissing
+            && (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("targets", out var requiredTargets)
+                || requiredTargets.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("libraries", out var requiredLibraries)
+                || requiredLibraries.ValueKind != JsonValueKind.Object))
+        {
+            throw new JsonException("The project assets document requires targets and libraries objects.");
+        }
+
+        if (!doc.RootElement.TryGetProperty("targets", out var targets))
+            return;
+
+        var selectedTfm = SelectTargetFramework(targets, tfmFilter);
+
+        if (selectedTfm == null)
+            return;
+
+        log?.Invoke($"Using target framework: {selectedTfm}");
+
+        if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
+            return;
+
+        var targetDeps = targets.GetProperty(selectedTfm);
+
+        foreach (var dep in targetDeps.EnumerateObject())
+        {
+            if (includeMissing && dep.Value.ValueKind != JsonValueKind.Object)
+                throw new JsonException("A project dependency entry must be an object.");
+            if (includeMissing && dep.Value.TryGetProperty("compile", out var declaredCompile)
+                && declaredCompile.ValueKind != JsonValueKind.Object)
+                throw new JsonException("A project compile asset group must be an object.");
+            var parts = dep.Name.Split('/');
+            if (parts.Length != 2) continue;
+
+            var packageName = parts[0];
+            var version = parts[1];
+
+            if (!libraries.TryGetProperty(dep.Name, out var libInfo))
+                continue;
+
+            if (libInfo.TryGetProperty("type", out var typeElem) && typeElem.GetString() == "project")
+                continue;
+
+            if (!libInfo.TryGetProperty("path", out var pathElem))
+                continue;
+
+            var packagePath = pathElem.GetString();
+            if (string.IsNullOrEmpty(packagePath))
+            {
+                if (includeMissing)
+                    throw new JsonException("A declared project package path must be nonempty.");
+                continue;
+            }
+            if (!StorePath.TryResolveUnderRoot(
+                nugetCache,
+                packagePath,
+                out string? packageDirectory))
+            {
+                if (includeMissing)
+                    throw new JsonException("A declared project package path was rejected.");
+                LogRejectedPath(
+                    log,
+                    "libraries[].path",
+                    "the global packages root");
+                continue;
+            }
+
+            if (dep.Value.TryGetProperty("compile", out var compile))
+            {
+                foreach (var asm in compile.EnumerateObject())
+                {
+                    if (!asm.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (asm.Name.Contains("_._"))
+                        continue;
+
+                    if (!StorePath.TryResolveUnderRoot(
+                        packageDirectory,
+                        asm.Name,
+                        out string? fullPath))
+                    {
+                        if (includeMissing)
+                            throw new JsonException("A declared project asset path was rejected.");
+                        LogRejectedPath(
+                            log,
+                            "targets[].compile",
+                            "its package root");
+                        continue;
+                    }
+
+                    if (includeMissing || File.Exists(fullPath))
+                    {
+                        results.Add((fullPath, packageName, version));
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
