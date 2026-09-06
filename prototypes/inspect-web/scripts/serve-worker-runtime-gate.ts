@@ -46,13 +46,20 @@ createServer((request, response) => {
     response.end();
     return;
   }
+  const observeEpochReporter = pathname === "/inspect-web-host.js"
+    && request.headers.cookie?.split("; ")
+      .includes("worker-runtime-gate=observe-epoch-reporter");
   void readFile(file).then(
     contents => {
       response.writeHead(200, {
         "Content-Type": contentTypes[extname(file)] ?? "application/octet-stream",
         "Cache-Control": "no-store",
       });
-      response.end(contents);
+      // Capture the generated functions during ordinary module loading, not
+      // by asking the Firefox Worker debugger to import another module.
+      response.end(observeEpochReporter
+        ? `${contents.toString("utf8")}\nglobalThis.engineWorkerEpochReporterGate = { registerEpochWorkReporter, drainEpochWorkReporter, unregisterEpochWorkReporter };\n`
+        : contents);
       return undefined;
     },
     (error: unknown) => {

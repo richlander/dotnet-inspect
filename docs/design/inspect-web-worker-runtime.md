@@ -13,8 +13,9 @@ gate are implemented under `inspect-web-worker-envelope-validation` and
 module `Worker`, the current generated facade set, and native lifecycle inputs
 under `inspect-web-worker-browser-binding`. Its explicit diagnostic consumer
 uses the existing managed async-lowering canary. It does not route current UI
-features through the Worker. Feature adoption, managed epoch-work reporter
-registration, full lifecycle coverage, responsiveness evidence, and the
+features through the Worker. Bootstrap now registers the managed epoch-work
+reporter before readiness. Feature adoption, full lifecycle coverage,
+responsiveness evidence, and the
 remaining browser gates named below are still required.
 
 Its finite state models establish only the abstract properties recorded with
@@ -387,11 +388,55 @@ recovery before the host judges deadlines. That gap preserves the remaining
 startup, command-response, and drain budgets and gives the existing
 post-readiness watchdog its recovery interval.
 
-The initial binding's diagnostic operation invokes the existing generated
-`asyncLoweringCanary` export and declares unbounded managed execution. Its
-registry admits no shared managed producers or epoch-work classes.
-Registering the managed epoch-work reporter and adopting feature operations
-remain later handoffs; the diagnostic operation does not depend on them.
+The binding's diagnostic operation invokes the existing generated
+`asyncLoweringCanary` export and declares unbounded managed execution.
+Bootstrap also registers the managed epoch-work reporter. Adopting feature
+operations remains a later handoff; the diagnostic operation does not create
+shared producers.
+
+### Managed reporter registration
+
+The production bootstrap fulfills only after the engine's generated facade
+set and entry point are ready and the host facade has registered its managed
+reporter. A registration rejection is startup failure, never partial readiness.
+Closure during either asynchronous startup step prevents late registration.
+
+The Worker and its main-thread receiver share one producer-class recipe.
+The initial managed class is `managed-shared-producer`, with an `unbounded`
+allowance: no structural return bound has been established for its future
+feature producers. The Worker supplies its serialized allowance to the managed
+registration as opaque data. A start callback must echo that exact issued
+value before the realm applies its existing class, sequence, and allowance
+validation. The realm supplies the epoch token. Neither this adapter nor the
+managed registration allocates another work sequence or interprets a feature
+result.
+
+The host facade exposes registration, stop-and-drain, and unregister through
+the existing generated module. Its Core registration holder provides the
+source that feature brokers may explicitly opt into later. A holder registers
+only once per realm, including after normal unregister; a new managed sequence
+space requires a new realm. The existing sender remains the owner of callback
+retention, active leases, fault records, and terminal drainage.
+
+Worker-declared failure closes adapter admission immediately. Starts rejected
+by the realm and transport exceptions throw back through the synchronous
+managed callback and follow the existing epoch-failure path. Finishes for
+previously admitted leases remain usable while draining. Cleanup is scheduled
+after the callback stack unwinds, rather than reentering a managed export from
+a managed callback. It stops managed admission, awaits drainage, and attempts
+unregister even when the drained reporter reports a retained failure. Repeated
+cleanup requests share that one result. Hard `Worker.terminate()` remains the
+separate physical release boundary and does not wait for managed cleanup.
+
+`engine-worker-epoch-work.test.ts`, included in
+`inspect-web-worker-protocol`, gates bootstrap ordering, failed registration,
+late startup closure, the Worker-issued allowance, visible callback rejection,
+and stop/drain/unregister ordering using the product bootstrap and realm.
+`BrowserManagedEpochWorkRegistrationTests` gates the actual managed holder in
+Release. The existing real-Worker browser gate exercises registration and
+normal cleanup through the generated production facade, alongside restart and
+partial startup failure. These gates do not stand in for a feature's shared
+producer adoption or responsiveness evidence.
 
 ## Operation adapter
 
@@ -1429,8 +1474,9 @@ into the runtime host:
    `inspect-web-worker-envelope-validation` (**implemented**);
 2. add the shared runtime core, host authority, and complete
    `inspect-web-worker-protocol` gate (**implemented**);
-3. adapt the current generated facade bootstrap behind the consumer-owned
-   bootstrap operation (**implemented** with the browser-binding sub-gate);
+3. adapt the current generated facade bootstrap, including managed reporter
+   registration and lifetime, behind the consumer-owned bootstrap operation
+   (**implemented** with the protocol and browser-binding sub-gates);
 4. add durable event batches (**implemented**) consuming #5570 and the
    complete managed nonterminal handoff in #5826 under #5419, before moving the
    existing Package Query stream;
