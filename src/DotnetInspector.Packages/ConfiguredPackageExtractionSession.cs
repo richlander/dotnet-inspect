@@ -102,6 +102,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             payload.ProducerKey)
         {
             Authority = result.Authority,
+            AcquiredPayload = payload,
             SelectedVersionSourceUrls = result.ReportingAuthorities is null
                 ? null
                 : Array.AsReadOnly(result.ReportingAuthorities

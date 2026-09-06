@@ -884,8 +884,7 @@ difficulty profile is selection/analysis metadata the oracle ignores.
 The sweep also answers questions about a pin file without acquiring anything:
 
 ```bash
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
-  eng/prepare-decompiler-package-sweep.cs -- \
+dotnet run eng/prepare-decompiler-package-sweep.cs -- \
   --validate-pin docs/data/nuget-top-packages.lock.json
 ```
 
@@ -902,8 +901,7 @@ short at exit 1.
 It also names the rules it applies, one per line:
 
 ```bash
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
-  eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
+dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
 ```
 
 `EvilPoolPinTests` holds each of those rules with a tampered pin file and asserts the
@@ -959,6 +957,12 @@ want to compare a baseline cap with a larger exploratory cap, repeat
 fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable comparisons and recompile- and context-failure buckets for triage. Each Deep Inspect census run
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
+
+Completeness runs in all three corpus profiles use the open metadata source for
+sibling-body import and type-disjointness evidence, as product decompilation
+does. The opt-in profile also records per-pass changes for feature coverage;
+the other profiles remain unstaged. This parity is limited to completeness:
+validity and compile-back measurements retain their own pipeline configuration.
 
 Use `--corpus-fidelity-oracle rts-parity` (`return-to-sender` and `rts` remain
 aliases) to run the fidelity sample through RTS instead of the default
@@ -1714,6 +1718,12 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 **Lowered view** (`--lowered`): a render selector, orthogonal to the dump sub-modes above, that lowers the *altitude* of the emitted C# rather than projecting a different analysis. It runs `IrPasses.Lowered` — the shipped pipeline minus the cosmetic statement-sugar passes (`for`/`foreach`, `lock`, `++`/`--`) — so the output is the decompiler's SharpLab "lowered C#": valid, recompilable C# at a lower level (`while` loops, explicit temps, explicit `Monitor.Enter`/`Exit`). It applies to `--dump` (with facts comments), `--validity-check --lowered` (its compile rate), and `--fidelity-check --lowered` (its contract body roundtrip).
 
 **Simulate new rules** (`--simulate-new-rules`, with `--dump`): the optimistic memory-safety render selector — another render dial orthogonal to the dump sub-modes, but it changes *which unsafe contexts are emitted* rather than the C# altitude. By default the printer is conservative: it emits explicit `unsafe { }` blocks only for a module that opted into the `updated-memory-safety-rules` feature (a module-level `MemorySafetyRulesAttribute`), so legacy output is byte-identical. With this flag it forces new-rules rendering on for *any* input, wrapping the operations the new rules would require even in a legacy module. It only recovers contexts the binary still records — IL-visible ops (`*p`, `calli`, `stackalloc`+`SkipLocalsInit`), pointer-in-signature calls, and a cross-assembly `[RequiresUnsafe]` callee (the attribute lives in the opted-in callee's assembly, read through the shared `MetadataContext`). A legacy same-assembly pointerless `unsafe` method leaves no trace, so simulate honestly emits no block for it. The conservative vs. optimistic contract and its recoverability limits are [docs/design/memory-safety-modes.md](../../docs/design/memory-safety-modes.md).
+
+The plain stage dump and `--dump --diff` both supply sibling-body import and
+type-disjointness evidence from the open metadata source. Their different
+presentation does not remove those raising capabilities. This does not imply
+capability parity for every diagnostic sub-mode; that broader work is tracked
+in [#5876](https://github.com/richlander/dotnet-inspect/issues/5876).
 
 **Pass impact** (`--pass-impact [pass]`): the corpus-wide *inverse* of `--dump --diff`. `--diff` answers "for this method, what did each pass do"; `--pass-impact` answers "for this pass, which methods does it change" — its blast radius across an assembly. With no pass named it prints a histogram (each pass and the count of methods it altered, the "which passes carry the load" roadmap); with a pass name it lists every method that pass changed. Add `--show-diff` to print each changed method's per-pass hunk beneath it. `--cap N` stops the sweep after `N` methods — a full-CoreLib stage sweep is not free, so cap it for a quick read. A pass that runs more than once in the pipeline (`typed-constants`, `expression-inlining`) counts a method once if any occurrence changed it.
 

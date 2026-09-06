@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { callFactsFixture } from "../test/member-facts-fixture.ts";
+import { callFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 
 async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
@@ -408,6 +408,82 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
+for (const [subject, width] of [
+  ["package", 1440], ["package", 390], ["library", 1440], ["library", 390],
+] as const) {
+  test(`${subject} Overview fills its frame and contains long content at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/browser/workspace-titlebar.html?${subject}-overview=1&long=1`);
+
+    const panel = await box(page, "#inspector-panel");
+    const surface = await box(page, ".overview-surface");
+    expect(surface.x).toBeCloseTo(panel.x, 0);
+    expect(surface.y).toBeCloseTo(panel.y, 0);
+    expect(surface.width).toBeCloseTo(panel.width, 0);
+    expect(surface.height).toBeCloseTo(panel.height, 0);
+    await expect(page.locator(".type-heading, .package-coordinate-editor")).toHaveCount(0);
+    const name = `Example.${"LongNamespace.".repeat(12)}Library`;
+    await expect(page.locator("#inspector-panel h1")).toHaveText(name);
+    expect((await box(page, ".overview-identity h1")).width).toBeGreaterThan(100);
+    expect((await box(page, ".overview-identity .subject-icon")).width).toBe(40);
+    await expect(page.locator(".overview-surface-head p")).toHaveText("32 types · 1,234 members");
+    await expect(page.locator(".overview-surface-footer span")).toHaveText([
+      "System.Text.Json@10.0.0", "net10.0",
+    ]);
+    if (subject === "package") {
+      await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
+      await expect(page.locator("#package-version")).toHaveValue("9.0.0");
+      await page.getByRole("combobox", { name: "Framework", exact: true }).selectOption("net10.0-windows10.0.19041.0");
+      await expect(page.locator("#framework")).toHaveValue("net10.0-windows10.0.19041.0");
+    } else {
+      await expect(page.locator(".overview-controls")).toHaveCount(0);
+      await expect(page.locator(".overview-identity-detail")).toHaveText([
+        `lib/net10.0/${name}.dll`,
+        `${name}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null`,
+      ]);
+    }
+
+    const header = await box(page, ".overview-surface-head");
+    const controls = subject === "package" ? await box(page, ".overview-controls") : null;
+    const footer = await box(page, ".overview-surface-footer");
+    expect(await page.locator(".overview-scroll").evaluate(element =>
+      element.scrollHeight > element.clientHeight)).toBe(true);
+    await page.locator(".overview-scroll").evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    if (subject === "package") {
+      await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
+    } else {
+      await expect(page.locator("[data-namespace-jump]").last()).toBeVisible();
+    }
+    expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
+    if (controls) expect((await box(page, ".overview-controls")).y).toBe(controls.y);
+    expect((await box(page, ".overview-surface-footer")).y).toBe(footer.y);
+    expect(await page.locator(".overview-scroll").evaluate(element =>
+      element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+    if (width === 390) {
+      const toggle = await box(page, "#content-navigation-toggle");
+      expect(toggle.y).toBeGreaterThanOrEqual(header.y);
+      expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
+      await page.getByRole("button", { name: subject === "package" ? "Libraries" : "Types", exact: true }).click();
+      await expect(page.locator(subject === "package" ? ".library-subject-list" : ".type-list")).toBeFocused();
+      await expect(page.locator(".detail-pane")).toBeHidden();
+    }
+  });
+}
+
+test("Package Overview keeps empty totals and available documents", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?package-overview=1&empty=1");
+  await expect(page.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+  await expect(page.locator(".library-row")).toHaveCount(0);
+  await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
+  await expect(page.locator(".overview-surface-footer")).toBeVisible();
+});
+
 test("Member Facts presents a compact summary separate from member identity", async ({
   page,
 }) => {
@@ -461,10 +537,16 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".call-empty"))
         .toHaveText("No direct call sites were found in this method.");
       await expect(page.locator(".call-row")).toHaveCount(0);
+      await expect(page.locator(".safety-facts > header > span"))
+        .toHaveText("0 facts");
+      await expect(page.locator(".safety-empty"))
+        .toHaveText("No unsafe operations or declaration evidence were found.");
+      await expect(page.locator(".safety-row")).toHaveCount(0);
     } else {
       await expect(page.locator(".facts-summary")).toHaveCount(0);
       await expect(page.locator(".allocation-facts")).toHaveCount(0);
       await expect(page.locator(".call-facts")).toHaveCount(0);
+      await expect(page.locator(".safety-facts")).toHaveCount(0);
       await expect(page.locator(".member-surface-scroll h2"))
         .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
       if (mode === "error") {
@@ -531,7 +613,7 @@ test("Member Facts allocation rows preserve all nine fields in occurrence order"
   }
   await expect(page.locator(".allocation-facts a, .allocation-facts button, .allocation-facts details"))
     .toHaveCount(0);
-  await expect(page.locator(".call-facts h2, .fact-group h2"))
+  await expect(page.locator(".call-facts h2, .safety-facts h2, .fact-group h2"))
     .toHaveText(["Calls", "Safety facts", "Exception regions"]);
   const section = await box(page, ".allocation-facts");
   const summary = await box(page, ".facts-summary");
@@ -590,7 +672,8 @@ test("Member Facts call rows preserve all five fields and repeated callees", asy
   }
   await expect(page.locator(".call-facts a, .call-facts button, .call-facts details"))
     .toHaveCount(0);
-  await expect(page.locator(".fact-group h2")).toHaveText(["Safety facts", "Exception regions"]);
+  await expect(page.locator(".safety-facts h2, .fact-group h2"))
+    .toHaveText(["Safety facts", "Exception regions"]);
   const calls = await box(page, ".call-facts");
   const allocations = await box(page, ".allocation-facts");
   expect(calls.width).toBeCloseTo(allocations.width, 0);
@@ -628,6 +711,64 @@ test("Member Facts call rows reflow by pane width without hiding long values", a
       .toHaveText("IL_12345678");
     await expect(page.locator(".call-properties").first().locator("dd"))
       .toHaveText(["Unknown", "no"]);
+  }
+});
+
+test("Member Facts safety rows preserve all five fields and explicit absent offsets", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&safety-facts=populated");
+  const facts = safetyFactsFixture();
+  await expect(page.locator(".safety-facts > header > span")).toHaveText("5 facts");
+  await expect(page.locator(".safety-row")).toHaveCount(5);
+  await expect(page.locator(".safety-no-offset")).toHaveCount(2);
+  for (const [index, fact] of facts.safety.entries()) {
+    const row = page.locator(".safety-row").nth(index);
+    await expect(row.locator(".safety-location > :first-child"))
+      .toHaveText(fact.offset ?? "No IL offset");
+    await expect(row.locator(".safety-kind")).toHaveText(fact.kind);
+    await expect(row.locator(".safety-operation")).toHaveText(fact.operation);
+    await expect(row.locator("dt")).toHaveText(["Requirement", "Evidence"]);
+    await expect(row.locator("dd")).toHaveText([fact.requirement, fact.evidence]);
+  }
+  await expect(page.locator(".safety-facts a, .safety-facts button, .safety-facts details"))
+    .toHaveCount(0);
+  await expect(page.locator(".fact-group h2")).toHaveText("Exception regions");
+  const safety = await box(page, ".safety-facts");
+  const calls = await box(page, ".call-facts");
+  expect(safety.width).toBeCloseTo(calls.width, 0);
+  expect(safety.height).toBeLessThanOrEqual(375);
+  expect(safety.y - (calls.y + calls.height)).toBeCloseTo(20, 0);
+});
+
+test("Member Facts safety rows reflow by pane width without hiding long values", async ({
+  page,
+}) => {
+  const facts = safetyFactsFixture("long");
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1100 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&safety-facts=long");
+    const location = await box(page, ".safety-row:first-child .safety-location");
+    const operation = await box(page, ".safety-row:first-child .safety-operation");
+    if (width === 900 || width === 360) {
+      expect(operation.y).toBeGreaterThanOrEqual(location.y + location.height);
+      expect(operation.x).toBeCloseTo(location.x, 0);
+    } else {
+      expect(operation.x).toBeGreaterThan(location.x + location.width);
+    }
+    for (const selector of [
+      ".safety-facts", ".safety-row", ".safety-location", ".safety-location > *",
+      ".safety-main", ".safety-operation", ".safety-properties",
+      ".safety-properties > div", ".safety-properties dd", ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".safety-operation")).toHaveText(facts.safety.map(fact => fact.operation));
+    await expect(page.locator(".safety-location code").last()).toHaveText("IL_12345678");
+    await expect(page.locator(".safety-no-offset")).toHaveCount(2);
   }
 });
 

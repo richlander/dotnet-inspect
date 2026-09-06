@@ -209,6 +209,200 @@ async function installFacades(
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 
+test("Libraries navigation exposes the complete truncated name on hover", async ({ page }) => {
+  const longLibrary = {
+    ...core,
+    name: "Example.Serialization.Providers.With.A.Very.Long.Library.Name",
+  };
+  await installFacades(page, {
+    ...surface,
+    assemblies: [longLibrary, other, empty],
+    types: [type("Example.Widget", longLibrary), type("Example.Neighbor", other)],
+  });
+  await page.goto(root);
+  const row = page.locator('.library-subject-list [data-lib-scope="asset:core"]');
+  await expect(row).toBeVisible();
+  const name = row.locator(".type-name");
+  await expect(name).toHaveText(longLibrary.name);
+  expect(await name.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  const location = page.url();
+  await row.hover();
+  await expect(row).toHaveAttribute("title", `Inspect ${longLibrary.name}`);
+  await expect(page.locator('.library-list [data-lib-scope="asset:core"]'))
+    .toHaveAttribute("title", `Inspect ${longLibrary.name}`);
+  await expect(page).toHaveURL(location);
+});
+
+for (const [width, selectedLibrary, activation] of [
+  [900, core, "click"],
+  [480, core, "keyboard"],
+  [900, empty, "keyboard"],
+  [480, empty, "click"],
+] as const) {
+  test(`Library back returns ${selectedLibrary.name} to Package at ${width}px with ${activation}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await page.goto(root);
+    await page.locator(`.library-list [data-lib-scope="${selectedLibrary.id}"]`).click();
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    const libraryLocation = page.url();
+    if (width === 480) {
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+    }
+    const back = page.locator(".type-browser .nav-back-row");
+    await expect(back).toHaveAccessibleName(`${selectedLibrary.name}: Back to package`);
+    if (activation === "click") {
+      await back.click();
+    } else {
+      await back.focus();
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
+    await expect(page.locator(width === 480
+      ? "#content-navigation-toggle" : ".library-subject-list")).toBeFocused();
+    const packageLocation = page.url();
+    expect(packageLocation).not.toBe(libraryLocation);
+
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+    await expect(page).toHaveURL(libraryLocation);
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel h1")).toHaveText(selectedLibrary.name);
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(selectedLibrary.publicTypes);
+    await expect(page.locator(".type-browser .nav-back-row")).toHaveAttribute("title", "Back to package");
+
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+    await expect(page).toHaveURL(packageLocation);
+    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await page.reload();
+    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
+  });
+}
+
+for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) {
+  test(`Type back reveals its Library inspector at ${width}px with ${activation}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await page.goto(root);
+    await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
+    const libraryLocation = page.url();
+    if (width === 480) {
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+    }
+    await page.locator('#type-list [data-type]').click();
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    const typeLocation = page.url();
+    if (width === 480) {
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+    }
+    const back = page.locator(".type-browser .nav-back-row");
+    await expect(back).toHaveAttribute("title", "Back to library");
+    await expect(back).toHaveAccessibleName("Example.Other: Back to library");
+    if (activation === "click") {
+      await back.click();
+    } else {
+      await back.focus();
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
+    await expect(page.locator(width === 480
+      ? "#content-navigation-toggle" : "#type-list")).toBeFocused();
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+    await expect(page.locator("#type-list")).toContainText("Neighbor");
+    await expect(page.locator("#type-list")).not.toContainText("Widget");
+    await expect(page).toHaveURL(libraryLocation);
+
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+    await expect(page).toHaveURL(typeLocation);
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+    await expect(page).toHaveURL(libraryLocation);
+    await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+for (const width of [1440, 390]) {
+  test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await page.goto(root);
+    const overview = page.locator(".package-overview-surface");
+    await expect(overview).toBeVisible();
+    expect(await overview.boundingBox()).toEqual(
+      await page.locator("#inspector-panel").boundingBox());
+    await expect(page.locator(".type-heading, .package-coordinate-editor")).toHaveCount(0);
+    await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
+    expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
+    await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
+    const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
+    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
+    await expect(page.locator(".overview-surface-footer span")).toHaveText([
+      "Example.Package@1.0.0", "net10.0",
+    ]);
+    await expect(overview.locator(".library-row")).toHaveCount(3);
+    await expect(overview.locator('[data-lib-scope="asset:empty"]')).toContainText("0 types");
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+
+    if (width === 390) {
+      await page.getByRole("button", { name: "Libraries", exact: true }).click();
+      await expect(page.locator(".library-subject-list")).toBeFocused();
+      await page.getByRole("button", { name: "Show details", exact: true }).click();
+    }
+    await overview.locator('[data-lib-scope="asset:other"]').click();
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
+    const libraryOverview = page.locator(".library-overview-surface");
+    expect(await libraryOverview.boundingBox()).toEqual(
+      await page.locator("#inspector-panel").boundingBox());
+    expect((await libraryOverview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
+    await expect(libraryOverview.locator(".overview-identity [data-package-icon]")).toBeVisible();
+    expect(await libraryOverview.locator("[data-package-icon]").getAttribute("src")).toBe(packageIconSource);
+    await expect(libraryOverview.locator(".overview-identity-detail")).toHaveText([
+      "lib/net10.0/Example.Other.dll",
+      "Example.Other, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+    ]);
+    await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("1 type · 1 member");
+    await expect(libraryOverview.locator(".overview-controls")).toHaveCount(0);
+    await expect(overview).toHaveCount(0);
+    await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+    await expect(overview).toBeVisible();
+    await overview.locator('[data-lib-scope="asset:empty"]').click();
+    await expect(libraryOverview.getByRole("heading", { level: 1 })).toHaveText("Example.Empty");
+    await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+    await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
+  });
+}
+
+for (const subject of ["Package", "Library"]) {
+  test(`both package icons retain the existing image fallback on ${subject} Overview`, async ({ page }) => {
+    await installFacades(page);
+    await page.goto(root);
+    if (subject === "Library") {
+      await page.locator('.package-overview-surface [data-lib-scope="asset:core"]').click();
+      await expect(page.locator(".library-overview-surface")).toBeVisible();
+    }
+    const icons = page.locator("[data-package-icon]");
+    await expect(icons).toHaveCount(2);
+    await icons.evaluateAll(images => {
+      for (const image of images) {
+        image.setAttribute("src", "data:image/png;base64,broken");
+        image.dispatchEvent(new Event("error"));
+      }
+    });
+    for (const image of await icons.all()) {
+      await expect(image).toHaveAttribute("src", "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
+    }
+  });
+}
+
 for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"]] as const) {
   test(`narrow Library navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {
     await page.setViewportSize({ width: 480, height: 900 });

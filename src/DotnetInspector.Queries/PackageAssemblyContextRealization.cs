@@ -76,6 +76,20 @@ public sealed class PackageRootBinding
     public PackageRootSelectionIdentity SelectionIdentity { get; }
 
     /// <summary>
+    /// Issues the exact, resource-free request that repeats this logical Root
+    /// under another host's acquisition capabilities.
+    /// </summary>
+    /// <remarks>
+    /// The issued value preserves the realized producer-pinned coordinate and
+    /// the normalized selection target separately, and carries no content,
+    /// generation identity, selection identity, workspace identity, lease,
+    /// opener, or path authority. Gated by
+    /// <c>SparsePackageAssemblyProjectionTests.ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets</c>.
+    /// </remarks>
+    public PackageRootReacquisitionRequest CreateReacquisitionRequest() =>
+        new(PackageArtifactRootRequest.From(this));
+
+    /// <summary>
     /// Binds a payload acquired through the typed source-client path.
     /// </summary>
     public static PackageRootBinding CreateFromSource(
@@ -196,7 +210,7 @@ public sealed class PackageRootBinding
             new PackageRootSelectionIdentity());
     }
 
-    static string? SourceAcquisitionFramework(string? targetFramework) =>
+    internal static string? SourceAcquisitionFramework(string? targetFramework) =>
         PackageCoordinateResolver.IsAcquisitionTargetText(targetFramework)
             ? targetFramework!.ToLowerInvariant()
             : null;
@@ -657,17 +671,27 @@ public sealed partial class InspectionWorkspace
     static Stream OpenEntry(
         RoleAsset asset,
         long maxExpandedBytes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        OpenPackageEntry(
+            asset.Package.Content,
+            asset.Asset.Path,
+            maxExpandedBytes,
+            cancellationToken);
+
+    static Stream OpenPackageEntry(
+        IPackageContent content,
+        string path,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!asset.Package.Content.TryOpenEntry(
-                asset.Asset.Path,
+        if (!content.TryOpenEntry(
+                path,
                 maxExpandedBytes,
                 out Stream? stream))
         {
             throw new InvalidOperationException(
-                "A selected assembly entry disappeared from "
-                + $"{asset.Package.PackageId} {asset.Package.PackageVersion}.");
+                "A selected assembly entry is unavailable in the retained package content.");
         }
 
         try

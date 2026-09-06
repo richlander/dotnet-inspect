@@ -164,3 +164,53 @@ export function callFactsFixture(
     ],
   };
 }
+
+export function safetyFactsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  const long = mode === "long";
+  return {
+    ...facts,
+    signals: { ...facts.signals, unsafe: true },
+    safety: [
+      {
+        kind: "Pointer local",
+        offset: null,
+        operation: "V_0: System.Byte*",
+        requirement: "requires unsafe",
+        evidence: "local",
+      },
+      {
+        kind: "Unsafe signature",
+        offset: null,
+        operation: "System.Byte*",
+        requirement: "requires unsafe",
+        evidence: "signature",
+      },
+      {
+        kind: "stackalloc",
+        offset: "IL_0002",
+        operation: "byte*",
+        requirement: "requires unsafe",
+        evidence: "stackalloc",
+      },
+      {
+        kind: "dereference",
+        offset: "IL_0008",
+        operation: "byte",
+        requirement: "requires unsafe",
+        evidence: "dereference",
+      },
+      {
+        kind: "Unsafe call",
+        offset: long ? "IL_12345678" : "IL_0014",
+        operation: long
+          ? "Example.Serialization.UnsafeBufferReader<System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.Text.Json.JsonElement>>>.ReadUnaligned<System.Collections.Generic.KeyValuePair<System.String,System.Text.Json.JsonElement>>(System.Byte*,System.Runtime.CompilerServices.UnsafeBufferReaderOptions)"
+          : "System.Runtime.CompilerServices.Unsafe.AsPointer<System.Byte>(System.Byte&)",
+        requirement: "requires unsafe",
+        evidence: "call",
+      },
+    ],
+  };
+}

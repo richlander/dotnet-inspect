@@ -145,6 +145,21 @@ MethodDef signature blobs are identical across the direction/readonly forms.
 Those examples do not demonstrate distinct metadata custom-modifier signatures.
 Modifier handling has its own evidence.
 
+`VirtualInterfaceModifierSignatureShapeFlowTests` adds compiler-produced virtual
+methods and interface declarations to that evidence. It records the required
+`System.Runtime.InteropServices.InAttribute` modifier on `in` and `ref readonly`,
+their distinct `IsReadOnlyAttribute`/`RequiresLocationAttribute` parameter
+markers, and the unmodified value/`ref`/`out` neighbors. Raw signatures are read
+before projection, without pinning metadata row numbers. Literal shapes and
+canonical transport preserve value/reference passing but erase the decoded
+modifier. A unique alternative source match is still only correspondence;
+multiple matching alternatives remain ambiguous, not interchangeable contracts.
+The [C# metadata encoding specification][readonly-parameter-encoding] supplies
+the comparative basis; existing unavailable-modifier refusal gates remain
+separate from this compiler-backed ledger.
+
+[readonly-parameter-encoding]: https://github.com/dotnet/csharplang/blob/main/proposals/csharp-12.0/ref-readonly-parameters.md#metadata-encoding
+
 ### Demo: distinguish overloads, retain ambiguity
 
 Within the compiled `Ref` group:

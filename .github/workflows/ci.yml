@@ -673,7 +673,7 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
-        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
 
       - name: Run ecosystem consumer tests
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
@@ -718,6 +718,9 @@ jobs:
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+
+      - name: Exercise Catalog research probe (offline)
+        run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a

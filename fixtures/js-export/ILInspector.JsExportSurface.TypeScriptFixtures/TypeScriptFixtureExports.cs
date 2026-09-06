@@ -181,4 +181,103 @@ public static partial class TypeScriptFixtureExports
             new WidgetDto(name, 1),
             FixtureJsonContext.Default.WidgetDto);
     }
+
+    [JSExport]
+    public static string GetWidgetSelection(bool widget) =>
+        JsonSerializer.Serialize(
+            widget
+                ? new WidgetSelection(new WidgetDto("selected", 2))
+                : new WidgetSelection("fallback"),
+            UnionFixtureJsonContext.Default.WidgetSelection);
+
+    [JSExport]
+    public static string GetDefaultSelection() =>
+        JsonSerializer.Serialize(
+            default(WidgetSelection),
+            UnionFixtureJsonContext.Default.WidgetSelection);
+
+    [JSExport]
+    public static string GetFlagSelection(bool flag) =>
+        JsonSerializer.Serialize(
+            flag
+                ? new FlagSelection((bool?)true)
+                : new FlagSelection(new WidgetDto("flagged", 3)),
+            UnionFixtureJsonContext.Default.FlagSelection);
+
+    [JSExport]
+    public static string GetOutcomeSelection(bool nested) =>
+        JsonSerializer.Serialize(
+            nested
+                ? new OutcomeSelection(new WidgetSelection("nested"))
+                : new OutcomeSelection(true),
+            UnionFixtureJsonContext.Default.OutcomeSelection);
+
+    [JSExport]
+    public static string GetKindSelection(bool declared) =>
+        JsonSerializer.Serialize(
+            declared
+                ? new KindSelection(WidgetKind.Deluxe)
+                : new KindSelection("unknown"),
+            UnionFixtureJsonContext.Default.KindSelection);
+
+    [JSExport]
+    public static string GetBoxedCount(int count) =>
+        JsonSerializer.Serialize(
+            new Boxed<int>(count),
+            UnionFixtureJsonContext.Default.BoxedInt32);
+
+    [JSExport]
+    public static string GetBoxedWidget(string name) =>
+        JsonSerializer.Serialize(
+            new Boxed<WidgetDto>(new WidgetDto(name, 4)),
+            UnionFixtureJsonContext.Default.BoxedWidgetDto);
+
+    [JSExport]
+    public static string GetCollectionSelection(int choice) =>
+        JsonSerializer.Serialize(
+            choice switch
+            {
+                // The array case declares non-nullable entries, yet a producer
+                // can still write a null entry into that JSON array.
+                0 => new CollectionSelection(
+                    [new WidgetDto("listed", 10), null!]),
+                1 => new CollectionSelection(
+                    new Dictionary<string, WidgetDto?>
+                    {
+                        ["present"] = new WidgetDto("mapped", 11),
+                        ["absent"] = null,
+                    }),
+                2 => new CollectionSelection(12),
+                _ => default,
+            },
+            UnionFixtureJsonContext.Default.CollectionSelection);
+
+    [JSExport]
+    public static string GetWrappedBlob() =>
+        JsonSerializer.Serialize(
+            new Wrapped<byte[]>([1, 2, 3]),
+            UnionFixtureJsonContext.Default.WrappedByteArray);
+
+    [JSExport]
+    public static async Task<string> GetSelectionEnvelopeAsync(string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new SelectionEnvelope(
+                new WidgetSelection(new WidgetDto(name, 5)),
+                [new WidgetSelection("first"), default],
+                new Dictionary<string, WidgetSelection>
+                {
+                    ["named"] = new WidgetSelection(new WidgetDto(name, 6)),
+                    ["missing"] = default,
+                },
+                new OutcomeSelection(new WidgetSelection("outcome")),
+                new KindSelection(WidgetKind.Basic),
+                WidgetKind.Deluxe,
+                new Boxed<int>(7),
+                new Boxed<WidgetDto>(new WidgetDto(name, 8)),
+                new Boxed<WidgetDto[]>([new WidgetDto(name, 9), null!]),
+                new Wrapped<byte[]>([4, 5])),
+            UnionFixtureJsonContext.Default.SelectionEnvelope);
+    }
 }

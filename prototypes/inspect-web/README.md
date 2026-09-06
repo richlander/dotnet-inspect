@@ -129,6 +129,9 @@ A workspace is **keyed by its complete exact coordinate set and reused**. The
 package surface, a type projection, an annotated member, Integrations,
 Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
+Retained packages and workspace reuse preserve the selected source-client
+association: matching package coordinates or producer identities do not merge
+distinct clients. Cache and scope limits remain aggregate session limits.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
 Opening, evicting, removing, and releasing the last protected use of a scope
@@ -555,6 +558,7 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
@@ -759,6 +763,16 @@ work and owns publication` gate that single-threaded Browser/Wasm protection.
 `graph-only implementation bodies select, switch, and clear` gates the mutable
 application projection that authorizes accessor fallback and removes that
 authorization when the selected target no longer matches a product body.
+
+`QueryMemberFindingCensus` requests Facts rows and the portable source document
+through one Research member projection. Its Source-facade envelope carries one
+producer-issued receipt, per-row Finding instance keys, the existing annotated
+source envelope, and the document-fact sidecar keys. It validates that both
+projections describe the same key set before serialization and preserves the
+nested `AnnotatedSourceDocument` wire shape unchanged. The existing
+Analysis-only `QueryMemberFacts` payload remains separate. Browser selection
+and stale-result behavior follow under #5517 rather than entering this
+transport operation.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
@@ -2110,6 +2124,31 @@ text escaping.
   restate their taxonomy.
 
 ## Deploy
+
+### Compare deployed runtime performance
+
+[`docs/inspect-web-runtime-performance.md`](../../docs/inspect-web-runtime-performance.md)
+owns the deployed-site benchmark contract. The harness measures cold startup,
+network-sensitive package acquisition, warm package projection, whole-package
+analysis, sustained member-analysis throughput, and method-body comparison
+while validating that every runtime returns the same semantic result.
+
+```bash
+npm run benchmark:published -- \
+  --site mono=https://dotnet-inspect.ca \
+  --site coreclr=https://coreclr.dotnet-inspect.ca \
+  --samples 5 \
+  --member-count 10 \
+  --output ../../artifacts/inspect-web-runtime-performance.json \
+  --trend-output ../../artifacts/inspect-web-runtime-trend-point.json
+```
+
+Comparative reports require the sites to serve the same product commit.
+`--allow-mismatched-commits` permits a diagnostic run but leaves the report
+explicitly non-comparable. The daily
+`inspect-web-performance-nightly.yml` workflow runs the comparison on one
+runner, retains raw evidence for 90 days, and emits a trend point only for a
+fully successful, matched-head, semantically equivalent report.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <LangVersion>preview</LangVersion>
     <RootNamespace>DotnetInspector.Services.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>

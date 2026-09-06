@@ -49,6 +49,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 Assert.Equal(reporters, outcome.Result.SelectedVersionSourceUrls);
                 Assert.Equal(reporters.Length == 2, outcome.Result.SelectedVersionUsesOriginalSources);
                 Assert.Contains(outcome.Result.Authority!.Source.Url, reporters);
+                AcquiredPackageSourcePayload payload =
+                    Assert.IsType<AcquiredPackageSourcePayload>(outcome.Result.AcquiredPayload);
+                Assert.Equal(outcome.Result.ExtractPath, payload.Content.RootPath);
+                Assert.Equal(outcome.Result.ProducerKey, payload.ProducerKey);
                 Assert.Equal(outcome.Result.Authority.Source.Url,
                     File.ReadAllText(Path.Combine(outcome.Result.ExtractPath, "README.md")));
             }
