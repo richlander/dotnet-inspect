@@ -101,6 +101,14 @@
 
 ### Package acquisition and audit
 
+- **Breaking:** `--versions` and `--versions-with-feed` are now zero-arity
+  selectors. Use `--versions -n N` or `--versions-with-feed -n N` to select
+  complete semantic rows; use `-n N --lines` only for explicit rendered-line
+  clipping. Version rows are selected after source aggregation and
+  completeness classification, including authenticated multi-source queries
+  (#5786). On these lenses, `--rows` accepts only `A..B`, `A..`, and `..B`;
+  use `-n N` for the first N rows. Rendered-line selection is unavailable with
+  document JSON because clipping would produce an invalid document.
 - Online metadata-only package version queries now support configured folder
   feeds for pinned verification, latest and range selection, listing status,
   and per-feed rows (#5400).
@@ -121,7 +129,6 @@
   incomplete evidence. Fix or exclude the failing source, or use raw
   `--versions` to inspect explicitly partial results. Online version queries
   bypass legacy producer-keyed caches; offline behavior is unchanged (#5400).
-
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify
   control or bidi text, package-source declarations, cleared restore sources,

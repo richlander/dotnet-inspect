@@ -675,12 +675,15 @@ the existing visible/`listed` presentation convention. Feed labels are
 credential-safe presentation only; colliding labels get operation-local
 ordinals, never hashes of HTTP authority keys.
 
-Limits apply to distinct versions after the union, not source rows. Range
-limits apply after inclusive endpoint resolution in caller direction.
+Source-composition limits apply to distinct versions after the union, not
+source rows. The CLI's adopted `-n` instead counts the selected lens's rows
+after query resolution, under
+[CLI row selection](cli-row-selection.md#command-by-command-adoption).
+Range limits apply after inclusive endpoint resolution in caller direction.
 Explicit latest queries exclude unlisted versions even when their output
 requests the listing column. Pinned queries enumerate including prereleases
 and unlisted coordinates, compare normalized versions, and do not consult
-legacy payload caches online. Raw partial listings (including `--versions 1`)
+legacy payload caches online. Raw partial listings (including `--versions -n 1`)
 retain warnings; bare `--version`, explicit latest, and range queries fail
 before rendering when evidence is partial.
 

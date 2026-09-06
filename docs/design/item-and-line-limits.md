@@ -16,15 +16,17 @@ citations refer to superseded umbrella text and are non-normative: they preserve
 neither the deleted decisions nor their former ownership. Each affected passage
 must be reconciled by its focused owner before it can guide implementation.
 
-This PR locks the composition pattern with semantic `RowSelection` as its one
-bounded first-owner adoption. All other participant adoptions remain separate
-focused efforts. The L2 row-query adoption is tracked by
+The composition pattern was locked with semantic `RowSelection` as its one
+bounded first-owner adoption. Participant adoptions remain separate focused
+efforts. #5786 is the first product adoption: plural package-version listings
+consume typed L3 intent and apply L2 selection after source aggregation. The
+L2 row-query adoption is tracked by
 [#5162](https://github.com/richlander/dotnet-inspect/issues/5162), and the
 standing layer-boundary adoption is tracked by
 [#5163](https://github.com/richlander/dotnet-inspect/issues/5163).
 
-The current CLI remains unchanged. This document defines no product syntax or
-behavior. Its only normative section is [Composition](#composition).
+This document defines no product syntax or behavior. Its only normative
+section is [Composition](#composition).
 
 ## Participant index
 

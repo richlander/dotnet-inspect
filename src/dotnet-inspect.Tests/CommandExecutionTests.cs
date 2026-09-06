@@ -1697,17 +1697,20 @@ public partial class CommandExecutionTests
         return ConsoleCapture.RunAsync(async () =>
         {
             var root = CommandLineBuilder.CreateRootCommand();
-            args = CommandLineBuilder.PreprocessArgs(args, root);
             // Mirror Program.cs: the stale `--head N`/`--tail N` spelling is a raw-token
             // question, so it is answered by the product before parsing rather than by
             // a validator. Call the same product method the entry point calls; do not
             // reimplement the check here.
-            if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
+            if (CommandLineBuilder.TryGetStaleArgumentError(
+                    args,
+                    root,
+                    out var staleArgumentError))
             {
                 CommandError.Write(staleArgumentError!);
                 return 1;
             }
 
+            args = CommandLineBuilder.PreprocessArgs(args, root);
             return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
         });
     }
@@ -12489,9 +12492,19 @@ public partial class CommandExecutionTests
             ["package", "Fixture", "-n", "2", "--json"]);
         var packageResult =
             CommandLineBuilder.CreateRootCommand().Parse(packageArgs);
+        var versionArgs = CommandLineBuilder.PreprocessArgs(
+            ["package", "Fixture", "--versions", "-n", "2", "--json"]);
+        var versionResult =
+            CommandLineBuilder.CreateRootCommand().Parse(versionArgs);
+        var versionLinesArgs = CommandLineBuilder.PreprocessArgs(
+            ["package", "Fixture", "--versions", "-n", "2", "--lines", "--json"]);
+        var versionLinesResult =
+            CommandLineBuilder.CreateRootCommand().Parse(versionLinesArgs);
 
         Assert.True(CommandLineBuilder.UsesTypedItemLimit(searchResult));
         Assert.False(CommandLineBuilder.UsesTypedItemLimit(packageResult));
+        Assert.True(CommandLineBuilder.UsesTypedItemLimit(versionResult));
+        Assert.False(CommandLineBuilder.UsesTypedItemLimit(versionLinesResult));
     }
 
     [Fact]
@@ -12815,7 +12828,7 @@ public partial class CommandExecutionTests
         {
             var versions = await RunAppAsync(
                 "package", "ThisQueryMustNotReachTheNetwork",
-                "--versions", "1", "--json", "--columns", "Version", "--tips", "q");
+                "--versions", "-n", "1", "--json", "--columns", "Version", "--tips", "q");
             var tfms = await RunAppAsync(
                 "package", packagePath,
                 "--tfms", "--json", "--columns", "TFM", "--tips", "q");
@@ -14114,7 +14127,7 @@ public partial class CommandExecutionTests
         // -S was previously accepted and then ignored by the lens, and --count required it,
         // so the mode was reachable only through a filter it did not honor.
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--versions", "1", "-S", "Files", "--count");
+            "package", "Newtonsoft.Json", "--versions", "-n", "1", "-S", "Files", "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -14300,7 +14313,7 @@ public partial class CommandExecutionTests
     public async Task Versions_Count_CountsVersionsRatherThanPrintingOne()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--versions", "1", "--count");
+            "package", "Newtonsoft.Json", "--versions", "-n", "1", "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -14310,7 +14323,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Newtonsoft.Json@13.0.4", "--versions", "1")]
+    [InlineData("Newtonsoft.Json@13.0.4", "--version", null)]
     [InlineData("Newtonsoft.Json", "--latest-version", null)]
     [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
     public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
@@ -14325,7 +14338,7 @@ public partial class CommandExecutionTests
             option,
         };
         if (value is not null)
-            args.Add(value);
+            args.AddRange(["-n", value]);
         args.AddRange(["--count", "--columns", "Listing", "--tips", "q"]);
 
         var (exit, output, error) = await RunAppAsync([.. args]);

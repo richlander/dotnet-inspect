@@ -39,6 +39,12 @@ public static class ArgumentPreprocessor
     /// cannot be what the user meant and reporting it would be a false positive.
     /// </summary>
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
+        => TryGetStaleDirectionFlagError(args, usesSemanticCount: false, out error);
+
+    internal static bool TryGetStaleDirectionFlagError(
+        string[] args,
+        bool usesSemanticCount,
+        out string? error)
     {
         error = null;
         var end = Array.IndexOf(args, "--");
@@ -47,28 +53,45 @@ public static class ArgumentPreprocessor
 
         for (var i = 0; i < end - 1; i++)
         {
-            if (args[i] is not ("--head" or "--tail") || !int.TryParse(args[i + 1], out _))
+            if (args[i] is not ("--head" or "--tail")
+                || IsBareShorthand(args[i + 1])
+                || !int.TryParse(args[i + 1], out _))
                 continue;
 
             var flag = args[i];
             var count = args[i + 1];
-            var rowMode = args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+            var rowMode = !usesSemanticCount
+                && args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
             var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
+            var countOptions = usesSemanticCount
+                ? "-n"
+                : "-n (the active command's unit) or --rows (data rows)";
             error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
-                + $"the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.";
+                + $"the count comes from {countOptions}. Use '{replacement}'.";
             return true;
         }
 
         return false;
     }
 
-    /// <summary>
-    /// Answers raw-token questions that must be resolved before parsing: spellings the product
-    /// used to accept and no longer does. The parser can only say "Unrecognized option", which
-    /// is true but leaves the caller to find the replacement themselves.
-    /// </summary>
-    public static bool TryGetStaleArgumentError(string[] args, out string? error)
-        => TryGetStaleDirectionFlagError(args, out error);
+    private static bool IsBareShorthand(string value) =>
+        value.Length > 1
+        && value[0] == '-'
+        && IsAsciiDecimal(value.AsSpan(1));
+
+    private static bool IsAsciiDecimal(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
+            return false;
+
+        foreach (char character in value)
+        {
+            if (character is < '0' or > '9')
+                return false;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// The replacement guidance for a package option this product removed, or <c>null</c> when the
@@ -109,6 +132,28 @@ public static class ArgumentPreprocessor
         "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
+    internal static bool IsImplicitPackageCandidate(
+        string[] args,
+        bool directionPresence = false)
+    {
+        int firstPositional = FindFirstPositionalArgument(args, directionPresence);
+        if (firstPositional < 0
+            || KnownCommands.Contains(args[firstPositional]))
+        {
+            return false;
+        }
+
+        if (!CommandLineHelpers.TryClassifyAsFilePath(
+                args[firstPositional],
+                out _,
+                out string? nupkgPath))
+        {
+            return true;
+        }
+
+        return nupkgPath is not null;
+    }
+
     /// <summary>
     /// Resets the HeadLines value. Used for testing.
     /// </summary>
@@ -118,10 +163,21 @@ public static class ArgumentPreprocessor
         TailLines = null;
     }
 
+    internal static void SetLineWindow(
+        int? headLines,
+        int? tailLines)
+    {
+        HeadLines = headLines;
+        TailLines = tailLines;
+    }
+
     /// <summary>
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
+        => PreprocessArgs(args, directionPresence: false);
+
+    internal static string[] PreprocessArgs(string[] args, bool directionPresence)
     {
         // Reset HeadLines for each preprocessing call
         HeadLines = null;
@@ -141,41 +197,7 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
 
-        // Find the first positional argument, skipping any leading options
-        int firstPositional = -1;
-        for (int i = 0; i < args.Length; i++)
-        {
-            var token = args[i];
-            if (!token.StartsWith('-'))
-            {
-                firstPositional = i;
-                break;
-            }
-
-            var optionName = token.Split('=', 2)[0];
-            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
-            {
-                continue;
-            }
-
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-            {
-                i++;
-                continue;
-            }
-
-            if (token != "--"
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && bool.TryParse(args[i + 1], out _))
-            {
-                i++;
-            }
-        }
-
+        int firstPositional = FindFirstPositionalArgument(args, directionPresence);
         if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
         {
             if (CommandLineHelpers.TryClassifyAsFilePath(args[firstPositional], out var dllPath, out var nupkgPath))
@@ -197,6 +219,48 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    internal static int FindFirstPositionalArgument(
+        string[] args,
+        bool directionPresence = false)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith('-'))
+            {
+                return i;
+            }
+
+            var optionName = token.Split('=', 2)[0];
+            if (!directionPresence
+                && TrySkipSeparatedDirectionValue(args, ref i, args.Length))
+            {
+                continue;
+            }
+
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+                continue;
+            }
+
+            if (token != "--"
+                && token is not ("--versions" or "--versions-with-feed" or "--lines" or "--tail-lines")
+                && !(directionPresence && token is "--head" or "--tail")
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && bool.TryParse(args[i + 1], out _))
+            {
+                i++;
+            }
+        }
+
+        return -1;
     }
 
     internal static string[] RewriteLineWindowShorthand(
@@ -446,7 +510,7 @@ public static class ArgumentPreprocessor
             StringComparer.Ordinal);
     private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
         new(
-            ["--path", "--library", "--version", "--versions", "--versions-with-feed"],
+            ["--path", "--library", "--version"],
             StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -459,7 +523,7 @@ public static class ArgumentPreprocessor
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
-        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--version", "--versions", "--versions-with-feed",
+        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--version",
         "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",

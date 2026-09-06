@@ -7,8 +7,9 @@ Focused L3 design proposal for
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677).
 
 This document owns the `dotnet-inspect` command-line grammar and lowering
-boundary for semantic row selection and rendered-line selection. The current
-product has not adopted this contract.
+boundary for semantic row selection and rendered-line selection. The package
+`--versions` and `--versions-with-feed` lenses adopt the Head/Tail, Window, and
+Lines subset; other command surfaces retain their existing contracts.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -16,12 +17,15 @@ structured failure selection over already-owned explicit-command option
 occurrences. #5678 implements the explicit-command adapter that establishes
 required-value ownership from System.CommandLine, normalizes eligible bare
 shorthand, preserves raw positions, extracts those occurrences, and invokes
-the lowerer. Implicit routing, diagnostic selection and rendering, command
-adoption, and guidance remain unimplemented.
+the lowerer. #5786 installs that adapter for plural package-version listings,
+renders its L3 failures before package acquisition, and carries typed intent
+through L2 row-cohort selection after source aggregation. The general implicit
+route envelope, remaining command adoptions, and shared universal guidance
+remain unimplemented.
 
-Only those two explicit-command subsets are verified by their named Release
-gates in [Required gates](#required-gates). Every other asserted behavior
-remains unverified until its named gate lands.
+Only the implemented subsets are verified by their named Release gates in
+[Required gates](#required-gates). Every other asserted behavior remains
+unverified until its named gate lands.
 
 Related owners:
 
@@ -151,9 +155,14 @@ explicit-occurrence lowerer therefore owns repeated-gesture failure. The
 adapter preserves parser errors and structured row-arity failures but does not
 yet select or render the one diagnostic when both exist.
 
-This adapter is not installed in the current command path. Existing
-rendered-line compatibility behavior, explicit commands, and implicit routing
-remain unchanged.
+This adapter is installed only for the plural package-version lenses. Existing
+rendered-line compatibility behavior for other command surfaces and the
+general implicit-routing envelope remain unchanged.
+
+Existing options-first implicit package routing preserves direction-modifier
+presence arity when a prospective package parse owns the selected plural lens.
+Explicit commands and selector-shaped required values retain their existing
+binding. This does not implement the general route-independent envelope below.
 
 ## Convention and deliberate divergence
 
@@ -416,6 +425,9 @@ ranking from a field name, display label, or row order.
 Payload projections may impose additional combination rules. Those rules
 belong to their focused owner and command adoption, not this grammar.
 
+An adoption's format-compatibility rules apply before a line window is installed
+or any handler emits output, including acquisition-free disclosure handlers.
+
 Every L3 lowering failure:
 
 - returns nonzero;
@@ -478,9 +490,11 @@ failure and hide that failure.
 
 ## Command-by-command adoption
 
-Adoption is explicit on the active leaf command. A command does not become
-adopted because it happens to use a shared option object, renders a table, or
-shares an execution helper with an adopted command.
+Adoption is explicit on the active leaf command or on an explicit zero-arity
+lens selector whose row set is determined at L3. A command or lens does not
+become adopted because it happens to use a shared option object, renders a
+table, or shares an execution helper with an adopted surface. Unselected modes
+of a lens-adopting command retain their existing contract.
 
 One adoption PR defines:
 
@@ -497,9 +511,20 @@ grammar. Shared/root guidance must not call `-n` universal until all commands
 named by #4677 have adopted it. An adopted command uses `-n` only for semantic
 rows; its rendered-line operation is available only through `--lines`.
 
-One invocation is governed entirely by the active command's declaration and
-never changes meaning based on whether a later subsystem happens to handle the
-result.
+One invocation is governed entirely by the active command or selected lens
+declaration and never changes meaning based on whether a later subsystem
+happens to handle the result.
+
+The package adoption consumes the online metadata-query evidence policy from
+[Package Source Model](package-source-model.md#metadata-only-version-queries).
+Semantic limits do not cap that discovery or relax its completeness rules.
+Rows and Count follow query resolution: raw and observed pinned results retain
+partial-source disclosure, while latest and range queries with insufficient
+evidence fail before row selection or projection.
+
+The adoption preserves feed document JSON's existing `version`, `feed`, and
+Boolean `listed` fields. The table/JSONL `listing` text remains a separate
+presentation, not a reason to change the typed document schema.
 
 ## Supported spellings and guidance
 
@@ -514,6 +539,10 @@ present.
 
 Guidance names only behavior available on its declared command. Shared guidance
 does not anticipate adoption.
+
+The plural package-version selectors use ordinary zero-arity parsing, without
+recognizing former count spellings or providing migration diagnostics.
+A following numeric token is ordinary positional package input, not a count.
 
 ## Mock demo
 
@@ -570,6 +599,32 @@ The implemented explicit-command argv adapter is enforced by:
 | `CliRowSelectionExplicitOccurrencePositionTests` | Separated, `=`/`:` attached, and compact values extract typed occurrences at their raw option positions, including one opaque order operand, then preserve semantic order through lowering. |
 | `CliRowSelectionExplicitParseFailureTests` | Authoritative System.CommandLine failures, including unsupported POSIX bundles, suppress lowering; missing row values and attached modifier values produce structured row-arity failures; following separate tokens remain independently parsed; repeatable one-value-per-token option identities preserve complete repeats for the lowerer's repeated-gesture failure. |
 | `CliRowSelectionExplicitAdapterCompositionTests` | Raw Window plus bare count and line-unit input composes through the adapter into surviving semantic Window and rendered-line intent with exactly the lowered capabilities. |
+| `CliRowSelectionExplicitScalarOptionBindingsLower` | An adopting command can bind existing scalar System.CommandLine options while preserving compact-limit normalization and ordered Window/Head intent. |
+| `CliRowSelectionExplicitPresenceArityPreservesLegacyBinding` | Adopted modifiers leave Boolean-shaped input positional while ordinary parsing retains the shared legacy binding's value behavior before and after adoption. |
+| `CliRowSelectionRawOwnershipPreservesCompactOptionExpansion` | The shared ownership map preserves later option identities and required values when a preliminary parse expands a compact scalar option into separate option/value tokens. |
+
+The plural package-version adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `Versions_WithLimit_RespectsLimit`, `Versions_BareShorthandAndTailSelectRows`, and `Versions_ModifierBeforeBareShorthandSelectsRows` | Explicit `-n`, implicit-route `-N`, and either modifier order for Head/Tail select complete version rows. |
+| `Versions_WithLimit_ProducesCompleteJsonRows` and `VersionsWithFeed_WithLimit_ProducesCompleteJsonRows` | JSON contains the selected complete row objects for merged and feed-attributed listings. |
+| `VersionFeed_JsonPreservesBooleanListedProperty` | Feed document JSON retains its established fields and Boolean listing values for both listed and unlisted rows. |
+| `VersionsWithFeed_LinesMakesRenderedClippingExplicit`, `Versions_LinesRejectsDocumentJsonBeforeAcquisition`, and `Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition` | Line intent opts into rendered-line selection where the format remains valid and rejects explicit or environment-selected document JSON before acquisition, including when Boolean-shaped input follows a line modifier. |
+| `Versions_QueryDiscoveryPreservesJsonFormatContract` and `Versions_QueryDiscoveryReportsConflictingFormats` | Query discovery cannot bypass either plural lens's line/JSON rejection, including environment-selected JSON; complete discovery JSON and explicit non-JSON overrides retain their behavior, and conflicting renderer flags still report a visible error. |
+| `Versions_ZeroArityFlagsPreserveFollowingPackageInput` | New plural selectors and line modifiers are zero-arity: following Boolean-shaped package input remains positional rather than disabling the flag. |
+| `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
+| `Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy` | Removed valued-direction syntax recommends `-n` rather than unsupported row counts for both explicit and implicit plural lenses, and the corrected command succeeds. |
+| `PackageVersionListing_DirectionPreservesBooleanPackageInput`, `PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection`, and `PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue` | Explicit and options-first implicit plural lenses preserve Boolean-shaped package names after either direction modifier and select the correct row; required selector-shaped values and explicit search retain legacy direction binding. |
+| `PreprocessArgs_ZeroArityVersionFlagsPreserveBooleanTarget` and `PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues` | Implicit routing leaves Boolean-shaped package input after presence-only flags while preserving separated Boolean values on ordinary options. |
+| `Versions_SelectorLeavesNumericInputAsPackageArgument` and `Versions_AdditionalPackageUsesMultiPackageValidation` | Both zero-arity selectors leave numeric input to normal package parsing; an additional package uses ordinary multi-package validation rather than a former-count diagnostic. |
+| `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
+| `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
+| `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |
+| `LatestVersionListing_RefreshesOnlineEvidence` and `FeedLatest_RefreshFailureDoesNotFallBackToCachedRows` | Ordinary and `@latest` online listings acquire fresh source evidence, preserve feed row identity, and report refresh failures rather than returning earlier rows. |
+| `PackageVersionListing_LimitOneStillReportsPartialEvidence`, `PackageVersionListing_IncludeUnlistedLimitOneStillReportsPartialEvidence`, and `PackageVersionFeedListing_LimitOneStillReportsPartialEvidence` | Semantic Head(1) does not suppress multi-source failure evidence in merged, listing-aware, or feed-attributed listings, including count projection. |
+| `CoordinateVersionListing_PreservesPartialEvidence` and `SingularCoordinateVersionListing_PreservesSourceFailureDisclosure` | Adopted coordinates preserve source-failure evidence before selection and count projection, with or without listing status: observed pins disclose partial results, latest/range queries fail without rows, and singular pins retain the source owner's disclosure. |
+| `PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport` | Local-directory and file-URI sources enumerate versions without HTTP/plugin authentication under semantic Head(1). |
 
 The remaining implementation must satisfy:
 

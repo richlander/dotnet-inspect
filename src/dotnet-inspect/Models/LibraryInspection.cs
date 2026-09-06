@@ -1529,11 +1529,18 @@ public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays,
 
 public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
 
+public sealed record VersionJson(string Version);
+
+public sealed record VersionListingJson(string Version, string Listing);
+
 /// <summary>
 /// One version of a package as carried by one feed. A version present on two feeds
 /// produces two of these.
 /// </summary>
-public sealed record VersionFeedJson(string Version, string Feed, bool Listed);
+public sealed record VersionFeedJson(
+    string Version,
+    string Feed,
+    bool Listed);
 
 public sealed record LibraryIntegrationSignalJson(
     string Kind,

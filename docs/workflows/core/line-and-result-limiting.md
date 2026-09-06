@@ -7,7 +7,18 @@ areas: [output, limiting, count, agents]
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`), including printed document content; add `--tail` to take them from the end. `--rows N` interprets a count as table data rows per rendered table, and `--rows N..M` selects the rows those numbers name. `--value`, `--urls`, and `--paths` project selected sections to scalar/URL/path payloads; `--json-array` makes projected rows one JSON document; `--row N` chooses a projected or printable row. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` reduces a selected section/vector to one integer row count, while `--bare` stays a presentation-only modifier for already-selected payloads. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n` limits output lines (like `head`) on
+> commands that have not adopted semantic rows. With package `--versions` and
+> `--versions-with-feed`, `-n` selects complete version rows instead; add
+> `--lines` to request rendered-line clipping explicitly. `--rows N`
+> interprets a count as table data rows per rendered table, and `--rows N..M`
+> selects the rows those numbers name. `--value`, `--urls`, and `--paths`
+> project selected sections to scalar/URL/path payloads; `--json-array` makes
+> projected rows one JSON document; `--row N` chooses a projected or printable
+> row. `-t` and `-m` limit result counts for types and members. `--count`
+> reduces a selected section/vector to one integer row count, while `--bare`
+> stays a presentation-only modifier for already-selected payloads. These are
+> essential for agents that need compact, predictable output.
 
 ## Preconditions
 
@@ -225,10 +236,10 @@ Tips:
 
 > Goal: Return only the first N versions.
 
-### 8a. Using `--versions N`
+### 8a. Using `--versions -n N`
 
 ```bash
-dotnet-inspect System.CommandLine --versions 3
+dotnet-inspect System.CommandLine --versions -n 3
 ```
 
 ```expect-not
@@ -242,6 +253,12 @@ wc -l | tr -d ' '
 ```expect
 3
 ```
+
+`-3` is equivalent shorthand. Add `--tail` for the oldest three versions.
+Because this command has adopted semantic rows, use `-n 3 --lines` only when
+you intentionally want the first three rendered lines rather than three
+complete version rows. Rendered-line selection cannot combine with `--json`
+because clipping would make the JSON document invalid.
 
 ## 9. Count rows in a section
 
