@@ -195,6 +195,7 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Similar_RelativeLocalSourceReplayIsIndependentOfTheNextWorkingDirectory()
     {
         string root = Path.Combine(
@@ -411,6 +412,7 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory()
     {
         string root = Path.Combine(
@@ -1042,6 +1044,7 @@ public sealed class MatchDiscoveryTests
     /// this gate pins the reported names, not just a non-empty result.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Similar_TypeScopeFollowsAForwarderToTheDefiningImage()
     {
         string coreLibrary = typeof(string).Assembly.Location;
@@ -4027,6 +4030,7 @@ public sealed class MatchDiscoveryTests
     /// defining image and compared a member the caller never named, at exit 0.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Pairwise_TokenPrintedForAForwardedPopulation_IsNotHonoredAgainstTheFacade()
     {
         string coreLibrary = typeof(string).Assembly.Location;
@@ -4070,6 +4074,7 @@ public sealed class MatchDiscoveryTests
     /// be rejected; a facade has no row to compare.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Pairwise_TokenAgainstAPureFacade_NeverBindsToAForwardedType()
     {
         string coreLibrary = typeof(string).Assembly.Location;

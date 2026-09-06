@@ -8,6 +8,7 @@ public class MtpTestHostTests
         "DotnetInspector.Tests.MtpTestHostTests.SelectionFixture_Passes";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task UnmatchedFilter_ExitsWithZeroTestsCode()
     {
         ProcessResult result = await RunHostAsync(
@@ -18,6 +19,7 @@ public class MtpTestHostTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task ValidFilter_RunsSelectedTest()
     {
         ProcessResult result = await RunHostAsync(
@@ -28,6 +30,7 @@ public class MtpTestHostTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task MixedValidAndStaleValues_UseAggregateMinimum()
     {
         ProcessResult result = await RunHostAsync(
