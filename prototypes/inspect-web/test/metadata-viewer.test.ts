@@ -417,7 +417,7 @@ function assembly(overrides = {}) {
 function lensOptions(overrides = {}) {
   return {
     isPlatform: false,
-    scopedLibrary: "",
+    scopedLibrary: "Contoso",
     packageId: "Contoso",
     packageVersion: "1.2.3",
     activeFramework: "net10.0",
@@ -489,11 +489,11 @@ test("the metadata lens surfaces a partial-read warning alongside the image", ()
   const html = renderPackageMetadata(lensOptions({
     metadata: { assemblies: [assembly()], inspectionError: "Native.dll unreadable" },
   }));
-  assert.match(html, /Some assemblies could not be read/);
+  assert.match(html, /This library could not be read completely/);
   assert.match(html, /Native\.dll unreadable/);
   assert.match(html, /<p>1 assembly<\/p>/);
   assert.match(html, /title="Contoso@1\.2\.3"/);
-  assert.match(html, /title="net10\.0"/);
+  assert.match(html, /title="net10\.0 · Contoso"/);
 });
 
 test("the metadata lens keeps selected platform context in its stable frame", () => {
@@ -525,7 +525,7 @@ test("the metadata lens distinguishes a truncated metadata version", () => {
 
 test("the metadata lens reports an image with no ECMA-335 metadata", () => {
   const html = renderPackageMetadata(lensOptions({ metadata: { assemblies: [] } }));
-  assert.match(html, /No metadata images/);
+  assert.match(html, /No metadata image/);
 });
 
 test("the metadata lens does not render all-failed inspection as valid emptiness", () => {
@@ -537,7 +537,7 @@ test("the metadata lens does not render all-failed inspection as valid emptiness
   }));
   assert.match(html, /Metadata read failed/);
   assert.match(html, /Assembly unavailable: InvalidImage\./);
-  assert.doesNotMatch(html, /No metadata images/);
+  assert.doesNotMatch(html, /No metadata image/);
   assert.doesNotMatch(html, /native or resource-only/);
 });
 
@@ -587,7 +587,7 @@ test("the metadata lens places assembly content directly in its owned scroller",
   const html = renderPackageMetadata(lensOptions());
   assert.match(
     html,
-    /<h1 id="package-metadata-surface-title">Metadata images<\/h1>[\s\S]*?<div class="package-metadata-scroll">[\s\S]*?class="document-section meta-assembly"/);
+    /<h1 id="package-metadata-surface-title">Metadata image<\/h1>[\s\S]*?<div class="package-metadata-scroll">[\s\S]*?class="document-section meta-assembly"/);
   assert.doesNotMatch(
     html,
     /<h2>Metadata image<\/h2>|class="type-heading"|package-coordinate-editor/);

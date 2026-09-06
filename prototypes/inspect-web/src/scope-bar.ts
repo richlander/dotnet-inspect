@@ -1,8 +1,10 @@
 import {
+  isLibraryLens,
   isMemberSection,
   isPackageLens,
   isTypeLens,
   isWorkspaceScope,
+  type LibraryLens,
   type MemberSection,
   type PackageLens,
   type TypeLens,
@@ -44,6 +46,7 @@ export interface RenderScopeBarOptions<TId extends string = string> {
 
 export interface ScopeBarBindingActions {
   onApplicationScopeSelect: (scope: ApplicationScope) => void;
+  onLibraryLensSelect: (lens: LibraryLens) => void;
   onMemberSectionSelect: (section: MemberSection) => void;
   onPackageLensSelect: (lens: PackageLens) => void;
   onScopeSelect: (scope: WorkspaceScope) => void;
@@ -61,6 +64,7 @@ export interface ApplicationScopeBarBinding {
 
 export type ScopeBarFocusTarget =
   | { kind: "application-scope"; value: ApplicationScope }
+  | { kind: "library-lens"; value: LibraryLens }
   | { kind: "member-section"; value: MemberSection }
   | { kind: "package-lens"; value: PackageLens }
   | { kind: "scope"; value: WorkspaceScope }
@@ -144,6 +148,11 @@ export function captureScopeBarFocus(
     return { kind: "package-lens", value: packageLens };
   }
 
+  const libraryLens = element.dataset.libraryLens;
+  if (isLibraryLens(libraryLens)) {
+    return { kind: "library-lens", value: libraryLens };
+  }
+
   const typeLens = element.dataset.lens;
   if (isTypeLens(typeLens)) return { kind: "type-lens", value: typeLens };
 
@@ -176,6 +185,8 @@ export function restoreScopeBarFocus(
       ? ["[data-scope]", target.value]
       : target.kind === "package-lens"
         ? ["[data-package-lens]", target.value]
+        : target.kind === "library-lens"
+          ? ["[data-library-lens]", target.value]
         : target.kind === "type-lens"
           ? ["[data-lens]", target.value]
           : ["[data-member-section]", target.value];
@@ -184,6 +195,7 @@ export function restoreScopeBarFocus(
       element.dataset.applicationScope
       ?? element.dataset.scope
       ?? element.dataset.packageLens
+      ?? element.dataset.libraryLens
       ?? element.dataset.lens
       ?? element.dataset.memberSection
     ) === value);
@@ -268,6 +280,11 @@ export function bindScopeBar(
     button.addEventListener("click", () => {
       const lens = button.dataset.packageLens;
       if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-library-lens]").forEach(button =>
+    button.addEventListener("click", () => {
+      const lens = button.dataset.libraryLens;
+      if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
     }));
   root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
     button.addEventListener("click", () => {
@@ -431,6 +448,7 @@ function subjectDefinitions(
 ): readonly (readonly [Exclude<WorkspaceScope, "workspace">, string])[] {
   return [
     ["package", "Package"],
+    ["library", "Library"],
     ["type", "Type"],
     ...(showMemberScope
       ? [["member", "Member"] as const]
@@ -483,6 +501,8 @@ export function renderScopeBar<TId extends string>(
     ? "Workspace"
     : scope === "package"
       ? "Package"
+      : scope === "library"
+        ? "Library"
       : scope === "type"
         ? "Type"
         : "Member";

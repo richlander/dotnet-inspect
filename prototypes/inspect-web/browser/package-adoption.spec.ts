@@ -212,6 +212,7 @@ declare global {
         packageId: string,
         version: string,
         framework: string,
+        libraryId: string,
       ): Promise<PackageIntegrations>;
     };
   }
@@ -291,8 +292,8 @@ async function boot(page: Page): Promise<void> {
       clearOccurrences: () => {
         pkg.clearWorkspacePackageOccurrences();
       },
-      queryIntegrations: (packageId, pkgVersion, framework) =>
-        analysis.queryPackageIntegrations(packageId, pkgVersion, framework),
+      queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
+        analysis.queryPackageIntegrations(packageId, pkgVersion, framework, libraryId),
     };
   });
 }
@@ -304,7 +305,7 @@ function driver(page: Page): {
   queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
-  queryIntegrations(packageId: string, version: string, framework: string): Promise<PackageIntegrations>;
+  queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
 } {
   return {
     queryPackage: (fixture, framework = fixtureFramework) =>
@@ -331,11 +332,11 @@ function driver(page: Page): {
       page.evaluate(() => {
         window.__adoption!.clearOccurrences();
       }),
-    queryIntegrations: (packageId, pkgVersion, framework) =>
+    queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
       page.evaluate(
-        ({ packageId: id, version: ver, framework: tfm }) =>
-          window.__adoption!.queryIntegrations(id, ver, tfm),
-        { packageId, version: pkgVersion, framework },
+        ({ packageId: id, version: ver, framework: tfm, libraryId: selected }) =>
+          window.__adoption!.queryIntegrations(id, ver, tfm, selected),
+        { packageId, version: pkgVersion, framework, libraryId },
       ),
   };
 }
@@ -549,16 +550,34 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(malformedSurface.inspectionError).toBeNull();
     expect(String(malformedSurface.compileLibrary.status)).toBe("Selected");
 
+    const brokenLibrary = malformedSurface.assemblies.find(
+      library => library.asset === `ref/${fixtureFramework}/${brokenAssemblyFileName}`,
+    );
+    const healthyLibrary = malformedSurface.assemblies.find(
+      library => library.asset === `ref/${fixtureFramework}/${healthyAssemblyFileName}`,
+    );
+    if (brokenLibrary === undefined || healthyLibrary === undefined) {
+      throw new Error("Expected both Library descriptors in the malformed package.");
+    }
     const integrations = await engine.queryIntegrations(
       malformed.packageId,
       version,
       fixtureFramework,
+      brokenLibrary.id,
     );
     expect(integrations.package).toBe(malformed.packageId);
     expect(String(integrations.compileLibrary.status)).toBe("Selected");
     expect(integrations.isComplete).toBe(false);
     expect(integrations.inspectionError).not.toBeNull();
     expect(integrations.inspectionError ?? "").toContain("InvalidImage");
+    const healthyIntegrations = await engine.queryIntegrations(
+      malformed.packageId,
+      version,
+      fixtureFramework,
+      healthyLibrary.id,
+    );
+    expect(healthyIntegrations.isComplete).toBe(true);
+    expect(healthyIntegrations.inspectionError).toBeNull();
   });
 
   test("holds the four-scope bound and evicts to admit new scopes", async ({
@@ -629,10 +648,17 @@ test.describe("bounded network-backed two-host demo", () => {
 
     // HTTP Client integration evidence matches the CLI default demo
     // (IHttpClientFactory / AddHttpClient) for the same real coordinate.
+    const library = surface.assemblies.find(
+      candidate => candidate.name === "Microsoft.Extensions.Http",
+    );
+    if (library === undefined) {
+      throw new Error("Expected the Microsoft.Extensions.Http Library descriptor.");
+    }
     const integrations = await engine.queryIntegrations(
       "Microsoft.Extensions.Http",
       "10.0.0",
       "net10.0",
+      library.id,
     );
     expect(integrations.isComplete).toBe(true);
     expect(String(integrations.compileLibrary.status)).toBe("Selected");
