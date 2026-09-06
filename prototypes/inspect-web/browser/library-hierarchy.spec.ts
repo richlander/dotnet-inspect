@@ -287,6 +287,113 @@ async function installFacades(
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 
+for (const initialWidth of [1440, 390]) {
+  test(`active subject continuity keeps Library visible from ${initialWidth}px entry`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: initialWidth, height: 844 });
+    await installFacades(page);
+    await page.goto(root);
+    await expect(page.locator('[data-scope="package"]')).toBeVisible();
+    await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+    const libraryTab = page.locator('[data-scope="library"]');
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expect(libraryTab).toBeVisible();
+    await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
+    const location = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const menu = page.getByRole("button", { name: "Application menu", exact: true });
+    await menu.focus();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expect(menu).toBeFocused();
+    await expect(page).toHaveURL(location);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    await testInfo.attach("active-library-390", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+
+    await page.reload();
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
+    await page.setViewportSize({ width: 1440, height: 844 });
+    for (const subject of ["package", "library", "type"]) {
+      await expect(page.locator(`[data-scope="${subject}"]`)).toBeVisible();
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+test("active subject continuity retains explicit browsing until the subject changes", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  const libraryTab = page.locator('[data-scope="library"]');
+  const packageTab = page.locator('[data-scope="package"]');
+  await expect(libraryTab).toBeVisible();
+  const menu = page.getByRole("button", { name: "Application menu", exact: true });
+  await menu.focus();
+  const location = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  await page.locator(".slide-strip-subject").hover();
+  await page.mouse.wheel(-100, 0);
+  await expect(packageTab).toBeVisible();
+  await expect(libraryTab).toBeHidden();
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+  await expect(packageTab).toHaveAttribute("aria-selected", "false");
+  await expect(menu).toBeFocused();
+  await expect(page).toHaveURL(location);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await expect(libraryTab).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(packageTab).toBeVisible();
+  await expect(libraryTab).toBeHidden();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
+  await expect(packageTab).toBeVisible();
+  await expect(libraryTab).toBeHidden();
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+
+  await packageTab.click();
+  await expect(packageTab).toHaveAttribute("aria-selected", "true");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+  await expect(libraryTab).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
+});
+
+test("active subject continuity preserves focus without making a manual window", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  const libraryTab = page.locator('[data-scope="library"]');
+  const typeTab = page.locator('[data-scope="type"]');
+  await typeTab.focus();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(typeTab).toBeFocused();
+  await expect(typeTab).toBeInViewport({ ratio: 1 });
+  await expect(typeTab).toHaveAttribute("aria-selected", "false");
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("button", { name: "Application menu", exact: true }).focus();
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await expect(libraryTab).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(libraryTab).toBeInViewport({ ratio: 1 });
+  await libraryTab.press("ArrowLeft");
+  await expect(page.locator('[data-scope="package"]')).toBeFocused();
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+});
+
 async function openIntegrations(page: Page, location = root) {
   await page.goto(location);
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();

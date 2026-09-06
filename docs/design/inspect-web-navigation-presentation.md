@@ -193,9 +193,18 @@ that preserves multiple inspectors over a one-label window. A one-inspector
 inventory clamps those requests to one. When no mode can fit two controls,
 SlideStrip's one-item floor applies.
 
-The subject strip's initial anchor is the active subject. The inspector strip's
-initial anchor is the effective inspector. Equal-ranked windows expand toward
-the following item before the preceding item in both strips.
+The subject strip's initial anchor is the active subject. It adopts SlideStrip's
+`anchor-until-slide` policy: ordinary placement and responsive resizing keep
+that subject visible unless an item owns focus or the user has explicitly slid
+the strip. A deliberate slide may move the active subject out of view and
+retains its window across width-only changes and same-subject rendering.
+Focus reveal does not establish a manual window. Changing the active subject
+resets the manual window so ordinary placement follows the new subject.
+These are presentation rules; they neither infer nor change selection.
+
+The inspector strip's initial anchor is the effective inspector and its
+window-continuity policy remains `retain-leading`. Equal-ranked windows expand
+toward the following item before the preceding item in both strips.
 
 When a non-empty inventory has no effective inspector, its first owner-ordered
 inspector is the presentation-priority origin without becoming selected and
@@ -307,10 +316,11 @@ Allocation-button bounds and activation use the currently rendered stable
 level, not an unclamped retained request. An enabled button always selects the
 adjacent Pareto level and therefore cannot converge to the same rendered pair.
 
-The subject strip's window-continuity key is its ordered subject identity
-sequence plus subject-policy version. The inspector strip's key is the active
-subject identity, ordered inspector identity sequence, and inspector-policy
-version. Width and focus movement do not replace either key.
+The subject strip's window-continuity key is the active subject identity, its
+ordered subject identity sequence, and subject-policy version. The inspector
+strip's key is the active subject identity, ordered inspector identity sequence,
+and inspector-policy version. Width and focus movement do not replace either
+key.
 
 The subject tablist uses one tab stop and automatic keyboard activation. Left
 and Right Arrow move focus through the complete installed subject order and
@@ -828,6 +838,16 @@ add and pass these named Inspect Web tests:
   presentation-local window and allocation retention, reduced-motion behavior,
   and focus/tab-stop preservation across allocation changes and asynchronous
   shell replacement.
+- `library-hierarchy.spec.ts`: the `active subject continuity` scenarios exercise
+  the production Browser shell and bindings with deterministic facade results.
+  They cover Package-to-Library activation at 1440px followed by 390px,
+  direct 390px entry and Library URL reload, neighboring wide layout, deliberate
+  subject sliding across resize and same-subject updates, reset on subject
+  changes, and focused-item precedence. This is the second and final production
+  adoption slice for
+  [#6157](https://github.com/richlander/dotnet-inspect/issues/6157), consuming the
+  reusable policy from #6171; it leaves inspector interaction and #6158's
+  broader navigation-model proposal unchanged.
 
 The implementation fixture supplies typed product results through the normal
 navigation boundary. It does not construct a parallel host catalog or bypass
