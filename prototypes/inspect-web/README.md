@@ -2070,6 +2070,27 @@ text escaping.
 
 ## Deploy
 
+### Compare deployed runtime performance
+
+[`docs/inspect-web-runtime-performance.md`](../../docs/inspect-web-runtime-performance.md)
+owns the deployed-site benchmark contract. The harness measures cold startup,
+network-sensitive package acquisition, warm package projection, whole-package
+analysis, sustained member-analysis throughput, and method-body comparison
+while validating that every runtime returns the same semantic result.
+
+```bash
+npm run benchmark:published -- \
+  --site mono=https://dotnet-inspect.ca \
+  --site coreclr=https://coreclr.dotnet-inspect.ca \
+  --samples 5 \
+  --member-count 10 \
+  --output ../../artifacts/inspect-web-runtime-performance.json
+```
+
+Comparative reports require the sites to serve the same product commit.
+`--allow-mismatched-commits` permits a diagnostic run but leaves the report
+explicitly non-comparable.
+
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
 `inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
