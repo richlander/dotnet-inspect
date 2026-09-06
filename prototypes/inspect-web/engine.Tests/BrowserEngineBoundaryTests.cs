@@ -6667,6 +6667,9 @@ public sealed class BrowserEngineBoundaryTests
         Assert.True(BrowserPackageWorkspace.IsScopeRetained(firstLease.Scope));
         Assert.True(BrowserPackageWorkspace.IsScopeRetained(secondLease.Scope));
         Assert.InRange(BrowserPackageWorkspace.Stats().Workspaces, 2, 4);
+        Assert.Throws<InvalidOperationException>(() =>
+            BrowserPackageWorkspace.LeaseRetainedPackageScope(
+                packageId, "1.0.0", first.Framework));
         BrowserPackage firstCached = await BrowserPackageWorkspace.AcquireAsync(
             packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));

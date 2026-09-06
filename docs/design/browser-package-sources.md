@@ -1380,6 +1380,10 @@ reuse and separation;
 independent reservations under the global package and byte limits; and
 `BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate` for
 workspace reuse, retirement, and archive leases across those acquisitions.
+The coordinate-only method-body exports resolve retained scopes through the
+production Gallery client association, not through a source-agnostic key.
+`BrowserMethodBodyOperationTests` gates that retained lookup, including missing
+contexts, removal-requested scopes, and ambiguous content generations.
 Configured-authority retirement and result admission remain separate
 obligations of the live registry adoption in [#5637][browser-adoption].
 

@@ -903,8 +903,9 @@ internal static class BrowserPackageWorkspace
         string version,
         string framework)
     {
-        string key = CompositeKey("packages", CompositeKey(
-            packageId.ToLowerInvariant(), version.ToLowerInvariant(), framework.ToLowerInvariant()));
+        string key = CompositeKey(
+            "packages",
+            PackageScopeCoordinateKey(PackageKey(packageId, version), framework));
         var demand = new KeyedScopeDemand(key);
         ScopeEntry[] candidates = Scopes.Where(demand.Joins).ToArray();
         if (candidates is not [{ Scope: BrowserInspectionScope scope }])
@@ -2109,6 +2110,9 @@ internal static class BrowserPackageWorkspace
     static string CoordinateKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
+    internal static string PackageScopeCoordinateKey(string packageKey, string framework) =>
+        CompositeKey(packageKey, framework.ToLowerInvariant());
+
     internal static string PackageScopeKey(
         IReadOnlyList<BrowserPackageCoordinate> coordinates) =>
         CompositeKey(
@@ -2855,9 +2859,9 @@ internal sealed class BrowserPackageCoordinate
     /// length-prefixed so caller-controlled framework text cannot alter key boundaries.
     /// </summary>
     public string Key =>
-        BrowserPackageWorkspace.CompositeKey(
+        BrowserPackageWorkspace.PackageScopeCoordinateKey(
             Package.CacheKey,
-            Framework.ToLowerInvariant());
+            Framework);
 
     public bool HasExactContentAs(BrowserPackageCoordinate other)
     {
