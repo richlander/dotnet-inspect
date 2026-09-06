@@ -1405,8 +1405,8 @@ because the site is deployed from that copy rather than from the source file.
 The word "static" there is a real boundary, not hedging. Azure Static Web Apps
 does not apply `globalHeaders` to responses produced by the managed functions
 under `/api/*`, which carry whatever headers the function sets for itself. The
-MSDL proxy is such a function, so these four headers do not cover its responses.
-Giving the proxy its own headers is tracked in #5119.
+MSDL proxy sets its own [response headers](msdl-proxy/README.md#response-security)
+for function-produced responses, with a separate gate in `MsdlProxyFunctionTests`.
 
 Prism is delivered through the same npm/Vite pipeline as mermaid, marked, and
 DOMPurify. `src/prism-csharp.ts` registers the clike and C# grammars in order;

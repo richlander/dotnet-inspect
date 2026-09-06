@@ -1,9 +1,13 @@
 using System.Net;
 using System.Reflection;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MsdlProxy.Tests;
 
@@ -48,22 +52,119 @@ public sealed class MsdlProxyFunctionTests
 
         Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal(0, handler.RequestCount);
+        _ = await ExecuteWithSecurityHeadersAsync(request, result);
+        Assert.Equal(StatusCodes.Status400BadRequest, request.HttpContext.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, false, StatusCodes.Status200OK)]
+    [InlineData(HttpStatusCode.NotFound, false, StatusCodes.Status404NotFound)]
+    [InlineData(HttpStatusCode.InternalServerError, false, StatusCodes.Status502BadGateway)]
+    [InlineData(HttpStatusCode.OK, true, StatusCodes.Status413PayloadTooLarge)]
+    public async Task GetSymbolAsync_EmitsSecurityHeadersForUpstreamOutcomes(
+        HttpStatusCode upstreamStatus,
+        bool oversized,
+        int expectedStatus)
+    {
+        byte[] symbolBytes = Encoding.UTF8.GetBytes("symbol bytes");
+        var handler = new CountingHandler(() =>
+        {
+            var response = new HttpResponseMessage(upstreamStatus)
+            {
+                Content = new ByteArrayContent(symbolBytes),
+            };
+            if (oversized)
+                response.Content.Headers.ContentLength = 9 * 1024 * 1024;
+            return response;
+        });
+        using var client = new HttpClient(handler);
+        var function = new MsdlProxyFunction(new StubHttpClientFactory(client));
+        var request = new DefaultHttpContext().Request;
+
+        IActionResult result = await function.GetSymbolAsync(
+            request, "example.pdb", new string('A', 33),
+            TestContext.Current.CancellationToken);
+        byte[] body = await ExecuteWithSecurityHeadersAsync(request, result);
+
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(expectedStatus, request.HttpContext.Response.StatusCode);
+        if (expectedStatus == StatusCodes.Status200OK)
+        {
+            Assert.Equal("application/octet-stream", request.HttpContext.Response.ContentType);
+            Assert.Equal(symbolBytes, body);
+        }
+        else
+        {
+            Assert.Empty(body);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetSymbolAsync_EmitsSecurityHeadersOnTransportFailure(bool timeout)
+    {
+        var handler = new CountingHandler(() =>
+        {
+            if (timeout)
+                throw new TaskCanceledException();
+            throw new HttpRequestException();
+        });
+        using var client = new HttpClient(handler);
+        var function = new MsdlProxyFunction(new StubHttpClientFactory(client));
+        var request = new DefaultHttpContext().Request;
+
+        IActionResult result = await function.GetSymbolAsync(
+            request, "example.pdb", new string('A', 33),
+            TestContext.Current.CancellationToken);
+        _ = await ExecuteWithSecurityHeadersAsync(request, result);
+
+        Assert.Equal(StatusCodes.Status502BadGateway, request.HttpContext.Response.StatusCode);
     }
 
     [Fact]
-    public void Health_ReturnsPlainTextSuccess()
+    public async Task Health_ReturnsPlainTextSuccess()
     {
+        using var client = new HttpClient();
         var function =
             new MsdlProxyFunction(
-                new StubHttpClientFactory(new HttpClient()));
+                new StubHttpClientFactory(client));
+        var request = new DefaultHttpContext().Request;
 
         var result =
             Assert.IsType<ContentResult>(
-                function.Health(new DefaultHttpContext().Request));
+                function.Health(request));
 
         Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
         Assert.Equal("text/plain", result.ContentType);
         Assert.Equal("ok", result.Content);
+        byte[] body = await ExecuteWithSecurityHeadersAsync(request, result);
+        Assert.Equal(StatusCodes.Status200OK, request.HttpContext.Response.StatusCode);
+        Assert.Equal("ok", Encoding.UTF8.GetString(body));
+    }
+
+    private static async Task<byte[]> ExecuteWithSecurityHeadersAsync(
+        HttpRequest request, IActionResult result)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddMvcCore();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        request.HttpContext.RequestServices = provider;
+        using var body = new MemoryStream();
+        request.HttpContext.Response.Body = body;
+
+        await result.ExecuteResultAsync(
+            new ActionContext(request.HttpContext, new RouteData(), new ActionDescriptor()));
+
+        IHeaderDictionary headers = request.HttpContext.Response.Headers;
+        Assert.Equal("nosniff", headers["X-Content-Type-Options"].ToString());
+        Assert.Equal("no-referrer", headers["Referrer-Policy"].ToString());
+        Assert.Equal("DENY", headers["X-Frame-Options"].ToString());
+        Assert.Equal(
+            "max-age=63072000; includeSubDomains",
+            headers["Strict-Transport-Security"].ToString());
+        return body.ToArray();
     }
 
     private sealed class StubHttpClientFactory(HttpClient client)
@@ -76,7 +177,8 @@ public sealed class MsdlProxyFunctionTests
         }
     }
 
-    private sealed class CountingHandler : HttpMessageHandler
+    private sealed class CountingHandler(Func<HttpResponseMessage>? respond = null)
+        : HttpMessageHandler
     {
         public int RequestCount { get; private set; }
 
@@ -86,7 +188,7 @@ public sealed class MsdlProxyFunctionTests
         {
             RequestCount++;
             return Task.FromResult(
-                new HttpResponseMessage(HttpStatusCode.NotFound));
+                respond?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NotFound));
         }
     }
 }
