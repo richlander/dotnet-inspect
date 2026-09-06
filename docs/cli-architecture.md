@@ -117,7 +117,7 @@ Only `Descriptorless` retains the module/non-assembly compatibility route.
 Platform-prefix listing applies the same rule to each selected library.
 
 The descriptor carries the resolved source's package/version/TFM, platform
-framework/version, project context, or local provenance. Deferred type/member
+framework/version, project context, explicit file designation, or local provenance. Deferred type/member
 routing uses the same selection path and passes the loaded surface to `type`
 unchanged, rather than selecting or extracting it again.
 
@@ -248,6 +248,14 @@ Normal/projected output and effective discovery preserve the retained
 supplier. Body-source opening failures reach the command error boundary rather
 than becoming successful path retries or empty shape output.
 
+An explicitly named `--library` root retains the caller's designation at API
+selection, consuming the existing
+[acquisition-kind contract](design/platform-composition-and-overlays.md#acquisition-kinds).
+This preserves core-library identity when the selected file is corelib.
+Forwarded suppliers retain their independently resolved provenance; naming a
+facade does not designate its siblings. Package, project and platform sources
+keep their own classifications. Decompiler's entitlement policy is unchanged.
+
 `TypeBodyShapesAcquisition_UsesSelectedSupplier` and
 `TypeBodyShapesAcquisition_ReportsBodyOpenFailureAfterPdbAcquisition` gate this
 composition. The latter allows the preceding PDB acquisition to succeed before
@@ -256,6 +264,12 @@ adoption. Existing `BodyShapesSectionTests` gate kind authorization, shape rows,
 type/member/accessor scope, visibility, empty results and rendering;
 `TypeAnalysisAcquisition_SkipsOrdinaryApiOutput` gates ordinary output without
 selected-context acquisition.
+
+`TypeBodyShapesAcquisition_PreservesDesignatedCoreLibraryRows` compares the
+selected-descriptor and existing path-route Body Shapes rows for a real
+core-library type. `TypeApiSelection_RetainsResolvedProvenance` and
+`TypeApiSelection_RetainsForwardedSupplier` gate root classification and the
+independent supplier handoff.
 
 This is [#6081](https://github.com/richlander/dotnet-inspect/issues/6081)'s
 three-step production adoption under #4867: TypeCommand retains the supplier;

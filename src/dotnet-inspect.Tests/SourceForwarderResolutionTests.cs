@@ -15,6 +15,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -1569,6 +1570,7 @@ public class SourceForwarderResolutionTests
             Assert.Equal("Root", assembly.Identity.Name);
             var expected = sourceKind switch
             {
+                SourceKind.Library => AssemblyResolutionProvenance.Designated("ApiServices"),
                 SourceKind.NuGet => AssemblyResolutionProvenance.Package(
                     "Selected.Package", "2.3.4", "net11.0", rid: null),
                 SourceKind.Project => AssemblyResolutionProvenance.Project(
@@ -1586,9 +1588,10 @@ public class SourceForwarderResolutionTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void TypeApiSelection_RetainsForwardedSupplier(bool summaryOnly)
+    [InlineData(false, SourceKind.Library)]
+    [InlineData(false, SourceKind.Platform)]
+    [InlineData(true, SourceKind.Platform)]
+    public void TypeApiSelection_RetainsForwardedSupplier(bool summaryOnly, string sourceKind)
     {
         string directory = CreateDirectory();
         try
@@ -1601,7 +1604,7 @@ public class SourceForwarderResolutionTests
             File.WriteAllBytes(targetPath, BuildAssembly("Target"));
             var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
                 ApiServices.LoadTypeApi(
-                    CreateApiSource(facadePath, SourceKind.Platform),
+                    CreateApiSource(facadePath, sourceKind),
                     new TypeOptions(),
                     summaryOnly));
             var type = Assert.Single(loaded.Api.Types);
@@ -1611,6 +1614,8 @@ public class SourceForwarderResolutionTests
             Assert.True(type.IsForwarded);
             Assert.Equal(Path.GetFullPath(targetPath), supplier.Path);
             Assert.Equal("Target", supplier.Identity.Name);
+            if (sourceKind == SourceKind.Library)
+                Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(supplier.Provenance);
         }
         finally
         {
@@ -1649,6 +1654,31 @@ public class SourceForwarderResolutionTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void TypeBodyShapesAcquisition_PreservesDesignatedCoreLibraryRows()
+    {
+        string path = typeof(System.Text.StringBuilder).Assembly.Location;
+        var options = new TypeOptions
+        {
+            AssemblyPath = path,
+            BodyKindQuery = new() { Kind = "ObjectCreationExpression" },
+        };
+        var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+            ApiServices.LoadTypeApi(CreateApiSource(path, SourceKind.Library), options));
+        var type = Assert.Single(loaded.Api.Types, type => type.FullName == "System.Text.StringBuilder");
+        var tokens = ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type);
+        var expected = new TypeView();
+        var actual = new TypeView();
+
+        ApiOutputFormatter.PopulateBodyShapes(expected, path, null, tokens, options);
+        ApiOutputFormatter.PopulateBodyShapes(
+            actual, path, null, tokens, options, loaded.GetSourceAssembly(type));
+
+        Assert.NotNull(expected.BodyShapeRows);
+        Assert.NotEmpty(expected.BodyShapeRows);
+        Assert.Equal(expected.BodyShapeRows, actual.BodyShapeRows);
     }
 
     [Theory]

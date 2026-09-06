@@ -67,7 +67,8 @@
 
 - Type Body Shapes now opens its body-search metadata source through the
   selected root or forwarded supplier descriptor, including effective discovery
-  and projected output. Body-opening failures after PDB acquisition are visible
+  and projected output. Explicitly named library roots retain their designation,
+  preserving core-library identity and shape rows. Body-opening failures after PDB acquisition are visible
   errors instead of successful path retries; member behavior is unchanged (#6081).
 - Type Exception Regions now opens the selected root or forwarded supplier
   descriptor in normal/projected output and effective discovery. Opening
