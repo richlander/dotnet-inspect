@@ -264,7 +264,8 @@ export class SlideStripDomController {
     this.relocateHiddenTabStop();
     this.applied = applied;
     const leading = result.visibleIds[0];
-    if (this.state.leadingId === undefined && leading !== undefined) {
+    if (this.policy.windowContinuity !== "anchor-until-slide"
+      && this.state.leadingId === undefined && leading !== undefined) {
       this.state.leadingId = leading;
     }
   }
@@ -276,7 +277,9 @@ export class SlideStripDomController {
     this.apply(this.resolveRequired(
       current.outerWidth,
       { pendingFocusId: id }));
-    this.retainAppliedLeading();
+    if (this.policy.windowContinuity !== "anchor-until-slide") {
+      this.retainAppliedLeading();
+    }
     return true;
   }
 
