@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
 
@@ -47,7 +48,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 maximumCandidates: 200,
                 maximumMatches: 10,
                 includePrerelease: false,
-                packageType: NuGetGalleryPackageType.DotnetTool.Name));
+                packageType: NuGetGalleryPackageType.DotnetTool.Name,
+                discovery: true));
 
         Assert.NotNull(accepted.Plan.GalleryRequest);
         Assert.Equal(200, accepted.Plan.GalleryRequest.Capacity);
@@ -67,7 +69,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 maximumCandidates: 200,
                 maximumMatches: 10,
                 includePrerelease: true,
-                sourceOrderId: NuGetGalleryDiscoveryCatalog.Relevance.Id));
+                sourceOrderId: NuGetGalleryDiscoveryCatalog.Relevance.Id,
+                discovery: true));
 
         Assert.NotNull(accepted.Plan.GalleryRequest);
         Assert.Null(accepted.Plan.GalleryRequest.PackageType);
@@ -75,7 +78,67 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(NuGetGalleryDiscoveryOrder.Relevance, accepted.Plan.GalleryRequest.Order);
         Assert.Equal(PackageQuery.ToolFacetId, Assert.Single(accepted.Plan.Facets).Id);
         Assert.Throws<ArgumentException>(() =>
-            BrowserPackageQueryOperations.Plan("", [], 200, 10, false, sourceOrderId: "relevance"));
+            BrowserPackageQueryOperations.Plan(
+                "", [], 200, 10, false,
+                sourceOrderId: "relevance",
+                discovery: true));
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json", false, "Newtonsoft.Json", 1)]
+    [InlineData("Newtonsoft.*", true, "Newtonsoft.", 200)]
+    [InlineData("Newtonsoft*", true, "Newtonsoft", 200)]
+    public void PackagePlan_DispatchesExactAndLiteralPrefixInput(
+        string text,
+        bool prefix,
+        string expected,
+        int expectedCandidates)
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                text,
+                [],
+                maximumCandidates: 200,
+                maximumMatches: 10,
+                includePrerelease: true,
+                packageType: "Ignored.PackageType",
+                sourceOrderId: "ignored.order"));
+
+        Assert.Null(accepted.Plan.GalleryRequest);
+        Assert.Equal(expectedCandidates, accepted.Plan.MaximumCandidates);
+        Assert.True(accepted.Plan.IncludePrerelease);
+        if (prefix)
+        {
+            var input = Assert.IsType<SourceSelector.PackagePrefix>(
+                accepted.Plan.PackageInput);
+            Assert.Equal(expected, input.Request.Prefix);
+        }
+        else
+        {
+            var input = Assert.IsType<SourceSelector.Package>(
+                accepted.Plan.PackageInput);
+            Assert.Equal(expected, input.Coordinate.PackageId);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Newton*soft")]
+    public void PackagePlan_RejectsBlankAndMalformedInputWithoutDiscovery(
+        string text)
+    {
+        var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            BrowserPackageQueryOperations.Plan(
+                text,
+                [],
+                maximumCandidates: 200,
+                maximumMatches: 10,
+                includePrerelease: false));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidPackageInput,
+            rejected.Failure.Reason);
     }
 
     [Fact]
@@ -105,6 +168,40 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(200, completion.CandidateLimit);
         Assert.Equal(3, completion.SourceCandidates);
         Assert.Equal(8_000, completion.EstimatedTotalHits);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Project_ExactCompletionRetainsAuthoritativeSourceSelection(
+        int sourceCandidates)
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(PackageSourceAssociation.Create());
+        var summary = new PackageQuerySummary(
+            new InertString(TextPolicy.Field, "Missing.Package"),
+            source.Source,
+            CandidateLimit: 1,
+            MatchLimit: 100,
+            Candidates: sourceCandidates,
+            Matches: sourceCandidates,
+            Failures: 0,
+            PackageQueryCompletionKind.ExactPackageComplete)
+        {
+            SourceCandidates = sourceCandidates,
+        };
+
+        BrowserPackageQueryCompletion completion =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Completed(summary)).Completion!;
+
+        Assert.Equal(
+            BrowserPackageQueryCompletionKind.ExactPackageComplete,
+            completion.Kind);
+        Assert.Equal(sourceCandidates, completion.Candidates);
+        Assert.Equal(sourceCandidates, completion.Matches);
+        Assert.Equal(sourceCandidates, completion.SourceCandidates);
+        Assert.Null(completion.EstimatedTotalHits);
     }
 
     [Fact]
@@ -359,7 +456,7 @@ public sealed class BrowserPackageQueryOperationsTests
     {
         InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => BrowserPackageQueryOperations.ExecuteAsync(
-                "Contoso.",
+                "Contoso.Package",
                 ["package.query.unknown"],
                 maximumCandidates: 200,
                 maximumMatches: 100,

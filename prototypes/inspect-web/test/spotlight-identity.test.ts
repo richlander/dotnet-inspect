@@ -3199,7 +3199,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
 
   assert.match(
     results,
-    /kind: "package-query",[\s\S]*prefix: validPackageQuerySearchText\(query\) \?\? "",/);
+    /kind: "package-query",[\s\S]*prefix: validPackageQuerySearchText\(query\),/);
   assert.match(
     appSource,
     /case "package-query":\s*openPackageQueryRoute\(result\.prefix\);\s*break;/);
@@ -3302,11 +3302,18 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
       /\? withScopeQuery\(state\.packageQueryState\.request, validText\)/g)
       ?.length,
     1);
-  assert.equal(
-    appSource.match(
-      /packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run/g)
-      ?.length,
-    3);
+  assert.match(
+    appSource,
+    /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
+  assert.match(
+    appSource,
+    /function runPackageQuery\(text: string\) \{\s*const request = preparePackageQueryRequest\(text, "package"\);\s*submitPackageQueryRequest\(request\)/);
+  assert.match(
+    appSource,
+    /function discoverPackages\(\) \{\s*const request = preparePackageQueryRequest\("", "gallery"\);\s*submitPackageQueryRequest\(request\)/);
+  assert.match(
+    appSource,
+    /state\.packageQueryState\.request\?\.inputKind === "gallery"[\s\S]*return state\.packageQueryState\.request/);
   assert.match(
     appSource,
     /state\.packageQueryCatalogError =\s*`Package-query catalogs are unavailable/);

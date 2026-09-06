@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
     <ProjectReference Include="..\DotnetInspector.RowSelection\DotnetInspector.RowSelection.csproj" />

@@ -17,8 +17,9 @@ browser front end for that one product surface.
 end-to-end latency and Browser-pressure work.
 
 **What is enforced.** The production integration supplies the `/query` page,
-optional Gallery search form, source-owned type/order catalog, product-issued
-inspection facets, streaming Browser engine source,
+exact package and terminal-star prefix input, explicit Gallery discovery,
+source-owned type/order catalog, product-issued inspection facets, streaming
+Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
 and bounded completion states, and typed Workspace handoff. The controller,
 adapter, route, renderer, and engine projection are enforced by the
@@ -76,13 +77,16 @@ QueryResultRow     — one package's metadata/manifest/content projection + whic
 
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
 never a success-shaped empty result) rather than inventing a new error
-convention. The runtime `QueryRequest` carries optional Gallery search text,
-source package-type and order selections, prerelease intent, selected opaque
-inspection facets, and independent candidate and match limits. Blank text
-browses; nonempty text remains Gallery search text, including any `*`. The
-website does not reinterpret it as a literal prefix or predicate language.
-The source controls project `NuGetGalleryDiscoveryCatalog`, while the shared
-[Package Query input contract](package-query-cli.md#gallery-source-input)
+convention. The runtime `QueryRequest` carries a typed package-or-Gallery input kind,
+editor text, source package-type and order selections, prerelease intent,
+selected opaque inspection facets, and independent candidate and match limits.
+The normal Run action interprets an exact package ID or one terminal-star
+literal prefix through the shared
+[Package Query input selection](package-query-input-selection.md) contract.
+Blank package input stays idle. **Feeling lucky** explicitly selects a finite,
+termless Gallery response; package type and order apply only while that input
+kind remains selected. The source controls project
+`NuGetGalleryDiscoveryCatalog`, while the shared Package Query input contract
 owns composition with local selection. The user approved ordinary shared
 acquisition before Source Delegation for [#6019](https://github.com/richlander/dotnet-inspect/issues/6019);
 no delegation-protocol guarantee is implied.
@@ -113,7 +117,7 @@ and
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  Search (optional) [ Microsoft hosting                        ] [ Run query ]   │
+│ Package ID/prefix [ Microsoft.Extensions.* ] [Run] [Feeling lucky]            │
 ├───────────────┬────────────────────────────────────────────────────────────--┤
 │ Facets         │  Microsoft.Extensions.Hosting           nuspec              │
 │                │    Verified source · Has dependencies                       │
@@ -127,16 +131,17 @@ and
 └───────────────┴────────────────────────────────────────────────────────────--┘
 ```
 
-- **Query bar**: optional Gallery search text plus Run and, while streaming,
-  Cancel. Blank text enables browsing without inventing a package prefix.
-  It is not a free-text predicate language — see
-  [Non-goals](#v1-non-goals).
+- **Query bar**: exact package ID or one terminal-star literal prefix plus Run
+  and, while streaming, Cancel. Blank text stays idle. **Feeling lucky** is a
+  separate explicit action that acquires a bounded termless Gallery response
+  with the same selected inspection facets.
 - **Gallery filters**: catalog-driven package-type and source-order controls,
-  with explicit prerelease selection. All types and automatic ordering mean
-  omitted source selections, not invented provider values. Controls stay
-  separate from inspection predicates; basic results require search metadata
-  only. The website renders these controls and cards directly rather than
-  through Markout; source semantics and typed rows remain shared.
+  available only while Gallery discovery remains selected. All types and
+  automatic ordering mean omitted source selections, not invented provider
+  values. Prerelease remains available for package and Gallery inputs.
+  Controls stay separate from inspection predicates; basic results require
+  search metadata only. The website renders these controls and cards directly
+  rather than through Markout; source semantics and typed rows remain shared.
 - **Inspection facet rail**: derived from `PackageQuery.Facets`, not from a browser-owned
   vocabulary or open grammar. Selecting a facet restarts source work; it never
   client-side-filters stale rows. Product-issued selection groups make
@@ -172,16 +177,19 @@ and
 
 | State | Trigger | UI |
 |---|---|---|
-| Composing | Query surface opened with no request yet | Optional search, Gallery filters, and inspection facets stay visible; the result pane explains termless browsing |
+| Composing | Query surface opened or package editor left blank | Package input, prerelease, and inspection facets stay visible; selected facets remain configured without source acquisition, and the result pane names the separate discovery action |
 | Streaming | Request dispatched | Source, manifest, and package-content progress updates as bounded work advances; the first 20 matches fill the initial Browser window and near-end scroll pressure requests 10 more at a time; running count and cancel affordance remain visible; facets stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a persistent banner names the failed producer or package, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
 | Bounded-complete | The local match limit or the finite Gallery response is finished | State the acquired response size, its capacity, and the match limit when reached. Any Gallery total is explicitly an estimate. Even an empty or short response is bounded, never "all matches" or population exhaustion; item failures remain visible. |
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
 | Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
 | Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting a broader facet, not a bare blank pane |
+| Exact complete | Exact package selection finishes, including no eligible version | Preserve exact-selection identity through completion; a zero-row result states that no prefix or Gallery fallback was used |
 
-Changing the search text, changing a source selector, toggling a facet, cancelling, leaving the route, or
-starting another run aborts or supersedes the active source operation. Rows
+Changing the editor text, changing a source selector, toggling a facet,
+cancelling, leaving the route, or starting another run aborts or supersedes
+the active source operation. Facet and source changes preserve an explicitly
+selected Gallery input; blank package configuration starts no source work. Rows
 already received remain visible after explicit cancellation, while events from
 an older generation cannot enter a replacement outcome.
 
@@ -191,7 +199,7 @@ Package Query adopts
 [Engine-to-Browser async event streams](engine-browser-async-event-stream.md)
 with this feature-owned vocabulary:
 
-- `Progress(Search, completed, 1)` starts at zero before source discovery is
+- `Progress(Search, completed, 1)` starts at zero before source acquisition is
   awaited and reaches one only after a usable source result arrives. It means
   first usable source evidence, not that all later search pages were fetched.
 - `Progress(Manifest, completed, candidateLimit)` advances once for every
@@ -427,9 +435,10 @@ and browser-history and focus-return outcomes are proved by
 1. Load `/query` directly and on refresh and confirm that the route starts
    without a persisted request, selected facets, or inferred package
    coordinate.
-2. Toggle two product-issued facets and confirm that each change starts
-   a fresh engine request with opaque IDs, cancels the prior request, and
-   suppresses its late rows and failures.
+2. With blank package input, toggle two product-issued facets and confirm the
+   configuration stays idle without engine acquisition. Run an exact ID or
+   terminal-star prefix and confirm later facet changes preserve package mode,
+   cancel the prior request, and suppress its late rows and failures.
 3. Confirm that product rows, evidence, partial failures, and finite-response,
    bounded, failed, cancelled, and zero-row completion states remain distinct
    per the [States](#states) table.
@@ -453,11 +462,13 @@ and browser-history and focus-return outcomes are proved by
    to 20 candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content facet and confirm the default returns to 200.
-10. Browse with no text, select tools and templates from the source catalog,
-    then search with text. Confirm source requests preserve the text and K,
-    use the source-owned order defaults or explicit override, and acquire no
-    manifests or archives without inspection facets. Confirm lifetime-download
-    counts, unavailable metadata, and estimated totals remain distinct.
+10. Select **Feeling lucky**, then select tools and templates from the source
+    catalog. Confirm source and facet changes preserve Gallery mode, use the
+    source-owned order defaults or explicit override, and acquire no manifests
+    or archives without inspection facets. Confirm the normal Run action
+    switches back to package input, Gallery type/order do not constrain exact
+    or prefix acquisition, and lifetime-download counts, unavailable metadata,
+    and estimated totals remain distinct.
 11. Confirm that no assembly/IL promoted facet, selection checkbox, or `Deepen`
    control is rendered.
 12. Confirm that a query publishes no more than 20 matches before Browser
@@ -502,9 +513,8 @@ and browser-history and focus-return outcomes are proved by
    by #5816, removes the complete-search barrier in prefix-profile consumers.
    [#6070](https://github.com/richlander/dotnet-inspect/issues/6070) restores
    explicit package-ID and prefix selection on the website and makes Gallery
-   discovery an explicit source gesture. Until that adoption lands, the website's
-   Gallery input does not consume the prefix stream. DOM virtualization and
-   Worker placement remain separate follow-ups.
+   discovery an explicit source gesture. DOM virtualization and Worker
+   placement remain separate follow-ups.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.
