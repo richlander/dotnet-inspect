@@ -986,6 +986,12 @@ compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
+The package facade's assembly-reference result adopts a native C# union through
+this generated handoff. The Library References view consumes an available list
+or failure message rather than parallel list/error fields, while its request
+lifecycle stays separate. The focused contract and outcome gates live in
+[Package reference result](../../docs/design/inspect-web-package-reference-result.md).
+
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
 retained readiness promise. It calls the host module's `createRuntime()` once,
 then passes that same narrow runtime handle while the seven generated modules

@@ -3658,13 +3658,12 @@ public sealed class BrowserEngineBoundaryTests
                         assemblyId: ""),
                     BrowserPackageJsonContext.Default.BrowserPackageDependencies));
         Assert.Null(dependencies.Assembly);
-        Assert.Empty(dependencies.AssemblyReferences);
         Assert.Equal(
             BrowserCompileLibraryStatus.NoCompileAssets,
             dependencies.CompileLibrary.Status);
         Assert.Equal(
             dependencies.CompileLibrary.Message,
-            dependencies.AssemblyReferenceError);
+            Assert.IsType<string>(dependencies.AssemblyReferences.Value));
         BrowserPackageDependency dependency = Assert.Single(
             Assert.Single(dependencies.DependencyGroups).Dependencies);
         Assert.Equal("Tool.Payload", dependency.Id);
@@ -4319,7 +4318,7 @@ public sealed class BrowserEngineBoundaryTests
             "Browser.Dependency.Child",
             dependency.GetProperty("id").GetString());
         JsonElement reference = Assert.Single(
-            root.GetProperty("assemblyReferences").EnumerateArray(),
+            root.GetProperty("assemblyReferences").GetProperty("references").EnumerateArray(),
             reference =>
                 reference.GetProperty("name").GetString() == "System.Runtime");
         Assert.Equal("11.0.0.0", reference.GetProperty("version").GetString());
@@ -4331,9 +4330,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             JsonValueKind.Null,
             root.GetProperty("dependencyGroupError").ValueKind);
-        Assert.Equal(
-            JsonValueKind.Null,
-            root.GetProperty("assemblyReferenceError").ValueKind);
+        Assert.False(root.TryGetProperty("assemblyReferenceError", out _));
     }
 
     [Fact]

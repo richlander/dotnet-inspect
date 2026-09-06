@@ -149,14 +149,14 @@ async function installFacades(
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], dependencyGroupError: null,
-          assemblyReferenceError: scenario === "inspection-error" ? "Cannot decode AssemblyRef." : null,
-          assemblyReferences: scenario === "empty" ? [] : scenario === "long"
+          assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
+            : { references: scenario === "empty" ? [] : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
                 name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
                 version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
                 publicKeyToken: "0123456789abcdef"
               }))
-            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }],
+            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
         };
       }`,

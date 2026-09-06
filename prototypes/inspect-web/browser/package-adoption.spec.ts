@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { Buffer } from "node:buffer";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type {
+  BrowserAssemblyReferenceList as AssemblyReferenceList,
+  BrowserAssemblyReferenceResult as AssemblyReferenceResult,
   BrowserPackageCacheStats as CacheStats,
+  BrowserPackageDependencies as PackageDependencies,
   BrowserPackageSurface as PackageSurface,
   BrowserWorkspacePackageOccurrence as OccurrenceRow,
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
@@ -18,6 +21,9 @@ import {
   healthyNupkg,
   malformedAlongsideHealthyNupkg,
   malformedAssemblyBytes,
+  manifestBackedNupkg,
+  manifestOnlyNupkg,
+  type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
 
 // This gate drives the actually published production InspectWeb.Engine Wasm
@@ -27,10 +33,14 @@ import {
 // bound with successful eviction, awaitable Workspace occurrence activation, a
 // stale occurrence action after clear and after replacement, and a
 // valid-reference / malformed-implementation package producing a visible
-// selected rejection beside healthy evidence. Package acquisition leaves the
-// browser as ordinary NuGet Gallery CDN fetches, which this spec intercepts to
-// serve deterministic local fixtures; a separate test exercises the immutable
-// real Microsoft.Extensions.Http@10.0.0/net10.0 coordinate over the network.
+// selected rejection beside healthy evidence. It also proves the package
+// facade's assembly-reference result union (issue #6191): an available list of
+// real AssemblyRef rows, a manifest-only package's compile-library failure
+// message beside healthy manifest dependency groups, and the production page
+// rendering the available case. Package acquisition leaves the browser as
+// ordinary NuGet Gallery CDN fetches, which this spec intercepts to serve
+// deterministic local fixtures; a separate test exercises the immutable real
+// Microsoft.Extensions.Http@10.0.0/net10.0 coordinate over the network.
 
 function locateFixtureAssembly(variable: string): Buffer {
   const configured = process.env[variable];
@@ -110,12 +120,49 @@ const scopeCoordinates: readonly FixtureCoordinate[] = Array.from(
   }),
 );
 
+// The assembly-reference result cases (issue #6191). Both packages declare the
+// same ordinary manifest dependency group, so the manifest evidence is a
+// constant across the available and unavailable reference outcomes.
+const declaredDependency: ManifestDependency = {
+  id: "InspectWeb.Adoption.Declared",
+  versionRange: "[2.0.0]",
+};
+const referencesPackageId = "InspectWeb.Adoption.References";
+const manifestOnlyPackageId = "InspectWeb.Adoption.ManifestOnly";
+const references: FixtureCoordinate = {
+  packageId: referencesPackageId,
+  version,
+  archive: manifestBackedNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    referencesPackageId,
+    version,
+    declaredDependency,
+  ),
+};
+const manifestOnly: FixtureCoordinate = {
+  packageId: manifestOnlyPackageId,
+  version,
+  archive: manifestOnlyNupkg(
+    manifestOnlyPackageId,
+    version,
+    declaredDependency,
+  ),
+};
+
+// DiffAsmLibA is an ordinary managed library with exactly one AssemblyRef row,
+// so the available case has an exact expected list rather than a shape probe.
+const healthyAssemblyName = "DiffAsmLibA";
+const expectedReferenceName = "System.Runtime";
+
 const allFixtures: readonly FixtureCoordinate[] = [
   healthy,
   malformed,
   occurrenceOne,
   occurrenceTwo,
   joinCoordinate,
+  references,
+  manifestOnly,
   ...scopeCoordinates,
 ];
 
@@ -208,6 +255,12 @@ declare global {
       queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
       clearOccurrences(): void;
+      queryDependencies(
+        packageId: string,
+        version: string,
+        framework: string,
+        assemblyId: string,
+      ): Promise<PackageDependencies>;
       queryIntegrations(
         packageId: string,
         version: string,
@@ -227,7 +280,7 @@ type PackageFacadeModule = Pick<
   typeof import("../src/facades/inspect-web-package.js"),
   "initializeRuntime" | "queryPackage" | "packageCacheStats"
   | "queryWorkspacePackageOccurrences" | "activateWorkspacePackageOccurrence"
-  | "clearWorkspacePackageOccurrences"
+  | "clearWorkspacePackageOccurrences" | "queryPackageDependencies"
 >;
 
 type AnalysisFacadeModule = Pick<
@@ -257,7 +310,9 @@ async function boot(page: Page): Promise<void> {
         && "activateWorkspacePackageOccurrence" in value
           && typeof value.activateWorkspacePackageOccurrence === "function"
         && "clearWorkspacePackageOccurrences" in value
-          && typeof value.clearWorkspacePackageOccurrences === "function";
+          && typeof value.clearWorkspacePackageOccurrences === "function"
+        && "queryPackageDependencies" in value
+          && typeof value.queryPackageDependencies === "function";
     }
     function isAnalysisFacade(value: unknown): value is AnalysisFacadeModule {
       return typeof value === "object" && value !== null
@@ -292,6 +347,8 @@ async function boot(page: Page): Promise<void> {
       clearOccurrences: () => {
         pkg.clearWorkspacePackageOccurrences();
       },
+      queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
+        pkg.queryPackageDependencies(packageId, pkgVersion, framework, assemblyId),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         analysis.queryPackageIntegrations(packageId, pkgVersion, framework, libraryId),
     };
@@ -305,6 +362,7 @@ function driver(page: Page): {
   queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
+  queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
 } {
   return {
@@ -332,6 +390,12 @@ function driver(page: Page): {
       page.evaluate(() => {
         window.__adoption!.clearOccurrences();
       }),
+    queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
+      page.evaluate(
+        ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
+          window.__adoption!.queryDependencies(id, ver, tfm, selected),
+        { packageId, version: pkgVersion, framework, assemblyId },
+      ),
     queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
       page.evaluate(
         ({ packageId: id, version: ver, framework: tfm, libraryId: selected }) =>
@@ -347,6 +411,31 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
     throw new Error("Expected at least one workspace package occurrence.");
   }
   return row;
+}
+
+// The published facade hands back one completed assembly-reference outcome: an
+// available list (the object case), a failure message (the string case), or the
+// generated union's default null. These narrow that result at the consumer,
+// exactly as the production renderer must, so a test that expects one case can
+// never silently read the other.
+function availableReferences(
+  result: AssemblyReferenceResult,
+): AssemblyReferenceList {
+  if (result === null || typeof result === "string") {
+    throw new Error(
+      "Expected an available assembly-reference list; the facade returned "
+        + `${JSON.stringify(result)}.`);
+  }
+  return result;
+}
+
+function referenceFailure(result: AssemblyReferenceResult): string {
+  if (typeof result !== "string") {
+    throw new Error(
+      "Expected an assembly-reference failure message; the facade returned "
+        + `${JSON.stringify(result)}.`);
+  }
+  return result;
 }
 
 test.describe("Gallery Package Query website over real Wasm", () => {
@@ -605,6 +694,140 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     }
     expect(Math.max(...observed)).toBe(maxOpenScopes);
     expect(observed[observed.length - 1]).toBe(maxOpenScopes);
+  });
+
+  // Issue #6191: BrowserPackageDependencies.AssemblyReferences is a native C#
+  // union of a reference list and a failure message. These drive the published
+  // production Wasm and the public generated queryPackageDependencies facade so
+  // both cases are real engine answers, not hand-written JSON.
+  test("answers the assembly-reference union's available case with real rows", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    // The selected compile library comes from the package's own surface, so the
+    // reference query runs against the identity the production consumer uses.
+    const surface = await engine.queryPackage(references);
+    const library = surface.assemblies.find(
+      candidate => candidate.name === healthyAssemblyName,
+    );
+    if (library === undefined) {
+      throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
+    }
+    expect(String(surface.compileLibrary.status)).toBe("Selected");
+
+    const dependencies = await engine.queryDependencies(
+      references.packageId,
+      version,
+      fixtureFramework,
+      library.id,
+    );
+    expect(dependencies.package).toBe(references.packageId);
+    expect(dependencies.version).toBe(version);
+    expect(dependencies.activeFramework).toBe(fixtureFramework);
+    expect(dependencies.assembly).toBe(healthyAssemblyFileName);
+
+    // The available case is an object carrying the existing reference rows.
+    const list = availableReferences(dependencies.assemblyReferences);
+    const rows = list.references;
+    expect(rows.map(row => row.name)).toEqual([expectedReferenceName]);
+    const [row] = rows;
+    if (row === undefined) throw new Error("Expected one AssemblyRef row.");
+    expect(row.version).toBe("11.0.0.0");
+    expect(row.culture).toBe("neutral");
+    expect(row.publicKeyToken).toBeTruthy();
+
+    // The retired parallel field is gone from the wire result, and the outer
+    // manifest, framework, and compile-library facts stay independent of it.
+    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
+    expect(Object.keys(list)).toEqual(["references"]);
+    expect(dependencies.dependencyGroupError).toBeNull();
+    expect(String(dependencies.compileLibrary.status)).toBe("Selected");
+    const [group] = dependencies.dependencyGroups;
+    if (group === undefined) {
+      throw new Error("Expected the declared manifest dependency group.");
+    }
+    expect(group.isActive).toBe(true);
+    expect(group.dependencies.map(dependency => dependency.id))
+      .toEqual([declaredDependency.id]);
+  });
+
+  test("answers a manifest-only package with a reference failure beside healthy dependency groups", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    // A manifest-only package declares real dependencies and ships no compile
+    // assets, so no assembly-reference list can exist. The assembly id is
+    // unused on this path: the engine reports compile-library unavailability
+    // rather than attempting a reference query.
+    const dependencies = await engine.queryDependencies(
+      manifestOnly.packageId,
+      version,
+      fixtureFramework,
+      "",
+    );
+    expect(dependencies.package).toBe(manifestOnly.packageId);
+    expect(dependencies.assembly).toBeNull();
+    expect(String(dependencies.compileLibrary.status)).toBe("NoCompileAssets");
+
+    // The failure case is a string carrying the compile-library message, not an
+    // empty successful list and not the union's default null.
+    const failure = referenceFailure(dependencies.assemblyReferences);
+    expect(failure.length).toBeGreaterThan(0);
+    if (dependencies.compileLibrary.message !== null) {
+      expect(failure).toBe(dependencies.compileLibrary.message);
+    }
+    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
+
+    // The manifest evidence stays healthy beside that failure.
+    expect(dependencies.dependencyGroupError).toBeNull();
+    const [group] = dependencies.dependencyGroups;
+    if (group === undefined) {
+      throw new Error("Expected the declared manifest dependency group.");
+    }
+    expect(group.isActive).toBe(true);
+    expect(group.dependencies).toEqual([
+      { id: declaredDependency.id, versionRange: declaredDependency.versionRange },
+    ]);
+  });
+
+  test("renders the available reference rows on the production package page", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+
+    // The production site served by this gate, opened on the same fixture
+    // coordinate: the page consumes the generated union through its own
+    // queryPackageDependencies call and renders the available case.
+    await page.goto(
+      `/index.html?package=${references.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    const libraryRow = page.locator(".library-list [data-lib-scope]").first();
+    await expect(libraryRow).toBeVisible({ timeout: 180_000 });
+    await libraryRow.click();
+    await page.locator('[data-library-lens="references"]').click();
+
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.getByRole("heading", { name: "References", exact: true }))
+      .toBeVisible({ timeout: 60_000 });
+    await expect(panel).toContainText(expectedReferenceName);
+    // Only the available case renders a reference count; a failure renders
+    // "Inspection failed" instead.
+    await expect(panel.locator(".api-surface-head"))
+      .toContainText("1 direct reference");
+    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel).not.toContainText("Inspection failed");
   });
 });
 
