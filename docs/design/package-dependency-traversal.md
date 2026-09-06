@@ -615,6 +615,9 @@ traversal work budget.
 
 Cancellation propagates. It does not publish a success-shaped partial result
 or convert cancellation into a source failure.
+`Traversal_CancellationDoesNotPublishOutcome` cancels after provisional graph
+work begins and gates cancellation identity, absence of result publication,
+and absence of source-failure conversion.
 
 ## Determinism
 
@@ -818,6 +821,7 @@ The implementation adds focused Release gates for:
 | No matching version and source failure remain visible. | `Traversal_ResolutionFailureIsNotDependencyFreeLeaf` |
 | Manifest acquisition or projection failure remains visible. | `Traversal_ManifestFailureIsNotDependencyFreeLeaf` |
 | Work-budget exhaustion retains the frontier and partial completion. | `Traversal_WorkBudgetRetainsUnprocessedFrontier` |
+| Cancellation after provisional work propagates without publishing an outcome or source failure. | `Traversal_CancellationDoesNotPublishOutcome` |
 | Source completion order cannot change result ordering. | `Traversal_SourceCompletionOrderDoesNotAffectResult` |
 | Untrusted display evidence remains inert. | `Traversal_InertTextRemainsInertThroughGraphResult` |
 | CLI and Browser/Wasm consume equivalent typed graph identity. | `Traversal_HostAdaptersPreserveEquivalentGraph` |
