@@ -10,12 +10,45 @@ public abstract class SourceSelector
 
     public sealed class PlatformGroup : SourceSelector;
 
-    public sealed class Package : SourceSelector
+    public abstract class PackageSource : SourceSelector
+    {
+        private protected PackageSource()
+        {
+        }
+    }
+
+    public sealed class Package : PackageSource
     {
         public Package(PackageCoordinate coordinate) =>
             Coordinate = ValidateCoordinate(coordinate);
 
         public PackageCoordinate Coordinate { get; }
+    }
+
+    public sealed class PackageReference : PackageSource
+    {
+        public PackageReference(string packageId, string? version = null)
+        {
+            ValidateCoordinate(new PackageCoordinate(packageId));
+            if (!PackageReferenceParser.IsValidVersion(version)
+                || version?.Contains('\0') == true)
+            {
+                throw new ArgumentException("Invalid package reference version.", nameof(version));
+            }
+
+            PackageId = packageId;
+            Version = version;
+        }
+
+        public string PackageId { get; }
+        public string? Version { get; }
+    }
+
+    public sealed class PackageArchive : PackageSource
+    {
+        public PackageArchive(string path) => Path = ValidateText(path, nameof(path));
+
+        public string Path { get; }
     }
 
     public sealed class PackageGroup : SourceSelector

@@ -2273,35 +2273,7 @@ public static class PackageExtractor
     /// Handles formats: "PackageName", "PackageName@1.0.0", "Package.Name.1.0.0.nupkg"
     /// </summary>
     public static (string name, string? version) ParsePackageReference(string packageSource)
-    {
-        // Handle local .nupkg files
-        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-        {
-            string fileName = Path.GetFileNameWithoutExtension(packageSource);
-            // Try to parse name.version pattern (e.g., "System.Text.Json.8.0.0")
-            // Scan left-to-right: the first segment starting with a digit begins the version
-            var parts = fileName.Split('.');
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
-                {
-                    var name = string.Join(".", parts.Take(i));
-                    var version = string.Join(".", parts.Skip(i));
-                    return (name, version);
-                }
-            }
-            return (fileName, null);
-        }
-
-        // Handle package@version format
-        int atIndex = packageSource.IndexOf('@');
-        if (atIndex > 0)
-        {
-            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
-        }
-
-        return (packageSource, null);
-    }
+        => PackageReferenceParser.Parse(packageSource);
 
     public static PackageReferenceTarget ParsePackageTarget(string packageArg, string? explicitVersion = null)
     {
@@ -2325,12 +2297,7 @@ public static class PackageExtractor
     }
 
     public static bool IsValidPackageReferenceVersion(string? version)
-    {
-        return string.IsNullOrEmpty(version)
-            || string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
-            || version.Contains('*', StringComparison.Ordinal)
-            || NuGet.Versioning.NuGetVersion.TryParse(version, out _);
-    }
+        => PackageReferenceParser.IsValidVersion(version);
 
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
 
