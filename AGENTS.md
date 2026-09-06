@@ -95,18 +95,12 @@ This section is tmux-specific and applies only inside a tmux pane — check
 `[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
 attach state to, so skip it entirely. Each window name must identify its work
 item, domain, and purpose; its pane title reports current activity, while
-window options carry structured state. Full mechanics live in
-[Agent session state](docs/agent-session-state.md).
+window options carry structured state. Full naming, pane-title, and state-
+publishing mechanics (exact commands, `@agent_state` fields, `blocked` vs.
+`waiting`) live in [Agent session state](docs/agent-session-state.md).
 
-- **Name the window** `PR <number> | <Domain> | <Short description>`, or
-  `Issue <number> | <Domain> | <Short description>` before a PR exists. Keep
-  Domain to one or two words, omit machine and tmux coordinates, and always
-  target `"${TMUX_PANE:?}"`.
-- **Update the pane title** with concise current activity, always targeting
-  `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
-  fallback; replace it at the start of work, after every resume, and at
-  meaningful phase changes with
-  `tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"`.
+- **Name the window and title the pane**, always targeting `"${TMUX_PANE:?}"`,
+  at the start of work, after every resume, and at meaningful phase changes.
 - **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
   plus branch or expected head — at the start of work, after every resume, and
   at every round start. Round completions use the
@@ -115,16 +109,9 @@ window options carry structured state. Full mechanics live in
   as normal visible output first; only after it appears in the session log may
   you open an approval prompt containing just the concise decision question and
   answer labels — never the report, checkpoint, or evidence itself.
-- **Publish `@agent` and `@agent_state`** after every state change, each as its
-  own single command (never inside `if`/`&&`/a loop). `@agent_state` carries
-  `theme`, `head`, and `pr`/`issue`, plus `round`, `reviews`, `blocked`,
-  `waiting`, and `rec` (`continue`, `wait`, `merge`, `split`, `approve`,
-  `stop`); clear both when the window no longer owns the work. `blocked` names
-  an issue/PR a person can act on; `waiting` names tool-evaluable predicates
-  (`check:<name>`, `checks`, `merge`, `review`).
-- **Signal `HELP`** with a persistent state plus one best-effort
-  `tmux display-message` nudge when blocked on a human decision; clear it once
-  the decision arrives.
+- **Publish `@agent`/`@agent_state`** after every state change; clear both
+  only when the window no longer owns the work. **Signal `HELP`** when
+  blocked on a human decision; clear only `HELP` once the decision arrives.
 
 ### Keep the review-clean label current
 
@@ -332,6 +319,12 @@ Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
 compiler-generated IL shapes differ in Debug.
+
+Tag a test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
+whole-assembly analysis rather than ordinary unit-test setup, so it runs only
+in nightly Deep Inspect, not the PR-blocking fast leg. See
+[Classifying test cost](docs/testing-cost-classification.md) for the
+threshold, placement convention, and existing consumers.
 
 | Area | Command |
 | --- | --- |
