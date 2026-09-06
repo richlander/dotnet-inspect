@@ -7,8 +7,10 @@ framework and package-coordinate selections. Type-search `find`, `implements`,
 
 This is the current behavior contract and reference oracle for the ground-up
 typed search-scope domain tracked by
-[#5602](https://github.com/richlander/dotnet-inspect/issues/5602). It does not
-define that future declaration component or its adoption plan.
+[#5602](https://github.com/richlander/dotnet-inspect/issues/5602).
+[Typed source intent](search-scope-domain.md) owns the independent declaration
+and reference normalizer. CLI adoption remains separate; this document still
+owns the current command behavior.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, valued
 `--platform` disambiguation, source authorization, operation lifetime,
@@ -134,6 +136,14 @@ normalized result does not select profile acquisition. `depends` uses
 normalization only for type-hierarchy mode; its
 package-dependency and library-reference modes are unary source operations and
 do not acquire a search default.
+
+The target
+[Dependency Inspection Command](dependency-inspection-command.md) preserves
+this ownership for type relationship mode while replacing the current unary
+asset modes with an explicit root set. In that target, a positional type keeps
+`--package`, `--library`, and `--project` as search scope; without a positional
+type, those same options are dependency roots and never request a search
+default.
 
 Commands may support different direct-source options. Every supported direct
 source must nevertheless contribute to the same explicitness decision. Adding

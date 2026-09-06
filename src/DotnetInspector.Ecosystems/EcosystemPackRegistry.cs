@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 
@@ -17,7 +18,12 @@ internal sealed record EcosystemPackRegistration(
     int Order,
     PackageSetId? PackageSet,
     IReadOnlyList<EcosystemDemoRegistration> Demos,
-    EcosystemIntegrationScannerBinding? Scanner = null);
+    EcosystemIntegrationScannerBinding? Scanner = null)
+{
+    public IReadOnlyList<string> NamespaceRoots { get; init; } = [];
+
+    public IReadOnlyList<PackageCoordinate> CorePackages { get; init; } = [];
+}
 
 internal sealed class EcosystemPackRegistry
 {
@@ -80,6 +86,10 @@ internal sealed class EcosystemPackRegistry
                     nameof(registrations));
             }
 
+            ImmutableArray<string> namespaceRoots =
+                SnapshotNamespaceRoots(registration, nameof(registrations));
+            ImmutableArray<PackageCoordinate> corePackages =
+                SnapshotCorePackages(registration, nameof(registrations));
             EcosystemDemoRegistration[] demos =
             [
                 .. registration.Demos
@@ -155,7 +165,9 @@ internal sealed class EcosystemPackRegistry
                 registration.Order,
                 registration.PackageSet,
                 descriptors.MoveToImmutable(),
-                registration.Scanner is not null);
+                registration.Scanner is not null,
+                namespaceRoots,
+                corePackages);
             _packsById.Add(
                 packDescriptor.Id,
                 new PackEntry(packDescriptor, registration.Scanner));
@@ -206,6 +218,95 @@ internal sealed class EcosystemPackRegistry
             new EcosystemDemoSelection(
                 entry.Descriptor,
                 entry.Source.Resolve()));
+    }
+
+    private static ImmutableArray<string> SnapshotNamespaceRoots(
+        EcosystemPackRegistration registration,
+        string parameterName)
+    {
+        ImmutableArray<string> roots =
+        [
+            .. registration.NamespaceRoots
+                ?? throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' has no namespace-root sequence.",
+                    parameterName),
+        ];
+        var uniqueRoots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root)
+                || root.Any(character => char.IsWhiteSpace(character) || character is '*' or '?')
+                || root[0] == '.'
+                || root[^1] == '.'
+                || root.Contains("..", StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' contains invalid namespace root '{root}'.",
+                    parameterName);
+            }
+
+            if (!uniqueRoots.Add(root))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' contains duplicate namespace root '{root}'.",
+                    parameterName);
+            }
+        }
+
+        return roots;
+    }
+
+    private static ImmutableArray<PackageCoordinate> SnapshotCorePackages(
+        EcosystemPackRegistration registration,
+        string parameterName)
+    {
+        ImmutableArray<PackageCoordinate> packages =
+        [
+            .. registration.CorePackages
+                ?? throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' has no core-package sequence.",
+                    parameterName),
+        ];
+        var packageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (PackageCoordinate package in packages)
+        {
+            if (package is null)
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' contains a null core package.",
+                    parameterName);
+            }
+
+            PackageCoordinateResolution.Invalid? invalid =
+                PackageCoordinateResolver.Validate(package);
+            if (invalid is not null)
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' contains invalid core package"
+                    + $" coordinate '{package.PackageId}': {invalid.Message}",
+                    parameterName);
+            }
+
+            if (package.Version is not null
+                || package.Framework is not null
+                || package.RuntimeIdentifier is not null)
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' contains a versioned or"
+                    + " target-specific core-package coordinate.",
+                    parameterName);
+            }
+
+            if (!packageIds.Add(package.PackageId))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' contains duplicate core-package"
+                    + $" ID '{package.PackageId}'.",
+                    parameterName);
+            }
+        }
+
+        return packages;
     }
 
     private static void ValidateDisplayMetadata(
