@@ -56,6 +56,80 @@ public sealed class ArtifactAssemblyInspectionTests
     }
 
     [Fact]
+    public void CompatibilityDescriptor_UsesProjectedFactsWithoutOpeningContent()
+    {
+        using var artifact = new RetainedImage(AssemblyBytes());
+        ArtifactAssemblyProjection projection = artifact.Project();
+        artifact.Publish();
+        int opens = 0;
+        Stream Open()
+        {
+            opens++;
+            return artifact.Content.OpenRead(
+                artifact.QueryLease ?? throw new InvalidOperationException("The artifact is not published."));
+        }
+        Func<Stream> opener = Open;
+        AssemblyResolutionProvenance provenance = AssemblyResolutionProvenance.Local("test");
+
+        ResolvedAssemblyReference descriptor = ResolvedAssemblyReference.CreateFromArtifactProjection(
+            artifact.Contribution.Registration, projection, opener, provenance);
+
+        Assert.Equal(0, opens);
+        Assert.Same(projection.Identity, descriptor.Identity);
+        Assert.Same(artifact.Contribution.Registration, descriptor.Registration.ArtifactRegistration);
+        Assert.Equal(Mvid, descriptor.Registration.ModuleVersionId);
+        Assert.Same(opener, descriptor.OpenRead);
+        Assert.Same(provenance, descriptor.Provenance);
+        Assert.Null(descriptor.Path);
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(descriptor);
+        Assert.Equal("ArtifactBound", session.AssemblyInfo().AssemblyName);
+        Assert.Equal(1, opens);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompatibilityDescriptor_RejectsAnotherArtifactBeforeOpeningContent(bool foreignGeneration)
+    {
+        using var artifact = new RetainedImage(AssemblyBytes());
+        using var foreign = new RetainedImage(AssemblyBytes());
+        ArtifactAssemblyProjection projection = artifact.Project();
+        ArtifactAcquisitionRegistration registration = foreignGeneration
+            ? foreign.Contribution.Registration
+            : artifact.Add(AssemblyBytes()).Registration;
+        int opens = 0;
+
+        Assert.Throws<ArgumentException>(() =>
+            ResolvedAssemblyReference.CreateFromArtifactProjection(
+                registration,
+                projection,
+                () =>
+                {
+                    opens++;
+                    throw new InvalidOperationException("Content must not be opened.");
+                },
+                AssemblyResolutionProvenance.Local("test")));
+        Assert.Equal(0, opens);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void CompatibilityDescriptor_RequiresANonblankIdentity(string name)
+    {
+        using var artifact = new RetainedImage(AssemblyBytes());
+        ArtifactAssemblyProjection projection = artifact.Project();
+        projection = projection with { Identity = projection.Identity with { Name = name } };
+
+        Assert.Throws<ArgumentException>(() =>
+            ResolvedAssemblyReference.CreateFromArtifactProjection(
+                artifact.Contribution.Registration,
+                projection,
+                () => throw new InvalidOperationException("Content must not be opened."),
+                AssemblyResolutionProvenance.Local("test")));
+    }
+
+    [Fact]
     public void AdmissionProjection_PublicSurfaceCarriesNoProvenanceContentOrLeaseCapability()
     {
         var visited = new HashSet<Type>();

@@ -114,8 +114,19 @@ public sealed partial class InspectionWorkspace
                         preparation.Options,
                         cancellationToken)
                     .ConfigureAwait(false);
+            var admissionByArtifact =
+                new Dictionary<ArtifactIdentity, ArtifactAssemblyProjectionOutcome>();
             ArtifactSetPublicationOutcome publication =
-                await session.SealAsync(cancellationToken)
+                await session.SealWithProjectionAsync(
+                        (view, token) =>
+                        {
+                            admissionByArtifact.Add(
+                                view.Artifact,
+                                ArtifactAssemblyInspection.Project(view, token));
+                            // Non-projectable images still publish as compatibility carriers.
+                            return null;
+                        },
+                        cancellationToken)
                     .ConfigureAwait(false);
             if (publication
                 is ArtifactSetPublicationOutcome.NotPublished rejected)
@@ -135,6 +146,7 @@ public sealed partial class InspectionWorkspace
                 CreateArtifactRole(
                     preparation.SurfaceAssets,
                     contentByAsset,
+                    admissionByArtifact,
                     cancellationToken);
             ImmutableArray<RoleAssembly> implementationRole =
                 preparation.Shared
@@ -142,6 +154,7 @@ public sealed partial class InspectionWorkspace
                     : CreateArtifactRole(
                         preparation.ImplementationAssets,
                         contentByAsset,
+                        admissionByArtifact,
                         cancellationToken);
             realization = CreatePackageAssemblyContextRealization(
                 preparation,
@@ -312,6 +325,8 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<RoleAsset> assets,
         IReadOnlyDictionary<RoleAsset, ArtifactContentReference>
             contentByAsset,
+        IReadOnlyDictionary<ArtifactIdentity, ArtifactAssemblyProjectionOutcome>
+            admissionByArtifact,
         CancellationToken cancellationToken)
     {
         var result =
@@ -321,14 +336,30 @@ public sealed partial class InspectionWorkspace
             cancellationToken.ThrowIfCancellationRequested();
             RoleAsset asset = assets[index];
             ArtifactContentReference content = contentByAsset[asset];
-            ResolvedAssemblyReference assembly =
-                ResolvedAssemblyReference
-                    .CreateFromArtifactWithFallbackIdentity(
-                        content.Registration,
-                        content.OpenRead,
-                        RejectionCarrierIdentity(index),
-                        PackageProvenance(asset),
-                        out bool usedFallbackIdentity);
+            ResolvedAssemblyReference assembly;
+            bool usedFallbackIdentity;
+            if (admissionByArtifact[content.Registration.Artifact]
+                is ArtifactAssemblyProjectionOutcome.Projected projected
+                && !string.IsNullOrWhiteSpace(projected.Value.Identity.Name))
+            {
+                assembly = ResolvedAssemblyReference.CreateFromArtifactProjection(
+                    content.Registration,
+                    projected.Value,
+                    content.OpenRead,
+                    PackageProvenance(asset));
+                usedFallbackIdentity = false;
+            }
+            else
+            {
+                // Compatibility carriers can retain partially decoded identity,
+                // including an assembly name whose MVID was empty or unreadable.
+                assembly = ResolvedAssemblyReference.CreateFromArtifactWithFallbackIdentity(
+                    content.Registration,
+                    content.OpenRead,
+                    RejectionCarrierIdentity(index),
+                    PackageProvenance(asset),
+                    out usedFallbackIdentity);
+            }
             result.Add(new RoleAssembly(
                 asset.PackageIndex,
                 asset.Package,

@@ -1,0 +1,35 @@
+name: npm audit scheduled
+
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit inspect-web dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Audit the committed lockfile
+        working-directory: prototypes/inspect-web
+        env:
+          npm_config_fetch_timeout: '30000'
+        run: bash scripts/audit-dependencies.sh "$RUNNER_TEMP/npm-audit"
+
+      - name: Preserve npm reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-audit
+          path: ${{ runner.temp }}/npm-audit/
+          if-no-files-found: ignore
+          retention-days: 14
