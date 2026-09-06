@@ -579,6 +579,9 @@ jobs:
       - name: Validate dependency policy
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
+      - name: Test CLI runtime flavor across publish modes
+        run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}
+
       - name: Run MethodSemantics NativeAOT probe
         run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
 
