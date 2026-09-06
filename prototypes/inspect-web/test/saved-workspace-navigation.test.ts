@@ -301,6 +301,7 @@ function harness() {
       clearGraphSource: () => {},
     },
     cancelAnnotatedSourceRequest: () => {},
+    methodBodyComparison: { dispose: () => {} },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},

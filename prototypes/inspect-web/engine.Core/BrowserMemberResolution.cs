@@ -132,31 +132,47 @@ internal static class BrowserMemberResolution
             scope.SurfaceParticipant(coordinate, surfaceAsset);
         BrowserWorkspaceParticipant participant =
             scope.ImplementationParticipant(surfaceParticipant);
+        Analysis.CallGraphMemberResolution resolution = scope.UseImplementationParticipant(
+            participant,
+            (group, member) => ResolveImplementationMember(
+                ImplementationSurface(group, member), typeId, memberName, selectorKey, metadataToken));
+        return new Resolved(surfaceParticipant, participant, resolution);
+    }
+
+    internal static ApiSurface ImplementationSurface(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
         // One participant, under the same browser bounds as the package load: a body selector is
         // resolved against the implementation surface, and an over-budget implementation must
         // fail visibly rather than resolve against a silently shortened surface.
         AssemblyContextApiSurfaceResult implementationSurfaces =
-            scope.UseImplementationParticipant(
-                participant,
-                (group, member) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
                     group,
                     ApiSurfaceScope.IncludeAll,
                     BrowserApiSurfacePolicy.Limits,
-                    [member]));
+                    [participant]);
         if (implementationSurfaces.Truncation is { } truncation)
         {
             throw new InvalidOperationException(
-                $"The implementation surface for '{typeId}' exceeds the browser projection "
+                $"The implementation surface exceeds the browser projection "
                 + $"bounds, so the selected body cannot be resolved. "
                 + BrowserApiSurfacePolicy.TruncationNotice(truncation));
         }
 
-        AssemblyApiSurface implementation = BrowserSurfaceProjection.Require(
+        return BrowserSurfaceProjection.Require(
             implementationSurfaces.Assemblies.Assemblies.Single(),
-            $"Implementation surface for '{typeId}'");
-        Analysis.CallGraphMemberResolution resolution =
+            "Implementation surface").Surface;
+    }
+
+    internal static Analysis.CallGraphMemberResolution ResolveImplementationMember(
+        ApiSurface implementation,
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken) =>
             Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity(
-                implementation.Surface,
+                implementation,
                 typeId,
                 memberName,
                 selectorKey,
@@ -164,6 +180,4 @@ internal static class BrowserMemberResolution
             ?? throw new InvalidOperationException(
                 $"The implementation of '{typeId}.{memberName}' does not contain the selected "
                 + "API body.");
-        return new Resolved(surfaceParticipant, participant, resolution);
-    }
 }

@@ -23,13 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\tests\nuget\NuGetFetch.PluginFixture\PluginFixtureConfiguration.cs" Link="PluginFixtureConfiguration.cs" />
+    <Compile Include="..\nuget\NuGetFetch.PluginFixture\PluginFixtureConfiguration.cs" Link="PluginFixtureConfiguration.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\tests\nuget\NuGetFetch.CustomClientFixture\NuGetFetch.CustomClientFixture.csproj" />
-    <ProjectReference Include="..\..\tests\nuget\NuGetFetch.PluginFixture\NuGetFetch.PluginFixture.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
+    <ProjectReference Include="..\nuget\NuGetFetch.CustomClientFixture\NuGetFetch.CustomClientFixture.csproj" />
+    <ProjectReference Include="..\nuget\NuGetFetch.PluginFixture\NuGetFetch.PluginFixture.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
   </ItemGroup>
 
 </Project>

@@ -889,6 +889,23 @@ internal static class BrowserPackageWorkspace
         return FindOpenEntry(scope) is not null;
     }
 
+    internal static BrowserScopeLease<BrowserInspectionScope> LeaseRetainedPackageScope(
+        string packageId,
+        string version,
+        string framework)
+    {
+        string key = CompositeKey("packages", CompositeKey(
+            packageId.ToLowerInvariant(), version.ToLowerInvariant(), framework.ToLowerInvariant()));
+        var demand = new KeyedScopeDemand(key);
+        ScopeEntry[] candidates = Scopes.Where(demand.Joins).ToArray();
+        if (candidates is not [{ Scope: BrowserInspectionScope scope }])
+        {
+            throw new InvalidOperationException(
+                $"ContextUnavailable: the exact {packageId} {version} / {framework} workspace is not uniquely retained.");
+        }
+        return LeaseScope(scope);
+    }
+
     internal static void TouchScope(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);

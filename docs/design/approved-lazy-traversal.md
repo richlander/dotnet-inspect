@@ -276,6 +276,10 @@ distinct from admitted packages, including in a zero-package Workspace.
 Displaying that catalog knowledge requires no package-content acquisition;
 discovering a live prefix population remains an explicit query.
 
+The [Workspace editing contract](inspect-web-workspace-editing.md) owns the
+explicit Save/Cancel and dirty-navigation boundary. Drafts are not inspection
+inputs, and selecting Inspect never implicitly saves or discards edits.
+
 The editor configures traversal permissions and membership. Package Query
 selects a bounded population to add. The viewer browses the resulting content
 and can offer contextual Add actions without requiring a trip through the
@@ -297,8 +301,8 @@ editor. This example ecosystem and its twelve-member set are illustrative:
 ```text
 Workspace                                                   [Edit]
   Packages (2)
-    Example.Core                                            [Open]
-    Example.Extensions                                      [Open]
+    Example.Core                                            [Inspect]
+    Example.Extensions                                      [Inspect]
 
   Example ecosystem
     Curated packages (12)                 [Browse] [Add curated packages]
@@ -308,7 +312,7 @@ Workspace                                                   [Edit]
 The editor exposes the independent traversal policy:
 
 ```text
-Workspace
+Edit Workspace
   Subject: Example.Package
   Packages: Example.Package
 
@@ -316,15 +320,17 @@ Workspace
     Platform                     On demand                  [x]
     Microsoft.Extensions         Ecosystem, on demand       [x]
     [Add allowed traversal]
+                                               [Cancel]     [Save]
 ```
 
-The prefix-only stress case remains usable with both defaults removed:
+After leaving editing, the prefix-only stress case remains usable in the
+viewer with both defaults removed:
 
 ```text
-Workspace
+Workspace                                                   [Edit]
   Packages: 0
   Allowed traversal
-    Aspire.*                     Package prefix             [x]
+    Aspire.*                     Package prefix, on demand
 
   Call graph
     Subject: Aspire.*            Population: bounded
