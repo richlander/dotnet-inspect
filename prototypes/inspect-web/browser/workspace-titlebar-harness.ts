@@ -42,7 +42,7 @@ import {
 } from "../src/type-panel.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
-import { allocationFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -105,6 +105,7 @@ const packageMode =
 const memberMode = params.has("member");
 const memberFactsMode = params.get("member-facts");
 const allocationFactsMode = params.get("allocation-facts");
+const callFactsMode = params.get("call-facts");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -229,7 +230,7 @@ let activeTypeLens: TypeLens = sourceMode
     : "api";
 let activeMemberSection: MemberSection = sourceMode
   ? "source"
-  : memberFactsMode || allocationFactsMode ? "facts" : "overview";
+  : memberFactsMode || allocationFactsMode || callFactsMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -398,7 +399,9 @@ function detailHtml() {
         : "populated";
       const facts = allocationFactsMode
         ? allocationFactsFixture(allocationFactsMode === "long" ? "long" : "populated")
-        : memberFactsFixture(mode);
+        : callFactsMode
+          ? callFactsFixture(callFactsMode === "long" ? "long" : "populated")
+          : memberFactsFixture(mode);
       return `<section class="member-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">DeserializeSync</h1>
