@@ -133,9 +133,9 @@ This is the API-surface slice in
 [#5853](https://github.com/richlander/dotnet-inspect/issues/5853), not complete
 descriptor adoption for every `type` operation. Existing source/PDB policy
 consumers keep receiving the selected type's descriptor; the next subsection
-owns source-context opening; later subsections own type Analysis-index
-acquisition and exception-region context opening. Runtime acquisition, remaining deep-body/decompiler
-acquisition, and acquired-PDB propagation remain focused successors under
+owns source-context opening; later subsections own type Analysis-index,
+Exception Regions and Body Shapes acquisition. Runtime acquisition, remaining
+deep-body/decompiler acquisition, and acquired-PDB propagation remain focused successors under
 [#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
 
 ### Type source-context opening
@@ -206,8 +206,8 @@ consumer, not a new CLI dependency. Browser adoption remains under #4867.
 
 Descriptorless and standalone-member callers retain their path route. This
 does not select a runtime implementation or establish cross-image
-correspondence. The next subsection owns Exception Regions context opening;
-Body Shapes, whole-type decompiler acquisition, and acquired-PDB propagation
+correspondence. The following subsections own Exception Regions and Body Shapes
+acquisition. Whole-type decompiler acquisition and acquired-PDB propagation
 remain separate successors.
 
 ### Type exception-region context opening
@@ -236,8 +236,45 @@ Metadata still owns context validation, local symbol probing and region
 decoding. Their behavior and the section authorization policy are unchanged;
 this does not add network acquisition or a new per-method decode diagnostic
 policy. Descriptorless and standalone-member callers keep their existing path
-routes. API/runtime correspondence, runtime-image selection, Body Shapes,
-whole-type decompilation and other hosts remain separate adoption work.
+routes. The next subsection owns Body Shapes acquisition. API/runtime
+correspondence, runtime-image selection, whole-type decompilation and other
+hosts remain separate adoption work.
+
+### Type Body Shapes acquisition
+
+When type Body Shapes receives a selected root or forwarded API supplier, its
+body-search metadata source opens that descriptor, not its path projection.
+Normal/projected output and effective discovery preserve the retained
+supplier. Body-source opening failures reach the command error boundary rather
+than becoming successful path retries or empty shape output.
+
+`TypeBodyShapesAcquisition_UsesSelectedSupplier` and
+`TypeBodyShapesAcquisition_ReportsBodyOpenFailureAfterPdbAcquisition` gate this
+composition. The latter allows the preceding PDB acquisition to succeed before
+the body-source opener fails, distinguishing this handoff from source/PDB
+adoption. Existing `BodyShapesSectionTests` gate kind authorization, shape rows,
+type/member/accessor scope, visibility, empty results and rendering;
+`TypeAnalysisAcquisition_SkipsOrdinaryApiOutput` gates ordinary output without
+selected-context acquisition.
+
+This is [#6081](https://github.com/richlander/dotnet-inspect/issues/6081)'s
+three-step production adoption under #4867: TypeCommand retains the supplier;
+the existing Body Shapes helper consumes Decompiler's descriptor opener;
+existing typed rows and Markout rendering, or command error reporting, publish
+the result. Source-context and Exception Regions opening are analogous
+consumers of retained acquisitions.
+
+Decompiler owns metadata-source opening, reader lifetime, symbol probing and
+body search. Its existing API is consumed unchanged. Kind predicates, method
+tokens, visibility, render options, reference resolution and partial-search
+diagnostics keep their current behavior. PDB acquisition remains a separate
+earlier operation with its existing authorization and network policy, and its
+path is still supplied to the body source.
+
+Descriptorless and standalone-member callers keep their existing path route.
+This does not select another runtime image or establish API/runtime
+correspondence. Whole-type decompilation, further acquired-PDB propagation and
+other-host adoption remain separate work; this adds no shared substrate.
 
 ## Command families
 
