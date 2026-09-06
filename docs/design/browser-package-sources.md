@@ -1354,6 +1354,37 @@ Symbol packages have independent provenance. NuGet Gallery's known symbol CDN
 is a Gallery capability. A custom v3 feed does not acquire symbols from
 NuGet.org merely because the same package ID exists there.
 
+### Browser retained-acquisition association
+
+The selected runtime-client association survives completion of a Browser
+acquisition. Payload-cache entries, download reservations, archive leases, and
+workspace reuse retain that association alongside the exact coordinate.
+Repeating an acquisition through the same client may reuse its retained
+content; a distinct client cannot answer from, overwrite, or join that content
+merely because the coordinate or producer matches.
+
+This consumes the same exact client-reference currency as pending acquisition.
+Any Browser-issued namespace needed by internal scope keys is session-local,
+not producer identity, a configured endpoint, or portable configuration.
+Package composition may supply one composed client when it establishes
+authority equivalence; Browser does not establish that equivalence itself.
+Package, byte, and scope limits remain aggregate session limits rather than
+separate allowances for each client.
+
+The Release `BrowserEngineBoundaryTests` gates are
+`PackageAcquisition_SameClientReusesCompletedPayload`,
+`PackageAcquisition_DistinctSameProducerClientsRetainTheirOwnPayloads`, and
+`PackageQueryContent_UsesTheSelectedClientsCompletedCache` for completed-cache
+reuse and separation;
+`PackageAcquisition_DistinctClientReservationsShareGlobalBudget` for
+independent reservations under the global package and byte limits; and
+`BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate` for
+workspace reuse, retirement, and archive leases across those acquisitions.
+Configured-authority retirement and result admission remain separate
+obligations of the live registry adoption in [#5637][browser-adoption].
+
+[browser-adoption]: https://github.com/richlander/dotnet-inspect/issues/5637
+
 ## Timeout ownership
 
 JavaScript cancellation is a host convenience, not the reliability boundary.
@@ -1702,6 +1733,13 @@ unavailable from a selected mirror is shown as a source-specific availability
 fact, not as a contradictory global package state.
 
 ## Implementation direction
+
+Production Browser adoption is tracked in [#5637][browser-adoption] in three
+steps: client-associated retained acquisition, live configured-authority and
+engine-operation adoption, and Settings integration with Browser/Wasm
+end-to-end coverage. The retained-acquisition step keeps Gallery as the
+production source; it does not expose configured feeds or session PATs before
+their complete configuration and operation paths are available.
 
 The existing NuGetFetch shape is a useful base:
 

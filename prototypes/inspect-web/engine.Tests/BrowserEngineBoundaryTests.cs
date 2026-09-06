@@ -6410,6 +6410,306 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageAcquisition_SameClientReusesCompletedPayload()
+    {
+        string packageId = $"same.completed.package.{Guid.NewGuid():N}";
+        byte[] archive = PackageDocuments(1);
+        var handler = new GalleryPackageHandler(packageId, "1.0.0", archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackage first = await Acquire(source);
+        BrowserPackage repeated = await Acquire(source);
+
+        Assert.False(first.Content.FromCache);
+        Assert.True(repeated.Content.FromCache);
+        Assert.Same(first.RetainedBytes, repeated.RetainedBytes);
+        Assert.Same(first.Content.GenerationIdentity, repeated.Content.GenerationIdentity);
+        Assert.Equal(archive, repeated.RetainedBytes);
+        Assert.Single(handler.Requested);
+
+        Task<BrowserPackage> Acquire(IPackageSourceClient client) =>
+            BrowserPackageWorkspace.AcquireAsync(
+                packageId,
+                "1.0.0",
+                client,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_DistinctSameProducerClientsRetainTheirOwnPayloads()
+    {
+        string packageId = $"distinct.completed.package.{Guid.NewGuid():N}";
+        byte[] firstArchive = PackageDocuments(1);
+        byte[] secondArchive = PackageDocuments(2);
+        var firstHandler = new GalleryPackageHandler(packageId, "1.0.0", firstArchive);
+        var secondHandler = new GalleryPackageHandler(packageId, "1.0.0", secondArchive);
+        using IPackageSourceClient firstSource = Gallery(firstHandler);
+        using IPackageSourceClient secondSource = Gallery(secondHandler);
+        Assert.Equal(firstSource.Source.Producer, secondSource.Source.Producer);
+        int downloaded = BrowserPackageWorkspace.Stats().Packages;
+
+        BrowserPackage first = await Acquire(firstSource);
+        BrowserPackage second = await Acquire(secondSource);
+        BrowserPackage firstAgain = await Acquire(firstSource);
+        BrowserPackage secondAgain = await Acquire(secondSource);
+
+        Assert.False(first.Content.FromCache);
+        Assert.False(second.Content.FromCache);
+        Assert.True(firstAgain.Content.FromCache);
+        Assert.True(secondAgain.Content.FromCache);
+        Assert.Equal(firstArchive, first.RetainedBytes);
+        Assert.Equal(secondArchive, second.RetainedBytes);
+        Assert.Same(first.RetainedBytes, firstAgain.RetainedBytes);
+        Assert.Same(second.RetainedBytes, secondAgain.RetainedBytes);
+        Assert.NotSame(first.Content.GenerationIdentity, second.Content.GenerationIdentity);
+        Assert.Same(first.Content.GenerationIdentity, firstAgain.Content.GenerationIdentity);
+        Assert.Same(second.Content.GenerationIdentity, secondAgain.Content.GenerationIdentity);
+        Assert.Single(firstAgain.Documents());
+        Assert.Equal(2, secondAgain.Documents().Count);
+        Assert.Single(firstHandler.Requested);
+        Assert.Single(secondHandler.Requested);
+        Assert.Equal(downloaded + 2, BrowserPackageWorkspace.Stats().Packages);
+
+        Task<BrowserPackage> Acquire(IPackageSourceClient client) =>
+            BrowserPackageWorkspace.AcquireAsync(
+                packageId,
+                "1.0.0",
+                client,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task PackageQueryContent_UsesTheSelectedClientsCompletedCache()
+    {
+        string packageId = $"distinct.query.package.{Guid.NewGuid():N}";
+        var firstHandler = new GalleryPackageHandler(
+            packageId, "1.0.0", PackageDocuments(1));
+        var secondHandler = new GalleryPackageHandler(
+            packageId, "1.0.0", PackageDocuments(2));
+        using IPackageSourceClient firstSource = Gallery(firstHandler);
+        using IPackageSourceClient secondSource = Gallery(secondHandler);
+        Assert.Equal(firstSource.Source.Producer, secondSource.Source.Producer);
+
+        BrowserPackage first = await BrowserPackageWorkspace.AcquireAsync(
+            packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
+            TimeSpan.FromSeconds(5));
+        IPackageContent second = await QueryContent(secondSource);
+        IPackageContent firstAgain = await QueryContent(firstSource);
+        BrowserPackage secondAgain = await BrowserPackageWorkspace.AcquireAsync(
+            packageId, "1.0.0", secondSource, PackageSourceIdentity.NuGetOrg,
+            TimeSpan.FromSeconds(5));
+
+        Assert.False(second.FromCache);
+        Assert.True(firstAgain.FromCache);
+        Assert.True(secondAgain.Content.FromCache);
+        Assert.Same(first.Content.GenerationIdentity, firstAgain.GenerationIdentity);
+        Assert.NotSame(firstAgain.GenerationIdentity, second.GenerationIdentity);
+        Assert.Same(second.GenerationIdentity, secondAgain.Content.GenerationIdentity);
+        Assert.Single(firstAgain.EnumerateEntries());
+        Assert.Equal(2, second.EnumerateEntries().Count());
+        Assert.Single(firstHandler.Requested);
+        Assert.Single(secondHandler.Requested);
+
+        async Task<IPackageContent> QueryContent(IPackageSourceClient source)
+        {
+            PackageManifestFacts manifest = Assert.IsType<
+                PackageManifestFactsResult.Available>(
+                    PackageManifestFactsQuery.Execute(
+                        Encoding.UTF8.GetBytes(Nuspec(packageId, "1.0.0")),
+                        PackageSourceCoordinate.Create(packageId, "1.0.0"))).Value;
+            var package = new PackageQueryPackage(
+                packageId, "1.0.0", [], TotalDownloads: 0, Verified: false,
+                source.Source, manifest);
+            using var deadline =
+                new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+            return Assert.IsType<PackageQueryContentResult.Available>(
+                await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                    package, source, PackageSourceIdentity.NuGetOrg, deadline)).Content;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageAcquisition_DistinctClientReservationsShareGlobalBudget(bool byteLimit)
+    {
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"reservation.drain.{Guid.NewGuid():N}", 128L * MiB))
+        {
+        }
+
+        string packageId = $"distinct.reserved.package.{Guid.NewGuid():N}";
+        byte[] firstArchive = PackageDocuments(1);
+        byte[] secondArchive = PackageDocuments(2);
+        var firstRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstHandler = new GalleryPackageHandler(
+            packageId, "1.0.0", firstArchive, payloadRelease: firstRelease.Task);
+        var secondHandler = new GalleryPackageHandler(
+            packageId, "1.0.0", secondArchive, payloadRelease: secondRelease.Task);
+        var rejectedHandler = new GalleryPackageHandler(
+            packageId, "1.0.0", PackageDocuments(1));
+        using IPackageSourceClient firstSource = Gallery(firstHandler);
+        using IPackageSourceClient secondSource = Gallery(secondHandler);
+        using IPackageSourceClient rejectedSource = Gallery(rejectedHandler);
+        Assert.Equal(firstSource.Source.Producer, secondSource.Source.Producer);
+        var held = new List<BrowserPackageWorkspace.PackageDownloadReservation>();
+        Task<BrowserPackage>? first = null;
+        Task<BrowserPackage>? second = null;
+        try
+        {
+            int count = byteLimit ? 1 : 10;
+            for (int index = 0; index < count; index++)
+            {
+                held.Add(await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                    $"reservation.holder.{index}.{Guid.NewGuid():N}",
+                    byteLimit ? 128L * MiB - firstArchive.Length - secondArchive.Length : 0));
+            }
+
+            first = Acquire(firstSource);
+            await firstHandler.PayloadReadStarted.Task.WaitAsync(
+                TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            second = Acquire(secondSource);
+            await secondHandler.PayloadReadStarted.Task.WaitAsync(
+                TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            Assert.Equal(
+                byteLimit ? 128L * MiB : firstArchive.Length + secondArchive.Length,
+                BrowserPackageWorkspace.Stats().ResidentBytes);
+
+            InvalidOperationException failure =
+                await Assert.ThrowsAsync<InvalidOperationException>(() => Acquire(rejectedSource));
+            Assert.Contains("package-cache limit", failure.Message, StringComparison.Ordinal);
+
+            firstRelease.SetResult();
+            BrowserPackage firstPackage = await first;
+            Assert.False(second.IsCompleted);
+            secondRelease.SetResult();
+            BrowserPackage secondPackage = await second;
+            Assert.Equal(firstArchive, firstPackage.RetainedBytes);
+            Assert.Equal(secondArchive, secondPackage.RetainedBytes);
+            Assert.NotSame(
+                firstPackage.Content.GenerationIdentity,
+                secondPackage.Content.GenerationIdentity);
+            Assert.Equal(2, BrowserPackageWorkspace.Stats().Resident);
+            Assert.Single(firstHandler.Requested);
+            Assert.Single(secondHandler.Requested);
+        }
+        finally
+        {
+            try
+            {
+                firstRelease.TrySetResult();
+                if (first is not null)
+                    await first;
+            }
+            finally
+            {
+                try
+                {
+                    secondRelease.TrySetResult();
+                    if (second is not null)
+                        await second;
+                }
+                finally
+                {
+                    foreach (BrowserPackageWorkspace.PackageDownloadReservation reservation in held)
+                        reservation.Dispose();
+                }
+            }
+        }
+
+        Task<BrowserPackage> Acquire(IPackageSourceClient source) =>
+            BrowserPackageWorkspace.AcquireAsync(
+                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate()
+    {
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"scope.drain.{Guid.NewGuid():N}", 128L * MiB))
+        {
+        }
+
+        string packageId = $"distinct.scope.package.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(typeof(MethodBodyFixtures.Left).Assembly.Location);
+        byte[] firstArchive = Package(image, "lib/net11.0/First.dll");
+        byte[] secondArchive = Package(image, "lib/net11.0/Second.dll");
+        var firstHandler = new GalleryPackageHandler(packageId, "1.0.0", firstArchive);
+        var secondHandler = new GalleryPackageHandler(packageId, "1.0.0", secondArchive);
+        using IPackageSourceClient firstSource = Gallery(firstHandler);
+        using IPackageSourceClient secondSource = Gallery(secondHandler);
+        Assert.Equal(firstSource.Source.Producer, secondSource.Source.Producer);
+
+        BrowserPackageCoordinate first = await Resolve(firstSource);
+        BrowserPackageCoordinate second = await Resolve(secondSource);
+        Assert.NotEqual(first.Key, second.Key);
+        Assert.NotEqual(
+            BrowserPackageWorkspace.PackageScopeKey([first]),
+            BrowserPackageWorkspace.PackageScopeKey([second]));
+        await using BrowserScopeLease<BrowserInspectionScope> firstLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                first.Package, first.Framework, TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> secondLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                second.Package, second.Framework, TestContext.Current.CancellationToken);
+        Assert.Equal("lib/net11.0/First.dll", Assert.Single(firstLease.Scope.SurfaceParticipants).Asset.Path);
+        Assert.Equal("lib/net11.0/Second.dll", Assert.Single(secondLease.Scope.SurfaceParticipants).Asset.Path);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(firstLease.Scope));
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(secondLease.Scope));
+        Assert.InRange(BrowserPackageWorkspace.Stats().Workspaces, 2, 4);
+        BrowserPackage firstCached = await BrowserPackageWorkspace.AcquireAsync(
+            packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
+            TimeSpan.FromSeconds(5));
+        Assert.True(firstCached.Content.FromCache);
+        Assert.Same(first.Package.Content.GenerationIdentity, firstCached.Content.GenerationIdentity);
+        Assert.Same(first.Package.RetainedBytes, firstCached.RetainedBytes);
+        await using (BrowserScopeLease<BrowserInspectionScope> repeated =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                firstCached, first.Framework, TestContext.Current.CancellationToken))
+        {
+            Assert.Same(firstLease.Scope, repeated.Scope);
+            Assert.NotSame(firstLease.Scope, secondLease.Scope);
+        }
+
+        await firstLease.DisposeAsync();
+        await BrowserPackageWorkspace.RemoveScopeAsync(firstLease.Scope);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(secondLease.Scope));
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"scope.pressure.{Guid.NewGuid():N}", 128L * MiB - secondArchive.Length))
+        {
+            Assert.DoesNotContain(first.Package.CacheKey, BrowserPackageWorkspace.ResidentPackageKeys());
+            Assert.Contains(second.Package.CacheKey, BrowserPackageWorkspace.ResidentPackageKeys());
+            Assert.Equal(128L * MiB, BrowserPackageWorkspace.Stats().ResidentBytes);
+        }
+
+        BrowserPackageCoordinate firstAgain = await Resolve(firstSource);
+        BrowserPackageCoordinate secondAgain = await Resolve(secondSource);
+        Assert.False(firstAgain.Package.Content.FromCache);
+        Assert.True(secondAgain.Package.Content.FromCache);
+        Assert.Same(second.Package.Content.GenerationIdentity, secondAgain.Package.Content.GenerationIdentity);
+        Assert.NotSame(first.Package.Content.GenerationIdentity, firstAgain.Package.Content.GenerationIdentity);
+        Assert.Equal(2, firstHandler.Requested.Count);
+        Assert.Single(secondHandler.Requested);
+        Assert.NotEmpty(secondLease.Scope.UseSurface(
+            group => AssemblyContextApiSurfaceQuery.Execute(group)).Assemblies.Assemblies);
+
+        Task<BrowserPackageCoordinate> Resolve(IPackageSourceClient source) =>
+            BrowserPackageWorkspace.ResolveAsync(
+                packageId, "1.0.0", "net11.0", source, PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public void PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent()
     {
         using var deadline =
@@ -8233,7 +8533,8 @@ public sealed class BrowserEngineBoundaryTests
         bool provideSearchResult = false,
         System.Net.HttpStatusCode packageStatus =
             System.Net.HttpStatusCode.OK,
-        bool omitContentLength = false)
+        bool omitContentLength = false,
+        Task? payloadRelease = null)
         : HttpMessageHandler
     {
         readonly string _packageUrl =
@@ -8241,6 +8542,8 @@ public sealed class BrowserEngineBoundaryTests
 
         public List<string> Requested { get; } = [];
         public bool PayloadDisposed { get; private set; }
+        public TaskCompletionSource PayloadReadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -8272,12 +8575,17 @@ public sealed class BrowserEngineBoundaryTests
             var response = new HttpResponseMessage(packageStatus);
             if (packageStatus == System.Net.HttpStatusCode.OK)
             {
-                response.Content = omitContentLength
+                response.Content = payloadRelease is not null
+                    ? new StreamContent(new GatedPayloadStream(
+                        archive, PayloadReadStarted, payloadRelease))
+                    : omitContentLength
                     ? new StreamContent(
                         new TrackingPayloadStream(
                             archive,
                             () => PayloadDisposed = true))
                     : new ByteArrayContent(archive);
+                if (payloadRelease is not null)
+                    response.Content.Headers.ContentLength = archive.LongLength;
             }
 
             return Task.FromResult(response);
@@ -8453,6 +8761,23 @@ public sealed class BrowserEngineBoundaryTests
                 cancellationToken);
             throw new InvalidOperationException(
                 "The registration stall completed without cancellation.");
+        }
+    }
+
+    sealed class GatedPayloadStream(
+        byte[] bytes,
+        TaskCompletionSource started,
+        Task release) : MemoryStream(bytes, writable: false)
+    {
+        public override bool CanSeek => false;
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            started.TrySetResult();
+            await release.WaitAsync(cancellationToken);
+            return await base.ReadAsync(buffer, cancellationToken);
         }
     }
 
