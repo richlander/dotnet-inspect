@@ -318,6 +318,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [Member signature shape and transport](design/member-signature-shape.md):
+  non-authoritative source/Metadata projection, candidate correspondence,
+  loss-policy rationale, and canonical `mss1` transport.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.
