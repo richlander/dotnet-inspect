@@ -568,6 +568,9 @@ public class UnraisedLocalFunctionCallTests
         // Interpolation additionally retains the DefaultInterpolatedStringHandler
         // constructor, AppendLiteral/AppendFormatted and ToStringAndClear members.
         // Calls inside interpolation holes remain ordinary descendant Call nodes.
+        // Anonymous constructors, RVA initialization, synthesized inline-array
+        // helpers, and range-slice helpers are likewise fixed lowering members;
+        // ordinary calls in their values remain descendant Call nodes.
         //
         // The last two reach here only through a CARRIER record, which is why widening
         // the walk to follow carriers was needed to see them at all: `ChainedAssignment`
@@ -591,6 +594,10 @@ public class UnraisedLocalFunctionCallTests
             nameof(UsingStatement),
             nameof(AwaitExpression),
             nameof(InterpolatedStringExpression),
+            nameof(AnonymousObject),
+            nameof(ArrayLiteral),
+            nameof(CollectionExpression),
+            nameof(SliceExpression),
             nameof(ObjectInitializerExpression),
             nameof(WithExpression),
             nameof(InitializerBlock),

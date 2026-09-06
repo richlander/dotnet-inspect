@@ -550,7 +550,7 @@ internal static class ClassicInverseRecipes
                 candidate.InlinedAwaitTemporary = new(rawReceiver, rawAddress, getResults[0]);
             }
         }
-        else if (getResults[0].Parent is TupleExpression && store.Parent is Block tupleContinuation)
+        else if (!shell.Protocol.IsSwitchResult(getResults[0]) && store.Parent is Block tupleContinuation)
         {
             bool proven = TryRawAwaitReceiver(rawExecution, tupleContinuation, store, setResult,
                 getResults[0], budget, out StoreLocal? rawValue, out StoreLocal rawProjection,

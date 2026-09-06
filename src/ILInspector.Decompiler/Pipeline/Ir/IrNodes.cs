@@ -417,6 +417,7 @@ public sealed class IrFunction : IrNode
     public MethodSignature Signature { get; }
     internal Parameter? ReceiverParameter { get; }
     public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
+    public ImmutableArray<GenericParameterConstraintInfo> DeclaringTypeParameters { get; set; } = [];
     /// <summary>
     /// Typed constructor evidence decoded from the reserved metadata method name
     /// (<c>.ctor</c>/<c>.cctor</c>) at import time. Consumers (e.g. compile-back
@@ -2663,16 +2664,19 @@ public sealed class NewObject : IrExpression
     witness: "AnonymousObjectPassTests, corpus compile-back")]
 public sealed class AnonymousObject : IrExpression
 {
-    public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values)
+    public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values,
+        MethodRef? constructor = null)
     {
         Type = type;
         PropertyNames = propertyNames;
+        Constructor = constructor;
         foreach (var value in values)
             AddChild(value);
     }
 
     public TypeRef Type { get; }
     public ImmutableArray<string> PropertyNames { get; }
+    public MethodRef? Constructor { get; }
     public IReadOnlyList<IrExpression> Values => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => Type;
     public override IEnumerable<TypeRef> DirectTypes => [Type];
@@ -3441,15 +3445,18 @@ public sealed class AddressOfMethod : IrExpression
     witness: "function-pointer/delegate fixtures; corpus compile-back")]
 public sealed class DelegateCreation : IrExpression
 {
-    public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target)
+    public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target,
+        MethodRef? constructor = null)
     {
         DelegateType = delegateType;
         Method = method;
         IsVirtual = isVirtual;
+        Constructor = constructor;
         AddChild(target);
     }
 
     public TypeRef DelegateType { get; }
+    public MethodRef? Constructor { get; }
     public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
 
@@ -3933,15 +3940,18 @@ public sealed class RangeExpression : IrExpression
     witness: "range/index fixtures; corpus compile-back")]
 public sealed class SliceExpression : IrExpression
 {
-    public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType)
+    public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType,
+        MethodRef? sliceMethod = null)
     {
         AddChild(receiver);
         AddChild(range);
         ResultType = resultType;
+        SliceMethod = sliceMethod;
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
     public RangeExpression Range => (RangeExpression)Children[1];
+    public MethodRef? SliceMethod { get; }
     public override TypeRef? ResultType { get; }
 
     public override string Describe() => "SliceExpression";
@@ -4359,16 +4369,19 @@ public sealed class SpanLiteral : IrExpression
     witness: "CollectionExpressionFrontierTests, corpus compile-back")]
 public sealed class CollectionExpression : IrExpression
 {
-    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements)
+    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements,
+        ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         ElementType = elementType;
         TargetType = targetType;
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
     public TypeRef TargetType { get; }
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => TargetType;
     public override IEnumerable<TypeRef> DirectTypes => [ElementType, TargetType];
@@ -4411,16 +4424,19 @@ public sealed class CollectionSpreadElement : IrExpression
     witness: "InitializeArrayTests, corpus compile-back")]
 public sealed class ArrayLiteral : IrExpression
 {
-    public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements)
+    public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements,
+        MethodRef? initializationMethod = null)
     {
         ElementType = elementType;
         ArrayType = arrayType;
+        InitializationMethod = initializationMethod;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
     public TypeRef ArrayType { get; }
+    public MethodRef? InitializationMethod { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => ArrayType;
     public override IEnumerable<TypeRef> DirectTypes => [ElementType, ArrayType];

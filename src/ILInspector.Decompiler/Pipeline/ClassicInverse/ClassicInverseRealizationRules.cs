@@ -345,6 +345,8 @@ internal static class ClassicInverseRealizationRules
         Context context,
         out string failure)
     {
+        if (source is Box box && context.Shell.Protocol.Proves(box, ClassicInverseLoweringProof.ClassConstraintBox))
+            return Lockstep(box.Operand, output, context, out failure);
         failure = "";
 
         bool sourceIsNested = !ReferenceEquals(source, context.SourceRoot)
@@ -634,6 +636,31 @@ internal static class ClassicInverseRealizationRules
             (LoadField left, LoadField right) =>
                 left.Field == right.Field
                 && left.IsVolatile == right.IsVolatile,
+            (LoadFieldAddress left, LoadFieldAddress right) =>
+                left.Field == right.Field
+                && ((left.FieldRvaData is null && right.FieldRvaData is null)
+                    || left.FieldRvaData is not null && right.FieldRvaData is not null
+                        && left.FieldRvaData.AsSpan().SequenceEqual(right.FieldRvaData)),
+            (AnonymousObject left, AnonymousObject right) =>
+                Equals(left.Type, right.Type) && left.PropertyNames.SequenceEqual(right.PropertyNames)
+                && left.Constructor == right.Constructor,
+            (DelegateCreation left, DelegateCreation right) =>
+                Equals(left.DelegateType, right.DelegateType) && left.Method == right.Method
+                && left.Constructor == right.Constructor && left.IsVirtual == right.IsVirtual,
+            (ArrayLiteral left, ArrayLiteral right) =>
+                Equals(left.ElementType, right.ElementType) && Equals(left.ArrayType, right.ArrayType)
+                && left.InitializationMethod == right.InitializationMethod,
+            (CollectionExpression left, CollectionExpression right) =>
+                Equals(left.ElementType, right.ElementType) && Equals(left.TargetType, right.TargetType)
+                && left.ConsumedMemberRefs.SequenceEqual(right.ConsumedMemberRefs),
+            (IndexFromEnd, IndexFromEnd) => true,
+            (RangeExpression left, RangeExpression right) =>
+                left.HasStart == right.HasStart && left.HasEnd == right.HasEnd,
+            (SliceExpression left, SliceExpression right) =>
+                Equals(left.ResultType, right.ResultType) && left.SliceMethod == right.SliceMethod,
+            (SwitchExpression, SwitchExpression) => true,
+            (SwitchExpressionArm left, SwitchExpressionArm right) =>
+                left.IsDefault == right.IsDefault && left.Labels.SequenceEqual(right.Labels),
             (NewObject left, NewObject right) =>
                 left.Constructor == right.Constructor
                 && left.AnonymousPropertyNames.SequenceEqual(

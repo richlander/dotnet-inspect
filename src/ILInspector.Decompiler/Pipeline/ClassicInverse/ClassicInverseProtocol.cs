@@ -72,6 +72,12 @@ internal static class ClassicInverseProtocol
 
         switch (node)
         {
+            case Box box when shell.Protocol.Proves(box, ClassicInverseLoweringProof.ClassConstraintBox):
+                return ClassicInverseProtocolRule.Frame(ClassicInverseLoweringProof.ClassConstraintBox, 0);
+            case StoreLocal store when shell.Protocol.Proves(store, ClassicInverseLoweringProof.SwitchLocalStore):
+                return ClassicInverseProtocolRule.Frame(ClassicInverseLoweringProof.SwitchLocalStore, 0);
+            case LoadLocal read when shell.Protocol.Proves(read, ClassicInverseLoweringProof.SwitchLocalRead):
+                return ClassicInverseProtocolRule.Owned(ClassicInverseLoweringProof.SwitchLocalRead);
             case BlockContainer:
                 return ClassicInverseProtocolRule.Transparent("block-container");
 

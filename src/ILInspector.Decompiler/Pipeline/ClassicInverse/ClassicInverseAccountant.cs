@@ -158,7 +158,8 @@ internal sealed partial class ClassicInverseAccountant
             return Decline(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
                 "the inlined receiver has no realization of its exact awaited value");
         }
-        if (!ProveStackallocs() || !ProveInterpolations())
+        if (!IndexRawInputs() || !IndexValueTransfers() || !ProveExpressionFamilies()
+            || !ProveStackallocs() || !ProveInterpolations())
             return _terminal!;
 
         if (!AccountKickoff())
@@ -378,7 +379,7 @@ internal sealed partial class ClassicInverseAccountant
         return true;
     }
 
-    bool AccountRawImportSnapshots()
+    bool IndexRawInputs()
     {
         IndexPaths(_request.KickoffBody.Body, _rawKickoffPaths);
         IndexPaths(_request.ExecutionBody.Body, _rawExecutionPaths);
@@ -398,6 +399,11 @@ internal sealed partial class ClassicInverseAccountant
                 _rawExpressionsByOffset[node.SourceOffset] = null;
             }
         }
+        return true;
+    }
+
+    bool AccountRawImportSnapshots()
+    {
         if (!ProveDefaultInitializations())
             return false;
         foreach (var (offset, origins) in _shell.Protocol.PredicateOrigins)
@@ -611,6 +617,13 @@ internal sealed partial class ClassicInverseAccountant
                     "planning value accounting exhausted the planning budget");
                 return;
             }
+            if (node is IrExpression expression && TryFamily(expression, out FamilyExpansion? family))
+            {
+                foreach (FamilyInput input in family.Inputs)
+                    Visit(AtPath(node, input.Path));
+                values.Add(node);
+                return;
+            }
             foreach (IrNode child in node.Children)
             {
                 if (_terminal is not null)
@@ -621,6 +634,8 @@ internal sealed partial class ClassicInverseAccountant
             if (EnclosingClaimSource(node) is null)
                 return;
             if (_shell.Protocol.ProvesPredicateStructure(node))
+                return;
+            if (_shell.Protocol.Proves(node, ClassicInverseLoweringProof.ClassConstraintBox))
                 return;
             if (node is TupleExpression tuple)
             {
@@ -691,7 +706,7 @@ internal sealed partial class ClassicInverseAccountant
         Visit(root);
         return values.ToImmutable();
 
-        void Visit(IrNode node)
+        void Visit(IrNode node, bool scheduled = false)
         {
             if (!_budget.Charge())
             {
@@ -700,12 +715,31 @@ internal sealed partial class ClassicInverseAccountant
                     "raw value accounting exhausted the planning budget");
                 return;
             }
+            if (!scheduled && _scheduledPriorValues.Contains(node))
+                return;
+            if (_rawPriorValues.TryGetValue(node, out var priorValues))
+                foreach (IrNode prior in priorValues)
+                    Visit(prior, scheduled: true);
             ClassicInverseProtocolRule protocol =
                 ClassifyRaw(node);
-            if (node is LoadStackSlot
+            if (node is LoadStackSlot or LoadLocal
                 && _shell.Protocol.SelectionTestForJoin(node) is { } selectionTest)
             {
                 values.Add(selectionTest);
+                return;
+            }
+            if (_shell.Protocol.IsConsumedSwitchValue(node))
+            {
+                foreach (IrNode value in node.Descendants.Prepend(node))
+                {
+                    if (!_budget.Charge())
+                    {
+                        _terminal = Failure("switch value correspondence exhausted the planning budget");
+                        return;
+                    }
+                    if (_shell.Protocol.IsConsumedSwitchValue(value))
+                        _rawSemanticValues.Add(value);
+                }
                 return;
             }
             if (protocol.Kind is ClassicInverseProtocolKind.OwnedProtocol
@@ -729,6 +763,16 @@ internal sealed partial class ClassicInverseAccountant
                     Visit(hole);
                 return;
             }
+            if (_rawFamilyValues.TryGetValue(node, out FamilyExpansion? family))
+            {
+                if (!family.InputsAlreadyVisited)
+                    foreach (FamilyInput input in family.Inputs)
+                        Visit(input.Raw);
+                values.Add(node);
+                return;
+            }
+            if (_familySuppressedValues.Contains(node))
+                return;
             if (node is NewObject creation
                 && _stackallocs.TryGetValue(node.SourceOffset, out StackallocBinding? allocation)
                 && ReferenceEquals(allocation.Creation, creation))
@@ -818,6 +862,7 @@ internal sealed partial class ClassicInverseAccountant
             or LogicalBinary
             or Coalesce
             or Conditional
+            or SwitchExpression
             or Convert
             or Coerce
             or LogicalNot
@@ -870,6 +915,8 @@ internal sealed partial class ClassicInverseAccountant
             return ReferenceEquals(defaultValue, planning);
         if (_interpolationRawResults.TryGetValue(raw, out var interpolation))
             return ReferenceEquals(interpolation, planning);
+        if (_rawFamilyValues.TryGetValue(raw, out FamilyExpansion? family))
+            return ReferenceEquals(family.Planning, planning);
         if (planning is StackAllocArray array && _stackallocs.TryGetValue(raw.SourceOffset, out var allocation))
             return ReferenceEquals(allocation.Creation, raw) && ReferenceEquals(allocation.Planning, array);
         if (_rawBooleanFolds.TryGetValue(raw, out IrNode? replacement))
@@ -878,7 +925,7 @@ internal sealed partial class ClassicInverseAccountant
             return ReferenceEquals(typeOf, planning);
         if (_rawLiteralFolds.TryGetValue(raw, out Constant? literal))
             return ReferenceEquals(literal, planning);
-        if (raw is ConditionalBranch && planning is Coalesce or Conditional)
+        if (raw is ConditionalBranch && planning is Coalesce or Conditional or SwitchExpression)
             return _shell.Protocol.ProvesSelectionValue(raw, planning);
 
         return (raw, planning) switch
@@ -901,7 +948,7 @@ internal sealed partial class ClassicInverseAccountant
                 left.Field == right.Field
                 && left.IsVolatile == right.IsVolatile,
             (LoadFieldAddress left, LoadFieldAddress right) =>
-                left.Field == right.Field,
+                ClassicInverseRealizationRules.PayloadEquals(left, right),
             (Constant left, Constant right) =>
                 (Equals(left.Value, right.Value)
                     && Equals(left.Type, right.Type))
@@ -2058,7 +2105,8 @@ internal sealed partial class ClassicInverseAccountant
                     return;
             }
 
-            if (VisitInterpolation(node, Visit, effects, bindOutputTypes: bindOutputTypes)
+            if (VisitFamily(node, Visit, effects, bindOutputTypes: bindOutputTypes)
+                || VisitInterpolation(node, Visit, effects, bindOutputTypes: bindOutputTypes)
                 || VisitStackalloc(node, Visit, effects, bindOutputTypes: bindOutputTypes)
                 || VisitInitializer(node, Visit, effects, bindOutputTypes: bindOutputTypes))
                 return;
@@ -2112,7 +2160,9 @@ internal sealed partial class ClassicInverseAccountant
                 return;
             }
 
-            if (VisitInterpolation(node, Visit, claim is null ? null : effects,
+            if (VisitFamily(node, Visit, claim is null ? null : effects,
+                    claim is null ? null : effect => effect + $"@claim:{ClaimToken(claim)}")
+                || VisitInterpolation(node, Visit, claim is null ? null : effects,
                     claim is null ? null : effect => effect + $"@claim:{ClaimToken(claim)}")
                 || VisitStackalloc(node, Visit, claim is null ? null : effects,
                     claim is null ? null : effect => effect + $"@claim:{ClaimToken(claim)}")
@@ -2429,6 +2479,10 @@ internal sealed partial class ClassicInverseAccountant
                 _planningStackallocs.Add(array);
             if (ReferenceEquals(index, _executionPaths) && node is InterpolatedStringExpression interpolation)
                 _planningInterpolations.Add(interpolation);
+            if (ReferenceEquals(index, _executionPaths) && node is
+                AnonymousObject or DelegateCreation or ArrayLiteral or CollectionExpression or SliceExpression
+                || ReferenceEquals(index, _executionPaths) && node is IndexFromEnd { Parent: not RangeExpression })
+                _planningFamilies.Add((IrExpression)node);
             for (int i = 0; i < node.Children.Count; i++)
                 Visit(node.Children[i], path.Add(i));
         }

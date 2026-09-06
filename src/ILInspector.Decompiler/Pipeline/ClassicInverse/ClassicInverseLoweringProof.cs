@@ -48,6 +48,7 @@ internal sealed partial class ClassicInverseLoweringProof
     internal const string GetAwaiterCall = "get-awaiter";
     internal const string AwaitOperandStore = "await-operand-store";
     internal const string AwaitOperandAddress = "await-operand-address";
+    internal const string ClassConstraintBox = "class-constrained-await-reference";
     internal const string AwaitCompletionBranch = "awaiter-completed-branch";
     internal const string CoalesceStore = "coalesce-value-transfer";
     internal const string CoalesceRead = "coalesce-carried-value";
@@ -55,6 +56,8 @@ internal sealed partial class ClassicInverseLoweringProof
     internal const string SelectionRead = "conditional-joined-value";
     internal const string DeferredAwaitStore = "deferred-await-value-store";
     internal const string DeferredAwaitRead = "deferred-await-value-read";
+    internal const string SwitchLocalStore = "switch-value-local-store";
+    internal const string SwitchLocalRead = "switch-value-local-read";
 
     const string BudgetFailure =
         "the lowering-protocol proof exhausted the planning budget";
@@ -373,9 +376,8 @@ internal sealed partial class ClassicInverseLoweringProof
                     ParameterTypes.IsDefaultOrEmpty: true,
                 }
                 || getAwaiter.Arguments is not [IrExpression receiver]
-                || getAwaiter.ConstrainedTo is not null
                 || receiver.ResultType is not { } receiverType
-                || !IsSourceAwaitDispatch(getAwaiter, receiver, receiverType, isRawImport, body.TypeShapes)
+                || !IsSourceAwaitDispatch(getAwaiter, receiver, receiverType, isRawImport, body, budget)
                 || !bind.Type.Equals(getAwaiter.Callee.ReturnType))
             {
                 failure = "an awaiter bind does not preserve source dispatch "
@@ -412,6 +414,8 @@ internal sealed partial class ClassicInverseLoweringProof
 
             roles[bind] = AwaiterBind;
             roles[getAwaiter] = GetAwaiterCall;
+            if (receiver is Box)
+                roles[receiver] = ClassConstraintBox;
             boundAwaiterLocals.Add(bind.Index);
             awaiterBinds.Add(new(
                 getAwaiter.SourceOffset,
@@ -708,8 +712,15 @@ internal sealed partial class ClassicInverseLoweringProof
 
     static bool IsSourceAwaitDispatch(
         Call getAwaiter, IrExpression receiver, TypeRef receiverType, bool isRawImport,
-        IReadOnlyDictionary<TypeRef, TypeShape> typeShapes)
+        IrFunction body, ClassicInverseBudget budget)
     {
+        if (getAwaiter.ConstrainedTo is { } constraint)
+            return getAwaiter.IsVirtual && receiverType is { Kind: TypeRefKind.ByRef, ElementType: { } storage }
+                && storage.Equals(constraint) && HasInterfaceConstraint(body, constraint, getAwaiter.Callee.DeclaringType,
+                    referenceOnly: false, budget);
+        if (getAwaiter.IsVirtual && receiver is Box box)
+            return Equals(box.Type, box.Operand.ResultType)
+                && HasInterfaceConstraint(body, box.Type, getAwaiter.Callee.DeclaringType, referenceOnly: true, budget);
         if (getAwaiter.IsVirtual)
             return receiverType.Equals(getAwaiter.Callee.DeclaringType);
 
@@ -720,9 +731,33 @@ internal sealed partial class ClassicInverseLoweringProof
         if (!isRawImport && receiver is Call or LoadProperty)
             exactReceiver |= receiverType.Equals(declared);
         TypeRef storageType = receiverType.Kind == TypeRefKind.ByRef ? receiverType.ElementType! : receiverType;
-        return exactReceiver && ClassicInverseExpressionRules.IsKnownValueType(storageType, typeShapes);
+        return exactReceiver && ClassicInverseExpressionRules.IsKnownValueType(storageType, body.TypeShapes);
     }
 
+    static bool HasInterfaceConstraint(IrFunction body, TypeRef parameter, TypeRef @interface,
+        bool referenceOnly, ClassicInverseBudget budget)
+    {
+        if (!budget.Charge() || parameter.Kind != TypeRefKind.GenericParameter
+            || !body.InterfaceTypes.Contains(ClassicInverseNodeFacts.Definition(@interface)))
+            return false;
+        foreach (var constraint in body.DeclaringTypeParameters)
+        {
+            if (!budget.Charge())
+                return false;
+            if (constraint.Index != parameter.GenericParameterIndex)
+                continue;
+            if (referenceOnly && (constraint.Attributes & System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint) == 0)
+                return false;
+            foreach (TypeRef type in constraint.Types)
+            {
+                if (!budget.Charge())
+                    return false;
+                if (type.Equals(@interface))
+                    return true;
+            }
+        }
+        return false;
+    }
     static bool ProvesRvalueReceiverSlot(
         BodyIndex index, IrFunction body, int slot, TypeRef type, ClassicInverseBudget budget)
     {
@@ -1672,9 +1707,11 @@ internal sealed partial class ClassicInverseLoweringProof
             new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<int, List<Block>> _blocksByStart = [];
         readonly Dictionary<int, List<ConditionalBranch>> _stateTests = [];
+        readonly Dictionary<int, ConditionalBranch?> _branchesByOffset = [];
         readonly Dictionary<int, List<StoreStackSlot>> _slotStores = [];
         readonly Dictionary<int, List<LoadStackSlot>> _slotLoads = [];
         readonly Dictionary<int, List<IrNode>> _localReads = [];
+        readonly Dictionary<int, List<StoreLocal>> _localStores = [];
         readonly Dictionary<IrNode, List<LoadStackSlot>> _slotLoadsByBlock =
             new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<IrNode, Block?> _containingBlocks =
@@ -1779,6 +1816,8 @@ internal sealed partial class ClassicInverseLoweringProof
         internal List<ConditionalBranch> StateTestsFor(int state)
             => _stateTests.GetValueOrDefault(state, s_noBranches);
 
+        internal ConditionalBranch? BranchAt(int offset) => _branchesByOffset.GetValueOrDefault(offset);
+
         internal List<StoreStackSlot> SlotStoresFor(int slot)
             => _slotStores.GetValueOrDefault(slot, s_noSlotStores);
 
@@ -1787,6 +1826,9 @@ internal sealed partial class ClassicInverseLoweringProof
 
         internal IReadOnlyList<IrNode> LocalReadsFor(int slot)
             => _localReads.TryGetValue(slot, out var reads) ? reads : [];
+
+        internal IReadOnlyList<StoreLocal> LocalStoresFor(int slot)
+            => _localStores.TryGetValue(slot, out var stores) ? stores : [];
 
         internal IReadOnlyList<LoadStackSlot> SlotLoadsIn(Block block)
             => _slotLoadsByBlock.TryGetValue(block, out var loads) ? loads : [];
@@ -1822,6 +1864,18 @@ internal sealed partial class ClassicInverseLoweringProof
                     local.Any(block => ReferenceEquals(block, candidate))
                     || external.Any(
                         block => ReferenceEquals(block, candidate)));
+        }
+
+        internal bool HasExactPredecessors(Block block, IReadOnlySet<Block> expected, ClassicInverseBudget budget)
+        {
+            IReadOnlyList<Block> local = _predecessors.GetValueOrDefault(block, s_noBlocks);
+            IReadOnlyList<Block> external = _externalPredecessors.GetValueOrDefault(block.StartOffset, s_noBlocks);
+            if (local.Count + external.Count != expected.Count)
+                return false;
+            foreach (Block predecessor in local.Concat(external))
+                if (!budget.Charge() || !expected.Contains(predecessor))
+                    return false;
+            return true;
         }
 
         internal bool IsSuspensionExit(Block block)
@@ -2103,10 +2157,14 @@ internal sealed partial class ClassicInverseLoweringProof
 
         void Add(IrNode node, int stateLocal, ImmutableHashSet<int> awaiterLocals)
         {
+            if (node is ConditionalBranch indexedBranch && !_branchesByOffset.TryAdd(indexedBranch.SourceOffset, indexedBranch))
+                _branchesByOffset[indexedBranch.SourceOffset] = null;
             if (node is LoadLocal indexedRead)
                 Group(_localReads, indexedRead.Index, node);
             else if (node is LoadLocalAddress indexedAddress)
                 Group(_localReads, indexedAddress.Index, node);
+            if (node is StoreLocal indexedStore)
+                Group(_localStores, indexedStore.Index, indexedStore);
             switch (node)
             {
                 case BlockContainer container:

@@ -231,6 +231,88 @@ internal sealed record ClassicInverseStackallocNode(TypeRef ElementType, TypeRef
     internal override string Signature => $"stackalloc[{TypeText(ElementType)}:{TypeText(ResultType)}]({Count.Signature})";
 }
 
+internal sealed record ClassicInverseFieldAddressNode(FieldRef Field, ClassicInverseBodyNode? Instance,
+    ImmutableArray<byte>? RvaData) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new LoadFieldAddress(Field, Instance is null ? null : Expr(Instance))
+    {
+        FieldRvaData = RvaData?.ToArray(),
+    };
+    internal override string Signature => $"field-address[{FieldText(Field)}:"
+        + (RvaData is { } bytes ? System.Convert.ToHexString(bytes.AsSpan()) : "none") + $"]({Instance?.Signature})";
+}
+
+internal sealed record ClassicInverseAnonymousNode(TypeRef Type, ImmutableArray<string> Names,
+    ImmutableArray<ClassicInverseBodyNode> Values, MethodRef? Constructor) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new AnonymousObject(Type, Names, Values.Select(Expr), Constructor);
+    internal override string Signature => $"anonymous[{TypeText(Type)}:"
+        + string.Join(";", Names.Select(name => $"{name.Length}:{name}"))
+        + $":{(Constructor is null ? "none" : MethodText(Constructor))}]({Children(Values)})";
+}
+
+internal sealed record ClassicInverseDelegateNode(TypeRef Type, MethodRef Method, bool Virtual,
+    ClassicInverseBodyNode Target, MethodRef? Constructor) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new DelegateCreation(Type, Method, Virtual, Expr(Target), Constructor);
+    internal override string Signature => $"delegate[{TypeText(Type)}:{MethodText(Method)}:{Virtual}:"
+        + $"{(Constructor is null ? "none" : MethodText(Constructor))}]({Target.Signature})";
+}
+
+internal sealed record ClassicInverseArrayNode(TypeRef Element, TypeRef Type,
+    ImmutableArray<ClassicInverseBodyNode> Elements, MethodRef? Initialization) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new ArrayLiteral(Element, Type, Elements.Select(Expr), Initialization);
+    internal override string Signature => $"array[{TypeText(Element)}:{TypeText(Type)}:"
+        + $"{(Initialization is null ? "none" : MethodText(Initialization))}]({Children(Elements)})";
+}
+
+internal sealed record ClassicInverseCollectionNode(TypeRef Element, TypeRef Target,
+    ImmutableArray<ClassicInverseBodyNode> Elements, ImmutableArray<MethodRef> Members) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new CollectionExpression(Element, Target, Elements.Select(Expr), Members);
+    internal override string Signature => $"collection[{TypeText(Element)}:{TypeText(Target)}:"
+        + $"{ClassicInverseSignature.Sequence(Members.Select(MethodText))}]({Children(Elements)})";
+}
+
+internal sealed record ClassicInverseIndexNode(ClassicInverseBodyNode Offset) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new IndexFromEnd(Expr(Offset));
+    internal override string Signature => $"from-end({Offset.Signature})";
+}
+
+internal sealed record ClassicInverseRangeNode(ClassicInverseBodyNode? Start, ClassicInverseBodyNode? End)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new RangeExpression(Start is null ? null : Expr(Start),
+        End is null ? null : Expr(End));
+    internal override string Signature => $"range({Start?.Signature ?? "none"},{End?.Signature ?? "none"})";
+}
+
+internal sealed record ClassicInverseSliceNode(ClassicInverseBodyNode Receiver, ClassicInverseBodyNode Range,
+    TypeRef? Type, MethodRef? Method) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new SliceExpression(Expr(Receiver), (RangeExpression)Range.Materialize(),
+        Type, Method);
+    internal override string Signature => $"slice[{TypeText(Type)}:{(Method is null ? "none" : MethodText(Method))}]"
+        + $"({Receiver.Signature},{Range.Signature})";
+}
+
+internal sealed record ClassicInverseSwitchNode(ClassicInverseBodyNode Value,
+    ImmutableArray<ClassicInverseBodyNode> Arms) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new SwitchExpression(Expr(Value),
+        Arms.Select(arm => (SwitchExpressionArm)arm.Materialize()));
+    internal override string Signature => $"switch({Value.Signature};{Children(Arms)})";
+}
+
+internal sealed record ClassicInverseSwitchArmNode(ImmutableArray<int> Labels, bool Default,
+    ClassicInverseBodyNode Value) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new SwitchExpressionArm(Labels, Default, Expr(Value));
+    internal override string Signature => $"switch-arm[{Default}:{string.Join(",", Labels)}]({Value.Signature})";
+}
+
 internal sealed record ClassicInverseInterpolationNode(ImmutableArray<InterpolatedStringPart> Parts,
     ImmutableArray<ClassicInverseBodyNode> Values, ImmutableArray<MethodRef> Members) : ClassicInverseBodyNode
 {
@@ -958,6 +1040,99 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                     ? null
                     : new ClassicInverseLoadFieldNode(
                         binding.Field(load.Field, budget), load.IsVolatile, instance);
+            }
+
+            case LoadFieldAddress address:
+            {
+                var instance = address.Instance is null ? null : TryCapture(address.Instance, budget);
+                if (address.Instance is not null && instance is null)
+                    return null;
+                if (address.FieldRvaData is { } data)
+                    foreach (byte _ in data)
+                        if (!budget.Charge())
+                            return null;
+                return new ClassicInverseFieldAddressNode(binding.Field(address.Field, budget), instance,
+                    address.FieldRvaData is null ? null : [.. address.FieldRvaData]);
+            }
+
+            case AnonymousObject anonymous:
+            {
+                var values = TryCaptureAll(anonymous.Children, budget);
+                foreach (string _ in anonymous.PropertyNames)
+                    if (!budget.Charge())
+                        return null;
+                return values is null ? null : new ClassicInverseAnonymousNode(binding.Type(anonymous.Type, budget),
+                    anonymous.PropertyNames, values.Value,
+                    anonymous.Constructor is null ? null : Detach(anonymous.Constructor, budget));
+            }
+
+            case DelegateCreation creation:
+            {
+                var target = TryCapture(creation.Target, budget);
+                return target is null ? null : new ClassicInverseDelegateNode(binding.Type(creation.DelegateType, budget),
+                    Detach(creation.Method, budget), creation.IsVirtual, target,
+                    creation.Constructor is null ? null : Detach(creation.Constructor, budget));
+            }
+
+            case ArrayLiteral array:
+            {
+                var elements = TryCaptureAll(array.Children, budget);
+                return elements is null ? null : new ClassicInverseArrayNode(binding.Type(array.ElementType, budget),
+                    binding.Type(array.ArrayType, budget), elements.Value,
+                    array.InitializationMethod is null ? null : Detach(array.InitializationMethod, budget));
+            }
+
+            case CollectionExpression collection:
+            {
+                var elements = TryCaptureAll(collection.Children, budget);
+                var members = ImmutableArray.CreateBuilder<MethodRef>();
+                foreach (MethodRef member in collection.ConsumedMemberRefs)
+                {
+                    if (!budget.Charge())
+                        return null;
+                    members.Add(Detach(member, budget));
+                }
+                return elements is null ? null : new ClassicInverseCollectionNode(
+                    binding.Type(collection.ElementType, budget), binding.Type(collection.TargetType, budget),
+                    elements.Value, members.ToImmutable());
+            }
+
+            case IndexFromEnd index:
+            {
+                var offset = TryCapture(index.Offset, budget);
+                return offset is null ? null : new ClassicInverseIndexNode(offset);
+            }
+
+            case RangeExpression range:
+            {
+                var start = range.Start is null ? null : TryCapture(range.Start, budget);
+                var end = range.End is null ? null : TryCapture(range.End, budget);
+                return range.Start is not null && start is null || range.End is not null && end is null
+                    ? null : new ClassicInverseRangeNode(start, end);
+            }
+
+            case SliceExpression slice:
+            {
+                var receiver = TryCapture(slice.Receiver, budget);
+                var range = TryCapture(slice.Range, budget);
+                return receiver is null || range is null ? null : new ClassicInverseSliceNode(receiver, range,
+                    binding.OptionalType(slice.ResultType, budget), slice.SliceMethod is null ? null : Detach(slice.SliceMethod, budget));
+            }
+
+            case SwitchExpression selection:
+            {
+                var value = TryCapture(selection.Value, budget);
+                var arms = TryCaptureAll(selection.Children.Skip(1).ToArray(), budget);
+                return value is null || arms is null ? null : new ClassicInverseSwitchNode(value, arms.Value);
+            }
+
+            case SwitchExpressionArm arm:
+            {
+                foreach (int _ in arm.Labels)
+                    if (!budget.Charge())
+                        return null;
+                var value = TryCapture(arm.Value, budget);
+                return value is null ? null : new ClassicInverseSwitchArmNode(arm.Labels, arm.IsDefault, value);
             }
 
             case LoadElement load:

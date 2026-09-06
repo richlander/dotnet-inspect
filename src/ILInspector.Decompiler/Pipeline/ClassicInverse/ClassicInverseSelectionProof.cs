@@ -9,11 +9,12 @@ internal sealed partial class ClassicInverseLoweringProof
         Block Merge,
         Call GetResult,
         IrExpression Expression,
-        ImmutableArray<Block> Path);
+        ImmutableArray<Block> Path,
+        bool IsOperand = false);
 
     sealed class SelectionBindings
     {
-        internal Dictionary<IrNode, ConditionalBranch> TestsByJoin { get; } =
+        internal Dictionary<IrNode, IrNode> TestsByJoin { get; } =
             new(ReferenceEqualityComparer.Instance);
         internal Dictionary<IrNode, IrExpression> ValuesByTest { get; } =
             new(ReferenceEqualityComparer.Instance);
@@ -24,6 +25,8 @@ internal sealed partial class ClassicInverseLoweringProof
         internal HashSet<IrNode> PredicateStructures { get; } =
             new(ReferenceEqualityComparer.Instance);
         internal Dictionary<int, ImmutableArray<int>> PredicateOrigins { get; } = [];
+        internal HashSet<IrNode> SwitchConsumedValues { get; } = new(ReferenceEqualityComparer.Instance);
+        internal HashSet<Call> SwitchResults { get; } = new(ReferenceEqualityComparer.Instance);
 
         internal bool Swap(IrNode parent, int left, int right, ClassicInverseBudget budget)
         {
@@ -47,7 +50,7 @@ internal sealed partial class ClassicInverseLoweringProof
         }
     }
 
-    internal ConditionalBranch? SelectionTestForJoin(IrNode node)
+    internal IrNode? SelectionTestForJoin(IrNode node)
         => _selections.TestsByJoin.GetValueOrDefault(node);
 
     internal bool ProvesSelectionValue(IrNode raw, IrNode planning)
@@ -63,6 +66,9 @@ internal sealed partial class ClassicInverseLoweringProof
 
     internal bool ProvesPredicateStructure(IrNode node)
         => _selections.PredicateStructures.Contains(node);
+
+    internal bool IsSwitchResult(Call result) => _selections.SwitchResults.Contains(result);
+    internal bool IsConsumedSwitchValue(IrNode node) => _selections.SwitchConsumedValues.Contains(node);
 
     internal IReadOnlyDictionary<int, ImmutableArray<int>> PredicateOrigins
         => _selections.PredicateOrigins;
@@ -114,6 +120,9 @@ internal sealed partial class ClassicInverseLoweringProof
                     ? new(continuation, merge, result, conditional, path.ToImmutable())
                     : null;
             }
+            if (parent is SwitchExpression selection)
+                return ReferenceEquals(selection.Value, current)
+                    ? new(continuation, merge, result, selection, path.ToImmutable()) : null;
             // Discovery is not authorization: the raw predicate graph is closed
             // against every logical operand before a selection receives roles.
         }
@@ -133,8 +142,31 @@ internal sealed partial class ClassicInverseLoweringProof
         out SelectionBindings bindings)
     {
         bindings = new();
-        foreach (SelectionContinuation moved in planning.SelectionContinuations)
+        var selections = new List<SelectionContinuation>(planning.SelectionContinuations);
+        foreach (StoreLocal bind in planning.AwaiterBinds)
         {
+            if (!budget.Charge())
+                return false;
+            if (bind.Value is not Call { Arguments: [IrExpression expression] } call
+                || expression is not (Conditional or Coalesce) || bind.Parent is not Block merge)
+                continue;
+            ConditionalBranch? test = raw.BranchAt(expression.SourceOffset);
+            if (test?.Parent is not Block rawHead
+                || planning.BlocksStartingAt(rawHead.StartOffset) is not [Block head]
+                || head.Children.Count != 0 || !planning.HasOnlySuccessors(head, merge)
+                || !planning.HasOnlyPredecessors(merge, head)
+                || !ReferenceEquals(head.Parent, merge.Parent))
+                return false;
+            selections.Add(new(head, merge, call, expression, [head, merge], IsOperand: true));
+        }
+        foreach (SelectionContinuation moved in selections)
+        {
+            if (moved.Expression is SwitchExpression selection)
+            {
+                if (!ProveSwitchCorrespondence(moved, selection, raw, roles, bindings, budget))
+                    return false;
+                continue;
+            }
             if (moved.Expression is Conditional conditional)
             {
                 if (!ProveConditionalCorrespondence(moved, conditional, raw, roles, bindings, budget))
@@ -187,8 +219,7 @@ internal sealed partial class ClassicInverseLoweringProof
                 || !raw.SlotStoresFor(carry.Slot).Contains(fallback)
                 || raw.SlotLoadsFor(carry.Slot) is not [LoadStackSlot joined]
                 || !Equals(joined.Type, moved.Expression.ResultType)
-                || merge.Children is not [StoreLocal result, Leave]
-                || moved.Merge.Children is not [StoreLocal plannedResult]
+                || !SelectedUse(moved, merge, out StoreLocal result, out StoreLocal plannedResult)
                 || result.Index != plannedResult.Index
                 || !Equals(result.Type, plannedResult.Type)
                 || result.SourceOffset != plannedResult.SourceOffset
@@ -306,8 +337,7 @@ internal sealed partial class ClassicInverseLoweringProof
                 continue;
             }
             if (generation + 2 != moved.Path.Length
-                || merge.Children is not [StoreLocal result, Leave]
-                || moved.Merge.Children is not [StoreLocal plannedResult]
+                || !SelectedUse(moved, merge, out StoreLocal result, out StoreLocal plannedResult)
                 || result.Index != plannedResult.Index || !Equals(result.Type, plannedResult.Type)
                 || result.SourceOffset != plannedResult.SourceOffset
                 || !ClassicInverseExpressionRules.SameTree(result.Value, plannedResult.Value, budget,
@@ -327,6 +357,32 @@ internal sealed partial class ClassicInverseLoweringProof
                 if (!budget.Charge() || !reads.Contains(read))
                     return false;
         }
+        return true;
+    }
+
+    static bool SelectedUse(SelectionContinuation selection, Block raw,
+        out StoreLocal result, out StoreLocal planning)
+    {
+        result = null!;
+        planning = null!;
+        if (!selection.IsOperand)
+        {
+            if (raw.Children is not [StoreLocal store, Leave]
+                || selection.Merge.Children is not [StoreLocal planned])
+                return false;
+            result = store;
+            planning = planned;
+            return true;
+        }
+        if (raw.Children is not [StoreLocal rawBind, ConditionalBranch]
+            || selection.Merge.Children is not [StoreLocal plannedBind, ConditionalBranch]
+            || !ReferenceEquals(plannedBind.Value, selection.GetResult)
+            || rawBind.Value is not Call { Callee.Name: "GetAwaiter" } rawCall
+            || rawCall.SourceOffset != selection.GetResult.SourceOffset
+            || rawCall.Callee != selection.GetResult.Callee)
+            return false;
+        result = rawBind;
+        planning = plannedBind;
         return true;
     }
 

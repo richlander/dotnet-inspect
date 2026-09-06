@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\AsyncInventoryFixtures.cs"
+             Link="AsyncInventoryFixtures.cs" />
     <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\AsyncExpressionFixtures.cs"
              Link="AsyncExpressionFixtures.cs" />
     <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\AsyncFixtures.cs"

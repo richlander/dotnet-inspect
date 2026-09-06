@@ -583,13 +583,21 @@ The same exactness governs the five places a recipe may retire or rewrite an
 effect rather than realize it one-to-one:
 
 - **an awaiter bind.** `operand.GetAwaiter()` is protocol only when it is the
-  exact instance, parameterless member declared by the operand type, returns
+  exact instance, parameterless member selected for the operand, returns
   the proven suspension awaiter type, and has the same typed member and
   call-site identity in raw and planning spaces. Reference operands require
   `callvirt`; a positively known value type instead uses a direct call on its
   exact typed storage address. This includes ordinary struct parameters,
   `Task.Yield()`, and the existing ValueTask/configured awaitables without a
   framework-name allow list.
+  An interface-constrained generic operand instead binds the exact interface
+  member through its imported constraint and dispatch evidence: a matching
+  `constrained.` receiver or the class-constrained reference representation.
+  The request-local generic binding must retain that association in the
+  declared method. This does not infer implementation from names or equate a
+  generic parameter with its interface.
+  Imported generic-parameter flags and constraint types retain their own
+  contexts; execution constraints are checked through the kickoff binding.
   `ConfigureAwait` itself remains an ordinary realized call with its exact
   receiver and option argument. When planning inlines a call/property rvalue
   temporary, the raw bind must immediately follow its exact typed store in the
@@ -703,6 +711,50 @@ The realization relation preserves:
 - loops that control how often the effect executes;
 - exception and finally context; and
 - return, throw, break, continue, and leave ownership.
+
+### Expression-family completeness
+
+An admitted expression family has four inseparable obligations: exact payload
+and detached capture; raw typed value/construction correspondence; separately
+ordered primitive effects; and the complete origins and transfer ownership of
+anything raising consumed. A payload switch case alone is not support.
+
+| Family | Required evidence |
+| --- | --- |
+| Field addresses | Exact field, receiver presence/type, and optional RVA bytes; taking an address is not a value copy. |
+| Constant arrays and inline collections | Exact element/target type, count and ordered contents, plus allocation, initialization and conversion members. |
+| Anonymous objects and named delegates | Exact constructor/member, ordered properties/arguments, target and dispatch; no lambda embedding. |
+| Index/range/slice forms | Exact receiver, endpoints and from-end polarity, and retained length/conversion/construction/slice effects. |
+| Conditional/coalesced operands and finite switches | Exact selectors, typed arms, exclusive incoming/outgoing edges, joined generation and sole bind/result use. |
+
+An earlier enclosing operand may have been evaluated before an interpolation
+even when its final raw tree occurrence is later. Its imported provenance and
+exact reaching store/use establish that order; no global offset sort or
+unconditional stack-slot exemption is allowed. A sole awaited-result spill
+may likewise feed a closed conversion/construction projection only when its
+definition, typed use, adjacency and complete surrounding expression agree.
+Selection receipts apply on either side of an await: selecting its operand
+does not use the continuation proof as authority.
+
+The admitted switch continuation is the finite equality-chain lowering over
+one saved awaited selector and one private joined result. Its labeled and
+default arms exactly tile the owned region, and every predecessor and result
+use is closed. A jump table that prerequisites have not raised to that source
+expression remains outside this proof; no general switch/CFG claim follows.
+
+`ClassicInversePreservesExpressionInventory` and
+`ClassicInverseExpressionInventoryCompilesBack` gate the compiler population,
+including useful Partial anonymous-object source. The raw-evidence,
+typed-output, preceding-order, interface-dispatch, and selected-value negatives
+are `ClassicInverseInventoryRawEvidenceCannotBeHealed`,
+`ClassicInverseInventoryOutputRetainsTypedPayload`,
+`ClassicInversePriorOperandRequiresItsExactOrder`,
+`ClassicInverseInterfaceAwaitKeepsConstraintAndDispatch`, and
+`ClassicInverseSelectedValuesCannotBeHealed`.
+`ClassicInverseInventoryPlansAreDetached` and
+`ClassicInverseInventoryBudgetCutsNeverDecline` gate publication and bounded
+failure; `EveryMethodRefBearingNodeIsEitherSweptOrJustifiablyUnreachable`
+continues to enforce the closed member-fact consumer inventory.
 
 An implicit assignment conversion alone does not license erasing a conversion
 inside an expression: arithmetic width, rounding, and overflow behavior must

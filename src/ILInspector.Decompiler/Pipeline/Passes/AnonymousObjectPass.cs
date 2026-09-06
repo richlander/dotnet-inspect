@@ -28,7 +28,8 @@ public sealed class AnonymousObjectPass : IIrPass
                 continue;
 
             var values = newObject.DetachChildren().Cast<IrExpression>().ToList();
-            var anonymous = new AnonymousObject(newObject.Constructor.DeclaringType, names, values);
+            var anonymous = new AnonymousObject(newObject.Constructor.DeclaringType, names, values, newObject.Constructor);
+            anonymous.InheritSourceOffset(newObject);
             context.Stepper.StepOver("raise anonymous-type constructor to anonymous object", newObject);
             newObject.ReplaceWith(anonymous);
         }

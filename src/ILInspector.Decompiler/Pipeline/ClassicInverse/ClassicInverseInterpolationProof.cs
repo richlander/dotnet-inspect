@@ -14,6 +14,8 @@ internal sealed partial class ClassicInverseAccountant
     readonly Dictionary<IrNode, IrExpression?> _interpolationRawParts = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<IrNode, InterpolatedStringExpression> _interpolationRawResults =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<IrNode, List<IrNode>> _rawPriorValues = new(ReferenceEqualityComparer.Instance);
+    readonly HashSet<IrNode> _scheduledPriorValues = new(ReferenceEqualityComparer.Instance);
 
     bool ProveInterpolations()
     {
@@ -104,7 +106,7 @@ internal sealed partial class ClassicInverseAccountant
                 || !positions.TryGetValue(store, out int start)
                 || !positions.TryGetValue(statement, out int finish)
                 || finish != start + count + 1 || uses.Count != count + 2
-                || !IsFirstInterpolationEffect(end, statement))
+                || !IsFirstInterpolationEffect(end, statement, store, interpolation))
                 return Unproven();
 
             var appends = ImmutableArray.CreateBuilder<Call>();
@@ -197,26 +199,59 @@ internal sealed partial class ClassicInverseAccountant
         }
     }
 
-    bool IsFirstInterpolationEffect(IrNode target, IrNode statement)
+    bool IsFirstInterpolationEffect(IrNode target, IrNode statement, StoreLocal handler,
+        InterpolatedStringExpression interpolation)
     {
+        var prior = new List<IrNode>();
+        IrNode planned = interpolation;
         for (IrNode current = target; !ReferenceEquals(current, statement); current = current.Parent!)
         {
             if (!_budget.Charge() || current.Parent is not { } parent)
                 return false;
             if (ReferenceEquals(parent, statement))
-                return parent is StoreLocal or Return or ExpressionStatement or StoreStackSlot;
-            if (parent is not Call and not NewObject)
+            {
+                if (parent is not (StoreLocal or Return or ExpressionStatement or StoreStackSlot))
+                    return false;
+                _rawPriorValues.Add(handler, prior);
+                foreach (IrNode value in prior)
+                    if (!_scheduledPriorValues.Add(value))
+                        return false;
+                return true;
+            }
+            if (parent is not Call and not NewObject || planned.Parent is not { } plannedParent
+                || parent.Children.Count != plannedParent.Children.Count
+                || !ClassicInverseRealizationRules.PayloadEquals(parent, plannedParent))
                 return false;
-            foreach (IrNode earlier in parent.Children)
+            var prefix = new List<IrNode>();
+            for (int i = 0; i < parent.Children.Count; i++)
             {
                 if (!_budget.Charge())
                     return false;
+                IrNode earlier = parent.Children[i];
                 if (ReferenceEquals(earlier, current))
                     break;
+                if (earlier is LoadStackSlot read)
+                {
+                    if (!BindSlot(read.Slot, statement, out StoreStackSlot store, expectedReads: 1)
+                        || !ReferenceEquals(store.Parent, handler.Parent)
+                        || _familyPositions[store] >= _familyPositions[handler]
+                        || !Equals(read.Type, store.Value.ResultType)
+                        || !ClassicInverseExpressionRules.SameTree(store.Value, plannedParent.Children[i], _budget))
+                        return false;
+                    _familyStoreFrames.Add(store);
+                    _familyTraffic.Add(read);
+                    continue;
+                }
                 if (earlier is not Constant and not LoadLocal and not LoadArgument
                     and not LoadLocalAddress and not LoadArgumentAddress)
                     return false;
+                if (!ClassicInverseExpressionRules.SameTree(earlier, plannedParent.Children[i], _budget))
+                    return false;
+                if (earlier.SourceOffset < handler.Value.SourceOffset)
+                    prefix.Add(earlier);
             }
+            prior.InsertRange(0, prefix);
+            planned = plannedParent;
         }
         return true;
     }

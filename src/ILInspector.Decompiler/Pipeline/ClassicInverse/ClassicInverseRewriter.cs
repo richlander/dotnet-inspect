@@ -101,6 +101,8 @@ internal sealed class ClassicInverseRewriter
 
         switch (source)
         {
+            case Box box when _shell.Protocol.Proves(box, ClassicInverseLoweringProof.ClassConstraintBox):
+                return RewriteCore(box.Operand);
             case LoadField { Instance: LoadArgument { Index: 0 } } read
                 when ClassicInverseNodeFacts.IsMachineField(read.Field, _shell.Machine):
                 return MachineStorage(read.Field);

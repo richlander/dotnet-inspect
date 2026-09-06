@@ -32,7 +32,34 @@ internal sealed record ClassicInverseTypeBinding(ImmutableArray<TypeRef> Argumen
                 || !seen.Add(argument))
                 return Invalid();
         }
-        return new(machine.TypeArguments);
+        var binding = new ClassicInverseTypeBinding(machine.TypeArguments);
+        foreach (GenericParameterConstraintInfo parameter in request.ExecutionBody.DeclaringTypeParameters)
+        {
+            if (!budget.Charge())
+                return binding;
+            if ((uint)parameter.Index >= (uint)machine.TypeArguments.Length)
+                return Invalid();
+            TypeRef argument = machine.TypeArguments[parameter.Index];
+            var declared = argument.Kind == TypeRefKind.MethodGenericParameter
+                ? request.KickoffBody.Signature.GenericParameters : request.KickoffBody.DeclaringTypeParameters;
+            GenericParameterConstraintInfo? target = null;
+            foreach (var candidate in declared)
+            {
+                if (!budget.Charge())
+                    return binding;
+                if (candidate.Index == argument.GenericParameterIndex)
+                    target = candidate;
+            }
+            const System.Reflection.GenericParameterAttributes mask =
+                System.Reflection.GenericParameterAttributes.SpecialConstraintMask;
+            if (target is null || (target.Attributes & mask) != (parameter.Attributes & mask)
+                || parameter.Types.Length != target.Types.Length)
+                return Invalid();
+            for (int i = 0; i < parameter.Types.Length; i++)
+                if (!binding.Type(parameter.Types[i], budget).Equals(target.Types[i]))
+                    return budget.Exhausted ? binding : Invalid();
+        }
+        return binding;
 
         static ClassicInverseTypeBinding Invalid()
             => new([]) { Failure = "the authenticated kickoff and execution generic contexts do not bind completely" };

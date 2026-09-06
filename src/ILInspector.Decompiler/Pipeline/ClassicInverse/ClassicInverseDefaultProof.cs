@@ -9,7 +9,11 @@ internal sealed partial class ClassicInverseAccountant
     readonly List<DefaultValue> _planningDefaults = [];
 
     ClassicInverseProtocolRule ClassifyRaw(IrNode node)
-        => _interpolationStores.Contains(node)
+        => _familyStoreFrames.Contains(node)
+            ? ClassicInverseProtocolRule.Frame("expression-value-store", 0)
+            : _familyTraffic.Contains(node)
+                ? ClassicInverseProtocolRule.Owned("expression-value-transfer")
+            : _interpolationStores.Contains(node)
             ? ClassicInverseProtocolRule.Frame("interpolation-handler-store", 0)
             : _interpolationAddresses.Contains(node)
                 ? ClassicInverseProtocolRule.Owned("interpolation-handler-address")

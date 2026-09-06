@@ -43,6 +43,27 @@ internal static partial class ClassicInverseExpressionRules
             return false;
         if (raw is Call typeCall && planning is TypeOf typeOf)
             return IsTypeOf(typeCall, typeOf);
+        if (raw is NewObject anonymousCreation && planning is AnonymousObject anonymous)
+        {
+            if (anonymousCreation.Constructor != anonymous.Constructor
+                || !Equals(anonymousCreation.ResultType, anonymous.Type)
+                || !anonymousCreation.AnonymousPropertyNames.SequenceEqual(anonymous.PropertyNames)
+                || raw.Children.Count != planning.Children.Count)
+                return false;
+            for (int i = 0; i < raw.Children.Count; i++)
+                if (!SameTree(raw.Children[i], planning.Children[i], budget, sourceReplacement, outputReplacement))
+                    return false;
+            return true;
+        }
+        if (raw is NewObject delegateCreation && planning is DelegateCreation @delegate)
+        {
+            return DelegateConstructionPass.IsDelegateConstructor(delegateCreation.Constructor)
+                && delegateCreation.Constructor == @delegate.Constructor
+                && Equals(delegateCreation.ResultType, @delegate.DelegateType)
+                && delegateCreation.Arguments is [IrExpression target, LoadFunctionPointer pointer]
+                && pointer.Method == @delegate.Method && pointer.IsVirtual == @delegate.IsVirtual
+                && SameTree(target, @delegate.Target, budget, sourceReplacement, outputReplacement);
+        }
         if (raw is NewObject tupleCreation && planning is TupleExpression tuple)
         {
             if (!MemberIdentity.IsValueTupleConstructorOfArity(tupleCreation, out int arity)

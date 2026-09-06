@@ -268,6 +268,7 @@ internal static class ClassicInverseNodeFacts
                 + $":{(indirect.IsInstance ? "instance" : "static")}",
             LocalFunctionInvocation invocation =>
                 $"localfn:{invocation.Name}",
+            LoadFunctionPointer { IsVirtual: true } pointer => $"throw:virtual-method-address:{Method(pointer.Method)}",
             NewObject creation when !IsEffectFreeTuple(creation) =>
                 $"newobj:{Method(creation.Constructor)}",
             LoadProperty property =>
@@ -347,7 +348,6 @@ internal static class ClassicInverseNodeFacts
         => node is Lambda
             or LocalFunctionStatement
             or Switch
-            or SwitchExpression
             or SwitchBranch
             or Lock
             or UsingStatement

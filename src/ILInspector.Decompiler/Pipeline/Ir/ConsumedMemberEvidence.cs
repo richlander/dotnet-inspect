@@ -78,6 +78,21 @@ public readonly record struct ConsumedMemberEvidence(
                 break;
             case DelegateCreation creation:
                 evidence.Add(new(Method: creation.Method));
+                if (creation.Constructor is { } delegateConstructor)
+                    evidence.Add(new(Method: delegateConstructor) { IncludeInCompileBackClosure = false });
+                break;
+            case AnonymousObject { Constructor: { } constructor }:
+                evidence.Add(new(Method: constructor) { IncludeInCompileBackClosure = false });
+                break;
+            case ArrayLiteral { InitializationMethod: { } initialize }:
+                evidence.Add(new(Method: initialize) { IncludeInCompileBackClosure = false });
+                break;
+            case CollectionExpression collection:
+                foreach (var method in collection.ConsumedMemberRefs)
+                    evidence.Add(new(Method: method) { IncludeInCompileBackClosure = false });
+                break;
+            case SliceExpression { SliceMethod: { } slice }:
+                evidence.Add(new(Method: slice) { IncludeInCompileBackClosure = false });
                 break;
             case IncrementDecrement { ConsumedMethod: { } operatorMethod }:
                 evidence.Add(new(Method: operatorMethod));
