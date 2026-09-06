@@ -151,7 +151,7 @@ public sealed partial class InspectionWorkspace
                 cancellationToken,
                 provisional);
             return new ArtifactPackageRootResources(
-                realization, session, queryLease, authorization);
+                realization, session, queryLease, publication.Authorization);
         }
         catch (Exception failure)
         {
@@ -285,13 +285,14 @@ public sealed partial class InspectionWorkspace
                 },
                 cancellationToken).ConfigureAwait(false);
         if (publication is ArtifactSetPublicationOutcome.NotPublished rejected)
-            return new PackageArtifactPublication(null, [], rejected);
+            return new PackageArtifactPublication(null, null, [], rejected);
 
-        ArtifactQueryLease lease = session.IssueLease(
-            session.CreateQueryAuthorization());
+        ArtifactQueryAuthorization authorization = session.CreateQueryAuthorization();
+        ArtifactQueryLease lease = session.IssueLease(authorization);
         try
         {
             return new PackageArtifactPublication(
+                authorization,
                 lease,
                 [.. acquired.Select(artifact => new ProjectedPackageArtifact(
                     session.GetContentReference(artifact.Descriptor.Identity, lease),
@@ -462,6 +463,7 @@ public sealed partial class InspectionWorkspace
         ArtifactAssemblyProjectionOutcome Projection);
 
     sealed record PackageArtifactPublication(
+        ArtifactQueryAuthorization? Authorization,
         ArtifactQueryLease? Lease,
         ImmutableArray<ProjectedPackageArtifact> Artifacts,
         ArtifactSetPublicationOutcome.NotPublished? Rejection);
