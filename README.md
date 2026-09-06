@@ -237,6 +237,7 @@ Use `-T q` to suppress tips in script-oriented commands.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
+| Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
 | Limit rows | `--rows`, `-n`, `--head`, `--tail` |
@@ -254,6 +255,9 @@ Useful discovery and projection patterns:
 
 ```bash
 dotnet-inspect library System.Text.Json -D
+dotnet-inspect library -Q
+dotnet-inspect type -Q "Body Shapes"
+dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10

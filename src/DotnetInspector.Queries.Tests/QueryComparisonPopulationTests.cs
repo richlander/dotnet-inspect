@@ -16,7 +16,6 @@ public sealed class QueryComparisonPopulationTests
     public void ComparisonPopulation_SealsImmutableInputAndSelectionSnapshots()
     {
         ImplementationComparisonBinding implementation = ImplementationBinding();
-        BodySignalComparisonBinding bodySignal = new(implementation.BodyIndex);
         List<ImplementationComparisonBinding?> before = [implementation];
         List<ImplementationComparisonBinding?> after = [];
         HashSet<string> types = new(StringComparer.Ordinal)
@@ -62,15 +61,15 @@ public sealed class QueryComparisonPopulationTests
             },
             population.MemberTargetIdentities);
 
-        QueryComparisonPopulation<BodySignalComparisonBinding> omitted =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [bodySignal],
+        QueryComparisonPopulation<ImplementationComparisonBinding> omitted =
+            Seal(new ImplementationComparisonPopulationRequest(
+                [implementation],
                 [],
                 TypeFilters: null,
                 MemberTargetIdentities: null));
-        QueryComparisonPopulation<BodySignalComparisonBinding> explicitlyEmpty =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [bodySignal],
+        QueryComparisonPopulation<ImplementationComparisonBinding> explicitlyEmpty =
+            Seal(new ImplementationComparisonPopulationRequest(
+                [implementation],
                 [],
                 TypeFilters: new HashSet<string>(StringComparer.Ordinal),
                 MemberTargetIdentities:
@@ -83,14 +82,13 @@ public sealed class QueryComparisonPopulationTests
         Assert.NotNull(explicitlyEmpty.MemberTargetIdentities);
         Assert.Empty(explicitlyEmpty.MemberTargetIdentities);
 
-        AssertEveryDeclaredSealingRejection(implementation, bodySignal);
+        AssertEveryDeclaredSealingRejection(implementation);
     }
 
     [Fact]
     public void QueryPopulationBindings_AreIdlessBorrowedWrappers()
     {
         ImplementationComparisonBinding implementation = ImplementationBinding();
-        BodySignalComparisonBinding bodySignal = new(implementation.BodyIndex);
 
         Assert.Equal(
             new Dictionary<string, Type>
@@ -103,14 +101,6 @@ public sealed class QueryComparisonPopulationTests
                     typeof(LibraryBodyIndex),
             },
             PublicProperties(typeof(ImplementationComparisonBinding)));
-        Assert.Equal(
-            new Dictionary<string, Type>
-            {
-                [nameof(BodySignalComparisonBinding.BodyIndex)] =
-                    typeof(LibraryBodyIndex),
-            },
-            PublicProperties(typeof(BodySignalComparisonBinding)));
-
         Type[] identityTypes =
         [
             typeof(QueryComparisonOperationId),
@@ -120,7 +110,6 @@ public sealed class QueryComparisonPopulationTests
         foreach (Type bindingType in new[]
         {
             typeof(ImplementationComparisonBinding),
-            typeof(BodySignalComparisonBinding),
         })
         {
             Assert.True(bindingType.IsSealed);
@@ -142,21 +131,11 @@ public sealed class QueryComparisonPopulationTests
                 [],
                 null,
                 null));
-        QueryComparisonPopulation<BodySignalComparisonBinding> sealedBodySignal =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [],
-                [bodySignal],
-                null,
-                null));
-
         ImplementationComparisonBinding retainedImplementation =
             Assert.Single(sealedImplementation.Before).Binding;
         Assert.Same(implementation.Assembly, retainedImplementation.Assembly);
         Assert.Same(implementation.Resolver, retainedImplementation.Resolver);
         Assert.Same(implementation.BodyIndex, retainedImplementation.BodyIndex);
-        Assert.Same(
-            bodySignal.BodyIndex,
-            Assert.Single(sealedBodySignal.After).Binding.BodyIndex);
     }
 
     [Fact]
@@ -176,21 +155,6 @@ public sealed class QueryComparisonPopulationTests
                 null,
                 null));
         AssertFreshPopulation(firstImplementation, secondImplementation);
-
-        BodySignalComparisonBinding bodySignal = new(implementation.BodyIndex);
-        QueryComparisonPopulation<BodySignalComparisonBinding> firstBodySignal =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [bodySignal],
-                [bodySignal, bodySignal],
-                null,
-                null));
-        QueryComparisonPopulation<BodySignalComparisonBinding> secondBodySignal =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [bodySignal],
-                [bodySignal, bodySignal],
-                null,
-                null));
-        AssertFreshPopulation(firstBodySignal, secondBodySignal);
     }
 
     [Fact]
@@ -204,22 +168,12 @@ public sealed class QueryComparisonPopulationTests
                 null,
                 null));
         AssertOccurrencePopulation(implementationPopulation, implementation);
-
-        BodySignalComparisonBinding bodySignal = new(implementation.BodyIndex);
-        QueryComparisonPopulation<BodySignalComparisonBinding> bodySignalPopulation =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [bodySignal, bodySignal],
-                [bodySignal],
-                null,
-                null));
-        AssertOccurrencePopulation(bodySignalPopulation, bodySignal);
     }
 
     [Fact]
     public void ResearchPopulationProjection_IsTotalAndBijective()
     {
         ImplementationComparisonBinding implementation = ImplementationBinding();
-        BodySignalComparisonBinding bodySignal = new(implementation.BodyIndex);
         QueryComparisonPopulation[] populations =
         [
             Seal(new ImplementationComparisonPopulationRequest(
@@ -233,21 +187,6 @@ public sealed class QueryComparisonPopulationTests
                 null,
                 null)),
             Seal(new ImplementationComparisonPopulationRequest(
-                [],
-                [],
-                null,
-                null)),
-            Seal(new BodySignalComparisonPopulationRequest(
-                [bodySignal],
-                [],
-                null,
-                null)),
-            Seal(new BodySignalComparisonPopulationRequest(
-                [],
-                [bodySignal],
-                null,
-                null)),
-            Seal(new BodySignalComparisonPopulationRequest(
                 [],
                 [],
                 null,
@@ -351,10 +290,9 @@ public sealed class QueryComparisonPopulationTests
     [Fact]
     public void ResearchPopulationProjection_RejectsMissingExtraSubstitutedAndWrongSideMappings()
     {
-        ImplementationComparisonBinding implementation = ImplementationBinding();
-        BodySignalComparisonBinding borrowed = new(implementation.BodyIndex);
-        QueryComparisonPopulation<BodySignalComparisonBinding> population =
-            Seal(new BodySignalComparisonPopulationRequest(
+        ImplementationComparisonBinding borrowed = ImplementationBinding();
+        QueryComparisonPopulation<ImplementationComparisonBinding> population =
+            Seal(new ImplementationComparisonPopulationRequest(
                 [borrowed, borrowed],
                 [borrowed],
                 null,
@@ -368,8 +306,8 @@ public sealed class QueryComparisonPopulationTests
             valid.Questions,
             valid.Inputs));
 
-        QueryComparisonPopulation<BodySignalComparisonBinding> foreignPopulation =
-            Seal(new BodySignalComparisonPopulationRequest(
+        QueryComparisonPopulation<ImplementationComparisonBinding> foreignPopulation =
+            Seal(new ImplementationComparisonPopulationRequest(
                 [borrowed, borrowed],
                 [borrowed],
                 null,
@@ -475,24 +413,27 @@ public sealed class QueryComparisonPopulationTests
                 valid.Inputs),
             QueryPopulationProjectionRejection.QuestionMappingMismatch);
 
-        ProjectionParts implementationParts = PrepareParts(
-            Seal(new ImplementationComparisonPopulationRequest(
-                [implementation, implementation],
-                [implementation],
-                null,
-                null)));
+        ResearchAdmittedPopulation bodySignalAdmission = Admit(
+            new ResearchComparisonAdmissionRequest(
+                ResearchComparisonProfile.BodySignal,
+                [new ResearchComparisonAdmissionQuestion(
+                    [
+                        new BodySignalComparisonInputOccurrence(borrowed.BodyIndex),
+                        new BodySignalComparisonInputOccurrence(borrowed.BodyIndex),
+                    ],
+                    [new BodySignalComparisonInputOccurrence(borrowed.BodyIndex)])]));
         AssertProjectionRejected(
             QueryToResearchPopulationReceipt.Create(
                 valid.Projection,
-                implementationParts.Admission,
-                new(population.Operation, implementationParts.Admission.Operation),
+                bodySignalAdmission,
+                new(population.Operation, bodySignalAdmission.Operation),
                 [new(population.Question,
-                    implementationParts.Admission.Questions.Single().Id)],
+                    bodySignalAdmission.Questions.Single().Id)],
                 [
                     .. population.InputIds.Select(
                         (id, index) => new QueryResearchInputCorrespondence(
                             id,
-                            implementationParts.Admission.Inputs[index].Id,
+                            bodySignalAdmission.Inputs[index].Id,
                             id.Side)),
                 ]),
             QueryPopulationProjectionRejection.ProfileMismatch);
@@ -501,9 +442,9 @@ public sealed class QueryComparisonPopulationTests
     [Fact]
     public void QueryPopulationIdentities_AreOwnerIssuedAndNonConvertible()
     {
-        QueryComparisonPopulation<BodySignalComparisonBinding> queryPopulation =
-            Seal(new BodySignalComparisonPopulationRequest(
-                [new(ImplementationBinding().BodyIndex)],
+        QueryComparisonPopulation<ImplementationComparisonBinding> queryPopulation =
+            Seal(new ImplementationComparisonPopulationRequest(
+                [ImplementationBinding()],
                 [],
                 null,
                 null));
@@ -592,7 +533,6 @@ public sealed class QueryComparisonPopulationTests
         Type[] forbidden =
         [
             typeof(ImplementationComparisonBinding),
-            typeof(BodySignalComparisonBinding),
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
             typeof(LibraryBodyIndex),
@@ -730,8 +670,7 @@ public sealed class QueryComparisonPopulationTests
     }
 
     static void AssertEveryDeclaredSealingRejection(
-        ImplementationComparisonBinding implementation,
-        BodySignalComparisonBinding bodySignal)
+        ImplementationComparisonBinding implementation)
     {
         HashSet<QueryPopulationRejectionKind> observed = [];
 
@@ -748,13 +687,13 @@ public sealed class QueryComparisonPopulationTests
             null);
         Observe(
             QueryComparisonPopulationSealer.Execute(
-                new BodySignalComparisonPopulationRequest(
+                new ImplementationComparisonPopulationRequest(
                     [null],
                     [],
                     null,
                     null)),
             QueryPopulationRejectionKind.MissingBinding,
-            QueryComparisonProfile.BodySignal,
+            QueryComparisonProfile.ImplementationComparison,
             QueryComparisonSide.Before,
             0);
         Observe(
@@ -781,13 +720,13 @@ public sealed class QueryComparisonPopulationTests
             0);
         Observe(
             QueryComparisonPopulationSealer.Execute(
-                new BodySignalComparisonPopulationRequest(
+                new ImplementationComparisonPopulationRequest(
                     [],
-                    [bodySignal with { BodyIndex = null! }],
+                    [implementation with { BodyIndex = null! }],
                     null,
                     null)),
             QueryPopulationRejectionKind.MissingBodyIndex,
-            QueryComparisonProfile.BodySignal,
+            QueryComparisonProfile.ImplementationComparison,
             QueryComparisonSide.After,
             0);
         Observe(
@@ -803,13 +742,13 @@ public sealed class QueryComparisonPopulationTests
             null);
         Observe(
             QueryComparisonPopulationSealer.Execute(
-                new BodySignalComparisonPopulationRequest(
-                    [bodySignal],
+                new ImplementationComparisonPopulationRequest(
+                    [implementation],
                     [],
                     null,
                     new HashSet<string> { null! })),
             QueryPopulationRejectionKind.MissingMemberTarget,
-            QueryComparisonProfile.BodySignal,
+            QueryComparisonProfile.ImplementationComparison,
             null,
             null);
 
@@ -953,12 +892,6 @@ public sealed class QueryComparisonPopulationTests
     static QueryComparisonPopulation<ImplementationComparisonBinding> Seal(
         ImplementationComparisonPopulationRequest request)
         => Assert.IsType<QueryComparisonPopulation<ImplementationComparisonBinding>>(
-            Assert.IsType<QueryPopulationSealingOutcome.Sealed>(
-                QueryComparisonPopulationSealer.Execute(request)).Population);
-
-    static QueryComparisonPopulation<BodySignalComparisonBinding> Seal(
-        BodySignalComparisonPopulationRequest request)
-        => Assert.IsType<QueryComparisonPopulation<BodySignalComparisonBinding>>(
             Assert.IsType<QueryPopulationSealingOutcome.Sealed>(
                 QueryComparisonPopulationSealer.Execute(request)).Population);
 
