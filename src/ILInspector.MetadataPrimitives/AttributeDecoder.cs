@@ -295,11 +295,10 @@ public static class AttributeDecoder
     {
         try
         {
-            if (!CustomAttributeValueGuard.Decode(
+            if (!CustomAttributeValueDecoder.TryDecode(
                     reader,
                     attribute,
                     preserveSerializedTypeNames,
-                    materialize: true,
                     captureDefaultedWidths: true,
                     beforeMaterialize,
                     enumUnderlyingType,
@@ -331,11 +330,10 @@ public static class AttributeDecoder
     {
         try
         {
-            return CustomAttributeValueGuard.Decode(
+            return CustomAttributeValueDecoder.TryDecode(
                     reader,
                     attribute,
                     preserveSerializedTypeNames,
-                    materialize: true,
                     captureDefaultedWidths: false,
                     beforeMaterialize,
                     enumUnderlyingType,
