@@ -104,26 +104,99 @@ A module compiled with the `updated-memory-safety-rules` feature carries a
 module-level `MemorySafetyRulesAttribute`. Under those rules the member `unsafe`
 modifier no longer makes a method body an unsafe context, so `CSharpPrinter`
 emits explicit, minimally scoped `unsafe { }` blocks around the operations that
-still need one. For a legacy module (no attribute) it emits no blocks — the
-member modifier supplies the context. The wrapping is gated on the source
-module's rules, so legacy output is byte-identical.
+still need one. For a legacy module (no attribute) it normally emits no blocks
+because the member modifier supplies the context. A body with surviving reconstructed await syntax — an await expression,
+`await using`, or `await foreach` — is the exception: because C# forbids
+`await` in a member-level unsafe context, that legacy output uses the same
+explicit block boundaries and does not derive an `unsafe` modifier from body
+operations. Those boundaries use the legacy operation set: pointer declarations,
+address-taking, pointer arithmetic and comparison, `fixed`, and pointer
+`sizeof` join dereferences and requires-unsafe calls inside await-free blocks.
+Pointer locals are declared inside the block that owns their complete use run
+rather than hoisted into the containing async body. If a recovered pointer
+lifetime would require that block to cross await, the method declines visibly
+instead of emitting an invalid member-wide or block-wide unsafe context.
+Runtime-async metadata without a surviving `await` retains the legal
+member-level modifier when its body requires unsafe context. This handoff is
+gated by
+`ValidityShellNoiseTests.RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor`;
+the equivalent property and event-accessor handoff is gated by
+`ValidityShellNoiseTests.AccessorRts_PreservesUnsafeBodyContextWithoutFloor`,
+and raised await-using/await-foreach boundaries are gated by
+`ValidityShellNoiseTests.LegacyUnsafeOperationWithRaisedAwaitSyntax_UsesExplicitBlock`.
+`CompilerFeatureOptionsTests.LegacyRuntimeAsyncPointerOperations_UseAwaitFreeUnsafeBlocks`
+gates the compiler-produced legacy pointer-declaration, arithmetic, `fixed`,
+and `sizeof` composition;
+`UnsafeEmitterTests.LegacyPointerLocalWhoseScopeCrossesAwait_DeclinesVisibly`
+gates the unrepresentable lifetime boundary.
 
 An operation needs a block when it is:
 
-- a pointer dereference (`*p`) or a function-pointer invocation (`calli`);
-- a call to a *requires-unsafe* member — one stamped with `RequiresUnsafeAttribute`
-  (`System.Diagnostics.CodeAnalysis`), i.e. declared `unsafe`/`extern`, even with
-  no pointer in the call;
-- a call whose callee has a pointer or function-pointer anywhere in its signature
-  (the spec's compat fallback for cross-assembly callees whose attributes can't be
-  read, e.g. `NativeMemory.Free(void*)`);
+- a pointer dereference or pointer member/indexer access (`*p`, `p->F`,
+  `(*p)[i]`), or a function-pointer invocation (`calli`);
+- a call carrying an enforced *requires-unsafe* contract: an implicit legacy
+  pointer contract is enforced for either caller model, while an explicit V2
+  `RequiresUnsafeAttribute` contract is enforced only for a V2 caller;
+- a cross-assembly call whose callee metadata is unresolved and whose signature
+  contains a pointer or function pointer (the conservative compatibility
+  fallback when no normalized contract exists);
 - a `stackalloc` converted to a `Span<T>`/`ReadOnlySpan<T>` with no initializer in
   a `[SkipLocalsInit]` body (the stack space is uninitialized).
 
-Taking an address (`&x`), declaring pointer locals, the `fixed` statement, and
-`sizeof` are safe under the new rules and stay outside the blocks. When the unsafe
-operation initializes a local used later, the declaration is hoisted above the
-block so the variable stays in scope.
+Taking an address (`&x`), declaring pointer locals, pointer arithmetic and
+comparison (`p++`, `p + 1`, `p < q`), the `fixed` statement, and `sizeof` are
+safe under the new rules and stay outside the blocks. When the unsafe operation
+initializes a local used later, the declaration is hoisted above the block so
+the variable stays in scope. An unsafe run never extends across a later
+statement containing recovered await syntax; evaluation-stack spills are
+declared outside the block so the unsafe assignment and the await remain
+separate. `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
+gates that compiler-produced boundary.
+An explicitly typed lambda parameter containing a pointer is likewise safe
+under the updated rules; it does not create an unsafe block around a neighboring
+await. `CompilerFeatureOptionsTests.UpdatedByRefPointerLambdaBesideAwait_RemainsReconstructable`
+gates that distinction from the legacy operation set.
+
+A raised stack allocation uses the same classifier as its lowered `localloc`
+form. In a `[SkipLocalsInit]` body, classic async reconstruction therefore
+declines an awaited `stackalloc` operand visibly rather than emitting `await`
+inside an unsafe block.
+`CompilerFeatureOptionsTests.ClassicAsyncUnsafeStackallocAwait_DeclinesVisibly`
+gates the compiler-produced case.
+
+The callee's module and member metadata classify its contract independently of
+the caller. In particular, a V2 callee without `RequiresUnsafeAttribute` has no
+caller requirement even when its signature contains pointers, for both legacy
+and V2 callers. The caller model controls only whether an explicit V2 contract
+is enforced.
+
+When a consumed member's module marker is unsupported, malformed, conflicting,
+or unavailable, the decompiler preserves that normalized state and declines
+from Full fidelity. It does not promote a direct member attribute into an
+authoritative contract outside a supported module model. A member-level
+contract that is itself malformed, ambiguous, or otherwise unavailable also
+declines rather than using pointer shape to invent a V2 caller requirement.
+`CompilerFeatureOptionsTests.UnsupportedDependencyMemorySafetyRules_DeclinesWithoutPromotingDirectAttribute`
+gates the compiler-produced call case,
+`CompilerFeatureOptionsTests.UnsupportedDependencyMemorySafetyRules_WithExpressionRetainsCloneProvenance`
+gates record-clone evidence retained through `with` raising, and
+`FidelityRemarksTests.Collect_InvalidCalleeMemorySafetyRules_ReportsDec0015`
+gates the invalid-state census.
+
+Await reconstruction stands down when either the awaited operand or an implicit
+await-pattern member requires unsafe context because C# forbids `await` inside
+an unsafe context. A temporary whose unsafe evaluation precedes an already
+reconstructed await is retained rather than inlined into the awaited expression;
+symmetrically, an await-valued temporary is retained rather than inlined into a
+consumer that requires unsafe context. When runtime-async lowering has already
+embedded the await helper in such a consumer and preserved no source evaluation
+boundary, reconstruction declines visibly at Partial fidelity rather than
+inventing a potentially reordered spill.
+Unsafe evaluations feeding an unstructured branch or switch are likewise kept
+spilled when the function contains an await, so later structuring cannot create
+an unsafe compound header around an awaiting body. If any final statement still
+requires one unsafe context that would contain an await, the statement declines
+visibly instead of emitting invalid C# or inventing an evaluation boundary.
 
 The stackalloc→`Span<T>` case is first raised from the compiler's lowering — a
 `localloc` fed to the `Span<T>(void*, int)` constructor — back into a source-level

@@ -426,7 +426,7 @@ test("Member Facts presents a compact summary separate from member identity", as
     .toHaveText("Metadata token0x06000125");
   await expect(page.locator(".member-surface-head p"))
     .toHaveText("method · 1 of 1");
-  await expect(page.locator(".fact-group").first().locator("h2"))
+  await expect(page.locator(".allocation-facts h2"))
     .toHaveText("Allocation facts");
   const header = await box(page, ".member-surface-head");
   const summary = await box(page, ".facts-summary");
@@ -450,8 +450,14 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".facts-summary-value"))
         .toHaveText(["0", "0", "0", "0", "0 / 0 / 0", "no", "no"]);
       await expect(page.locator(".fact-evidence")).toHaveCount(0);
+      await expect(page.locator(".allocation-facts > header > span"))
+        .toHaveText("0 occurrences");
+      await expect(page.locator(".allocation-empty"))
+        .toHaveText("No allocation occurrences were found in this method.");
+      await expect(page.locator(".allocation-row")).toHaveCount(0);
     } else {
       await expect(page.locator(".facts-summary")).toHaveCount(0);
+      await expect(page.locator(".allocation-facts")).toHaveCount(0);
       await expect(page.locator(".member-surface-scroll h2"))
         .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
       if (mode === "error") {
@@ -483,6 +489,79 @@ test("Member Facts reflows values and evidence within the detail pane", async ({
     }
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
+test("Member Facts allocation rows preserve all nine fields in occurrence order", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&allocation-facts=populated");
+  await expect(page.locator(".allocation-facts > header > span"))
+    .toHaveText("3 occurrences");
+  await expect(page.locator(".facts-summary-value").first()).toHaveText("2");
+  await expect(page.locator(".allocation-location code"))
+    .toHaveText(["IL_0020", "IL_0048", "IL_009C"]);
+  await expect(page.locator(".allocation-location > span"))
+    .toHaveText(["Object", "Array", "Enumerator"]);
+  await expect(page.locator(".allocation-type"))
+    .toHaveText([
+      "System.Text.Json.JsonException",
+      "System.Byte[]",
+      "System.Collections.Generic.Dictionary<System.String, System.Text.Json.JsonElement>.Enumerator",
+    ]);
+  const values = [
+    ["yes", "Conditional", "ErrorPath", "ThrowPath", "no", "not available"],
+    ["yes", "Loop", "LoopBody", "LocalOnly", "yes", "280 B"],
+    ["no", "Once", "StraightLine", "Unknown", "no", "not available"],
+  ];
+  for (const [index, expected] of values.entries()) {
+    const row = page.locator(".allocation-row").nth(index);
+    await expect(row.locator("dt")).toHaveText([
+      "Counted as heap", "Multiplicity", "Path", "Escape", "Loop", "Est. size",
+    ]);
+    await expect(row.locator("dd")).toHaveText(expected);
+  }
+  await expect(page.locator(".allocation-facts a, .allocation-facts button, .allocation-facts details"))
+    .toHaveCount(0);
+  await expect(page.locator(".fact-group h2"))
+    .toHaveText(["Calls", "Safety facts", "Exception regions"]);
+  const section = await box(page, ".allocation-facts");
+  const summary = await box(page, ".facts-summary");
+  expect(section.width).toBeCloseTo(summary.width, 0);
+  expect(section.height).toBeLessThanOrEqual(300);
+  expect(section.y - (summary.y + summary.height)).toBeCloseTo(20, 0);
+});
+
+test("Member Facts allocation rows reflow by pane width without hiding long values", async ({
+  page,
+}) => {
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&allocation-facts=long");
+    const location = await box(page, ".allocation-row:first-child .allocation-location");
+    const type = await box(page, ".allocation-row:first-child .allocation-type");
+    if (width === 900 || width === 360) {
+      expect(type.y).toBeGreaterThanOrEqual(location.y + location.height);
+      expect(type.x).toBeCloseTo(location.x, 0);
+    } else {
+      expect(type.x).toBeGreaterThan(location.x + location.width);
+    }
+    for (const selector of [
+      ".allocation-facts", ".allocation-row", ".allocation-main",
+      ".allocation-location", ".allocation-type", ".allocation-properties > div",
+      ".allocation-properties dd", ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".allocation-type").first())
+      .toHaveText("Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String, System.Collections.Generic.List<System.Text.Json.JsonElement>>>");
+    await expect(page.locator(".allocation-location code").first()).toHaveText("IL_12345678");
+    await expect(page.locator(".allocation-type").last()).toHaveText("Type unavailable");
+    await expect(page.locator(".allocation-row").nth(1).locator("dd").last())
+      .toHaveText("2147483647 B");
   }
 });
 

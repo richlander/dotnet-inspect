@@ -40,6 +40,10 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The target
+  [dependency inspection command](design/dependency-inspection-command.md)
+  owns asset admission, traversal intent, evidence disclosure, graph row
+  currency, and retirement of the separate `dependency-evidence` command.
   [Member source presentation](design/member-source-presentation.md) owns the
   CLI projection of one Research-issued Finding census across explicit Facts
   and Annotated Source output.
@@ -91,6 +95,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution.
+- `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
+  bounded package-prefix requests, and pure search normalization under
+  [the typed source domain](design/search-scope-domain.md). Host adapter
+  adoption remains staged under #5602; package-set identities remain in the
+  application catalog.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,

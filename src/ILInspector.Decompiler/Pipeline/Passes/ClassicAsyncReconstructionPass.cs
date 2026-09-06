@@ -73,9 +73,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             out var locals,
             out var localNames,
             out var synthesizedLocalNames);
-        if (reconstruction == ReconstructionResult.UnconsumedExecutionRegion)
+        if (reconstruction is ReconstructionResult.UnconsumedExecutionRegion
+            or ReconstructionResult.UnsafeAwaitOperand)
         {
-            MarkUnconsumedExecutionRegion(function, kickoff, context);
+            var reason = reconstruction == ReconstructionResult.UnsafeAwaitOperand
+                ? "await operand requires unsafe context"
+                : "execution region contains unconsumed user effects";
+            MarkDeclined(function, kickoff, context, reason);
             return;
         }
         if (reconstruction != ReconstructionResult.Reconstructed)
@@ -119,6 +123,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         NotRecognized,
         Reconstructed,
         UnconsumedExecutionRegion,
+        UnsafeAwaitOperand,
     }
 
     sealed class LocalBuilder
@@ -255,6 +260,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         localNames = [];
         synthesizedLocalNames = [];
 
+        if (HasUnsafeAwaitOperand(moveNext, kickoff))
+            return ReconstructionResult.UnsafeAwaitOperand;
+
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(
                 moveNext,
@@ -270,6 +278,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return ReconstructionResult.UnconsumedExecutionRegion;
         }
+        if (statements.Any(statement =>
+            UnsafeAwaitOperand.WouldPlaceAwaitInUnsafeContext(
+                statement,
+                kickoff.UsesUpdatedMemorySafetyRules,
+                kickoff.SkipLocalsInit)))
+            return ReconstructionResult.UnsafeAwaitOperand;
 
         var block = new Block(0);
         foreach (var statement in statements)
@@ -284,6 +298,31 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         localNames = localBuilder.Names;
         synthesizedLocalNames = localBuilder.SynthesizedNames;
         return ReconstructionResult.Reconstructed;
+    }
+
+    static bool HasUnsafeAwaitOperand(IrFunction moveNext, IrFunction kickoff)
+    {
+        foreach (var getResult in GetResultCalls(moveNext))
+        {
+            var operand = AwaitedOperandForGetResult(
+                moveNext,
+                getResult,
+                out _,
+                out _);
+            if (operand is null)
+                continue;
+
+            var remapped = CloneAndRemap(operand, kickoff);
+            if (remapped is not null
+                && UnsafeAwaitOperand.RequiresUnsafeContext(
+                    remapped,
+                    kickoff.UsesUpdatedMemorySafetyRules,
+                    kickoff.SkipLocalsInit))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool HasUnconsumedExecutionStore(IrFunction moveNext)
@@ -386,13 +425,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 ? definition
                 : type;
 
-    static void MarkUnconsumedExecutionRegion(
+    static void MarkDeclined(
         IrFunction function,
         Kickoff kickoff,
-        PassContext context)
+        PassContext context,
+        string reason)
     {
         context.Stepper.StepOver(
-            $"decline classic async '{function.Name}': execution region contains unconsumed user effects");
+            $"decline classic async '{function.Name}': {reason}");
 
         IReadOnlyList<Block> originalBlocks = function.Body.Blocks;
         function.Body.DetachChildren();
@@ -401,7 +441,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var marker = new UnsupportedNode(
             kickoff.SourceOffset,
             "classic async",
-            "execution region contains unconsumed user effects; original kickoff preserved");
+            $"{reason}; original kickoff preserved");
         marker.SetSourceOffset(kickoff.SourceOffset);
         var markerStatement = new ExpressionStatement(marker);
         markerStatement.SetSourceOffset(kickoff.SourceOffset);
@@ -417,7 +457,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         function.RequiresAsyncBodyModifier = false;
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.UnsupportedConstruct,
-            "classic async reconstruction declined: execution region contains unconsumed user effects"));
+            $"classic async reconstruction declined: {reason}"));
     }
 
     static bool TryBuildStatements(
@@ -921,8 +961,21 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .ToList();
         if (accumulatorStores is not [var accumulatorStore])
             return false;
-        var awaitedOperand = AwaitedOperandForGetResult(moveNext, getResult);
+        var awaitedOperand = AwaitedOperandForGetResult(
+            moveNext,
+            getResult,
+            out var loopGetAwaiter,
+            out var loopIsCompleted);
         if (awaitedOperand is null
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                loopGetAwaiter,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                loopIsCompleted,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getResult.Callee,
+                kickoff.UsesUpdatedMemorySafetyRules)
             || !IsCurrentLoopElement(moveNext, awaitedOperand))
         {
             hasUnconsumedStore = true;
@@ -971,7 +1024,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var awaited = new AwaitExpression(
             new LoadLocal(taskIndex, taskType),
             getResult.Callee.ReturnType,
-            getResult.Callee.ReturnIsDynamic);
+            getResult.Callee.ReturnIsDynamic,
+            [loopGetAwaiter, loopIsCompleted, getResult.Callee]);
         body.Add(new StoreLocal(
             sumIndex,
             sumType,
@@ -1116,23 +1170,44 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static AwaitExpression? AwaitForGetResult(IrFunction moveNext, IrFunction kickoff, Call getResult)
     {
-        var awaitedOperand = AwaitedOperandForGetResult(moveNext, getResult);
-        if (awaitedOperand is null)
+        var awaitedOperand = AwaitedOperandForGetResult(
+            moveNext,
+            getResult,
+            out var getAwaiter,
+            out var isCompleted);
+        if (awaitedOperand is null
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getAwaiter,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                isCompleted,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getResult.Callee,
+                kickoff.UsesUpdatedMemorySafetyRules))
             return null;
 
         var operand = CloneAndRemap(awaitedOperand, kickoff);
-        return operand is null
+        return operand is null || UnsafeAwaitOperand.RequiresUnsafeContext(
+                operand,
+                kickoff.UsesUpdatedMemorySafetyRules,
+                kickoff.SkipLocalsInit)
             ? null
             : new AwaitExpression(
                 operand,
                 getResult.Callee.ReturnType,
-                getResult.Callee.ReturnIsDynamic);
+                getResult.Callee.ReturnIsDynamic,
+                [getAwaiter, isCompleted, getResult.Callee]);
     }
 
     static IrExpression? AwaitedOperandForGetResult(
         IrFunction moveNext,
-        Call getResult)
+        Call getResult,
+        out MethodRef getAwaiter,
+        out MethodRef isCompleted)
     {
+        getAwaiter = null!;
+        isCompleted = null!;
         if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
             return null;
 
@@ -1142,6 +1217,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return null;
 
         StoreLocal? awaiterStore = null;
+        MethodRef? getAwaiterCandidate = null;
+        MethodRef? isCompletedCandidate = null;
         for (var i = 0; i < getResultPosition; i++)
         {
             if (nodes[i] is StoreLocal { Index: var index, Value: Call { Callee.Name: "GetAwaiter" } call } store
@@ -1154,13 +1231,40 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     continue;
                 }
                 awaiterStore = store;
+                getAwaiterCandidate = call.Callee;
+                isCompletedCandidate = null;
+                continue;
+            }
+
+            if (awaiterStore is not null
+                && nodes[i] is LoadProperty
+                {
+                    Accessor.Name: "get_IsCompleted",
+                    Accessor: var accessor,
+                    Instance: var receiver,
+                }
+                && IsAwaiterReceiver(receiver, awaiterAddress.Index))
+            {
+                isCompletedCandidate = accessor;
             }
         }
 
-        if (awaiterStore?.Value is not Call { Arguments: [var awaitedOperand] })
+        if (awaiterStore?.Value is not Call { Arguments: [var awaitedOperand] }
+            || getAwaiterCandidate is null
+            || isCompletedCandidate is null)
             return null;
+        getAwaiter = getAwaiterCandidate;
+        isCompleted = isCompletedCandidate;
         return awaitedOperand;
     }
+
+    static bool IsAwaiterReceiver(IrExpression? receiver, int awaiterIndex)
+        => receiver switch
+        {
+            LoadLocal load => load.Index == awaiterIndex,
+            LoadLocalAddress address => address.Index == awaiterIndex,
+            _ => false,
+        };
 
     static bool HasUnexpectedExpressionStatement(IrFunction moveNext, params ExpressionStatement[] allowed)
     {

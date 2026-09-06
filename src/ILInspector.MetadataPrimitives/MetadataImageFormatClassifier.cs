@@ -127,16 +127,25 @@ public static class MetadataImageFormatClassifier
                 MetadataRootMalformedReason.UnmappableMetadataDirectory);
         }
 
-        if (metadata.Length < FixedPrefixLength)
+        int boundedLength = Math.Min(
+            metadata.Length,
+            FixedPrefixLength + MaximumPaddedVersionLength);
+        return Classify(metadata.GetReader(0, boundedLength));
+    }
+
+    /// <summary>
+    /// Classifies a bounded metadata root supplied by its containing-image
+    /// owner. The root starts at the reader's current position; the reader is
+    /// borrowed for this call and neither retained nor advanced in the caller.
+    /// Uses the same fixed-prefix and version-field rules as the CLI-root path.
+    /// </summary>
+    public static MetadataImageFormatResult Classify(BlobReader reader)
+    {
+        if (reader.RemainingBytes < FixedPrefixLength)
         {
             return Malformed(
                 MetadataRootMalformedReason.TruncatedFixedPrefix);
         }
-
-        int boundedLength = Math.Min(
-            metadata.Length,
-            FixedPrefixLength + MaximumPaddedVersionLength);
-        BlobReader reader = metadata.GetReader(0, boundedLength);
 
         if (reader.ReadUInt32() != MetadataRootSignature)
             return Malformed(MetadataRootMalformedReason.InvalidSignature);

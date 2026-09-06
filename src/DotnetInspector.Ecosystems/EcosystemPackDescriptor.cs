@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 
@@ -14,7 +15,9 @@ public sealed class EcosystemPackDescriptor
         int order,
         PackageSetId? packageSet,
         IEnumerable<EcosystemDemoDescriptor> demos,
-        bool hasScanner)
+        bool hasScanner,
+        ImmutableArray<string> namespaceRoots,
+        ImmutableArray<PackageCoordinate> corePackages)
     {
         Id = id;
         Title = title;
@@ -23,6 +26,8 @@ public sealed class EcosystemPackDescriptor
         PackageSet = packageSet;
         Demos = [.. demos];
         HasScanner = hasScanner;
+        NamespaceRoots = namespaceRoots;
+        CorePackages = corePackages;
     }
 
     public EcosystemPackId Id { get; }
@@ -38,6 +43,12 @@ public sealed class EcosystemPackDescriptor
     public ImmutableArray<EcosystemDemoDescriptor> Demos { get; }
 
     public bool HasScanner { get; }
+
+    /// <summary>Literal namespace-subtree hints in authored order, not an exhaustive inventory.</summary>
+    public ImmutableArray<string> NamespaceRoots { get; }
+
+    /// <summary>Unversioned starting points in pack-local preference order, independent of curated membership.</summary>
+    public ImmutableArray<PackageCoordinate> CorePackages { get; }
 }
 
 /// <summary>Immutable product metadata for one ecosystem demo.</summary>

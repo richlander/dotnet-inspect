@@ -186,7 +186,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 51 `[JSExport]` methods.
+The seven rooted export assemblies contain 54 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -271,10 +271,13 @@ so absence remains a visible capability result rather than a missing binding.
 The module does not combine Analysis with call-graph topology; graph traversal
 has its own facade and product owner.
 
-### Source facade: 6 exports
+### Source facade: 9 exports
 
+- `CancelMethodBodyComparison`
 - `CancelSourceQuery`
 - `CancelTypeSourceQuery`
+- `QueryMethodBodyComparison`
+- `QueryMethodBodyComparisonTargets`
 - `QueryMemberAnnotatedSource`
 - `QueryMemberSource`
 - `QueryTypeMemberSource`
@@ -285,6 +288,9 @@ its public cancellation operations belong beside the work they cancel.
 Annotated source stays with source because the returned document and its
 viewer contract are the capability being requested; Analysis facts embedded in
 that product document do not transfer ownership to this adapter.
+Method Body Diff likewise projects native C#/IL comparison evidence through
+the shared query; its target inventory and keyed cancellation stay with that
+feature in the same facade.
 
 ### Call-graph facade: 2 exports
 

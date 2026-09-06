@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import type { MemberFacts } from "../src/member-detail-inspection.ts";
-import { memberFactsFixture } from "./member-facts-fixture.ts";
+import { allocationFactsFixture, memberFactsFixture } from "./member-facts-fixture.ts";
 
 function render(facts: MemberFacts = memberFactsFixture()) {
   return renderMemberFacts({
@@ -67,6 +67,9 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   assert.match(summaryRow(html, "Unsafe"), />no<\/code>/);
   assert.doesNotMatch(html, /class="fact-evidence"/);
   assert.match(html, /No direct call sites were found/);
+  assert.match(html, /0 occurrences/);
+  assert.match(html, /No allocation occurrences were found in this method\./);
+  assert.doesNotMatch(html, /<ol class="allocation-rows">/);
 
   const loading = renderMemberFacts({
     memberFacts: memberFactsFixture(),
@@ -74,7 +77,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFactsError: "",
   });
   assert.match(loading, /Analyzing method/);
-  assert.doesNotMatch(loading, /facts-summary|Metadata token/);
+  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts/);
 
   const failure = renderMemberFacts({
     memberFacts: null,
@@ -83,7 +86,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
-  assert.doesNotMatch(failure, /facts-summary|No direct call sites/);
+  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts/);
   assert.match(renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
@@ -96,7 +99,11 @@ test("member Facts escapes summary evidence and all relocated detail sections", 
   const html = render({
     ...facts,
     calls: [{ ...facts.calls[0]!, offset: "<offset>\"", callee: "<callee>" }],
-    allocations: [{ ...facts.allocations[0]!, type: "<type>" }],
+    allocations: [{
+      ...facts.allocations[0]!, type: "<type>", offset: "<allocation-offset>",
+      kind: "<allocation-kind>", multiplicity: "<multiplicity>",
+      path: "<path>", escape: "<escape>",
+    }],
     safety: [{ kind: "<kind>", offset: null, operation: "<operation>", requirement: "<requirement>", evidence: "<evidence>" }],
     exceptionRegions: [{ region: 1, clause: "<clause>", tryRange: "<try>", handlerRange: "<handler>", filterRange: "<filter>", caughtType: "<caught>" }],
     performanceOpportunities: [{ shape: "<shape>", evidence: "<evidence>", fix: "<fix>", confidence: "<confidence>", offset: "<offset>", inLoop: false, caveat: "<caveat>", finding: "<finding>", provenance: "<provenance>" }],
@@ -106,10 +113,51 @@ test("member Facts escapes summary evidence and all relocated detail sections", 
     "offset", "callee", "type", "kind", "operation", "requirement", "evidence",
     "clause", "try", "handler", "filter", "caught", "shape", "fix",
     "confidence", "caveat", "finding", "provenance", "diagnostic",
+    "allocation-offset", "allocation-kind", "multiplicity", "path", "escape",
   ]) {
     assert.ok(html.includes(`&lt;${value}&gt;`));
     assert.ok(!html.includes(`<${value}>`));
   }
   assert.match(html, /title="&lt;offset&gt;&quot;"/);
   assert.match(html, /Analysis diagnostics/);
+});
+
+test("allocation facts retain every occurrence and distinguish the heap-counted summary", () => {
+  const html = render(allocationFactsFixture());
+  assert.match(summaryRow(html, "Allocations"), />2<\/code>/);
+  assert.match(html, /<h2 id="allocation-facts-title">Allocation facts<\/h2><span>3 occurrences<\/span>/);
+  const rows = [...html.matchAll(/<li class="allocation-row">([\s\S]*?)<\/li>/g)]
+    .map(match => match[1]!);
+  assert.equal(rows.length, 3);
+  for (const [index, offset, kind, values] of [
+    [0, "IL_0020", "Object", ["yes", "Conditional", "ErrorPath", "ThrowPath", "no", "not available"]],
+    [1, "IL_0048", "Array", ["yes", "Loop", "LoopBody", "LocalOnly", "yes", "280 B"]],
+    [2, "IL_009C", "Enumerator", ["no", "Once", "StraightLine", "Unknown", "no", "not available"]],
+  ] as const) {
+    const row = rows[index]!;
+    assert.ok(row.includes(`<code>${offset}</code><span>${kind}</span>`));
+    const labels = ["Counted as heap", "Multiplicity", "Path", "Escape", "Loop", "Est. size"];
+    for (const [field, value] of values.entries()) {
+      assert.ok(summaryRow(row, labels[field]!).includes(`>${value}</`));
+    }
+  }
+  assert.match(rows[0]!, /<code>System.Text.Json.JsonException<\/code>/);
+  assert.match(rows[1]!, /<code>System.Byte\[\]<\/code>/);
+  assert.match(rows[2]!, /Dictionary&lt;System.String, System.Text.Json.JsonElement&gt;.Enumerator/);
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render(), /<span>1 occurrence<\/span>/);
+});
+
+test("allocation facts distinguish unavailable type and size from an estimated zero", () => {
+  const facts = memberFactsFixture();
+  const html = render({
+    ...facts,
+    allocations: [
+      { ...facts.allocations[0]!, type: null, estimatedSizeBytes: null },
+      { ...facts.allocations[0]!, estimatedSizeBytes: 0 },
+    ],
+  });
+  assert.match(html, /class="allocation-unavailable">Type unavailable<\/span>/);
+  assert.match(html, /<dt>Est. size<\/dt><dd><span class="allocation-unavailable">not available<\/span>/);
+  assert.match(html, /<dt>Est. size<\/dt><dd><code>0 B<\/code>/);
 });

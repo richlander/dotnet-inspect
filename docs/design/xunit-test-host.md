@@ -187,6 +187,12 @@ also select their child workers through MTP method filters. These paths reuse
 the pinned outcome-level host gate without changing the suite's metadata or
 oracle evidence.
 
+`ILInspector.Research.Tests` is the seventh adopter. Its ordinary PR command
+remains unfiltered, while Deep Inspect preserves the suite's skipped-test
+failure policy through MTP's `--fail-skips on` option. These paths reuse the
+pinned outcome-level host gate without changing the Research evidence composed
+from metadata, analysis, decompilation, source, or Finding contracts.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

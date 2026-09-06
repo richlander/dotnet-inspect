@@ -259,7 +259,7 @@ jobs:
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -273,9 +273,13 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
+      - name: Run presentation tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- -failSkips
+        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- --fail-skips on
 
       - name: Check ilasm/ildasm/mdv result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}

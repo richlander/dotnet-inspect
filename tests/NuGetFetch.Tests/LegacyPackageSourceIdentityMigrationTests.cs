@@ -24,17 +24,17 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 ImplicitReferences: 2),
             new(
                 "#4795",
-                "src/NuGetFetch.Tests/PackageSourceClientTests.cs",
+                "tests/NuGetFetch.Tests/PackageSourceClientTests.cs",
                 ExplicitReferences: 13,
                 ImplicitReferences: 2),
             new(
                 "#4795",
-                "src/NuGetFetch.Tests/PackageSourceCustomClientTests.cs",
+                "tests/NuGetFetch.Tests/PackageSourceCustomClientTests.cs",
                 ExplicitReferences: 1,
                 ImplicitReferences: 0),
             new(
                 "#4795",
-                "src/NuGetFetch.Tests/PackageSourceResultIdentityTests.cs",
+                "tests/NuGetFetch.Tests/PackageSourceResultIdentityTests.cs",
                 ExplicitReferences: 9,
                 ImplicitReferences: 2),
             new(

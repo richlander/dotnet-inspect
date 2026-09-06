@@ -19,6 +19,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <Features>runtime-async=on</Features>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <MemorySafetyRules>updated</MemorySafetyRules>
     <IsPackable>false</IsPackable>

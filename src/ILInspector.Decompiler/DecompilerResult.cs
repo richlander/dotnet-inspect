@@ -275,6 +275,14 @@ public static class DiagnosticIds
     /// <c>fixed</c> statement and has no faithful C# declaration spelling.
     /// </summary>
     public const string UnraisedPinnedLocal = "DEC0014";
+
+    /// <summary>
+    /// A consumed member has an invalid or unavailable memory-safety contract,
+    /// or belongs to a module whose memory-safety rules are invalid or
+    /// unavailable. Such a reference may be rejected before ordinary
+    /// unsafe-context rules can be applied.
+    /// </summary>
+    public const string InvalidCalleeMemorySafetyRules = "DEC0015";
 }
 
 /// <summary>
@@ -323,7 +331,10 @@ public sealed record DecompilerResult(
     /// </summary>
     public bool RequiresUnsafeBodyModifier { get; init; }
 
-    /// <summary>True when the rendered IR contains at least one recovered <c>await</c> expression.</summary>
+    /// <summary>
+    /// True when the rendered IR contains recovered <c>await</c> syntax,
+    /// including an await expression, await-using, or await-foreach.
+    /// </summary>
     public bool ContainsAwaitExpression { get; init; }
 
     /// <summary>

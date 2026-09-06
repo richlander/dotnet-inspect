@@ -222,8 +222,8 @@ public sealed record MetadataImageHeaders
 
     /// <summary>
     /// The CLI header, or <see langword="null"/> when the image has none. An
-    /// image with metadata always has one; the nullability keeps a native or
-    /// malformed image describable rather than throwing.
+    /// image can carry metadata without a CLI header, including a COFF-only
+    /// .cormeta section or an export-discovered ReadyToRun manifest.
     /// </summary>
     public MetadataCorHeaderSummary? Cor { get; }
 }

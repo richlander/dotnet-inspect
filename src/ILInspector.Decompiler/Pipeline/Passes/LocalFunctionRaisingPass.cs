@@ -420,7 +420,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 body.LocalNames,
                 body.UsesUpdatedMemorySafetyRules,
                 body.SkipLocalsInit,
-                container)
+                container,
+                UnsafeAwaitOperand.MethodRequiresUnsafe(
+                    method,
+                    body.UsesUpdatedMemorySafetyRules))
             {
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
                 CapturedBinderNames = candidate.CapturedBinderNames,
@@ -661,7 +664,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             method.ReturnType,
             arguments,
             parameterTypes,
-            VisibleParameterRefKinds(method, count));
+            VisibleParameterRefKinds(method, count),
+            method.RequiresUnsafe);
     }
 
     static ImmutableArray<ArgumentRefKind> VisibleParameterRefKinds(MethodRef method, int count)
