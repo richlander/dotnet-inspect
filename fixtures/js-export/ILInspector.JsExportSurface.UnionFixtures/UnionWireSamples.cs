@@ -8,6 +8,13 @@ public union ScalarUnion(int, string);
 public union NullableUnion(int?, string);
 public union DtoUnion(PackageSummary, string);
 public union GenericUnion<T>(T, string);
+public union GenericArrayUnion<T>(T[], bool);
+public union ParameterNameUnion<T>(T, T0);
+public union UnsupportedCaseUnion(Guid, int);
+public union initializeRuntime(int, string);
+public union RecursiveUnion(RecursiveOtherUnion);
+public union RecursiveOtherUnion(RecursiveUnion);
+public union ReferenceArrayUnion(string?[], int);
 public union NestedUnion(ScalarUnion, bool);
 public union ObjectUnion(PackageSummary, PackageProblem);
 public union NumberUnion(int, double);
@@ -19,6 +26,7 @@ public sealed record PackageSummary(string Id);
 public sealed record PackageProblem(int Code);
 public sealed record UnionEnvelope(DtoUnion Result, ScalarUnion[] Items);
 public sealed record OrdinaryValue(int Value);
+public sealed record T0(int Value);
 
 public static partial class UnionExports
 {
@@ -46,6 +54,70 @@ public static partial class UnionExports
         JsonSerializer.Serialize(
             new GenericUnion<int>(7),
             UnionJsonContext.Default.GenericUnionInt32);
+
+    [JSExport]
+    public static string GetGenericBytes() =>
+        JsonSerializer.Serialize(
+            new GenericUnion<byte[]>([1, 2, 3]),
+            UnionJsonContext.Default.GenericUnionByteArray);
+
+    [JSExport]
+    public static string GetGenericDictionary() =>
+        JsonSerializer.Serialize(
+            new GenericUnion<Dictionary<string, int?>>(new Dictionary<string, int?>
+            {
+                ["value"] = 42,
+                ["empty"] = null,
+            }),
+            UnionJsonContext.Default.GenericUnionDictionaryStringNullableInt32);
+
+    [JSExport]
+    public static string GetGenericArrayBytes() =>
+        JsonSerializer.Serialize(
+            new GenericArrayUnion<byte>([1, 2, 3]),
+            UnionJsonContext.Default.GenericArrayUnionByte);
+
+    [JSExport]
+    public static string GetGenericArrayNumbers() =>
+        JsonSerializer.Serialize(
+            new GenericArrayUnion<int>([1, 2, 3]),
+            UnionJsonContext.Default.GenericArrayUnionInt32);
+
+    [JSExport]
+    public static string GetParameterNameUnion() =>
+        JsonSerializer.Serialize(
+            new ParameterNameUnion<int>(new T0(3)),
+            UnionJsonContext.Default.ParameterNameUnionInt32);
+
+    [JSExport]
+    public static string GetUnsupportedCase() =>
+        JsonSerializer.Serialize(
+            new UnsupportedCaseUnion(Guid.Empty),
+            UnionJsonContext.Default.UnsupportedCaseUnion);
+
+    [JSExport]
+    public static string GetReservedUnionName() =>
+        JsonSerializer.Serialize(
+            new initializeRuntime(42),
+            UnionJsonContext.Default.initializeRuntime);
+
+    [JSExport]
+    public static string GetRecursiveUnion() =>
+        JsonSerializer.Serialize(
+            default(RecursiveUnion),
+            UnionJsonContext.Default.RecursiveUnion);
+
+    [JSExport]
+    public static string GetReferenceArrayUnion() =>
+        JsonSerializer.Serialize(
+            new ReferenceArrayUnion(["value", null]),
+            UnionJsonContext.Default.ReferenceArrayUnion);
+
+    [JSExport]
+    public static string GetGenericReferenceArray() =>
+        JsonSerializer.Serialize(
+            new GenericUnion<string?[]>(["value", null]),
+            UnionJsonContext.Default.GenericUnionStringArray);
 
     [JSExport]
     public static string GetNested() =>
@@ -113,6 +185,17 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(NullableUnion))]
 [JsonSerializable(typeof(DtoUnion))]
 [JsonSerializable(typeof(GenericUnion<int>))]
+[JsonSerializable(typeof(GenericUnion<byte[]>))]
+[JsonSerializable(typeof(GenericUnion<Dictionary<string, int?>>))]
+[JsonSerializable(typeof(GenericArrayUnion<byte>))]
+[JsonSerializable(typeof(GenericArrayUnion<int>))]
+[JsonSerializable(typeof(ParameterNameUnion<int>))]
+[JsonSerializable(typeof(UnsupportedCaseUnion))]
+[JsonSerializable(typeof(initializeRuntime))]
+[JsonSerializable(typeof(RecursiveUnion))]
+[JsonSerializable(typeof(RecursiveOtherUnion))]
+[JsonSerializable(typeof(ReferenceArrayUnion))]
+[JsonSerializable(typeof(GenericUnion<string?[]>))]
 [JsonSerializable(typeof(NestedUnion))]
 [JsonSerializable(typeof(ObjectUnion))]
 [JsonSerializable(typeof(NumberUnion))]

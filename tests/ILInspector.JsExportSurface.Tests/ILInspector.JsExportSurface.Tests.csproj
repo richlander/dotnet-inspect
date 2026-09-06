@@ -17,6 +17,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The payload oracle runs as a file-based app, not as test-host source. -->
+    <Compile Remove="Fixtures/ts-jsexport-runtime/union-payloads.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 
