@@ -42,6 +42,8 @@ import {
 } from "../src/type-panel.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
+import { renderPackageOverviewSurface } from "../src/package-overview.ts";
+import { renderPackageDocuments } from "../src/doc-viewer.ts";
 import { allocationFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   bindWorkspaceSubject,
@@ -98,10 +100,12 @@ let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
+const packageOverviewMode = params.has("package-overview");
 const packageDependenciesMode = params.has("package-dependencies");
 const packageMetadataMode = params.has("package-metadata");
 const packageMode =
-  params.has("package") || packageDependenciesMode || packageMetadataMode;
+  params.has("package") || packageOverviewMode
+  || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
 const memberFactsMode = params.get("member-facts");
 const allocationFactsMode = params.get("allocation-facts");
@@ -346,6 +350,47 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
+  if (packageOverviewMode) {
+    const name = longMode
+      ? `Example.${"LongNamespace.".repeat(12)}Library`
+      : "Example.Library";
+    const libraries = emptyMode ? "" : Array.from(
+      { length: longMode ? 30 : 2 },
+      (_, index) => `<div class="library-row">
+        <div class="library-row-head">
+          <button type="button" class="library-name as-button" data-lib-scope="${name}${index}">${name}${index}</button>
+          <span class="library-metric">16 types · 617 members</span>
+        </div>
+        <div class="library-kinds"><button type="button" class="lib-kind as-button" data-lib-scope="${name}${index}" data-lib-kind="class"><strong>16</strong> classes</button></div>
+      </div>`,
+    ).join("");
+    return renderPackageOverviewSurface({
+      packageId: "System.Text.Json",
+      packageVersion: "10.0.0",
+      activeFramework: "net10.0",
+      totalTypes: emptyMode ? 0 : 32,
+      totalMembers: emptyMode ? 0 : 1234,
+      coordinateFieldsHtml: `
+        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
+        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>`,
+      contentHtml: `
+        <section class="document-section">
+          <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} loaded</span></div>
+          <div class="library-list">${libraries}</div>
+        </section>
+        <section class="document-section">
+          <div class="section-title"><h2>Namespaces</h2><span>${emptyMode ? 0 : 1} — click to filter</span></div>
+          <div class="type-chip-list">${emptyMode ? "" : `<button class="type-chip" data-namespace-jump="${name}">${name}</button>`}</div>
+        </section>
+        ${renderPackageDocuments([{
+          kind: "readme",
+          name: longMode ? `${name}.README.md` : "README.md",
+          path: "README.md",
+          size: 1024,
+        }], escapeHtml)}`,
+      escapeHtml,
+    });
+  }
   if (packageDependenciesMode) {
     return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
       <header class="api-surface-head package-dependencies-surface-head">
@@ -696,12 +741,13 @@ app.innerHTML = `
         ? ""
         : sourceMode
           || (packageMode
+            && !packageOverviewMode
             && !packageDependenciesMode
             && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageOverviewMode ? " package-overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>

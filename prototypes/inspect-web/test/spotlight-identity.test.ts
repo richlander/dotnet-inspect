@@ -5279,6 +5279,35 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
 });
 
+test("package overview uses the production frame without changing its content or coordinate handlers", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
+    ?? "";
+  const renderOverview =
+    appSource.match(/function renderPackageOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
+    ?? "";
+  assert.match(appSource,
+    /const packageOverviewWorkingSurface =\s*activeScope === "package" && state\.packageLens === "overview"/);
+  assert.match(appSource,
+    /packageOverviewWorkingSurface \? " package-overview-working-surface" : ""/);
+  assert.match(appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| packageOverviewWorkingSurface[\s\S]*?;/);
+  assert.match(renderPackage,
+    /state\.packageLens === "overview"[\s\S]*?\|\| state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
+  assert.match(renderOverview,
+    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
+  assert.match(renderOverview,
+    /platformLibrarySelectHtml\(\)/);
+  assert.match(renderOverview,
+    /data-lib-scope=[\s\S]*data-lib-kind=/);
+  assert.match(renderOverview,
+    /data-namespace-jump=/);
+  assert.match(renderOverview,
+    /renderPackageOverviewSurface\(\{[\s\S]*totalTypes: pkg\.totalTypes,[\s\S]*totalMembers: pkg\.totalMembers,[\s\S]*coordinateFieldsHtml: packageCoordinateFields\(\),[\s\S]*contentHtml,/);
+  assert.match(stylesSource,
+    /\.detail-scroll\.package-overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
+});
+
 test("package metadata uses compact coordinates in a full-area working surface", () => {
   const renderPackage =
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]

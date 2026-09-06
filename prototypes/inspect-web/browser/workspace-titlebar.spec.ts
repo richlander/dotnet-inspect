@@ -407,6 +407,65 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
+for (const width of [1440, 390]) {
+  test(`Package Overview fills its frame and contains long content at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/browser/workspace-titlebar.html?package-overview=1&long=1");
+
+    const panel = await box(page, "#inspector-panel");
+    const surface = await box(page, ".package-overview-surface");
+    expect(surface.x).toBeCloseTo(panel.x, 0);
+    expect(surface.y).toBeCloseTo(panel.y, 0);
+    expect(surface.width).toBeCloseTo(panel.width, 0);
+    expect(surface.height).toBeCloseTo(panel.height, 0);
+    await expect(page.locator(".type-heading, .package-coordinate-editor")).toHaveCount(0);
+    await expect(page.locator(".package-overview-surface-head h1")).toHaveText("Overview");
+    await expect(page.locator(".package-overview-surface-head p")).toHaveText("32 types · 1,234 members");
+    await expect(page.locator(".package-overview-surface-footer span")).toHaveText([
+      "System.Text.Json@10.0.0", "net10.0",
+    ]);
+    await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
+    await expect(page.locator("#package-version")).toHaveValue("9.0.0");
+    await page.getByRole("combobox", { name: "Framework", exact: true }).selectOption("net10.0-windows10.0.19041.0");
+    await expect(page.locator("#framework")).toHaveValue("net10.0-windows10.0.19041.0");
+
+    const header = await box(page, ".package-overview-surface-head");
+    const controls = await box(page, ".package-overview-controls");
+    const footer = await box(page, ".package-overview-surface-footer");
+    expect(await page.locator(".package-overview-scroll").evaluate(element =>
+      element.scrollHeight > element.clientHeight)).toBe(true);
+    await page.locator(".package-overview-scroll").evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
+    expect((await box(page, ".package-overview-surface-head")).y).toBe(header.y);
+    expect((await box(page, ".package-overview-controls")).y).toBe(controls.y);
+    expect((await box(page, ".package-overview-surface-footer")).y).toBe(footer.y);
+    expect(await page.locator(".package-overview-scroll").evaluate(element =>
+      element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+    if (width === 390) {
+      const toggle = await box(page, "#content-navigation-toggle");
+      expect(toggle.y).toBeGreaterThanOrEqual(header.y);
+      expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+      await expect(page.locator("#type-list")).toBeFocused();
+      await expect(page.locator(".detail-pane")).toBeHidden();
+    }
+  });
+}
+
+test("Package Overview keeps empty totals and available documents", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?package-overview=1&empty=1");
+  await expect(page.locator(".package-overview-surface-head p")).toHaveText("0 types · 0 members");
+  await expect(page.locator(".library-row")).toHaveCount(0);
+  await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
+  await expect(page.locator(".package-overview-surface-footer")).toBeVisible();
+});
+
 test("Member Facts presents a compact summary separate from member identity", async ({
   page,
 }) => {

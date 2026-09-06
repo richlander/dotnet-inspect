@@ -215,6 +215,7 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
+import { renderPackageOverviewSurface } from "./package-overview.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -3440,6 +3441,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const packageOverviewWorkingSurface =
+    activeScope === "package" && state.packageLens === "overview";
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
   const packageMetadataWorkingSurface =
@@ -3476,6 +3479,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationIntegrated =
     apiWorkingSurface
     || metadataWorkingSurface
+    || packageOverviewWorkingSurface
     || packageDependenciesWorkingSurface
     || packageMetadataWorkingSurface
     || memberWorkingSurface;
@@ -3563,7 +3567,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageOverviewWorkingSurface ? " package-overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4088,7 +4092,8 @@ function packageCoordinateControls() {
 
 function renderPackageView() {
   const body = packageLensBody();
-  if (state.packageLens === "dependencies"
+  if (state.packageLens === "overview"
+    || state.packageLens === "dependencies"
     || state.packageLens === "metadata") return body;
   return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
@@ -5183,7 +5188,7 @@ function renderPackageOverview() {
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
 
-  return `
+  const contentHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${librariesSubtitle}</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
@@ -5193,6 +5198,17 @@ function renderPackageOverview() {
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
       <div class="type-chip-list">${namespaceChips}${nsOverflow}</div>
     </section>${documentsSection}`;
+
+  return renderPackageOverviewSurface({
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    totalTypes: pkg.totalTypes,
+    totalMembers: pkg.totalMembers,
+    coordinateFieldsHtml: packageCoordinateFields(),
+    contentHtml,
+    escapeHtml,
+  });
 }
 
 function renderGraphMemberPendingHtml(

@@ -217,9 +217,9 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Dependencies, Package Metadata,
-Source, Annotated Source, and Diagnostics are working surfaces rather than
-documents inset inside a general page. The Metadata Explorer retains its
+Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
+Package Metadata, Source, Annotated Source, and Diagnostics are working surfaces
+rather than documents inset inside a general page. The Metadata Explorer retains its
 separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
@@ -488,6 +488,51 @@ successful empty projection.
 At narrow widths, header status and both context values may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
+
+### Package Overview
+
+Package Overview uses the complete package inspector area, following Package
+Metadata and Dependencies rather than repeating the package hero and inset
+coordinate editor. The persistent subject path supplies package identity.
+
+```text
+Overview                                      type and member totals
+Version · Framework
+libraries, namespace filters, package documents
+package@version                                    active framework
+```
+
+The quiet header preserves the package's type and member totals. Existing
+Version and Framework controls occupy one compact row. One independently
+scrolling content region contains the loaded-library breakdown, namespace
+filters, and document links. The platform library picker remains with the
+Libraries section. Existing library/kind selection, namespace navigation,
+document opening, counts, and ordering retain their semantics.
+
+The bottom context row preserves the exact package/version and active
+framework. At narrow widths the Types return control shares the quiet header,
+controls wrap within their row, and header/footer values may elide as complete
+strings. Long library, namespace, and document names remain contained without
+page-level horizontal overflow. Many rows scroll inside Overview while its
+header, controls, and coordinates remain in place.
+
+Overview presents the already-loaded package. Existing acquisition loading,
+failure, and partial-package notices remain in their current host presentation;
+this placement change introduces no independent Overview query or state machine.
+Empty inventories retain their zero totals and any available package documents.
+
+[The one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6073)
+connects the production browser Overview consumer to this frame and retires its
+generic hero/inset-coordinate composition. The user explicitly approved this
+browser-only presentation scope. Existing typed package data supplies the
+content and counts; browser HTML rendering remains the lowering boundary rather
+than Markout because this slice arranges interactive controls and navigation.
+The frame reuses the current package-surface conventions, not a new general
+rendering architecture. Other package lenses remain separate consumers.
+
+Browser coverage exercises the production frame, overflow, narrow navigation
+placement, and controls. Published-site evidence separately exercises the full
+production library, namespace, coordinate, and document navigation.
 
 ### Package Dependencies
 
