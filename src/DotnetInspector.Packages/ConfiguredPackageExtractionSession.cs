@@ -2,7 +2,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
-internal sealed class PinnedPackageExtractionSession(
+internal sealed class ConfiguredPackageExtractionSession(
     TimeSpan requestTimeout,
     string tempDirPrefix,
     Func<DesktopPackageSourceComposition>? createComposition) : IAsyncDisposable
@@ -16,25 +16,53 @@ internal sealed class PinnedPackageExtractionSession(
         string packageId, string version,
         NuGetSourceOptions? sourceOptions, Action<string>? log)
     {
-        TimeSpan timeout = requestTimeout == Timeout.InfiniteTimeSpan
-            ? NuGetFetchOptions.DefaultRequestTimeout
-            : requestTimeout;
-        _composition ??= createComposition?.Invoke() ?? new DesktopPackageSourceComposition(timeout);
-        _operation ??= _composition.CreateOperationContext();
-        ConfiguredPackagePayloadResult result = await _composition.AcquirePinnedAsync(
+        DesktopPackageSourceComposition composition = GetComposition();
+        _operation ??= composition.CreateOperationContext();
+        ConfiguredPackagePayloadResult result = await composition.AcquirePinnedAsync(
             packageId, version, GetStore, sourceOptions, log,
             operationContext: _operation).ConfigureAwait(false);
 
+        return ConvertResult(result,
+            $"Package '{packageId}' version '{version}'",
+            "No eligible source supplied this exact coordinate.", log);
+    }
+
+    public async Task<PackageExtractionOutcome> AcquireSelectedAsync(
+        string packageId, string? versionSelector,
+        NuGetSourceOptions? sourceOptions, Action<string>? log,
+        bool includePrerelease, string? rangeAddress)
+    {
+        DesktopPackageSourceComposition composition = GetComposition();
+        _operation ??= composition.CreateOperationContext();
+        ConfiguredPackagePayloadResult result = await composition.AcquireSelectedAsync(
+            packageId, versionSelector, GetStore, sourceOptions, log,
+            includePrerelease, rangeAddress, operationContext: _operation).ConfigureAwait(false);
+
+        return ConvertResult(result,
+            $"Package '{packageId}' selection '{versionSelector ?? "latest"}'",
+            "No eligible source reported a matching version.", log);
+    }
+
+    private DesktopPackageSourceComposition GetComposition() =>
+        _composition ??= createComposition?.Invoke() ?? new DesktopPackageSourceComposition(
+            requestTimeout == Timeout.InfiniteTimeSpan
+                ? NuGetFetchOptions.DefaultRequestTimeout
+                : requestTimeout);
+
+    private static PackageExtractionOutcome ConvertResult(
+        ConfiguredPackagePayloadResult result, string request,
+        string noMatch, Action<string>? log)
+    {
         foreach (PackageAuthorityFailure failure in result.Failures)
             log?.Invoke($"{failure.Authority}: {failure.Message}");
         if (result.Payload is not { } payload)
         {
             string reason = result.Failures.Count == 0
-                ? "No eligible source supplied this exact coordinate."
+                ? noMatch
                 : string.Join(Environment.NewLine,
                     result.Failures.Select(failure => $"{failure.Authority}: {failure.Message}"));
             return PackageExtractionOutcome.Error(
-                $"Package '{packageId}' version '{version}' could not be acquired. {reason}");
+                $"{request} could not be acquired. {reason}");
         }
 
         return new PackageExtractionResult(
