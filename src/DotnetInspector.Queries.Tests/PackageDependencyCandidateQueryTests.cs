@@ -433,6 +433,10 @@ public sealed class PackageDependencyCandidateQueryTests
                 incomplete.Evidence);
         Assert.Equal(PackageVersionDiscoveryState.Failed, evidence.State);
         Assert.Equal(1, clientCount);
+        Assert.Equal(
+            ["slow", "later"],
+            evidence.Failures.Select(
+                failure => failure.Authority.ToString()));
         Assert.All(
             evidence.Failures,
             failure =>

@@ -229,7 +229,9 @@ public sealed class AuthorizedPackageDependencyCandidateSource
         ConfiguredPackageAuthority? authority,
         NuGetOperationContext operation) =>
         new(
-            InertText.InertString.Empty,
+            authority is null
+                ? InertText.InertString.Empty
+                : PackageSourceDisplay.ForDiagnostics(authority.Source),
             PackageAuthorityFailureKind.Timeout,
             authority is null
                 ? "The package candidate operation deadline expired before discovery could be published."

@@ -318,7 +318,7 @@ The implementation is gated in Release by:
 | Foreign authority observations are rejected | `CandidateResolution_ForeignAuthorityObservationIsRejected` |
 | A Browser-shaped explicit source adapter issues the same candidate currency | `CandidateResolution_HostNeutralSourceIssuesRangeCandidate` |
 | The query owns one shared operation when none is supplied | `CandidateResolution_QueryOwnsOneSharedOperationContextWhenOmitted` |
-| Operation timeout stops later authorities and prevents publication | `CandidateResolution_OperationTimeoutStopsLaterAuthorities` |
+| Operation timeout stops later authorities, preserves attribution, and prevents publication | `CandidateResolution_OperationTimeoutStopsLaterAuthorities` |
 | Operation timeout prevents publication after local range selection | `CandidateResolution_OperationTimeoutPreventsLocalSelectionPublication` |
 | Gallery listing-state gaps cannot authorize range selection | `CandidateResolution_GalleryUnknownListingStateIsIncomplete` |
 | Existing selected payload acquisition consumes the shared candidate currency | `AcquireSelected_NonReportingWarmCacheCannotSupplySelectedVersion` |
