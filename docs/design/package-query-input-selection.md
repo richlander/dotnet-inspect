@@ -161,3 +161,9 @@ projection, and the existing delivery adapter in Release. The frontend
 `package-query-view` suites gate idle drafts, explicit discovery, retained
 facets, failure disclosure, and typed facade handoff. The existing facade
 generation check gates the changed interop signature and declarations.
+
+The real-Wasm `browser/package-adoption.spec.ts` scenarios run against the
+Release-published website in `eng/test-inspect-web-package-adoption-gate.sh`.
+They gate initially idle input, explicit Gallery discovery, exact-ID resource
+selection, neighboring literal-prefix results, missing-ID non-fallback, and
+metadata-only acquisition through the actual Browser application.
