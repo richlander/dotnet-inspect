@@ -1451,7 +1451,8 @@ function applyView(view: WorkspaceView) {
       ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
       : []);
   state.lens = view.lens;
-  state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
+  state.selectedTypeId = type?.id ?? defaultVisibleTypeId(pkg);
+  reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = memberHistory.selectedMemberKey;
   state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
   state.memberKindFilter = memberHistory.memberKindFilter;
@@ -3982,6 +3983,7 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     library: selectedLibraryName(),
+    parentSubject: state.atLibraryRoot ? "package" : "library",
     filtersExpanded: state.typeFiltersExpanded,
     filterSummary: typeFilterSummary(),
     escapeHtml,
@@ -6097,14 +6099,18 @@ function bindTypePanelEvents() {
       resetMemberFilters();
       renderPreservingMemberFocus();
     },
-    onLibraryOpen: () => {
+    onTypeNavBack: () => {
+      const focusGeneration = beginSpotlightNavigation();
       state.workspaceSubjectOpen = false;
-      state.atPackageRoot = false;
-      state.atLibraryRoot = true;
+      state.atPackageRoot = state.atLibraryRoot;
+      state.atLibraryRoot = !state.atPackageRoot;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
+      showContentDetailAfterRender();
       render();
+      if (!contentFrameMedia.matches)
+        restoreContentNavigationFocus(focusGeneration);
     },
     onListKeyDown: handleTypeKeys,
     onMemberAccessibilityFilterSelect: value => {
