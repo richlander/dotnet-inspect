@@ -29,18 +29,20 @@ public static class WorkspaceCommand
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
-        loadOptions = loadOptions with
+        await using var workspace = InspectionWorkspace.CreateAsynchronous();
+        WorkspaceScopeReadResult read =
+            await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+        if (read is WorkspaceScopeReadResult.Unavailable unavailable)
         {
-            IncludePackageRootBindings = true,
-        };
-
-        using var workspace = new InspectionWorkspace();
-        InspectionWorkspacePackageOccurrenceView occurrenceView;
-        if (options.Packages.Length == 0)
-        {
-            occurrenceView = workspace.CreatePackageOccurrenceView([]);
+            CommandError.Write(
+                "The Workspace package inventory is unavailable.",
+                [unavailable.RuntimeFailure.ToString()]);
+            return 1;
         }
-        else
+
+        WorkspaceScopeSnapshot snapshot =
+            ((WorkspaceScopeReadResult.Available)read).Snapshot;
+        if (options.Packages.Length != 0)
         {
             if (!InspectionGraphCommand.TryCreateMembers(
                     options.Packages,
@@ -52,9 +54,8 @@ public static class WorkspaceCommand
                 new List<PackageRootBinding>(members.Length);
             foreach (WorkspaceMemberCoordinate member in members)
             {
-                WorkspaceContextLoadOutcome outcome =
-                    await WorkspaceContextLoader.LoadAsync(
-                        workspace,
+                WorkspacePackageRootAcquisitionOutcome outcome =
+                    await WorkspaceContextLoader.AcquirePackageRootAsync(
                         new WorkspaceContextInput
                         {
                             Framework = options.Tfm,
@@ -62,7 +63,7 @@ public static class WorkspaceCommand
                         },
                         loadOptions,
                         cancellationToken).ConfigureAwait(false);
-                if (outcome is WorkspaceContextLoadOutcome.Failed failed)
+                if (outcome is WorkspacePackageRootAcquisitionOutcome.Failed failed)
                 {
                     CommandError.Write(
                         "The Workspace package inventory could not be loaded.",
@@ -73,45 +74,60 @@ public static class WorkspaceCommand
                     return 1;
                 }
 
-                var loaded = (WorkspaceContextLoadOutcome.Loaded)outcome;
-                PackageRootBinding packageRoot =
-                    loaded.PackageRoots.Single();
-                if (packageRoot.Root.AssetSelection.Status
-                    == PackageCompileAssetSelectionStatus.EmptyCompileGroup)
-                {
-                    CommandError.Write(
-                        "The Workspace command does not support packages with an explicit empty compile group for the target framework.",
-                        [
-                            $"{packageRoot.Root.PackageId}@{packageRoot.Root.PackageVersion}: "
-                            + packageRoot.Root.AssetSelection.Status,
-                        ]);
-                    return 1;
-                }
-
-                packageRoots.Add(packageRoot);
+                packageRoots.Add(
+                    ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome).Root);
             }
 
-            occurrenceView =
-                workspace.CreatePackageOccurrenceView(
-                    packageRoots);
+            WorkspaceScopeOperationResult replacement =
+                await workspace.ReplaceScopeAsync(
+                    snapshot.Revision,
+                    [.. packageRoots],
+                    DateTimeOffset.UtcNow.AddMinutes(5),
+                    cancellationToken).ConfigureAwait(false);
+            if (replacement is not WorkspaceScopeOperationResult.Committed committed)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                CommandError.Write(
+                    "The Workspace package inventory could not be committed.",
+                    [
+                        replacement switch
+                        {
+                            WorkspaceScopeOperationResult.Rejected rejected =>
+                                $"Rejected: {rejected.Reason}",
+                            WorkspaceScopeOperationResult.Failed failed =>
+                                $"Failed: {failed.Failure}",
+                            WorkspaceScopeOperationResult.Cancelled =>
+                                "Package preparation was cancelled or reached its deadline.",
+                            WorkspaceScopeOperationResult.Superseded =>
+                                "The requested replacement was superseded.",
+                            WorkspaceScopeOperationResult.Unavailable missing =>
+                                $"Unavailable: {missing.RuntimeFailure}",
+                            WorkspaceScopeOperationResult.NoEffect =>
+                                "The requested replacement did not commit.",
+                            _ => throw new InvalidOperationException(
+                                "Workspace replacement returned an unsupported result."),
+                        },
+                    ]);
+                return 1;
+            }
+            snapshot = committed.Snapshot;
         }
 
-        Write(occurrenceView, options);
+        Write(snapshot, options);
         return 0;
     }
 
     internal static void Write(
-        InspectionWorkspacePackageOccurrenceView occurrenceView,
+        WorkspaceScopeSnapshot snapshot,
         WorkspaceOptions options)
     {
-        ArgumentNullException.ThrowIfNull(occurrenceView);
+        ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(options);
 
-        IReadOnlyList<
-            InspectionWorkspacePackageOccurrenceDescriptor> occurrences =
+        IReadOnlyList<WorkspaceRootOccurrenceDescriptor> occurrences =
             RowWindow.Apply(
                 options.Rows,
-                occurrenceView.Occurrences);
+                snapshot.Roots);
         if (options.Count)
         {
             CountOutput.WriteCount(occurrences.Count);
@@ -123,10 +139,16 @@ public static class WorkspaceCommand
             Packages =
             [
                 .. occurrences.Select(static occurrence =>
-                    new WorkspacePackageOccurrenceRow(
-                        occurrence.PackageId,
-                        occurrence.Version,
-                        occurrence.Framework ?? "")),
+                    occurrence.Occurrence.Root switch
+                    {
+                        WorkspaceRootDescriptor.Package package =>
+                            new WorkspacePackageOccurrenceRow(
+                                package.PackageId,
+                                package.PackageVersion,
+                                package.Coordinate.Framework ?? package.TargetFramework ?? ""),
+                        _ => throw new InvalidOperationException(
+                            "The package inventory cannot render a non-package Root."),
+                    }),
             ],
         };
         switch (options.Format)
@@ -180,7 +202,6 @@ public static class WorkspaceCommand
             Log = options.Verbose
                 ? CommandError.WriteLine
                 : null,
-            IncludePackageRootBindings = true,
         };
 }
 
