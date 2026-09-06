@@ -17,6 +17,7 @@ const versions: PackageVersionState = {
   status: "available",
   inventory: {
     versions: ["2.0.0", "1.0.0"],
+    currentVersionInsertionIndex: 0,
     previousVersion: "1.0.0",
     previousVersionUnavailableReason: null,
   },
@@ -99,10 +100,10 @@ test("invalid exact choices and non-Gallery origins cannot borrow an inventory",
 
 test("no predecessor, listing uncertainty, and request failure stay distinct", () => {
   assert.equal(diffTargetDescription({ kind: "previous" }, {
-    status: "available", inventory: { versions: [], previousVersion: null, previousVersionUnavailableReason: null },
+    status: "available", inventory: { versions: [], currentVersionInsertionIndex: 0, previousVersion: null, previousVersionUnavailableReason: null },
   }), "No earlier listed version is available.");
   assert.equal(diffTargetDescription({ kind: "previous" }, {
-    status: "available", inventory: { versions: ["1.0.0"], previousVersion: null, previousVersionUnavailableReason: "Listing unknown" },
+    status: "available", inventory: { versions: ["1.0.0"], currentVersionInsertionIndex: 0, previousVersion: null, previousVersionUnavailableReason: "Listing unknown" },
   }), "Listing unknown");
   assert.equal(diffTargetDescription({ kind: "previous" }, { status: "failed", message: "Offline" }), "Offline");
 });

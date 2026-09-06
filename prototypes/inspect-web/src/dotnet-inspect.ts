@@ -7389,14 +7389,14 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
 }
 
 // Build the <option> list for the version selector. Always includes the currently loaded
-// version (even before the flatcontainer index has been fetched) so the control is never empty.
+// version (even before the version inventory arrives) so the control is never empty.
 function versionOptionsHtml(pkg: AppPackage) {
   if (pkg.isRuntimePack) return platformVersionOptionsHtml(pkg);
   const entry = catalogRequests.packageVersions(pkg);
-  const fetched = entry.status === "available" ? entry.inventory.versions : [];
-  const versions = fetched.length ? fetched.slice() : [pkg.version];
-  if (!versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
-    versions.unshift(pkg.version);
+  const versions = entry.status === "available" ? [...entry.inventory.versions] : [pkg.version];
+  if (entry.status === "available"
+      && !versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
+    versions.splice(entry.inventory.currentVersionInsertionIndex, 0, pkg.version);
   }
   return versions
     .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)

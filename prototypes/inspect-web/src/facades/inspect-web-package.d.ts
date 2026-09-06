@@ -226,6 +226,7 @@ export interface BrowserPackageSurface {
 }
 export interface BrowserPackageVersions {
     readonly versions: ReadonlyArray<string>;
+    readonly currentVersionInsertionIndex: number;
     readonly previousVersion: string | null;
     readonly previousVersionUnavailableReason: string | null;
 }

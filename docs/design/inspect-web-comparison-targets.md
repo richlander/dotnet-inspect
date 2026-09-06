@@ -42,6 +42,10 @@ default predecessor of every stable release.
 
 The version inventory and ordering come from managed code using NuGet's version
 semantics. The browser does not implement a second semantic-version comparator.
+The coordinate selector includes the active version even when the inventory
+omits it, at its native release-order position. That display-only option does
+not add an available exact Diff candidate. The inventory carries the native
+insertion position separately, including when listing authority is unknown.
 The first adopter uses the existing built-in Gallery acquisition path. Other
 origins must not borrow Gallery's inventory for a same-named package.
 
@@ -91,10 +95,13 @@ substrate and does not change CLI coordinate selection.
 `BrowserPackageVersionInventoryTests` exercises the real Gallery source owner
 with fixture responses and gates native release ordering, stable/preview
 selection, normalized build metadata, missing predecessors, unlisted choices,
-and unknown listing authority.
+unknown listing authority, and the current version's insertion position.
 
 `catalog-requests.test.ts` gates retained-model request publication, explicit
 retry, replacement, and rollback of completed inventory. The companion
+production-selector cases gate option order and selectedness for current
+versions missing above, within, or below the inventory, without changing the
+available exact candidates.
 `package-comparison-targets.test.ts` gates defaults, exact choice admission,
 separate same-coordinate settings, Clone target removal, rollback associations,
 and form rendering/binding. The production-root case

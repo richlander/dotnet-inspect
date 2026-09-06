@@ -5,6 +5,7 @@ namespace InspectWeb.Engine;
 
 internal sealed record BrowserPackageVersionInventory(
     string[] Versions,
+    int CurrentVersionInsertionIndex,
     string? PreviousVersion,
     string? PreviousVersionUnavailableReason)
 {
@@ -22,10 +23,14 @@ internal sealed record BrowserPackageVersionInventory(
             .ToArray();
         string[] versions =
             [.. candidates.Select(row => row.Candidate.Coordinate.Version)];
+        int currentVersionInsertionIndex = candidates
+            .TakeWhile(row => VersionComparer.VersionRelease.Compare(row.Version, current) > 0)
+            .Count();
         if (!result.HasAuthoritativeListingState)
         {
             return new(
                 versions,
+                currentVersionInsertionIndex,
                 null,
                 "Automatic selection is unavailable because authoritative listing state "
                 + "could not be read. You can still select an exact version.");
@@ -38,6 +43,6 @@ internal sealed record BrowserPackageVersionInventory(
                 && VersionComparer.VersionRelease.Compare(row.Version, current) < 0)
             .Select(row => row.Candidate.Coordinate.Version)
             .FirstOrDefault();
-        return new(versions, previous, null);
+        return new(versions, currentVersionInsertionIndex, previous, null);
     }
 }

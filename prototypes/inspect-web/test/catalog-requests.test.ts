@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import { parseSync } from "oxc-parser";
 import {
   createCatalogRequests,
   type CatalogPackage,
@@ -18,9 +22,16 @@ function deferred<T>() {
 const pkg = (id = "Example.Package"): CatalogPackage => ({ id, version: "2.0.0" });
 const inventory = (): BrowserPackageVersions => ({
   versions: ["2.0.0", "1.0.0"],
+  currentVersionInsertionIndex: 0,
   previousVersion: "1.0.0",
   previousVersionUnavailableReason: null,
 });
+
+const source = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const selector = parseSync("dotnet-inspect.ts", source).program.body.find(
+  node => node.type === "FunctionDeclaration" && node.id?.name === "versionOptionsHtml");
+assert.ok(selector);
+const selectorSource = stripTypeScriptTypes(source.slice(selector.start, selector.end));
 
 function harness(overrides: Partial<CatalogRequestDependencies> = {}) {
   const current = pkg();
@@ -81,6 +92,47 @@ test("version requests retain native order and default for the exact resident mo
   const sameCoordinate = pkg();
   assert.deepEqual(h.requests.packageVersions(sameCoordinate), { status: "idle" });
 });
+
+const orderedVersions = ["2.0.0", "2.0.0-rc.1", "1.10.0", "1.9.0", "1.0.0"] as const;
+for (const [current, insertionIndex, returned, reason, expected] of [
+  ["3.0.0", 0, orderedVersions, null,
+    ["3.0.0", "2.0.0", "2.0.0-rc.1", "1.10.0", "1.9.0", "1.0.0"]],
+  ["1.11.0", 2, orderedVersions, null,
+    ["2.0.0", "2.0.0-rc.1", "1.11.0", "1.10.0", "1.9.0", "1.0.0"]],
+  ["0.5.0", 5, orderedVersions, null,
+    ["2.0.0", "2.0.0-rc.1", "1.10.0", "1.9.0", "1.0.0", "0.5.0"]],
+  ["2.0.0-rc.2", 1, orderedVersions, null,
+    ["2.0.0", "2.0.0-rc.2", "2.0.0-rc.1", "1.10.0", "1.9.0", "1.0.0"]],
+  ["2.0.0+other", 0, orderedVersions, null,
+    ["2.0.0+other", "2.0.0", "2.0.0-rc.1", "1.10.0", "1.9.0", "1.0.0"]],
+  ["2.0.0", 0, orderedVersions, null, orderedVersions],
+  ["1.0.0", 0, [], null, ["1.0.0"]],
+  ["1.5.0", 1, ["2.0.0", "1.0.0"], "Listing unknown",
+    ["2.0.0", "1.5.0", "1.0.0"]],
+] as const) {
+  test(`production selector preserves native order for ${current} in [${returned.join(", ")}]`, async () => {
+    const value: BrowserPackageVersions = {
+      versions: [...returned],
+      currentVersionInsertionIndex: insertionIndex,
+      previousVersion: null,
+      previousVersionUnavailableReason: reason,
+    };
+    const h = harness({ queryPackageVersions: async () => value });
+    h.current.version = current;
+    await h.requests.ensurePackageVersions(h.current);
+    const html: unknown = runInNewContext(`${selectorSource}\nversionOptionsHtml(pkg)`, {
+      pkg: h.current,
+      catalogRequests: h.requests,
+      escapeHtml: (text: string) => text,
+    });
+    assert.ok(typeof html === "string");
+    const options = [...html.matchAll(/<option value="([^"]+)"([^>]*)>/g)];
+    assert.deepEqual(options.map(match => match[1]), expected);
+    assert.deepEqual(options.filter(match => match[2]?.includes("selected"))
+      .map(match => match[1]), [current]);
+    assert.deepEqual(value.versions, returned);
+  });
+}
 
 test("version requests ignore missing, unretained, and Platform models", async () => {
   const h = harness({ queryPackageVersions: async () => { throw new Error("must not query"); } });

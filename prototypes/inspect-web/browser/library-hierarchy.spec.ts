@@ -127,7 +127,7 @@ async function installFacades(
         };
       }
       export async function queryPackageVersions() {
-        return { versions: ["1.0.0", "0.9.0"], previousVersion: "0.9.0", previousVersionUnavailableReason: null };
+        return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
       }
       export function clearWorkspacePackageOccurrences() {}
       export function packageCacheStats() {

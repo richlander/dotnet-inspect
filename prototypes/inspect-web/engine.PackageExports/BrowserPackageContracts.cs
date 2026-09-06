@@ -413,6 +413,7 @@ public sealed record BrowserDependencyCoordinateMatch(
 
 public sealed record BrowserPackageVersions(
     string[] Versions,
+    int CurrentVersionInsertionIndex,
     string? PreviousVersion,
     string? PreviousVersionUnavailableReason);
 

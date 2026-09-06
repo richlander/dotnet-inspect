@@ -9,20 +9,24 @@ namespace InspectWeb.Engine.Tests;
 public sealed class BrowserPackageVersionInventoryTests
 {
     [Theory]
-    [InlineData("2.0.0", "1.10.0")]
-    [InlineData("2.0.0-rc.2", "2.0.0-rc.1")]
-    [InlineData("1.0.0", null)]
-    [InlineData("1.11.0", "1.10.0")]
-    [InlineData("2.0.0+other", "1.10.0")]
+    [InlineData("2.0.0", "1.10.0", 0)]
+    [InlineData("2.0.0-rc.2", "2.0.0-rc.1", 1)]
+    [InlineData("1.0.0", null, 4)]
+    [InlineData("1.11.0", "1.10.0", 2)]
+    [InlineData("2.0.0+other", "1.10.0", 0)]
+    [InlineData("3.0.0", "2.0.0", 0)]
+    [InlineData("0.5.0", null, 5)]
     public async Task PreviousVersionUsesNativeReleasePrecedence(
         string current,
-        string? expected)
+        string? expected,
+        int expectedInsertionIndex)
     {
         BrowserPackageVersionInventory result = await Inventory(
             ["1.9.0", "2.0.0-rc.1", "1.10.0", "2.0.0+build", "1.0.0"],
             current);
 
         Assert.Equal(expected, result.PreviousVersion);
+        Assert.Equal(expectedInsertionIndex, result.CurrentVersionInsertionIndex);
         Assert.Null(result.PreviousVersionUnavailableReason);
         Assert.Equal(
             ["2.0.0", "2.0.0-rc.1", "1.10.0", "1.9.0", "1.0.0"],
@@ -36,6 +40,7 @@ public sealed class BrowserPackageVersionInventoryTests
             await Inventory(["1.0.0", "1.1.0", "2.0.0"], "2.0.0", unlisted: "1.1.0");
 
         Assert.Equal("1.0.0", result.PreviousVersion);
+        Assert.Equal(0, result.CurrentVersionInsertionIndex);
         Assert.Contains("1.1.0", result.Versions);
     }
 
@@ -43,9 +48,10 @@ public sealed class BrowserPackageVersionInventoryTests
     public async Task UnknownListingStatePreservesExactChoicesAndWithholdsTheDefault()
     {
         BrowserPackageVersionInventory result =
-            await Inventory(["1.0.0", "2.0.0"], "2.0.0", partial: true);
+            await Inventory(["1.0.0", "2.0.0"], "1.5.0", partial: true);
 
         Assert.Equal(["2.0.0", "1.0.0"], result.Versions);
+        Assert.Equal(1, result.CurrentVersionInsertionIndex);
         Assert.Null(result.PreviousVersion);
         Assert.Contains("authoritative listing state", result.PreviousVersionUnavailableReason);
     }
@@ -56,6 +62,7 @@ public sealed class BrowserPackageVersionInventoryTests
         BrowserPackageVersionInventory result = await Inventory([], "1.0.0");
 
         Assert.Empty(result.Versions);
+        Assert.Equal(0, result.CurrentVersionInsertionIndex);
         Assert.Null(result.PreviousVersion);
         Assert.Null(result.PreviousVersionUnavailableReason);
     }

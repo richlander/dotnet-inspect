@@ -361,6 +361,7 @@ public static partial class PackageExports
         return JsonSerializer.Serialize(
             new BrowserPackageVersions(
                 inventory.Versions,
+                inventory.CurrentVersionInsertionIndex,
                 inventory.PreviousVersion,
                 inventory.PreviousVersionUnavailableReason),
             BrowserPackageJsonContext.Default.BrowserPackageVersions);
