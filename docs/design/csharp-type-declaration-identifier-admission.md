@@ -72,6 +72,39 @@ oracle. It:
 Product code remains dependency-free, Roslyn-free, and compatible with
 NativeAOT and Browser/Wasm.
 
+## Validation endpoint and handoff
+
+CSharpText's validation endpoint is deliberately lexical and exact. For an
+`Admitted` result, the gate places the owner-issued spelling in one minimal
+type-declaration position, compiles it with the repository's current language
+version, and requires SRM to read the original input identity as the emitted
+TypeDef leaf. For a `Refused` result, the gate requires the closed reason to
+match whether the compiler rejects the spelling or emits a different identity.
+
+That observation proves only the CSharpText result. It does not prove that a
+model-bound consumer correctly composed namespace, nesting, generic arity,
+headers, constructors, finalizers, members, or a complete source artifact.
+Consumers must not cite the CSharpText gate alone for those claims.
+
+When a consumer claims that product-generated C# is compilable and
+identity-preserving, its terminal validation point is the unchanged product
+artifact and outcome, not the admitted token. The consumer-owned gate must:
+
+1. obtain the source or typed refusal from product code;
+2. compile published source without harness repair using the tools-only compiler
+   boundary;
+3. read the emitted artifact through SRM and compare the identities owned by
+   that consumer; and
+4. preserve typed artifact, compile, and comparison outcomes rather than
+   collapsing them into one success value.
+
+[C# assembly round-trip testing](csharp-member-recompilation.md#proof-levels)
+owns the general tools-side compilation and comparison levels. The first
+model-bound handoff is
+[C# declared-type self-name admission](csharp-declared-type-self-name.md#validation-endpoint),
+which owns its exact product outcome and identity comparison. Neither handoff
+adds Roslyn to CSharpText or another shipped product path.
+
 ## Non-claims
 
 This boundary does not define:
