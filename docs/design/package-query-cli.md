@@ -514,7 +514,8 @@ Its Release gates are `PackageAssemblyQueryOutputTests` (row shaping, ordinal
 substring semantics, inert rendering, section ordering, JSON token presence,
 and refusal of a completion-less event stream) and `WorkspaceRootRequestTests`
 (option parsing, mutual exclusion, malformed-token refusal, exact reopening,
-and typed failure reporting).
+including root-only and explicit-empty compile selections, and typed failure
+reporting).
 
 ## Row declaration: coercing a wide per-package fact set into a Table
 

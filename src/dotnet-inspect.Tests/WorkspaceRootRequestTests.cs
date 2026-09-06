@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
@@ -121,6 +122,34 @@ public sealed class WorkspaceRootRequestTests
         Assert.Contains("\"framework\"", captured.Output, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(PackageCompileAssetSelectionStatus.NoCompileAssets)]
+    [InlineData(PackageCompileAssetSelectionStatus.EmptyCompileGroup)]
+    public async Task RootRequest_ReopensAnAssemblyFreeRoot(
+        PackageCompileAssetSelectionStatus selectionStatus)
+    {
+        (InMemoryPackageStore store, string token, PackageRootReacquisitionRequest issued) =
+            await IssueTokenAsync(selectionStatus);
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RootRequest = token,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(store, [Source]),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement root = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(issued.Coordinate.PackageId, root.GetProperty("package").GetString());
+        Assert.Equal(Version, root.GetProperty("version").GetString());
+        Assert.Equal(Framework, root.GetProperty("framework").GetString());
+    }
+
     [Fact]
     public async Task RootRequest_ReportsAnUnauthorizedPinnedProducerRatherThanSubstituting()
     {
@@ -162,15 +191,32 @@ public sealed class WorkspaceRootRequestTests
     }
 
     static async Task<(InMemoryPackageStore Store, string Token, PackageRootReacquisitionRequest Issued)>
-        IssueTokenAsync()
+        IssueTokenAsync(
+            PackageCompileAssetSelectionStatus selectionStatus =
+                PackageCompileAssetSelectionStatus.Selected)
     {
         var store = new InMemoryPackageStore();
         byte[] assembly = await File.ReadAllBytesAsync(
             typeof(WorkspaceRootRequestTests).Assembly.Location,
             TestContext.Current.CancellationToken);
+        (string Path, byte[] Content)[] entries = selectionStatus switch
+        {
+            PackageCompileAssetSelectionStatus.Selected =>
+                [($"lib/{Framework}/dotnet-inspect.Tests.dll", assembly)],
+            PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                [("readme.txt", [])],
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                [
+                    ($"ref/{Framework}/_._", []),
+                    ("lib/net8.0/dotnet-inspect.Tests.dll", assembly),
+                ],
+            _ => throw new ArgumentOutOfRangeException(nameof(selectionStatus)),
+        };
         byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
-            ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
-            ($"lib/{Framework}/dotnet-inspect.Tests.dll", assembly));
+            [
+                ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
+                .. entries,
+            ]);
         using (var stream = new MemoryStream(package))
         {
             await store.CommitAsync(
@@ -187,6 +233,7 @@ public sealed class WorkspaceRootRequestTests
                 LoadOptions(store, [Source]),
                 TestContext.Current.CancellationToken);
         var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(outcome);
+        Assert.Equal(selectionStatus, acquired.Binding.Root.AssetSelection.Status);
         return (store, acquired.Request.Encode(), acquired.Request);
     }
 
