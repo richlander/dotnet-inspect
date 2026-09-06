@@ -1091,12 +1091,14 @@ kbd {
 .metadata-surface-head p span { margin-left: 6px; }
 .metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; background: var(--bg); }
 .metadata-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
-.metadata-surface-scroll > .document-section { padding: 24px 16px 0; }
+.metadata-surface-scroll > .document-section,
+.metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding: 24px 16px 0; }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .metadata-shape-section .fact-rows { border-top: 0; }
 .metadata-shape-section .fact-rows div { padding-inline: 16px; }
-.metadata-surface-scroll > .metadata-warning { margin-top: 24px; padding: 14px 16px; }
+.metadata-surface-scroll > .metadata-warning,
+.metadata-surface-scroll > [data-type-graph-surface] > .metadata-warning { margin-top: 24px; padding: 14px 16px; }
 .metadata-surface-state { min-height: 100%; align-content: center; }
 .metadata-surface-footer,
 .api-surface-footer { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid var(--line); background: var(--panel); color: var(--dim); font: 10px var(--mono); }
@@ -1304,10 +1306,12 @@ kbd {
 .graph-explorer-head button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .graph-explorer-content,
 .graph-explorer [data-call-graph-surface],
-.graph-explorer [data-dependency-graph-surface] { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; }
+.graph-explorer [data-dependency-graph-surface],
+.graph-explorer [data-type-graph-surface] { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; }
 .graph-explorer .call-graph-section,
 .graph-explorer .dependency-graph-section { display: flex; flex: 1; min-width: 0; min-height: min(320px, 70dvh); max-width: none; flex-direction: column; padding: 0; margin: 0; }
 .graph-explorer [data-dependency-graph-surface] > .document-section:not(.dependency-graph-section) { flex: none; margin: 0; padding: 8px 14px; max-width: none; }
+.graph-explorer [data-type-graph-surface] > .metadata-warning { flex: none; max-width: none; margin: 0; padding: 12px 14px; overflow-wrap: anywhere; }
 .graph-explorer .section-title { flex: none; padding: 5px 14px; }
 .graph-explorer .section-title h2 { display: none; }
 .graph-explorer .dependency-group-selector .section-title { padding: 0; }
@@ -1908,7 +1912,8 @@ kbd {
   .detail-scroll { padding: 22px 18px 60px; }
   .api-surface-head { min-height: 40px; padding-inline: 12px; }
   .metadata-surface-head { padding-inline: 12px; }
-  .metadata-surface-scroll > .document-section { padding-inline: 12px; }
+  .metadata-surface-scroll > .document-section,
+  .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }
   .metadata-surface-scroll > .metadata-shape-section { padding-inline: 0; }
   .metadata-shape-section .section-title,
   .metadata-shape-section .fact-rows div { padding-inline: 12px; }
