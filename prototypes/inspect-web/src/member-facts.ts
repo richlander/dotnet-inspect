@@ -1,4 +1,22 @@
 import type { MemberDetailInspectionState, MemberFacts } from "./member-detail-inspection.ts";
+import type {
+  BrowserMemberFindingFact,
+} from "./facades/inspect-web-source.d.ts";
+
+type MemberFactsRenderState = Pick<
+  MemberDetailInspectionState,
+  | "memberFacts"
+  | "memberFactsLoading"
+  | "memberFactsError"
+  | "memberAnnotatedLoading"
+  | "memberAnnotatedError"
+  | "memberFindingInteraction"
+  | "memberFindingSelectionError"
+>;
+
+export interface MemberFactsBindingActions {
+  onSelectFinding(receipt: string, instanceKey: number): void;
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -10,11 +28,34 @@ function escapeHtml(value: unknown) {
 }
 
 export function renderMemberFacts(
-  state: Pick<
-    MemberDetailInspectionState,
-    "memberFacts" | "memberFactsLoading" | "memberFactsError"
-  >,
+  state: MemberFactsRenderState,
 ) {
+  return `
+    ${renderAnalysisFacts(state)}
+    ${renderFindingFacts(state)}`;
+}
+
+export function bindMemberFacts(
+  root: ParentNode,
+  actions: MemberFactsBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-finding-instance]").forEach(
+    element => {
+      element.addEventListener("click", event => {
+        const target = event.currentTarget;
+        if (!(target instanceof HTMLElement)) return;
+        const receipt = target.dataset.findingReceipt;
+        const instanceKey = Number(target.dataset.findingInstance);
+        if (!receipt || !Number.isSafeInteger(instanceKey) || instanceKey <= 0) {
+          return;
+        }
+        actions.onSelectFinding(receipt, instanceKey);
+      });
+    },
+  );
+}
+
+function renderAnalysisFacts(state: MemberFactsRenderState): string {
   if (state.memberFactsLoading) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing method…</h2><p>Decoding the selected overload and deriving method evidence and performance opportunities.</p></section>`;
   }
@@ -74,6 +115,71 @@ export function renderMemberFacts(
     ${facts.diagnostics.length
       ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
       : ""}`;
+}
+
+function renderFindingFacts(state: MemberFactsRenderState): string {
+  if (state.memberAnnotatedLoading) {
+    return `<section class="document-section source-progress finding-facts-progress"><span class="loader"></span><h2>Collecting Findings…</h2><p>Projecting one identity-preserving Finding census for Facts and Annotated Source.</p></section>`;
+  }
+  const interaction = state.memberFindingInteraction;
+  if (!interaction) {
+    return `<section class="document-section finding-facts-failure" role="alert"><h2>Finding census failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No Finding census result was returned.")}</p></section>`;
+  }
+
+  const facts = interaction.census.facts;
+  const receipt = interaction.census.factCensusReceipt;
+  const selectionError = state.memberFindingSelectionError
+    ? `<p class="finding-selection-error" role="alert">${escapeHtml(state.memberFindingSelectionError)}</p>`
+    : "";
+  return `
+    <section class="finding-facts" aria-labelledby="finding-facts-title">
+      <header><h2 id="finding-facts-title">Findings</h2><span>${facts.length} ${facts.length === 1 ? "Finding" : "Findings"}</span></header>
+      ${selectionError}
+      ${facts.length
+        ? `<ol class="finding-rows">${facts.map(fact =>
+            renderFindingFact(
+              fact,
+              receipt,
+              interaction.selectedInstanceKey,
+            )).join("")}</ol>`
+        : '<p class="finding-empty">No Research Findings were reported for this member.</p>'}
+    </section>`;
+}
+
+function renderFindingFact(
+  fact: BrowserMemberFindingFact,
+  receipt: string,
+  selectedInstanceKey: number | null,
+): string {
+  const selected =
+    fact.instanceKey !== null && fact.instanceKey === selectedInstanceKey;
+  const content = `
+    <span class="finding-location">
+      ${fact.ilOffset === null
+        ? '<span>Member</span>'
+        : `<code>${escapeHtml(`IL_${fact.ilOffset.toString(16).padStart(4, "0").toUpperCase()}`)}</code>`}
+      ${fact.cSharpLine === null
+        ? ""
+        : `<span>line ${escapeHtml(fact.cSharpLine)}</span>`}
+    </span>
+    <span class="finding-main">
+      <strong>${escapeHtml(fact.id)}</strong>
+      ${fact.detail ? `<span>${escapeHtml(fact.detail)}</span>` : ""}
+      <small>${escapeHtml(fact.category)} · ${escapeHtml(fact.conditionality)} · ${escapeHtml(fact.anchor)}</small>
+    </span>
+    ${fact.instanceKey === null
+      ? '<span class="finding-identity-unavailable">Source identity unavailable</span>'
+      : `<code class="finding-instance-key">#${escapeHtml(fact.instanceKey)}</code>`}`;
+  return fact.instanceKey === null
+    ? `<li class="finding-row finding-row-unkeyed"><div>${content}</div></li>`
+    : `<li class="finding-row${selected ? " selected" : ""}">
+        <button type="button"
+          data-finding-instance="${fact.instanceKey}"
+          data-finding-receipt="${escapeHtml(receipt)}"
+          aria-pressed="${selected}">
+          ${content}
+        </button>
+      </li>`;
 }
 
 function renderAllocationFacts(allocations: MemberFacts["allocations"]) {

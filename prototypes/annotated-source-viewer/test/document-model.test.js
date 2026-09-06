@@ -132,6 +132,24 @@ test("semantic target invariants reject impossible joins", () => {
   assert.throws(() => validateDocument(unknownConditionality), /known conditionality and origin/);
 });
 
+test("document fact ids keep display-identical Findings distinct", () => {
+  const document = structuredClone(sampleDocument);
+  document.facts[1] = {
+    ...document.facts[0],
+    id: 1,
+  };
+  document.targets = [
+    ...document.targets.filter(target => target.fact_id !== 1),
+    ...document.targets
+      .filter(target => target.fact_id === 0)
+      .map(target => ({ ...target, fact_id: 1 })),
+  ];
+
+  assert.equal(validateDocument(document), document);
+  assert.deepEqual(nodeIdsForFact(document, 0), [1, 3]);
+  assert.deepEqual(nodeIdsForFact(document, 1), [1, 3]);
+});
+
 test("instruction and fact offsets stay within the signed 32-bit contract", () => {
   const oversizedInstruction = structuredClone(sampleDocument);
   oversizedInstruction.nodes[3].il_offset = 2_147_483_648;
