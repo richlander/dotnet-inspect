@@ -1,7 +1,7 @@
 {
   "schemaVersion": 6,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-09-04T09:09:33.8980216+00:00",
+  "generatedUtc": "2026-09-06T00:22:01.1230988+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -247,21 +247,6 @@
     {
       "assembly": "DotnetInspector.Core",
       "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
-      "type": "DotnetInspector.Core.CacheInfo",
-      "method": "set_SizeBytes",
-      "overload": 0,
-      "signature": "(corelib:System.Int64) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.CacheInfo::set_SizeBytes#0"
-    },
-    {
-      "assembly": "DotnetInspector.Core",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
       "type": "DotnetInspector.Core.CacheMaintenanceProgress",
       "method": "RecordDeletion",
       "overload": 0,
@@ -273,21 +258,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.CacheMaintenanceProgress::RecordDeletion#0"
-    },
-    {
-      "assembly": "DotnetInspector.Core",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
-      "type": "DotnetInspector.Core.CacheMaintenanceProgress",
-      "method": "TakeSnapshot",
-      "overload": 0,
-      "signature": "() -\u003E DotnetInspector.Core:DotnetInspector.Core.CacheMaintenanceResult",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.CacheMaintenanceProgress::TakeSnapshot#0"
     },
     {
       "assembly": "DotnetInspector.Core",
@@ -946,6 +916,49 @@
     {
       "assembly": "DotnetInspector.Core",
       "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
+      "type": "DotnetInspector.Core.HttpClientFactory.\u003C\u003Ec__DisplayClass24_0",
+      "method": "\u003CCreateCredentialFreePackageSourceHandler\u003Eb__0",
+      "overload": 0,
+      "signature": "(System.Net.Http:System.Net.Http.SocketsHttpConnectionContext, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.ValueTask\u00601\u003Ccorelib:System.IO.Stream\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name",
+          "sites": 4
+        }
+      ],
+      "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.\u003C\u003Ec__DisplayClass24_0::\u003CCreateCredentialFreePackageSourceHandler\u003Eb__0#0"
+    },
+    {
+      "assembly": "DotnetInspector.Core",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
+      "type": "DotnetInspector.Core.HttpClientFactory.\u003C\u003Ec__DisplayClass31_0",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name"
+        }
+      ],
+      "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.\u003C\u003Ec__DisplayClass31_0::.ctor#0"
+    },
+    {
+      "assembly": "DotnetInspector.Core",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
       "type": "DotnetInspector.Core.HttpClientFactory",
       "method": "CreateCredentialFreeClient",
       "overload": 0,
@@ -957,6 +970,28 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory::CreateCredentialFreeClient#0"
+    },
+    {
+      "assembly": "DotnetInspector.Core",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
+      "type": "DotnetInspector.Core.HttpClientFactory",
+      "method": "CreateCredentialFreePackageSourceHandler",
+      "overload": 0,
+      "signature": "(corelib:System.String) -\u003E System.Net.Http:System.Net.Http.HttpMessageHandler",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name",
+          "sites": 9
+        }
+      ],
+      "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory::CreateCredentialFreePackageSourceHandler#0"
     },
     {
       "assembly": "DotnetInspector.Core",
@@ -1580,21 +1615,6 @@
       "assembly": "DotnetInspector.Core",
       "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
       "type": "DotnetInspector.Core.VersionedCacheCleanupKey",
-      "method": ".ctor",
-      "overload": 0,
-      "signature": "(corelib:System.String, corelib:System.String, corelib:System.Int32) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.VersionedCacheCleanupKey::.ctor#0"
-    },
-    {
-      "assembly": "DotnetInspector.Core",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll",
-      "type": "DotnetInspector.Core.VersionedCacheCleanupKey",
       "method": "Equals",
       "overload": 1,
       "signature": "(DotnetInspector.Core:DotnetInspector.Core.VersionedCacheCleanupKey) -\u003E corelib:System.Boolean",
@@ -1855,6 +1875,58 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.ConfiguredPackageAuthorityKey",
+      "method": ".cctor",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.ConfiguredPackageAuthorityKey::.cctor#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.ConfiguredPackageAuthorityKey",
+      "method": "ToString",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.ConfiguredPackageAuthorityKey::ToString#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.DesktopPackageSourceComposition",
+      "method": "GetVersionsAsync",
+      "overload": 0,
+      "signature": "(corelib:System.String, corelib:System.Boolean, corelib:System.Nullable\u00601\u003Ccorelib:System.Int32\u003E, DotnetInspector.Packages:DotnetInspector.Packages.NuGetSourceOptions, corelib:System.Action\u00601\u003Ccorelib:System.String\u003E, corelib:System.Threading.CancellationToken, corelib:System.Boolean) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CDotnetInspector.Packages:DotnetInspector.Packages.PackageVersionDiscoveryResult\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 27
+        }
+      ],
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.DesktopPackageSourceComposition::GetVersionsAsync#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.FileSystemPackageContent.\u003CEnumerateEntries\u003Ed__20",
       "method": ".ctor",
       "overload": 0,
@@ -2075,6 +2147,27 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.NuGetSourceResolver.\u003C\u003Ec__DisplayClass13_0",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name"
+        }
+      ],
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.NuGetSourceResolver.\u003C\u003Ec__DisplayClass13_0::.ctor#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageArchiveValidation.Rejected",
       "method": "get_Reason",
       "overload": 0,
@@ -2210,21 +2303,6 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageAssetSelection.Selected",
-      "method": "get_Universe",
-      "overload": 0,
-      "signature": "() -\u003E DotnetInspector.Packages:DotnetInspector.Packages.PackageAssetUniverse",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageAssetSelection.Selected::get_Universe#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageAssetSelector.\u003C\u003Ec",
       "method": "\u003CSelect\u003Eb__2_3",
       "overload": 0,
@@ -2236,28 +2314,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageAssetSelector.\u003C\u003Ec::\u003CSelect\u003Eb__2_3#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageAssetSelector.\u003C\u003Ec__DisplayClass2_0",
-      "method": "\u003CSelect\u003Eb__6",
-      "overload": 0,
-      "signature": "(DotnetInspector.Packages:DotnetInspector.Packages.PackageAssetSelector\u002BCandidateEntry) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 2
-        }
-      ],
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageAssetSelector.\u003C\u003Ec__DisplayClass2_0::\u003CSelect\u003Eb__6#0"
     },
     {
       "assembly": "DotnetInspector.Packages",
@@ -2307,6 +2363,36 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.PackageAuthorityFailure",
+      "method": "get_Message",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageAuthorityFailure::get_Message#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.PackageAuthorityFailure",
+      "method": "set_Message",
+      "overload": 0,
+      "signature": "(corelib:System.String) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageAuthorityFailure::set_Message#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageCompileAsset",
       "method": ".ctor",
       "overload": 1,
@@ -2348,27 +2434,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageCompileAssetSelection::get_TargetFramework#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageCompileAssetSelector.\u003C\u003Ec",
-      "method": ".ctor",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "lambda-holder-type-name"
-        }
-      ],
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageCompileAssetSelector.\u003C\u003Ec::.ctor#0"
     },
     {
       "assembly": "DotnetInspector.Packages",
@@ -2581,21 +2646,6 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageExtractor.\u003CDownloadAndExtractPackageAsync\u003Ed__18",
-      "method": "SetStateMachine",
-      "overload": 0,
-      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor.\u003CDownloadAndExtractPackageAsync\u003Ed__18::SetStateMachine#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageExtractor.\u003CFetchVersionListAsync\u003Ed__78",
       "method": "SetStateMachine",
       "overload": 0,
@@ -2732,21 +2782,6 @@
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageExtractor.SourceVersionList",
-      "method": "Equals",
-      "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor.SourceVersionList::Equals#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageExtractor.SourceVersionList",
       "method": "get_Failure",
       "overload": 0,
       "signature": "() -\u003E DotnetInspector.Packages:DotnetInspector.Packages.PackageExtractor\u002BSourceVersionList",
@@ -2873,21 +2908,6 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackagePayloadLimits",
-      "method": "PrintMembers",
-      "overload": 0,
-      "signature": "(corelib:System.Text.StringBuilder) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackagePayloadLimits::PrintMembers#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageReferenceTarget",
       "method": "Equals",
       "overload": 0,
@@ -2963,6 +2983,27 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.PackageSourceDisplay.\u003C\u003Ec",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "lambda-holder-type-name"
+        }
+      ],
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageSourceDisplay.\u003C\u003Ec::.ctor#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageSourcePayloadResult.Acquired",
       "method": "\u003CClone\u003E$",
       "overload": 0,
@@ -3008,17 +3049,17 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageVersionListingResult.Available",
-      "method": "GetHashCode",
+      "type": "DotnetInspector.Packages.PackageSourceResolutionFailure",
+      "method": "ToString",
       "overload": 0,
-      "signature": "() -\u003E corelib:System.Int32",
+      "signature": "() -\u003E corelib:System.String",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageVersionListingResult.Available::GetHashCode#0"
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageSourceResolutionFailure::ToString#0"
     },
     {
       "assembly": "DotnetInspector.Packages",
@@ -3111,6 +3152,21 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.SnupkgPdbReader",
+      "method": "ClassifyPortablePdbIdentity",
+      "overload": 0,
+      "signature": "(corelib:System.IO.Stream, corelib:System.Guid, corelib:System.Nullable\u00601\u003Ccorelib:System.UInt32\u003E, corelib:System.Action\u00601\u003Ccorelib:System.String\u003E) -\u003E DotnetInspector.Packages:DotnetInspector.Packages.SnupkgPdbReader\u002BPortablePdbIdentityResult",
+      "fidelity": "Full",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SnupkgPdbReader::ClassifyPortablePdbIdentity#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.StorePath",
       "method": "IsSafeSegment",
       "overload": 0,
@@ -3163,7 +3219,7 @@
     {
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.SymbolPackageDownloader.\u003CTryLocateFromSymbolServerAsync\u003Ed__27",
+      "type": "DotnetInspector.Packages.SymbolPackageDownloader.\u003CTryLocateFromSymbolServerAsync\u003Ed__30",
       "method": "SetStateMachine",
       "overload": 0,
       "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
@@ -3173,22 +3229,7 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader.\u003CTryLocateFromSymbolServerAsync\u003Ed__27::SetStateMachine#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.SymbolPackageDownloader.PdbProbeResult",
-      "method": "Deconstruct",
-      "overload": 0,
-      "signature": "(ref DotnetInspector.Packages:DotnetInspector.Packages.AcquiredPortablePdb, ref corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader.PdbProbeResult::Deconstruct#0"
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader.\u003CTryLocateFromSymbolServerAsync\u003Ed__30::SetStateMachine#0"
     },
     {
       "assembly": "DotnetInspector.Packages",
@@ -3219,21 +3260,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader.PdbProbeResult::get_Pdb#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.SymbolPackageDownloader.PdbProbeResult",
-      "method": "op_Inequality",
-      "overload": 0,
-      "signature": "(DotnetInspector.Packages:DotnetInspector.Packages.SymbolPackageDownloader\u002BPdbProbeResult, DotnetInspector.Packages:DotnetInspector.Packages.SymbolPackageDownloader\u002BPdbProbeResult) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader.PdbProbeResult::op_Inequality#0"
     },
     {
       "assembly": "DotnetInspector.Packages",
@@ -4841,6 +4867,21 @@
     {
       "assembly": "DotnetInspector.Services",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll",
+      "type": "DotnetInspector.Services.TfmSelector.PackageLibraryResolution",
+      "method": "set_Status",
+      "overload": 0,
+      "signature": "(DotnetInspector.Services:DotnetInspector.Services.TfmSelector\u002BPackageLibraryResolutionStatus) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Services!DotnetInspector.Services.TfmSelector.PackageLibraryResolution::set_Status#0"
+    },
+    {
+      "assembly": "DotnetInspector.Services",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll",
       "type": "DotnetInspector.Services.TfmSelector",
       "method": "GetExplicitTfmLookupPriority",
       "overload": 0,
@@ -4919,28 +4960,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "DotnetInspector.Services!DotnetInspector.Services.VerifiedSourceTextResult::.ctor#0"
-    },
-    {
-      "assembly": "DotnetInspector.Services",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll",
-      "type": "System.Text.RegularExpressions.Generated.\u003CRegexGenerator_g\u003EFE47C7EDED64AB6AAFCF77BA029A1E7952109BC48B15E88FF121B154AD94BB2BE__CommitShaRegex_0.RunnerFactory.Runner",
-      "method": "Scan",
-      "overload": 0,
-      "signature": "(corelib:System.ReadOnlySpan\u00601\u003Ccorelib:System.Char\u003E) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generated-type-name",
-          "sites": 5
-        }
-      ],
-      "displayMethod": "DotnetInspector.Services!System.Text.RegularExpressions.Generated.\u003CRegexGenerator_g\u003EFE47C7EDED64AB6AAFCF77BA029A1E7952109BC48B15E88FF121B154AD94BB2BE__CommitShaRegex_0.RunnerFactory.Runner::Scan#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -5064,6 +5083,21 @@
     {
       "assembly": "ILInspector.Metadata",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.ApiMember",
+      "method": "set_MethodImplementation",
+      "overload": 0,
+      "signature": "(ILInspector.Metadata:ILInspector.Metadata.ApiMethodImplementationFacts) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiMember::set_MethodImplementation#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
       "type": "ILInspector.Metadata.ApiMemberIdentity.AnchorSignatureTypeProvider",
       "method": "GetPrimitiveType",
       "overload": 0,
@@ -5139,21 +5173,6 @@
     {
       "assembly": "ILInspector.Metadata",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.ApiSurfaceExtractionResult.Exceeded",
-      "method": "op_Inequality",
-      "overload": 0,
-      "signature": "(ILInspector.Metadata:ILInspector.Metadata.ApiSurfaceExtractionResult\u002BExceeded, ILInspector.Metadata:ILInspector.Metadata.ApiSurfaceExtractionResult\u002BExceeded) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiSurfaceExtractionResult.Exceeded::op_Inequality#0"
-    },
-    {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
       "type": "ILInspector.Metadata.ApiSurfaceExtractor.\u003C\u003Ec__DisplayClass10_4",
       "method": ".ctor",
       "overload": 0,
@@ -5171,6 +5190,28 @@
         }
       ],
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiSurfaceExtractor.\u003C\u003Ec__DisplayClass10_4::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.ApiSurfaceExtractor.\u003C\u003Ec__DisplayClass43_1",
+      "method": "\u003CReadBackingStorageAssociations\u003Eb__3",
+      "overload": 0,
+      "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.FieldDefinition) -\u003E corelib:System.Nullable\u00601\u003Ccorelib:System.Boolean\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name",
+          "sites": 13
+        }
+      ],
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiSurfaceExtractor.\u003C\u003Ec__DisplayClass43_1::\u003CReadBackingStorageAssociations\u003Eb__3#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -5216,6 +5257,21 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiTypeShape::get_TypeArguments#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.ArtifactAssemblyProjectionOutcome.Projected",
+      "method": "get_EqualityContract",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Type",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ArtifactAssemblyProjectionOutcome.Projected::get_EqualityContract#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -5405,17 +5461,17 @@
     {
       "assembly": "ILInspector.Metadata",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.EcosystemIntegrationClassifier.\u003C\u003Ec",
-      "method": "\u003CTryClassifyConfigurationStarterMethod\u003Eb__24_1",
+      "type": "ILInspector.Metadata.EcosystemIntegrationClassification",
+      "method": ".ctor",
       "overload": 0,
-      "signature": "(corelib:System.String) -\u003E corelib:System.Boolean",
+      "signature": "(ILInspector.Metadata:ILInspector.Metadata.EcosystemIntegrationObservation, ILInspector.Metadata:ILInspector.Metadata.IntegrationConceptDescriptor, corelib:System.String) -\u003E corelib:System.Void",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.EcosystemIntegrationClassifier.\u003C\u003Ec::\u003CTryClassifyConfigurationStarterMethod\u003Eb__24_1#0"
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.EcosystemIntegrationClassification::.ctor#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -5547,21 +5603,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.HandleRef::get_EqualityContract#0"
-    },
-    {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.ILSignatureTypeProvider",
-      "method": ".ctor",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ILSignatureTypeProvider::.ctor#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -5887,21 +5928,6 @@
     {
       "assembly": "ILInspector.Metadata",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.MetadataMethodDeclaration",
-      "method": "get_SignatureDecodeStatus",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Nullable\u00601\u003CILInspector.Metadata:ILInspector.Metadata.SignatureDecodeStatus\u003E",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.MetadataMethodDeclaration::get_SignatureDecodeStatus#0"
-    },
-    {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
       "type": "ILInspector.Metadata.MetadataProjectionOptions",
       "method": "PrintMembers",
       "overload": 0,
@@ -6098,36 +6124,6 @@
     {
       "assembly": "ILInspector.Metadata",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.MethodCorrespondenceResolver",
-      "method": "IsExtensionMethod",
-      "overload": 0,
-      "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.MetadataReader, System.Reflection.Metadata:System.Reflection.Metadata.TypeDefinition, System.Reflection.Metadata:System.Reflection.Metadata.MethodDefinition) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.MethodCorrespondenceResolver::IsExtensionMethod#0"
-    },
-    {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.MethodCorrespondenceResult",
-      "method": "PrintMembers",
-      "overload": 0,
-      "signature": "(corelib:System.Text.StringBuilder) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.MethodCorrespondenceResult::PrintMembers#0"
-    },
-    {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
       "type": "ILInspector.Metadata.PdbExpansionBudget",
       "method": ".ctor",
       "overload": 0,
@@ -6180,6 +6176,21 @@
         }
       ],
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.PrimitiveTypeNode::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.ReadyToRunSectionSummary",
+      "method": "Equals",
+      "overload": 0,
+      "signature": "(corelib:System.Object) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ReadyToRunSectionSummary::Equals#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -6266,6 +6277,65 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.RuntimeJsExportAttributeEvidence::GetHashCode#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.SignatureOccurrenceDecodeResult.Rejected",
+      "method": "GetHashCode",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.SignatureOccurrenceDecodeResult.Rejected::GetHashCode#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.SignatureOccurrenceProvider",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(System.Reflection.Metadata:System.Reflection.PortableExecutable.PEReader, ILInspector.Metadata:ILInspector.Metadata.SignatureOccurrenceWorkBudget) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "generated-field-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.SignatureOccurrenceProvider::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Metadata",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
+      "type": "ILInspector.Metadata.SignatureOccurrenceWorkBudget",
+      "method": "Charge",
+      "overload": 0,
+      "signature": "(ILInspector.Metadata:ILInspector.Metadata.SignatureOccurrenceMetric, corelib:System.Int32, ref corelib:System.Int32, corelib:System.Int32, ILInspector.Metadata:ILInspector.Metadata.SignatureOccurrenceRejectionReason) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "generated-field-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.SignatureOccurrenceWorkBudget::Charge#0"
     },
     {
       "assembly": "ILInspector.Metadata",
@@ -6493,36 +6563,6 @@
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.TypeResolutionManifestKey.Binding::set_Reference#0"
     },
     {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.TypeSpecificationRoot",
-      "method": "set_GenericParameterIndex",
-      "overload": 0,
-      "signature": "(corelib:System.Int32) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.TypeSpecificationRoot::set_GenericParameterIndex#0"
-    },
-    {
-      "assembly": "ILInspector.Metadata",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "type": "ILInspector.Metadata.UnresolvedBindingKey",
-      "method": "op_Equality",
-      "overload": 0,
-      "signature": "(ILInspector.Metadata:ILInspector.Metadata.UnresolvedBindingKey, ILInspector.Metadata:ILInspector.Metadata.UnresolvedBindingKey) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.UnresolvedBindingKey::op_Equality#0"
-    },
-    {
       "assembly": "ILInspector.MetadataPrimitives",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
       "type": "ILInspector.Metadata.ArrayShapeText",
@@ -6555,38 +6595,17 @@
     {
       "assembly": "ILInspector.MetadataPrimitives",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.AttributeDecoder.\u003C\u003Ec__DisplayClass12_0",
-      "method": ".ctor",
+      "type": "ILInspector.Metadata.AttributeDecoder.DetailedCustomAttributeValue",
+      "method": "get_Value",
       "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name"
-        }
-      ],
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.AttributeDecoder.\u003C\u003Ec__DisplayClass12_0::.ctor#0"
-    },
-    {
-      "assembly": "ILInspector.MetadataPrimitives",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.AttributeDecoder.ArgTypeProvider",
-      "method": "IsSystemType",
-      "overload": 0,
-      "signature": "(corelib:System.String) -\u003E corelib:System.Boolean",
+      "signature": "() -\u003E System.Reflection.Metadata:System.Reflection.Metadata.CustomAttributeValue\u00601\u003Ccorelib:System.String\u003E",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.AttributeDecoder.ArgTypeProvider::IsSystemType#0"
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.AttributeDecoder.DetailedCustomAttributeValue::get_Value#0"
     },
     {
       "assembly": "ILInspector.MetadataPrimitives",
@@ -6634,6 +6653,21 @@
       "assembly": "ILInspector.MetadataPrimitives",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
       "type": "ILInspector.Metadata.AttributeDecoder",
+      "method": "DecodeCore",
+      "overload": 0,
+      "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.MetadataReader, System.Reflection.Metadata:System.Reflection.Metadata.CustomAttribute, corelib:System.Boolean, corelib:System.Action\u00601\u003Ccorelib:System.Int32\u003E, ILInspector.MetadataPrimitives:ILInspector.Metadata.AttributeDecoder\u002BEnumWidthResolver) -\u003E corelib:System.Nullable\u00601\u003CSystem.Reflection.Metadata:System.Reflection.Metadata.CustomAttributeValue\u00601\u003Ccorelib:System.String\u003E\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.AttributeDecoder::DecodeCore#0"
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
+      "type": "ILInspector.Metadata.AttributeDecoder",
       "method": "TryDecode",
       "overload": 1,
       "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.MetadataReader, System.Reflection.Metadata:System.Reflection.Metadata.CustomAttribute, corelib:System.Action\u00601\u003Ccorelib:System.Int32\u003E) -\u003E corelib:System.Nullable\u00601\u003CSystem.Reflection.Metadata:System.Reflection.Metadata.CustomAttributeValue\u00601\u003Ccorelib:System.String\u003E\u003E",
@@ -6663,92 +6697,98 @@
     {
       "assembly": "ILInspector.MetadataPrimitives",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.CustomAttributeValueGuard.SrmSkipItem",
+      "type": "ILInspector.Metadata.CustomAttributeValueGuard.ArgumentType",
+      "method": "get_Element",
+      "overload": 0,
+      "signature": "() -\u003E ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BArgumentType",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.ArgumentType::get_Element#0"
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
+      "type": "ILInspector.Metadata.CustomAttributeValueGuard.ArrayContainer",
+      "method": "get_Builder",
+      "overload": 0,
+      "signature": "() -\u003E System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u002BBuilder\u003CSystem.Reflection.Metadata:System.Reflection.Metadata.CustomAttributeTypedArgument\u00601\u003Ccorelib:System.String\u003E\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.ArrayContainer::get_Builder#0"
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
+      "type": "ILInspector.Metadata.CustomAttributeValueGuard.Decoder",
+      "method": "ProcessArrayLoop",
+      "overload": 0,
+      "signature": "(ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BArrayContainer) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.Decoder::ProcessArrayLoop#0"
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
+      "type": "ILInspector.Metadata.CustomAttributeValueGuard.Decoder",
+      "method": "ProcessDecode",
+      "overload": 0,
+      "signature": "(ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BArgumentType, corelib:System.Int32, ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BArrayContainer) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "unspellable-local-name"
+        }
+      ],
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.Decoder::ProcessDecode#0"
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
+      "type": "ILInspector.Metadata.CustomAttributeValueGuard.SrmType.Item",
       "method": "Type",
       "overload": 0,
-      "signature": "(corelib:System.Int32) -\u003E ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BSrmSkipItem",
+      "signature": "(corelib:System.Int32) -\u003E ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BSrmType\u002BItem",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.SrmSkipItem::Type#0"
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.SrmType.Item::Type#0"
     },
     {
       "assembly": "ILInspector.MetadataPrimitives",
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.CustomAttributeValueGuard.SrmSkipItem",
-      "method": "Types",
+      "type": "ILInspector.Metadata.CustomAttributeValueGuard.ValueJob",
+      "method": "get_Container",
       "overload": 0,
-      "signature": "(corelib:System.Int32, corelib:System.Int32) -\u003E ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BSrmSkipItem",
+      "signature": "() -\u003E ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BArrayContainer",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.SrmSkipItem::Types#0"
-    },
-    {
-      "assembly": "ILInspector.MetadataPrimitives",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.CustomAttributeValueGuard.WalkState",
-      "method": "IsSrmSystemTypeMemoized",
-      "overload": 0,
-      "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.EntityHandle) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.WalkState::IsSrmSystemTypeMemoized#0"
-    },
-    {
-      "assembly": "ILInspector.MetadataPrimitives",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.CustomAttributeValueGuard.WalkState",
-      "method": "Push",
-      "overload": 0,
-      "signature": "(ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BWorkItem) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.WalkState::Push#0"
-    },
-    {
-      "assembly": "ILInspector.MetadataPrimitives",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.CustomAttributeValueGuard",
-      "method": "ResolveEnumName",
-      "overload": 0,
-      "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.MetadataReader, corelib:System.String, corelib:System.Func\u00602\u003Ccorelib:System.String, System.Reflection.Metadata:System.Reflection.Metadata.PrimitiveTypeCode\u003E) -\u003E System.Reflection.Metadata:System.Reflection.Metadata.PrimitiveTypeCode",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard::ResolveEnumName#0"
-    },
-    {
-      "assembly": "ILInspector.MetadataPrimitives",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
-      "type": "ILInspector.Metadata.CustomAttributeValueGuard",
-      "method": "TryReadSerStringLength",
-      "overload": 0,
-      "signature": "(ref System.Reflection.Metadata:System.Reflection.Metadata.BlobReader, ref corelib:System.Nullable\u00601\u003Ccorelib:System.Int32\u003E) -\u003E ILInspector.MetadataPrimitives:ILInspector.Metadata.CustomAttributeValueGuard\u002BResult",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard::TryReadSerStringLength#0"
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.CustomAttributeValueGuard.ValueJob::get_Container#0"
     },
     {
       "assembly": "ILInspector.MetadataPrimitives",
@@ -7302,7 +7342,7 @@
       "assemblyPath": "artifacts/bin/DotnetInspector.Services/release/ILInspector.MetadataPrimitives.dll",
       "type": "ILInspector.Metadata.SignatureBlobGuard",
       "method": "IsSafeAndCompleteToDecode",
-      "overload": 1,
+      "overload": 2,
       "signature": "(System.Reflection.Metadata:System.Reflection.Metadata.MetadataReader, System.Reflection.Metadata:System.Reflection.Metadata.BlobHandle, ILInspector.MetadataPrimitives:ILInspector.Metadata.SignatureBlobGuard\u002BKind, corelib:System.Int32) -\u003E corelib:System.Boolean",
       "fidelity": "Full",
       "fullyRaised": true,
@@ -7310,7 +7350,7 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.SignatureBlobGuard::IsSafeAndCompleteToDecode#1"
+      "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.SignatureBlobGuard::IsSafeAndCompleteToDecode#2"
     },
     {
       "assembly": "ILInspector.MetadataPrimitives",
@@ -9704,28 +9744,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "\u003C\u003Ez__ReadOnlyArray\u00601",
-      "method": "System.Collections.ICollection.CopyTo",
-      "overload": 0,
-      "signature": "(corelib:System.Array, corelib:System.Int32) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generated-type-name",
-          "sites": 2
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!\u003C\u003Ez__ReadOnlyArray\u00601::System.Collections.ICollection.CopyTo#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "\u003C\u003Ez__ReadOnlySingleElementList\u00601",
       "method": "System.Collections.Generic.ICollection\u003CT\u003E.Add",
       "overload": 0,
@@ -9757,28 +9775,6 @@
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.AnnotatedSourceDocumentCompactJsonContext",
-      "method": "Create_AnnotatedSourceNodeProvenance",
-      "overload": 0,
-      "signature": "(System.Text.Json:System.Text.Json.JsonSerializerOptions) -\u003E System.Text.Json:System.Text.Json.Serialization.Metadata.JsonTypeInfo\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.AnnotatedSourceNodeProvenance\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 11
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.AnnotatedSourceDocumentCompactJsonContext::Create_AnnotatedSourceNodeProvenance#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.AnnotatedSourceDocumentCompactJsonContext",
       "method": "Create_CSharpUnmatchedNode",
       "overload": 0,
       "signature": "(System.Text.Json:System.Text.Json.JsonSerializerOptions) -\u003E System.Text.Json:System.Text.Json.Serialization.Metadata.JsonTypeInfo\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.CSharpUnmatchedNode\u003E",
@@ -9801,21 +9797,6 @@
         }
       ],
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.AnnotatedSourceDocumentCompactJsonContext::Create_CSharpUnmatchedNode#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.AnnotatedSourceDocumentCompactJsonContext",
-      "method": "get_IlBodyDiffOutcome",
-      "overload": 0,
-      "signature": "() -\u003E System.Text.Json:System.Text.Json.Serialization.Metadata.JsonTypeInfo\u00601\u003CILInspector.ILDiff:ILInspector.Instructions.IlBodyDiffOutcome\u003E",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.AnnotatedSourceDocumentCompactJsonContext::get_IlBodyDiffOutcome#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10167,25 +10148,10 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec",
-      "method": "\u003CCollectStackSlotNames\u003Eb__89_7",
+      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass583_0",
+      "method": "\u003CSwitchExpressionInline\u003Eb__2",
       "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.LoadStackSlot) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec::\u003CCollectStackSlotNames\u003Eb__89_7#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass364_0",
-      "method": "\u003CFunctionPointerKey\u003Eb__0",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, corelib:System.Int32) -\u003E corelib:System.String",
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.SwitchExpressionArm) -\u003E corelib:System.String",
       "fidelity": "Partial",
       "fullyRaised": false,
       "residual": "fidelity: DEC0009",
@@ -10196,10 +10162,10 @@
         {
           "code": "DEC0009",
           "discriminator": "display-class-type-name",
-          "sites": 4
+          "sites": 10
         }
       ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass364_0::\u003CFunctionPointerKey\u003Eb__0#0"
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass583_0::\u003CSwitchExpressionInline\u003Eb__2#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10245,21 +10211,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::PointeeType#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter",
-      "method": "PrintLowered",
-      "overload": 2,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrFunction, ref ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.PrintedRangeMap) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.DecompilerResult",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::PrintLowered#2"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10354,21 +10305,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.ClassicAsyncReconstructionPass",
-      "method": "HasUnexpectedExpressionStatement",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrFunction, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ExpressionStatement[]) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicAsyncReconstructionPass::HasUnexpectedExpressionStatement#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.ClassicAsyncRequestAdapterResult.AcquisitionFailed",
       "method": "op_Inequality",
       "overload": 0,
@@ -10380,6 +10316,208 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicAsyncRequestAdapterResult.AcquisitionFailed::op_Inequality#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseAccountant.\u003C\u003Ec",
+      "method": "\u003CImportPaths\u003Eb__67_1",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInversePhysicalRegion) -\u003E System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseAccountant.\u003C\u003Ec::\u003CImportPaths\u003Eb__67_1#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseAwaitTemporaryTransfer",
+      "method": "Equals",
+      "overload": 0,
+      "signature": "(corelib:System.Object) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseAwaitTemporaryTransfer::Equals#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseBlockContainerNode",
+      "method": "op_Equality",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseBlockContainerNode, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseBlockContainerNode) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseBlockContainerNode::op_Equality#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseBlockNode",
+      "method": "get_Signature",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseBlockNode::get_Signature#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseCandidate",
+      "method": "set_Sound",
+      "overload": 0,
+      "signature": "(corelib:System.Boolean) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseCandidate::set_Sound#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseDecision.Decline",
+      "method": "op_Equality",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseDecision\u002BDecline, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseDecision\u002BDecline) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseDecision.Decline::op_Equality#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseFailure",
+      "method": "get_Kind",
+      "overload": 0,
+      "signature": "() -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseFailureKind",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseFailure::get_Kind#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseInitializerEntry",
+      "method": "set_Member",
+      "overload": 0,
+      "signature": "(corelib:System.String) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseInitializerEntry::set_Member#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseLoweringProof.SelectionContinuation",
+      "method": ".ctor",
+      "overload": 1,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseLoweringProof\u002BSelectionContinuation) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseLoweringProof.SelectionContinuation::.ctor#1"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInversePlanningView.\u003C\u003Ec",
+      "method": ".cctor",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "lambda-holder-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInversePlanningView.\u003C\u003Ec::.cctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseShellFacts",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, corelib:System.Int32, System.Collections.Immutable:System.Collections.Immutable.ImmutableHashSet\u00601\u003Ccorelib:System.Int32\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableDictionary\u00602\u003Ccorelib:System.Int32, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef\u003E, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseLoweringProof) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseShellFacts::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseTypeBinding",
+      "method": "set_Failure",
+      "overload": 0,
+      "signature": "(corelib:System.String) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseTypeBinding::set_Failure#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ClassicInverseTypeOfNode",
+      "method": "Equals",
+      "overload": 2,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.ClassicInverseTypeOfNode) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ClassicInverseTypeOfNode::Equals#2"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10459,21 +10597,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass.TupleSeed",
-      "method": "get_Value",
-      "overload": 0,
-      "signature": "() -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrExpression",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass.TupleSeed::get_Value#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass",
       "method": "ReceiverValue",
       "overload": 0,
@@ -10510,6 +10633,21 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ExactLocalNameAllocation.\u003C\u003Ec",
+      "method": "\u003CReservedNames\u003Eb__13_0",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.Parameter) -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ExactLocalNameAllocation.\u003C\u003Ec::\u003CReservedNames\u003Eb__13_0#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.ExpressionInliningPass",
       "method": "IsConfinedToBlock",
       "overload": 0,
@@ -10521,51 +10659,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ExpressionInliningPass::IsConfinedToBlock#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.FieldRef",
-      "method": "get_Type",
-      "overload": 0,
-      "signature": "() -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.FieldRef::get_Type#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.FixedArrayRaising.\u003C\u003Ec",
-      "method": "\u003CRaiseStringPins\u003Eb__1_1",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IfStatement) -\u003E corelib:System.Int32",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.FixedArrayRaising.\u003C\u003Ec::\u003CRaiseStringPins\u003Eb__1_1#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.FixedBufferFieldInfo",
-      "method": "Deconstruct",
-      "overload": 0,
-      "signature": "(ref ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, ref corelib:System.Int32) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.FixedBufferFieldInfo::Deconstruct#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10618,28 +10711,6 @@
         }
       ],
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ForeachIteratorReconstruction.\u003C\u003Ec__DisplayClass1_0::\u003CRaiseForeach\u003Eb__0#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.ForeachStatementPass.\u003C\u003Ec__DisplayClass11_0",
-      "method": "\u003CTryMatchEnumerator\u003Eb__1",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.LoadProperty) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 2
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ForeachStatementPass.\u003C\u003Ec__DisplayClass11_0::\u003CTryMatchEnumerator\u003Eb__1#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10745,21 +10816,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.InverseArchitecture.AssumptionViolation::Equals#1"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.IrFunction.\u003C\u003Ec",
-      "method": "\u003Cget_DirectTypes\u003Eb__156_2",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.HandlerRegion) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.IrFunction.\u003C\u003Ec::\u003Cget_DirectTypes\u003Eb__156_2#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10958,21 +11014,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.MetadataContext",
-      "method": "ResolveCoreLibraryDefinition",
-      "overload": 0,
-      "signature": "(ILInspector.Metadata:ILInspector.Metadata.ResolvedAssemblyReference, ILInspector.Metadata:ILInspector.Metadata.MetadataTypeDefinitionName) -\u003E ILInspector.Metadata:ILInspector.Metadata.ResolvedTypeDefinition",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.MetadataContext::ResolveCoreLibraryDefinition#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.MethodRef",
       "method": "PrintMembers",
       "overload": 0,
@@ -11147,21 +11188,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.StageDump::FormatPassDiff#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.StoreIndirect",
-      "method": ".ctor",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrExpression, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrExpression) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.StoreIndirect::.ctor#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -11377,31 +11403,106 @@
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.ApiJsonContext.\u003C\u003Ec",
-      "method": "\u003CApiMemberPropInit\u003Eb__12_142",
+      "method": "\u003CApiTypePropInit\u003Eb__97_4",
       "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.String",
+      "signature": "(corelib:System.Object, corelib:System.String) -\u003E corelib:System.Void",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.ApiJsonContext.\u003C\u003Ec::\u003CApiMemberPropInit\u003Eb__12_142#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiJsonContext.\u003C\u003Ec::\u003CApiTypePropInit\u003Eb__97_4#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.ApiJsonContext.\u003C\u003Ec",
+      "method": "\u003CRuntimeJsExportWrapperCandidatePropInit\u003Eb__317_4",
+      "overload": 0,
+      "signature": "(corelib:System.Object, corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiJsonContext.\u003C\u003Ec::\u003CRuntimeJsExportWrapperCandidatePropInit\u003Eb__317_4#0"
     },
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.ApiTypeCompactJsonContext.\u003C\u003Ec",
-      "method": "\u003CCreate_ListSampleReference\u003Eb__128_0",
+      "method": "\u003CApiMemberPropInit\u003Eb__41_192",
       "overload": 0,
-      "signature": "() -\u003E System.Collections:System.Collections.Generic.List\u00601\u003CILInspector.Metadata:ILInspector.Metadata.SampleReference\u003E",
+      "signature": "(corelib:System.Object, corelib:System.Nullable\u00601\u003Ccorelib:System.Int32\u003E) -\u003E corelib:System.Void",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeCompactJsonContext.\u003C\u003Ec::\u003CCreate_ListSampleReference\u003Eb__128_0#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeCompactJsonContext.\u003C\u003Ec::\u003CApiMemberPropInit\u003Eb__41_192#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.ApiTypeCompactJsonContext.\u003C\u003Ec",
+      "method": "\u003CApiMethodImplementationFactsPropInit\u003Eb__57_14",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeCompactJsonContext.\u003C\u003Ec::\u003CApiMethodImplementationFactsPropInit\u003Eb__57_14#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.ApiTypeCompactJsonContext",
+      "method": "ImmutableArrayApiBackingFieldEvidenceSerializeHandler",
+      "overload": 0,
+      "signature": "(System.Text.Json:System.Text.Json.Utf8JsonWriter, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CILInspector.Metadata:ILInspector.Metadata.ApiBackingFieldEvidence\u003E) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeCompactJsonContext::ImmutableArrayApiBackingFieldEvidenceSerializeHandler#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.ApiTypeCompactJsonContext",
+      "method": "MemorySafetyMemberContractEvidenceSerializeHandler",
+      "overload": 0,
+      "signature": "(System.Text.Json:System.Text.Json.Utf8JsonWriter, ILInspector.Metadata:ILInspector.Metadata.MemorySafetyMemberContractEvidence) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeCompactJsonContext::MemorySafetyMemberContractEvidenceSerializeHandler#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.ApiTypeJsonContext.\u003C\u003Ec",
+      "method": "\u003CMemorySafetyMemberContractEvidencePropInit\u003Eb__129_0",
+      "overload": 0,
+      "signature": "(corelib:System.Object) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeJsonContext.\u003C\u003Ec::\u003CMemorySafetyMemberContractEvidencePropInit\u003Eb__129_0#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -11432,28 +11533,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.ApiTypeJsonContext::get_NullableInt32#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.CommandLine.ApiCommandDefinitions.\u003C\u003Ec",
-      "method": ".cctor",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "lambda-holder-type-name",
-          "sites": 2
-        }
-      ],
-      "displayMethod": "dotnet-inspect!DotnetInspector.CommandLine.ApiCommandDefinitions.\u003C\u003Ec::.cctor#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -11562,7 +11641,7 @@
         {
           "code": "DEC0009",
           "discriminator": "display-class-type-name",
-          "sites": 13
+          "sites": 15
         }
       ],
       "displayMethod": "dotnet-inspect!DotnetInspector.Commands.ApiCommand.\u003C\u003Ec__DisplayClass55_0::\u003CWriteTypeOutputAsync\u003Eg__TypeAnalysisIndex|1#0"
@@ -11600,10 +11679,10 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Commands.DiffCommand.\u003C\u003Ec__DisplayClass33_0",
-      "method": "\u003CAcquirePdbSourceInspectionsAsync\u003Eb__2",
+      "type": "DotnetInspector.Commands.DependencyEvidenceAcquisition.\u003C\u003Ec__DisplayClass2_0",
+      "method": "\u003CAcquireExplicitRootsAsync\u003Eb__1",
       "overload": 0,
-      "signature": "(corelib:System.ValueTuple\u00602\u003CILInspector.Analysis:ILInspector.Analysis.MethodIdentity, ILInspector.Research:ILInspector.Research.ResearchSubjectKey\u003E) -\u003E corelib:System.Boolean",
+      "signature": "(corelib:System.String, corelib:System.Boolean, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CDotnetInspector.Packages:DotnetInspector.Packages.PackageVersionDiscoveryResult\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
       "residual": "fidelity: DEC0009",
@@ -11614,10 +11693,31 @@
         {
           "code": "DEC0009",
           "discriminator": "display-class-type-name",
-          "sites": 2
+          "sites": 6
         }
       ],
-      "displayMethod": "dotnet-inspect!DotnetInspector.Commands.DiffCommand.\u003C\u003Ec__DisplayClass33_0::\u003CAcquirePdbSourceInspectionsAsync\u003Eb__2#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.Commands.DependencyEvidenceAcquisition.\u003C\u003Ec__DisplayClass2_0::\u003CAcquireExplicitRootsAsync\u003Eb__1#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Commands.DiffCommand.\u003C\u003Ec__DisplayClass80_1",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name"
+        }
+      ],
+      "displayMethod": "dotnet-inspect!DotnetInspector.Commands.DiffCommand.\u003C\u003Ec__DisplayClass80_1::.ctor#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -11673,28 +11773,6 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Commands.LibraryCommand.\u003C\u003Ec__DisplayClass84_0",
-      "method": "\u003CTryGetSiblingAnyPackageId\u003Eb__0",
-      "overload": 0,
-      "signature": "(corelib:System.String) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 2
-        }
-      ],
-      "displayMethod": "dotnet-inspect!DotnetInspector.Commands.LibraryCommand.\u003C\u003Ec__DisplayClass84_0::\u003CTryGetSiblingAnyPackageId\u003Eb__0#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Commands.MatchCommand.ResolvedSelector",
       "method": "ToString",
       "overload": 0,
@@ -11710,6 +11788,21 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Commands.PackageCommand.PackageLibrarySelectionResult",
+      "method": "PrintMembers",
+      "overload": 0,
+      "signature": "(corelib:System.Text.StringBuilder) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Commands.PackageCommand.PackageLibrarySelectionResult::PrintMembers#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Commands.PackageSearchOptions",
       "method": "get_CompactJson",
       "overload": 0,
@@ -11721,28 +11814,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.Commands.PackageSearchOptions::get_CompactJson#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Commands.TypeCommand.\u003C\u003Ec__DisplayClass16_0",
-      "method": "\u003CMergeSelectedInspectionFailures\u003Eg__Add|1",
-      "overload": 0,
-      "signature": "(corelib:System.Nullable\u00601\u003Ccorelib:System.Int32\u003E, ref dotnet-inspect:DotnetInspector.Commands.TypeCommand\u002B\u003C\u003Ec__DisplayClass16_1) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 5
-        }
-      ],
-      "displayMethod": "dotnet-inspect!DotnetInspector.Commands.TypeCommand.\u003C\u003Ec__DisplayClass16_0::\u003CMergeSelectedInspectionFailures\u003Eg__Add|1#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -11784,17 +11855,17 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Inspectors.AssemblyContextEntryMap",
-      "method": "EntryFor",
+      "type": "DotnetInspector.Inspectors.ApiServices.\u003C\u003Ec",
+      "method": "\u003CMergeForwardedTypes\u003Eb__12_6",
       "overload": 0,
-      "signature": "(DotnetInspector.Queries:DotnetInspector.Queries.AssemblyContextSubject) -\u003E DotnetInspector.Services:DotnetInspector.Services.AssemblySetEntry",
+      "signature": "(ILInspector.Metadata:ILInspector.Metadata.ApiMember) -\u003E corelib:System.Boolean",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Inspectors.AssemblyContextEntryMap::EntryFor#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.Inspectors.ApiServices.\u003C\u003Ec::\u003CMergeForwardedTypes\u003Eb__12_6#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -11842,21 +11913,6 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Inspectors.PackageDependencyGraphResult.Empty",
-      "method": "ToString",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.String",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Inspectors.PackageDependencyGraphResult.Empty::ToString#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Inspectors.PackageDependencyGraphResult.Error",
       "method": "Deconstruct",
       "overload": 0,
@@ -11873,106 +11929,31 @@
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CApiSurfacePropInit\u003Eb__414_25",
+      "method": "\u003CApiMethodImplementationFactsPropInit\u003Eb__453_6",
       "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.Int32",
+      "signature": "(corelib:System.Object) -\u003E corelib:System.Reflection.MethodAttributes",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CApiSurfacePropInit\u003Eb__414_25#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CApiMethodImplementationFactsPropInit\u003Eb__453_6#0"
     },
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CApiTypePropInit\u003Eb__434_55",
+      "method": "\u003CApiSurfacePropInit\u003Eb__473_13",
       "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.Boolean",
+      "signature": "(corelib:System.Object, System.Collections:System.Collections.Generic.List\u00601\u003CILInspector.Metadata:ILInspector.Metadata.FilteredRuntimeJsExportFact\u003E) -\u003E corelib:System.Void",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CApiTypePropInit\u003Eb__434_55#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CAssemblyInfoPropInit\u003Eb__440_67",
-      "overload": 0,
-      "signature": "(corelib:System.Object, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CAssemblyInfoPropInit\u003Eb__440_67#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CILOffsetAllocationContextPropInit\u003Eb__608_29",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CILOffsetAllocationContextPropInit\u003Eb__608_29#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CILOffsetAllocationContextPropInit\u003Eb__608_47",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CILOffsetAllocationContextPropInit\u003Eb__608_47#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CILOffsetProjectionPropInit\u003Eb__701_25",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CILOffsetProjectionPropInit\u003Eb__701_25#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CILOffsetReturnAddressContextPropInit\u003Eb__722_12",
-      "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.String",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CILOffsetReturnAddressContextPropInit\u003Eb__722_12#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CApiSurfacePropInit\u003Eb__473_13#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12037,21 +12018,6 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.JsonContext.\u003C\u003Ec",
-      "method": "\u003CSwitchInfoPropInit\u003Eb__566_1",
-      "overload": 0,
-      "signature": "(corelib:System.Object, corelib:System.String) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.JsonContext.\u003C\u003Ec::\u003CSwitchInfoPropInit\u003Eb__566_1#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.JsonContext",
       "method": "get_AssemblyReferenceResolutionFailure",
       "overload": 0,
@@ -12067,23 +12033,8 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.MatchImplementationDocumentCompactJsonContext.\u003C\u003Ec",
-      "method": "\u003CStructuralCloneVerificationReceiptPropInit\u003Eb__203_7",
-      "overload": 0,
-      "signature": "(corelib:System.Object, corelib:System.Int32) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.MatchImplementationDocumentCompactJsonContext.\u003C\u003Ec::\u003CStructuralCloneVerificationReceiptPropInit\u003Eb__203_7#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.MatchImplementationDocumentJsonContext.\u003C\u003Ec",
-      "method": "\u003CImplementationDiffRowPropInit\u003Eb__8_12",
+      "type": "DotnetInspector.MatchBodyDocumentCompactJsonContext.\u003C\u003Ec",
+      "method": "\u003CStructuralCloneComparisonDocumentPropInit\u003Eb__205_23",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
       "fidelity": "Full",
@@ -12092,22 +12043,172 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.MatchImplementationDocumentJsonContext.\u003C\u003Ec::\u003CImplementationDiffRowPropInit\u003Eb__8_12#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.MatchBodyDocumentCompactJsonContext.\u003C\u003Ec::\u003CStructuralCloneComparisonDocumentPropInit\u003Eb__205_23#0"
     },
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.MatchImplementationDocumentJsonContext.\u003C\u003Ec",
-      "method": "\u003CStructuralCloneComparisonDocumentPropInit\u003Eb__95_10",
+      "type": "DotnetInspector.MatchBodyDocumentCompactJsonContext",
+      "method": "MethodBodyCleanupDocumentPropInit",
       "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.Int32",
+      "signature": "(System.Text.Json:System.Text.Json.JsonSerializerOptions) -\u003E System.Text.Json:System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.MatchImplementationDocumentJsonContext.\u003C\u003Ec::\u003CStructuralCloneComparisonDocumentPropInit\u003Eb__95_10#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.MatchBodyDocumentCompactJsonContext::MethodBodyCleanupDocumentPropInit#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec",
+      "method": "\u003CCSharpDiffFailureRowPropInit\u003Eb__338_5",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec::\u003CCSharpDiffFailureRowPropInit\u003Eb__338_5#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec",
+      "method": "\u003CCSharpDiffOperationPropInit\u003Eb__358_0",
+      "overload": 0,
+      "signature": "(corelib:System.Object) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.CSharpDiffOperationKind",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec::\u003CCSharpDiffOperationPropInit\u003Eb__358_0#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec",
+      "method": "\u003CCSharpDiffRowPropInit\u003Eb__371_35",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec::\u003CCSharpDiffRowPropInit\u003Eb__371_35#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec",
+      "method": "\u003CStructuralCloneLocalClassPropInit\u003Eb__259_1",
+      "overload": 0,
+      "signature": "(corelib:System.Object, corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.MatchBodyDocumentJsonContext.\u003C\u003Ec::\u003CStructuralCloneLocalClassPropInit\u003Eb__259_1#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Models.DependencyEvidenceCompactJsonContext.\u003C\u003Ec",
+      "method": "\u003CDependencyEvidenceGroupJsonPropInit\u003Eb__105_30",
+      "overload": 0,
+      "signature": "(corelib:System.Object) -\u003E corelib:System.Nullable\u00601\u003CInertText:InertText.InertString\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Models.DependencyEvidenceCompactJsonContext.\u003C\u003Ec::\u003CDependencyEvidenceGroupJsonPropInit\u003Eb__105_30#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Models.DependencyEvidenceCompactJsonContext.\u003C\u003Ec",
+      "method": "\u003CDependencyEvidenceProjectNodeIdentityJsonPropInit\u003Eb__180_5",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Models.DependencyEvidenceCompactJsonContext.\u003C\u003Ec::\u003CDependencyEvidenceProjectNodeIdentityJsonPropInit\u003Eb__180_5#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Models.DependencyEvidenceDocument",
+      "method": "op_Inequality",
+      "overload": 0,
+      "signature": "(dotnet-inspect:DotnetInspector.Models.DependencyEvidenceDocument, dotnet-inspect:DotnetInspector.Models.DependencyEvidenceDocument) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Models.DependencyEvidenceDocument::op_Inequality#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Models.DependencyEvidenceJsonContext.\u003C\u003Ec",
+      "method": "\u003CCreate_DependencyEvidenceSourceIdentityJson\u003Eb__285_0",
+      "overload": 0,
+      "signature": "(corelib:System.Object[]) -\u003E dotnet-inspect:DotnetInspector.Models.DependencyEvidenceSourceIdentityJson",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Models.DependencyEvidenceJsonContext.\u003C\u003Ec::\u003CCreate_DependencyEvidenceSourceIdentityJson\u003Eb__285_0#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Models.DependencyEvidenceJsonContext.\u003C\u003Ec",
+      "method": "\u003CDependencyEvidenceRestoredEdgeJsonPropInit\u003Eb__189_11",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Reflection.ICustomAttributeProvider",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Models.DependencyEvidenceJsonContext.\u003C\u003Ec::\u003CDependencyEvidenceRestoredEdgeJsonPropInit\u003Eb__189_11#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Models.DependencyEvidenceSummaryJson",
+      "method": "get_FailedDeclarations",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Models.DependencyEvidenceSummaryJson::get_FailedDeclarations#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12338,21 +12439,6 @@
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Options.MemberOptions",
-      "method": "Equals",
-      "overload": 1,
-      "signature": "(dotnet-inspect:DotnetInspector.Options.ApiOptions) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Options.MemberOptions::Equals#1"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Options.MemberOptions",
       "method": "get_MemberSourceCoordinatesInvalid",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Boolean",
@@ -12393,28 +12479,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.Options.ProjectOptions::set_Schema#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Output.ApiOutputFormatter.\u003C\u003Ec__DisplayClass92_0",
-      "method": "\u003CFormatSourceWithDeclaration\u003Eb__1",
-      "overload": 0,
-      "signature": "(corelib:System.String) -\u003E corelib:System.String",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 2
-        }
-      ],
-      "displayMethod": "dotnet-inspect!DotnetInspector.Output.ApiOutputFormatter.\u003C\u003Ec__DisplayClass92_0::\u003CFormatSourceWithDeclaration\u003Eb__1#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12558,21 +12622,6 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.PackageFileJsonRowContext.\u003C\u003Ec",
-      "method": "\u003CPackageFileJsonRowPropInit\u003Eb__8_2",
-      "overload": 0,
-      "signature": "(corelib:System.Object) -\u003E corelib:System.Int64",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.PackageFileJsonRowContext.\u003C\u003Ec::\u003CPackageFileJsonRowPropInit\u003Eb__8_2#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.PackageInspectionJsonContext",
       "method": "get_PackageSourceAvailabilityJson",
       "overload": 0,
@@ -12599,6 +12648,36 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.PackageSearchJsonlContext::NuGetSearchResultSerializeHandler#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Planning.StructuralDiscoveryPlan.Resolved",
+      "method": "get_EqualityContract",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Type",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Planning.StructuralDiscoveryPlan.Resolved::get_EqualityContract#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Planning.TypeGestureIntent",
+      "method": "ToString",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Planning.TypeGestureIntent::ToString#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12640,32 +12719,32 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Sections.PackageSectionDescriptors.AuditArtifactText",
-      "method": ".ctor",
+      "type": "DotnetInspector.Sections.DependencyEvidenceRootRow",
+      "method": "get_RestoredTargetProvenance",
       "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
+      "signature": "() -\u003E corelib:System.Nullable\u00601\u003CDotnetInspector.Queries:DotnetInspector.Queries.RestoredProjectTargetSelectionProvenance\u003E",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Sections.PackageSectionDescriptors.AuditArtifactText::.ctor#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.Sections.DependencyEvidenceRootRow::get_RestoredTargetProvenance#0"
     },
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Sections.SectionPipeline\u00601.\u003C\u003Ec",
-      "method": "\u003CGetAllSelectorSections\u003Eb__61_3",
+      "type": "DotnetInspector.Sections.DependencyEvidenceSections",
+      "method": "get_SectionOrder",
       "overload": 0,
-      "signature": "(corelib:System.String) -\u003E corelib:System.Boolean",
+      "signature": "() -\u003E corelib:System.String[]",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Sections.SectionPipeline\u00601.\u003C\u003Ec::\u003CGetAllSelectorSections\u003Eb__61_3#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.Sections.DependencyEvidenceSections::get_SectionOrder#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12681,21 +12760,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.Services.SourceResolver.ResolvedSource::.ctor#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Services.SourceResolver",
-      "method": "HasExplicitSource",
-      "overload": 0,
-      "signature": "(corelib:System.String, corelib:System.String, corelib:System.String, corelib:System.Boolean) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Services.SourceResolver::HasExplicitSource#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12775,21 +12839,6 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.MatchDiscoveryDocument",
-      "method": "get_Disclosure",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.String",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.MatchDiscoveryDocument::get_Disclosure#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Views.MatchDiscoveryReplaySources",
       "method": "set_Sources",
       "overload": 0,
@@ -12836,6 +12885,21 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.Views.MethodBodyProducerDocument",
+      "method": "PrintMembers",
+      "overload": 0,
+      "signature": "(corelib:System.Text.StringBuilder) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.Views.MethodBodyProducerDocument::PrintMembers#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Views.MethodSummaryRow",
       "method": "get_EqualityContract",
       "overload": 0,
@@ -12851,51 +12915,6 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.OptimizationOpportunityRowMarkoutTypeInfo",
-      "method": "get_BindingName",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.String",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.OptimizationOpportunityRowMarkoutTypeInfo::get_BindingName#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.PackageDeprecationRowMarkoutTypeInfo",
-      "method": ".ctor",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.PackageDeprecationRowMarkoutTypeInfo::.ctor#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.PackageProfileRow",
-      "method": "get_ErrorText",
-      "overload": 0,
-      "signature": "() -\u003E InertText:InertText.InertString",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.PackageProfileRow::get_ErrorText#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.Views.TopLeverageRow",
       "method": "get_Callers",
       "overload": 0,
@@ -12907,21 +12926,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.Views.TopLeverageRow::get_Callers#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.TopLeverageRow",
-      "method": "get_EqualityContract",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Type",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.TopLeverageRow::get_EqualityContract#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -18165,7 +18169,7 @@
           "sites": 23
         }
       ],
-      "controlFlowSites": "conditional-branch|0|0|0|output@conditional-branch@block_IL_0000-\u003EIL_0026#0;conditional-branch|26|0|1;conditional-branch|35|0|1;conditional-branch|61|0|0;conditional-branch|64|0|0|output@conditional-branch@block_IL_0040-\u003EIL_0067#0;conditional-branch|81|0|1;conditional-branch|100|0|1;conditional-branch|114|0|0;conditional-branch|139|0|0;conditional-branch|159|0|0",
+      "controlFlowSites": "conditional-branch|26|0|0|output@conditional-branch@source_IL_001A-\u003EIL_0026#0;conditional-branch|26|0|1;conditional-branch|35|0|1;conditional-branch|61|0|0;conditional-branch|81|0|0|output@conditional-branch@source_IL_0051-\u003EIL_0067#0;conditional-branch|81|0|1;conditional-branch|100|0|1;conditional-branch|114|0|0;conditional-branch|139|0|0;conditional-branch|159|0|0",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.ClosureConversion.Analysis::InlineThisOnlyEnvironments#0"
     },
     {
@@ -18475,7 +18479,7 @@
           "discriminator": "unspellable-local-name"
         }
       ],
-      "controlFlowSites": "conditional-branch|9|0|0;conditional-branch|19|0|0;conditional-branch|35|0|0;conditional-branch|46|0|1;branch|50|0|1;conditional-branch|60|0|0;conditional-branch|86|0|0;conditional-branch|95|0|0;conditional-branch|104|0|0;switch-branch|113|0|0;switch-branch|139|0|0;branch|256|0|1;switch-branch|266|0|0;switch-branch|300|0|0;branch|341|0|1;conditional-branch|353|0|0;conditional-branch|364|0|0;conditional-branch|376|0|0;branch|381|0|1;conditional-branch|393|0|0;conditional-branch|405|0|0;branch|410|0|1;conditional-branch|422|0|0;conditional-branch|431|0|0;conditional-branch|440|0|0;conditional-branch|454|0|0;branch|459|0|1;conditional-branch|471|0|0;conditional-branch|483|0|0;branch|488|0|1;conditional-branch|500|0|0;switch-branch|510|0|0;conditional-branch|590|0|0;branch|592|0|1;conditional-branch|604|0|0;conditional-branch|613|0|0;branch|618|0|1;conditional-branch|725|0|0;conditional-branch|730|0|1;branch|737|0|1;conditional-branch|809|0|0;conditional-branch|814|0|1;branch|821|0|1;conditional-branch|901|0|0;conditional-branch|906|0|1;branch|913|0|1;conditional-branch|989|0|0;conditional-branch|1025|0|0|output@conditional-branch@block_IL_0401-\u003EIL_043A#0;conditional-branch|1068|0|1;conditional-branch|1077|0|1;conditional-branch|1154|0|0;conditional-branch|1191|0|0|output@conditional-branch@block_IL_04A7-\u003EIL_04D1#0;conditional-branch|1215|0|1;conditional-branch|1229|0|1;conditional-branch|1269|0|0;conditional-branch|1447|0|0;conditional-branch|1456|0|0;conditional-branch|1469|0|0;branch|1471|0|0;conditional-branch|1530|0|0;conditional-branch|1773|0|0;conditional-branch|1777|0|1;branch|1800|0|1;conditional-branch|1826|0|0;conditional-branch|1830|0|1;branch|1853|0|1;conditional-branch|1898|0|0;conditional-branch|1939|0|1;conditional-branch|2014|0|0;conditional-branch|2044|0|0;conditional-branch|2064|0|0;conditional-branch|2078|0|1;conditional-branch|2133|0|1;conditional-branch|2209|0|1;conditional-branch|2374|0|0;conditional-branch|2383|0|0;conditional-branch|2385|0|0|output@conditional-branch@block_IL_0951-\u003EIL_0976#0;conditional-branch|2406|0|1;conditional-branch|2415|0|1;branch|2420|0|0;conditional-branch|2427|0|1;conditional-branch|2507|0|0;conditional-branch|2516|0|1;conditional-branch|2614|0|0;conditional-branch|2670|0|0;conditional-branch|2681|0|1;conditional-branch|2747|0|0;conditional-branch|2802|0|0;conditional-branch|2825|0|0;conditional-branch|2840|0|0;branch|3117|0|0;conditional-branch|3154|0|0;conditional-branch|3165|0|0",
+      "controlFlowSites": "conditional-branch|9|0|0;conditional-branch|19|0|0;conditional-branch|35|0|0;conditional-branch|46|0|1;branch|50|0|1;conditional-branch|60|0|0;conditional-branch|86|0|0;conditional-branch|95|0|0;conditional-branch|104|0|0;switch-branch|113|0|0;switch-branch|139|0|0;branch|256|0|1;switch-branch|266|0|0;switch-branch|300|0|0;branch|341|0|1;conditional-branch|353|0|0;conditional-branch|364|0|0;conditional-branch|376|0|0;branch|381|0|1;conditional-branch|393|0|0;conditional-branch|405|0|0;branch|410|0|1;conditional-branch|422|0|0;conditional-branch|431|0|0;conditional-branch|440|0|0;conditional-branch|454|0|0;branch|459|0|1;conditional-branch|471|0|0;conditional-branch|483|0|0;branch|488|0|1;conditional-branch|500|0|0;switch-branch|510|0|0;conditional-branch|590|0|0;branch|592|0|1;conditional-branch|604|0|0;conditional-branch|613|0|0;branch|618|0|1;conditional-branch|725|0|0;conditional-branch|730|0|1;branch|737|0|1;conditional-branch|809|0|0;conditional-branch|814|0|1;branch|821|0|1;conditional-branch|901|0|0;conditional-branch|906|0|1;branch|913|0|1;conditional-branch|989|0|0;conditional-branch|1068|0|0|output@conditional-branch@source_IL_042C-\u003EIL_043A#0;conditional-branch|1068|0|1;conditional-branch|1077|0|1;conditional-branch|1154|0|0;conditional-branch|1215|0|0|output@conditional-branch@source_IL_04BF-\u003EIL_04D1#0;conditional-branch|1215|0|1;conditional-branch|1229|0|1;conditional-branch|1269|0|0;conditional-branch|1447|0|0;conditional-branch|1456|0|0;conditional-branch|1469|0|0;branch|1471|0|0;conditional-branch|1530|0|0;conditional-branch|1773|0|0;conditional-branch|1777|0|1;branch|1800|0|1;conditional-branch|1826|0|0;conditional-branch|1830|0|1;branch|1853|0|1;conditional-branch|1898|0|0;conditional-branch|1939|0|1;conditional-branch|2014|0|0;conditional-branch|2044|0|0;conditional-branch|2064|0|0;conditional-branch|2078|0|1;conditional-branch|2133|0|1;conditional-branch|2209|0|1;conditional-branch|2374|0|0;conditional-branch|2383|0|0;conditional-branch|2406|0|0|output@conditional-branch@source_IL_0966-\u003EIL_0976#0;conditional-branch|2406|0|1;conditional-branch|2415|0|1;branch|2420|0|0;conditional-branch|2427|0|1;conditional-branch|2507|0|0;conditional-branch|2516|0|1;conditional-branch|2614|0|0;conditional-branch|2670|0|0;conditional-branch|2681|0|1;conditional-branch|2747|0|0;conditional-branch|2802|0|0;conditional-branch|2825|0|0;conditional-branch|2840|0|0;branch|3117|0|0;conditional-branch|3154|0|0;conditional-branch|3165|0|0",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.RefSafetyAnalysis::CheckValEscape#0"
     },
     {
@@ -20611,7 +20615,7 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "controlFlowSites": "conditional-branch|1|0|0;conditional-branch|5|0|0|output@conditional-branch@block_IL_0005-\u003EIL_001B#0;conditional-branch|13|0|1;conditional-branch|23|0|1;conditional-branch|36|0|0;conditional-branch|52|0|0;conditional-branch|56|0|0;conditional-branch|73|0|0;conditional-branch|77|0|0;conditional-branch|98|0|1;branch|112|0|1;conditional-branch|137|0|0;conditional-branch|149|0|0;switch-branch|227|0|0;branch|244|0|0;conditional-branch|270|0|0;conditional-branch|284|0|0;conditional-branch|330|0|0;conditional-branch|344|0|0",
+      "controlFlowSites": "conditional-branch|1|0|0;conditional-branch|13|0|0|output@conditional-branch@source_IL_000D-\u003EIL_001B#0;conditional-branch|13|0|1;conditional-branch|23|0|1;conditional-branch|36|0|0;conditional-branch|52|0|0;conditional-branch|56|0|0;conditional-branch|73|0|0;conditional-branch|77|0|0;conditional-branch|98|0|1;branch|112|0|1;conditional-branch|137|0|0;conditional-branch|149|0|0;switch-branch|227|0|0;branch|244|0|0;conditional-branch|270|0|0;conditional-branch|284|0|0;conditional-branch|330|0|0;conditional-branch|344|0|0",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Serialization.JsonSerializerInternalWriter::CheckForCircularReference#0"
     },
     {
@@ -21484,7 +21488,7 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "controlFlowSites": "conditional-branch|4|0|0;conditional-branch|15|0|0;conditional-branch|47|0|0;conditional-branch|50|0|0;branch|74|0|1;conditional-branch|91|0|0;branch|116|0|1;conditional-branch|123|0|0;conditional-branch|130|0|0;conditional-branch|144|0|0;conditional-branch|167|0|0;conditional-branch|181|0|0;conditional-branch|191|0|0;switch-branch|236|0|1;branch|257|0|1;branch|262|0|1;branch|267|0|1;branch|271|0|1;conditional-branch|275|0|0|output@conditional-branch@block_IL_0113-\u003EIL_0158#0;conditional-branch|314|0|1;conditional-branch|328|0|1;conditional-branch|369|0|0;branch|385|0|1;conditional-branch|399|0|0;conditional-branch|413|0|0;conditional-branch|447|0|1;conditional-branch|475|0|1;branch|480|0|0;conditional-branch|485|0|1;branch|490|0|0;conditional-branch|495|0|1;branch|500|0|1;conditional-branch|521|0|1;conditional-branch|547|0|1;conditional-branch|562|0|1;branch|578|0|1;conditional-branch|593|0|1;conditional-branch|618|0|0;branch|632|0|1;conditional-branch|642|0|0",
+      "controlFlowSites": "conditional-branch|4|0|0;conditional-branch|15|0|0;conditional-branch|47|0|0;conditional-branch|50|0|0;branch|74|0|1;conditional-branch|91|0|0;branch|116|0|1;conditional-branch|123|0|0;conditional-branch|130|0|0;conditional-branch|144|0|0;conditional-branch|167|0|0;conditional-branch|181|0|0;conditional-branch|191|0|0;switch-branch|236|0|1;branch|257|0|1;branch|262|0|1;branch|267|0|1;branch|271|0|1;conditional-branch|314|0|0|output@conditional-branch@source_IL_013A-\u003EIL_0158#0;conditional-branch|314|0|1;conditional-branch|328|0|1;conditional-branch|369|0|0;branch|385|0|1;conditional-branch|399|0|0;conditional-branch|413|0|0;conditional-branch|447|0|1;conditional-branch|475|0|1;branch|480|0|0;conditional-branch|485|0|1;branch|490|0|0;conditional-branch|495|0|1;branch|500|0|1;conditional-branch|521|0|1;conditional-branch|547|0|1;conditional-branch|562|0|1;branch|578|0|1;conditional-branch|593|0|1;conditional-branch|618|0|0;branch|632|0|1;conditional-branch|642|0|0",
       "displayMethod": "NuGet.Versioning!NuGet.Versioning.FloatRange::TryParse#0"
     },
     {
@@ -21811,7 +21815,7 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "controlFlowSites": "branch|17|0|0;conditional-branch|36|0|0;conditional-branch|39|0|0;conditional-branch|50|0|0;conditional-branch|61|0|0;conditional-branch|96|0|0;branch|100|0|0;conditional-branch|104|0|0;conditional-branch|106|0|0|output@conditional-branch@block_IL_006A-\u003EIL_00C3#0;conditional-branch|107|0|1;conditional-branch|118|0|1;branch|162|0|0;conditional-branch|165|0|0;conditional-branch|206|0|0",
+      "controlFlowSites": "branch|17|0|0;conditional-branch|36|0|0;conditional-branch|39|0|0;conditional-branch|50|0|0;conditional-branch|61|0|0;conditional-branch|96|0|0;branch|100|0|0;conditional-branch|104|0|0;conditional-branch|107|0|0|output@conditional-branch@source_IL_006B-\u003EIL_00C3#0;conditional-branch|107|0|1;conditional-branch|118|0|1;branch|162|0|0;conditional-branch|165|0|0;conditional-branch|206|0|0",
       "displayMethod": "NuGet.Versioning!NuGet.Versioning.SemanticVersion::ParseSections#0"
     },
     {
@@ -24355,12 +24359,12 @@
   ],
   "metrics": {
     "totalMethods": 1500,
-    "fullyRaisedMethods": 1265,
-    "fullyRaisedBasisPoints": 8433,
-    "conditionalBranchMethods": 34,
-    "conditionalBranchBasisPoints": 227,
-    "forwardMergeStoppedContainers": 35,
-    "forwardMergeBasisPoints": 233,
+    "fullyRaisedMethods": 1263,
+    "fullyRaisedBasisPoints": 8420,
+    "conditionalBranchMethods": 35,
+    "conditionalBranchBasisPoints": 233,
+    "forwardMergeStoppedContainers": 36,
+    "forwardMergeBasisPoints": 240,
     "fullMalformedMethods": 0,
     "semanticCheckedMethods": 0,
     "semanticDefectMethods": 0,
@@ -24368,20 +24372,20 @@
     "residualBuckets": {
       "eh: leave/endfinally": 1,
       "fidelity: DEC0008": 2,
-      "fidelity: DEC0009": 185,
+      "fidelity: DEC0009": 186,
       "fidelity: unsupported-node": 12,
-      "structuring: conditional-branch": 34,
+      "structuring: conditional-branch": 35,
       "structuring: unconditional-branch": 1
     },
     "structuring": {
       "totalMethods": 1500,
-      "structuredContainers": 586,
-      "stoppedContainers": 45,
-      "methodsWithStops": 42,
+      "structuredContainers": 588,
+      "stoppedContainers": 46,
+      "methodsWithStops": 43,
       "passBugs": 0,
       "stopReasons": {
         "arm-externally-entered": 2,
-        "cond-target-past-region": 24,
+        "cond-target-past-region": 25,
         "forward-branch-not-region-exit": 11,
         "unconsumed-regions": 8
       }
