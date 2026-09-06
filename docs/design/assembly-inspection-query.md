@@ -1369,6 +1369,60 @@ sit **above** those libraries — it cannot live in `ILInspector.Metadata` and m
 `DotnetInspector.Services`. The *shared PE-owner* below is what both seams reuse; the
 cross-library composition is a higher layer.
 
+### Bounded reads for a consumer that charges before it works
+
+The named consumer is Analysis's decoded-`ldstr` producer under
+[#5795](https://github.com/richlander/dotnet-inspect/issues/5795). Its CLI and Browser
+adoption is part of [#6030](https://github.com/richlander/dotnet-inspect/issues/6030),
+within [#5766](https://github.com/richlander/dotnet-inspect/issues/5766)'s 12-milestone
+delivery path, not a separate consumer deferred until after that delivery.
+
+A producer that must charge a budget *before* it does work needs three things the facets above
+do not provide, and the session provides them without handing out a `PEReader` or a
+`MetadataReader`:
+
+- **A scalar row scan.** `MethodBodySource.MethodDefinitionCount` plus
+  `TryDescribeMethod(rowNumber, out MethodRowDescription)` report each `MethodDef` row's token
+  and whether it declares a body, decoding no name and allocating nothing per row.
+  `EnumerateMethods()` remains what it is — a whole-image inventory whose display names and list
+  entries are already allocated by the time a caller could decide it was too expensive.
+- **A bounded body read.** `ReadBounded(methodToken, maxILBytes)` returns a closed
+  `BoundedMethodBodyRead`: `Available`, `NoBody`, `ByteLimitExceeded`, or
+  `Unreadable(MethodBodyReadFailure)`. The IL code size comes from the method's tiny/fat header
+  in the mapped image, so an over-limit body is refused — with its true size — before any body
+  block is constructed and before any IL is copied. What is *not* bounded by the caller's budget:
+  for an admitted body, the platform also parses the exception clauses the image declares.
+  A nonzero-RVA method with a non-IL implementation is refused as
+  `UnsupportedImplementation`, not interpreted as an IL byte stream.
+- **A bounded literal read.** `ReadBoundedUserString(token, maxCharacters)` validates the `#US`
+  token kind, heap offset, odd encoded length, and terminal 0/1 flag before decoding, so
+  an over-budget literal is refused rather than allocated. The value is the exact raw ordinal
+  content — no escaping, normalization, or case folding, because it is operation input for its
+  consumer, not durable evidence. `ResolveUserString` keeps its existing behavior, including the
+  null it returns for a rejected token, an absent entry, and a malformed entry alike; that
+  conflation is what the bounded path replaces with a typed `UserStringReadFailure`.
+  The new path follows ECMA-335's entry framing rather than accepting a malformed entry merely
+  because SRM can decode a truncated character sequence; the legacy path is unchanged.
+
+`AssemblyInspectionSession.ModuleVersionId()` is a public fact for the same reason: a bounded
+read is only joinable against the module it came from, so the consumer needs the module identity
+without inferring it from a path or a display name.
+
+The bounds are the caller's, not the session's: this seam sets no policy about what a literal or
+a body is *worth*, and it stays out of what its consumers decide with the bytes. Gates:
+`MethodRows_CountAndDescribeMatchTheEnumeratedInventory`,
+`BoundedBody_ReturnsExactILWithinTheLimit`,
+`BoundedBody_RefusesAnOverLimitBodyWithItsTrueSize`,
+`BoundedBody_DistinguishesNoBodyFromAMissingRow`,
+`BoundedUserString_ReturnsRawContentWithinTheLimit`,
+`BoundedUserString_RefusesAnOverLimitEntryWithItsTrueLength`,
+`BoundedUserString_ReportsTokenAndRangeFailuresDistinctly`,
+`ModuleVersionId_MatchesTheInspectedModule`, `BoundedReads_RejectUseAfterSessionDisposal`, and
+`BoundedReads_RejectUseAfterTheLenderIsDisposed`. The malformed-image arms
+(`MethodBodyReadFailure.MalformedBody`, `UserStringReadFailure.MalformedEntry`) are reachable
+error handling but are `unverified`: no gate manufactures a hostile binary to exercise them.
+The non-IL implementation refusal is also `unverified` by the ordinary compiler fixtures.
+
 ## Worked example: `JsonSerializer.Serialize:1`
 
 Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --platform System.Text.Json`.
