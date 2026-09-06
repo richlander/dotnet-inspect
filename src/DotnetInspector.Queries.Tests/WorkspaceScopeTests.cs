@@ -245,6 +245,96 @@ public sealed class WorkspaceScopeTests
     }
 
     [Theory]
+    [InlineData("action", false)]
+    [InlineData("action", true)]
+    [InlineData("caller", false)]
+    [InlineData("caller", true)]
+    [InlineData("deadline", false)]
+    [InlineData("deadline", true)]
+    public async Task CancellationBeforeSupersessionRetainsFirstOutcome(string cause, bool clear)
+    {
+        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        var time = new ScopeTimeProvider();
+        workspace.ConfigureArtifactRootAdmission(new(), time);
+        WorkspaceScopeSnapshot initial = await Current(workspace);
+        using var cancellation = new CancellationTokenSource();
+        WorkspaceScopeOperationResult.Committed? replacement = null;
+        Task<WorkspaceScopeOperationResult>? cancellationResult = null;
+        WorkspaceScopePublicationOperationIdentity? operation = null;
+        PackageRootBinding old = Binding("Cancelled.Package", onOpen: () =>
+        {
+            WorkspaceScopeSnapshot preparing = Current(workspace).GetAwaiter().GetResult();
+            operation = Assert.IsType<WorkspaceScopePreparationDescriptor>(preparing.Preparing).Operation;
+            switch (cause)
+            {
+                case "action":
+                    cancellationResult = workspace.CancelScopePreparationAsync(
+                        preparing.Preparing.Cancellation).AsTask();
+                    break;
+                case "caller":
+                    cancellation.Cancel();
+                    break;
+                case "deadline":
+                    time.Advance(TimeSpan.FromMinutes(10));
+                    break;
+            }
+            DateTimeOffset deadline = time.GetUtcNow().AddMinutes(5);
+            replacement = Committed((clear
+                ? workspace.ClearScopeAsync(initial.Revision, deadline, TestContext.Current.CancellationToken)
+                : workspace.ReplaceScopeAsync(initial.Revision,
+                    [Binding("Winning.Package", entry: "README.md")], deadline,
+                    TestContext.Current.CancellationToken)).AsTask().GetAwaiter().GetResult());
+        });
+        var cancelled = Assert.IsType<WorkspaceScopeOperationResult.Cancelled>(
+            await workspace.ReplaceScopeAsync(initial.Revision, [old],
+                time.GetUtcNow().AddMinutes(5), cancellation.Token));
+        Assert.NotNull(replacement);
+        Assert.Same(operation, cancelled.Operation);
+        Assert.Same(replacement.Snapshot, cancelled.Snapshot);
+        Assert.Same(cancelled.Snapshot, await Current(workspace));
+        Assert.Equal(clear ? [] : new[] { "Winning.Package" }, Names(cancelled.Snapshot));
+        if (cancellationResult is not null)
+            Assert.Same(cancelled, await cancellationResult);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SupersessionBeforeCancellationRetainsFirstOutcome(bool clear)
+    {
+        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        var time = new ScopeTimeProvider();
+        workspace.ConfigureArtifactRootAdmission(new(), time);
+        WorkspaceScopeSnapshot initial = await Current(workspace);
+        using var cancellation = new CancellationTokenSource();
+        WorkspaceScopeOperationResult.Committed? replacement = null;
+        PackageRootBinding old = Binding("Superseded.Package", onOpen: () =>
+        {
+            WorkspaceScopeCancellationAction action = Assert.IsType<WorkspaceScopePreparationDescriptor>(
+                Current(workspace).GetAwaiter().GetResult().Preparing).Cancellation;
+            DateTimeOffset deadline = time.GetUtcNow().AddMinutes(5);
+            replacement = Committed((clear
+                ? workspace.ClearScopeAsync(initial.Revision, deadline, TestContext.Current.CancellationToken)
+                : workspace.ReplaceScopeAsync(initial.Revision,
+                    [Binding("Winning.Package", entry: "README.md")], deadline,
+                    TestContext.Current.CancellationToken)).AsTask().GetAwaiter().GetResult());
+            cancellation.Cancel();
+            time.Advance(TimeSpan.FromMinutes(10));
+            var noEffect = Assert.IsType<WorkspaceScopeOperationResult.NoEffect>(
+                workspace.CancelScopePreparationAsync(action).AsTask().GetAwaiter().GetResult());
+            Assert.Same(replacement.Snapshot, noEffect.Snapshot);
+        });
+        var superseded = Assert.IsType<WorkspaceScopeOperationResult.Superseded>(
+            await workspace.ReplaceScopeAsync(initial.Revision, [old],
+                time.GetUtcNow().AddMinutes(5), cancellation.Token));
+        Assert.NotNull(replacement);
+        Assert.Same(replacement.Operation, superseded.SupersedingOperation);
+        Assert.Same(replacement.Snapshot, superseded.Snapshot);
+        Assert.Same(superseded.Snapshot, await Current(workspace));
+        Assert.Equal(clear ? [] : new[] { "Winning.Package" }, Names(superseded.Snapshot));
+    }
+
+    [Theory]
     [InlineData("stale", WorkspaceScopeRejection.RevisionMismatch)]
     [InlineData("foreign", WorkspaceScopeRejection.ForeignWorkspace)]
     [InlineData("malformed", WorkspaceScopeRejection.Malformed)]

@@ -144,7 +144,9 @@ public sealed partial class InspectionWorkspace
                     new(_identity, operation.Identity, kind, requested.Length, deadline));
                 if (_scopePreparation is { } displaced)
                 {
-                    displaced.SupersededBy = operation.Identity;
+                    // Preserve a cancellation or deadline that won before displacement.
+                    if (RootCancellationFailure(displaced.Authority) is null)
+                        displaced.SupersededBy = operation.Identity;
                     // CancelAsync signals immediately without running source callbacks
                     // under the composition lease. Its completion is awaited outside.
                     displaced.Cancel();
