@@ -51,6 +51,24 @@ public class LibraryIntegrationQueryTests
         Assert.Empty(result.Output);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--schema")]
+    [InlineData("--effective")]
+    public async Task TopWithCountCannotBypassCompositionValidation(string? discoveryMode)
+    {
+        List<string> args =
+            ["library", "--platform", "DoesNotExist", "--where", AspirePredicate,
+             "--top", "1", "--count", "--offline"];
+        if (discoveryMode is not null)
+            args.AddRange(["-D", "Integration: Aspire", discoveryMode]);
+
+        var result = await RunAsync([.. args]);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot be combined", result.Error);
+        Assert.Empty(result.Output);
+    }
+
     [Fact]
     public async Task NarrowedJsonIsTheOrdinaryAspireProjection()
     {

@@ -290,7 +290,9 @@ not display-name inference or a claim that every pack has an Integration
 mapping. The initial supported value is `ecosystem.aspire`. Malformed, unknown,
 and known-but-unbound IDs fail before source acquisition. Exactly one ecosystem
 equality predicate is supported; Body Shapes predicates and Performance Triage
-filters/rankings cannot be combined with it.
+filters/rankings cannot be combined with it. Explicit ranking options remain
+incompatible under `--count`, even when count-mode normalization would discard
+the ranking.
 
 Without `-S`, the predicate requests the Integration family. Explicit selection
 must include an Integration section; other explicitly selected sections are

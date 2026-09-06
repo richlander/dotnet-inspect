@@ -354,7 +354,9 @@ public static class InspectionCommandDefinitions
             if (integrationQuery.HasFilter
                 && (nonIntegrationWhere.Length > 0
                     || independentTriage.HasFilters
-                    || independentTriage.HasRanking))
+                    || independentTriage.HasRanking
+                    // Count mode suppresses Top, but the explicit option is still incompatible.
+                    || parseResult.GetValue(opts.PerformanceTriageTop) is not null))
             {
                 CommandError.Write(
                     "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");

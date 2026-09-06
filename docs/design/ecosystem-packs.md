@@ -809,7 +809,7 @@ currencies and content:
 | `ecosystem.platform` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | no prefix or scanner planned by this slice |
 | `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix waits for #5602; no scanner contributed yet |
 | `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix waits for #5602; no scanner contributed yet |
-| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog and CLI; browser selection remains staged; prefixes wait for #5602 |
+| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefixes wait for #5602 |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current

@@ -259,7 +259,7 @@ public operation exercised here.
 | `SelectedScan_CarriesRejectionAndDecodeFailureBesideLaterResults`, `SelectedScan_BudgetRejectionDoesNotInvokeScanner`, `SelectedScan_PropagatesCallbackFaultsWithoutMisclassifyingThem` | Participant failures remain visible beside later results; callback faults do not become metadata failure or empty success. |
 | `SelectedScan_DifferentBindingsAndFullScanKeepTheirOwnScope`, `PackageRealizationProjection_SelectedScanKeepsTheSharedRoleReusable` | Selections do not share the full-query cache or completeness scope, and role execution preserves the reusable group. |
 | `AspireBinding_PreservesExistingCurrencyWithoutIncludingNeighboringConcepts`, `AspireBinding_DoesNotClassifyNonAspireDependencyInjection` | The compatibility binding shares the current Aspire policy and excludes neighboring DI currency. |
-| `LibraryScannerSelectionTests` | CLI catalog selection preserves scanner scope, selected/full-result separation, repeated execution, rejected participants, and ordinary source/TFM paths. |
+| CLI selected-binding host cases (**planned, unverified**) | Direct CLI scanner selection remains staged; ordinary-result ecosystem narrowing does not establish selected-operation adoption. |
 | Browser host cases (**planned, unverified**) | CatalogExports will select the same binding and consume equivalent Integration-owned rows/outcomes; browser selection remains staged. |
 
 The focused oracle includes
