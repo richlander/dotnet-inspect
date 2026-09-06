@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json.Serialization;
 
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
@@ -107,6 +108,9 @@ static class ReturnToSender
                || (!UsedCompileBackFloor
                    && FullBodies.All(body => body.Status == MemberBodyProductionStatus.Complete));
         public RoundTripComparisonResult? Comparison { get; init; }
+        // Supplemental RTS evidence, separate from FidelityDiff and any CompileBack floor.
+        [JsonIgnore]
+        public LocalComparisonQueryResult? MemberComparison { get; init; }
         public RoundTripCompilationProvenance? Compilation { get; init; }
         [JsonIgnore]
         public byte[]? DonorPe { get; init; }
@@ -1823,8 +1827,8 @@ static class ReturnToSender
         var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
             ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
             .ToArray();
-        var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
-        var ilDiff = implementationDiff?.IlDiff;
+        var memberComparison = CompareMemberBodies(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+        var ilDiff = GetIlDiff(memberComparison);
         var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
         var fidelityDiff = BuildIlDiff(
             originalPe,
@@ -1849,6 +1853,7 @@ static class ReturnToSender
                 MemberAnchor: memberAnchor,
                 Decisions: targetBody.Decisions)
             {
+                MemberComparison = memberComparison,
                 FinalRequest = sourceResult.Request,
                 Compilation = compilationResult.Provenance,
                 CompilationAttempt = compilationAttempt,
@@ -1898,6 +1903,7 @@ static class ReturnToSender
             SiblingAccessor: siblingAccessor,
             FidelityDiff: fidelityDiff)
         {
+            MemberComparison = memberComparison,
             FinalRequest = sourceResult.Request,
             Compilation = compilationResult.Provenance,
             CompilationAttempt = compilationAttempt,
@@ -2188,7 +2194,7 @@ static class ReturnToSender
             normalization: normalization);
     }
 
-    internal static ImplementationMemberDiffResult? BuildImplementationDiff(
+    internal static LocalComparisonQueryResult CompareMemberBodies(
         string assemblyPath,
         MetadataReader originalReader,
         MethodDefinitionHandle originalMethod,
@@ -2196,11 +2202,8 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload,
-        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.IlBody)
+        IEnumerable<ResearchProducerKind>? producers = null)
     {
-        if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
-            return null;
-
         using var recompiledIdentityStream =
             new MemoryStream(recompiledAssembly, writable: false);
         using var recompiledIdentityReader =
@@ -2211,21 +2214,61 @@ static class ReturnToSender
             path: null,
             openRead: () => new MemoryStream(recompiledAssembly, writable: false),
             provenance: AssemblyResolutionProvenance.Local("ReturnToSender"));
-        var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
-        using var originalSource = MetadataSource.OpenWithoutSymbols(assemblyPath);
-        using var recompiledSource = MetadataSource.OpenWithoutSymbols(recompiledReference, resolver);
-        if (FindMethodDefinition(recompiledSource.Reader, fullType, methodName, overload) is not { } recompiled)
-            return null;
-        if (recompiled.Method.RelativeVirtualAddress == 0)
-            return null;
+        var originalReference = ResolvedAssemblyReference.CreateFromPath(
+            assemblyPath, AssemblyResolutionProvenance.Local("ReturnToSender"));
+        // The memory-backed donor shares the original's sibling-resolution context.
+        var policy = new AssemblyReferenceBindingPolicy(
+            MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath));
+        var before = new AssemblyContextParticipant(originalReference, policy);
+        var after = new AssemblyContextParticipant(recompiledReference, policy);
+        using var workspace = new InspectionWorkspace();
+        var group = workspace.CreateAssemblyContextGroup([before, after]);
+        var recompiled = FindMethodDefinition(
+            recompiledIdentityReader.GetMetadataReader(), fullType, methodName, overload);
 
-        return ImplementationDiff.CompareMembers(
-            originalSource,
-            originalMethod,
-            recompiledSource,
-            recompiled.Handle,
-            mechanisms);
+        return DirectMemberComparisonQuery.Execute(group, new(
+            new(before, MetadataMethodAddress.Create(originalReader, originalMethod)),
+            new(after, recompiled is { } target
+                ? MetadataMethodAddress.Create(target.Reader, target.Handle)
+                : null),
+            producers ?? [ResearchProducerKind.IlBody]));
     }
+
+    internal static IlMemberDiffResult? GetIlDiff(LocalComparisonQueryResult comparison)
+        => (GetIlOutcome(comparison) as ResearchProducerWorkOutcome.ProducedIlBody)
+            ?.Result.MemberDiff;
+
+    static ResearchProducerWorkOutcome? GetIlOutcome(LocalComparisonQueryResult comparison)
+        => comparison is LocalComparisonQueryResult.Published
+            { Outcome: ResearchProducerSessionOutcome.Completed completed }
+            ? completed.Completion.Results.SingleOrDefault(
+                result => result.Item.Producer == ResearchProducerKind.IlBody)?.Outcome
+            : null;
+
+    internal static string DescribeIlComparisonFailure(LocalComparisonQueryResult comparison)
+        => comparison switch
+        {
+            LocalComparisonQueryResult.NonSuccess failure =>
+                $"{failure.Side?.ToString() ?? "Comparison"} query: {failure.Failure}",
+            LocalComparisonQueryResult.Published published => published.Outcome switch
+            {
+                ResearchProducerSessionOutcome.Rejected rejected => rejected.Rejection.Summary,
+                ResearchProducerSessionOutcome.Failed failed => failed.Diagnostic.Summary,
+                ResearchProducerSessionOutcome.Cancelled => "Comparison query cancelled.",
+                ResearchProducerSessionOutcome.Completed => GetIlOutcome(comparison) switch
+                {
+                    ResearchProducerWorkOutcome.Unavailable unavailable => unavailable.Reason.Summary,
+                    ResearchProducerWorkOutcome.Failed failed => failed.Diagnostic.Summary,
+                    ResearchProducerWorkOutcome.ProducedIlBody produced =>
+                        produced.Result.MemberDiff?.Diff.Failure
+                        ?? "One or both IL-body inspections are unavailable.",
+                    null => "No IL-body producer result.",
+                    _ => throw new InvalidOperationException("Expected IL-body producer evidence."),
+                },
+                _ => throw new InvalidOperationException("Unknown comparison session outcome."),
+            },
+            _ => throw new InvalidOperationException("Unknown comparison query result."),
+        };
 
     static IlDiffDisplayResult? ToDisplayDiagnostic(IlMemberDiffResult? diff)
     {

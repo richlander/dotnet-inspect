@@ -900,6 +900,43 @@ Examples:
     reason: requested type artifact did not include required generic constraint
 ```
 
+### Member comparison query consumption
+
+**Owner:** ReturnToSender / DecompilerHarness.
+**Tracker:** [#6177](https://github.com/richlander/dotnet-inspect/issues/6177),
+the remaining RTS consumer slice of #4706 step 10 after #6141.
+
+For each RTS or authored rebuild comparison, retain the exact
+`LocalComparisonQueryResult` from the existing
+[direct-member query](direct-member-comparison.md). Query non-success,
+Research terminal outcomes, and native producer results remain distinct.
+Publication or completion alone is not evidence of equality or difference.
+The retained result is in-memory evidence, excluded from JSON serialization.
+
+RTS keeps its existing target selection and pathless donor, resolving sibling
+references beside the original assembly. The query consumes the selected
+physical method addresses; it does not strengthen that selection into a new
+correspondence proof. IL is the default and only requested producer unless the
+caller explicitly selects C# as well.
+
+The supplemental RTS IL evidence is not its versioned fidelity verdict.
+`FidelityCheck.ContractBodyDiffNormalization` and the independent `FidelityDiff`
+remain the decompiled lane's oracle. An existing CompileBack floor does not
+turn retained RTS comparison evidence into floor evidence. Authored `Exact`
+and `IlDifferent` require an available native IL verdict; missing, failed, or
+unavailable comparison maps to `ContextFailed` with a diagnostic while
+retaining any query result. Neither lane rewrites the other.
+
+Release gates are the bounded `ReturnToSenderMemberComparison_*` cases in
+`ReturnToSenderFixtureCatalogTests`, plus `AuthoredBuildContextTests`
+`AppliedOptions_UseEachActualAttempt`,
+`ReplacingAuthoredAttempt_DoesNotReuseItsContextOrVerdict`, and
+`FloorReplacement_DropsPreviousCompilationContext`. They cover requested
+producers, physical addresses, missing donors, bodyless and invalid bodies,
+wrong-module designation, separate attempts, and the independent oracle.
+This migration does not establish RTS replacement readiness or retire
+reconstruction, compilation closure, Source policy, or the CompileBack floor.
+
 ### Authored-source rebuild fidelity
 
 **Owner:** ReturnToSender / DecompilerHarness, within this reporting contract.
@@ -932,14 +969,15 @@ artifact requires the specified source, environment, and instructions, and a
 bit-for-bit comparison. This harness deliberately answers a narrower question:
 one selected body's normalized IL comparison under a retained artifact policy.
 It does not certify a reproducible package or assembly. The existing
-`ImplementationDiff` IL-body mechanism is the analogous local implementation:
-reuse its scoped comparison rather than inventing a second equivalence test.
+direct-member query's native IL-body result supplies that scoped comparison
+rather than inventing a second equivalence test.
 
 The adjacent owners remain unchanged: [source Finding
 producers](source-finding-producers.md) describe PDB evidence and its limits;
 [assembly round-trip testing](csharp-member-recompilation.md) owns compilation
-artifacts, closure, and receipts; [implementation diff](implementation-diff.md)
-owns IL comparison. This section consumes their results, not their internals.
+artifacts, closure, and receipts; the
+[direct-member query](direct-member-comparison.md) publishes the native
+IL-owned comparison. This section consumes their results, not their internals.
 
 #### Three operands, two independent observations
 

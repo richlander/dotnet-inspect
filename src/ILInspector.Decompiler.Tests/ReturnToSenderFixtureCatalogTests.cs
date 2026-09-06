@@ -3,12 +3,15 @@ using System.Reflection.PortableExecutable;
 using System.Reflection;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Queries;
 using ILInspector.Decompiler;
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
@@ -428,7 +431,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderImplementationDiff_ProjectsMemberScopedCSharpAndIlEvidence()
+    public void ReturnToSenderMemberComparison_RetainsMemberScopedCSharpAndIlEvidence()
     {
         string assemblyPath = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var stream = File.OpenRead(assemblyPath);
@@ -437,7 +440,7 @@ public class ReturnToSenderFixtureCatalogTests
         string fullType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
         var original = FindMethod(reader, fullType, nameof(FixtureCatalog_ExposesCheckedInSourcePaths));
 
-        var diff = ReturnToSender.BuildImplementationDiff(
+        var comparison = ReturnToSender.CompareMemberBodies(
             assemblyPath,
             reader,
             original,
@@ -445,13 +448,154 @@ public class ReturnToSenderFixtureCatalogTests
             fullType,
             nameof(DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions),
             overload: 0,
-            ImplementationDiffMechanism.All);
+            [ResearchProducerKind.CSharp, ResearchProducerKind.IlBody]);
 
-        Assert.NotNull(diff);
-        Assert.True(diff!.HasCSharpChanges);
-        Assert.True(diff.HasIlChanges);
-        Assert.NotNull(diff.IlDiff);
-        Assert.False(diff.IlDiff.Diff.IsExact);
+        var published = Assert.IsType<LocalComparisonQueryResult.Published>(comparison);
+        var completion = Assert.IsType<ResearchProducerSessionOutcome.Completed>(published.Outcome).Completion;
+        var csharp = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(
+            completion.Results.Single(result => result.Item.Producer == ResearchProducerKind.CSharp).Outcome);
+        Assert.False(csharp.Result.BodyDiff!.IsExact);
+        var il = Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(
+            completion.Results.Single(result => result.Item.Producer == ResearchProducerKind.IlBody).Outcome);
+        Assert.Same(il.Result.MemberDiff, ReturnToSender.GetIlDiff(comparison));
+        Assert.False(il.Result.MemberDiff!.Diff.IsExact);
+        Assert.Equal(AuthoredRebuildOutcome.IlDifferent,
+            AuthoredRebuildFidelity.ClassifyComparison(comparison).Outcome);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReturnToSenderMemberComparison_DefaultIsIlOnlyAndRetainsAddresses(bool sameMethod)
+    {
+        string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var reader = pe.GetMetadataReader();
+        string type = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        string oldName = nameof(FixtureCatalog_ExposesCheckedInSourcePaths);
+        string newName = sameMethod ? oldName : nameof(DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions);
+        var oldMethod = FindMethod(reader, type, oldName);
+        var newMethod = FindMethod(reader, type, newName);
+
+        var comparison = ReturnToSender.CompareMemberBodies(
+            path, reader, oldMethod, File.ReadAllBytes(path), type, newName, 0);
+
+        var published = Assert.IsType<LocalComparisonQueryResult.Published>(comparison);
+        Assert.NotSame(published.Identity!.Before, published.Identity.After);
+        var completion = Assert.IsType<ResearchProducerSessionOutcome.Completed>(published.Outcome).Completion;
+        var result = Assert.Single(completion.Results);
+        Assert.Equal(ResearchProducerKind.IlBody, result.Item.Producer);
+        var pair = Assert.IsType<ResearchProducerWorkBasis.DesignatedPair>(result.Item.Basis).Pair;
+        Assert.Equal(MetadataMethodAddress.Create(reader, oldMethod),
+            Assert.IsType<ResearchTargetOutcome.Resolved>(pair.Before.Outcome).Address);
+        Assert.Equal(MetadataMethodAddress.Create(reader, newMethod),
+            Assert.IsType<ResearchTargetOutcome.Resolved>(pair.After.Outcome).Address);
+        var native = Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(result.Outcome);
+        Assert.Same(native.Result.MemberDiff, ReturnToSender.GetIlDiff(comparison));
+        Assert.Equal(sameMethod, native.Result.MemberDiff!.Diff.IsExact);
+        var (outcome, detail) = AuthoredRebuildFidelity.ClassifyComparison(comparison);
+        Assert.Equal(sameMethod ? AuthoredRebuildOutcome.Exact : AuthoredRebuildOutcome.IlDifferent, outcome);
+        Assert.Null(detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderMemberComparison_MissingDonorRetainsQueryNonSuccess()
+    {
+        string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var reader = pe.GetMetadataReader();
+        string type = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        var original = FindMethod(reader, type, nameof(FixtureCatalog_ExposesCheckedInSourcePaths));
+
+        var comparison = ReturnToSender.CompareMemberBodies(
+            path, reader, original, File.ReadAllBytes(path), type, "MissingDonorMethod", 0);
+
+        var failure = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(comparison);
+        Assert.Equal(QueryComparisonSide.After, failure.Side);
+        Assert.Equal(DirectMemberDesignationFailureKind.MissingAddress,
+            Assert.IsType<LocalComparisonQueryFailure.InvalidDesignation>(failure.Failure).Kind);
+        Assert.Null(ReturnToSender.GetIlDiff(comparison));
+        var (outcome, detail) = AuthoredRebuildFidelity.ClassifyComparison(comparison);
+        Assert.Equal(AuthoredRebuildOutcome.ContextFailed, outcome);
+        Assert.Contains("After query:", detail);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReturnToSenderMemberComparison_BodylessEndpointIsNotDifference(bool before)
+    {
+        string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var reader = pe.GetMetadataReader();
+        string completeType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        string completeMethod = nameof(FixtureCatalog_ExposesCheckedInSourcePaths);
+        string bodylessType = MetadataFullName(typeof(BodylessDiagnosticFixture));
+        string bodylessMethod = nameof(BodylessDiagnosticFixture.MissingBody);
+        var original = FindMethod(reader, before ? bodylessType : completeType,
+            before ? bodylessMethod : completeMethod);
+
+        var comparison = ReturnToSender.CompareMemberBodies(
+            path, reader, original, File.ReadAllBytes(path),
+            before ? completeType : bodylessType, before ? completeMethod : bodylessMethod, 0);
+
+        var completion = Assert.IsType<ResearchProducerSessionOutcome.Completed>(
+            Assert.IsType<LocalComparisonQueryResult.Published>(comparison).Outcome).Completion;
+        var native = Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(
+            Assert.Single(completion.Results).Outcome);
+        Assert.Null(native.Result.MemberDiff);
+        var inspection = before ? native.Result.Findings.OldInspection : native.Result.Findings.NewInspection;
+        Assert.Equal(FindingInspectionAbsenceKind.NoApplicableInput,
+            Assert.IsType<FindingInspection<CanonicalIlOperation>.Absent>(inspection.Value).Kind);
+        var (outcome, detail) = AuthoredRebuildFidelity.ClassifyComparison(comparison);
+        Assert.Equal(AuthoredRebuildOutcome.ContextFailed, outcome);
+        Assert.Contains("unavailable", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderMemberComparison_InvalidBodyIsNotDifference()
+    {
+        string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var reader = pe.GetMetadataReader();
+        string type = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        string name = nameof(FixtureCatalog_ExposesCheckedInSourcePaths);
+        var original = FindMethod(reader, type, name);
+        byte[] donor = File.ReadAllBytes(path);
+        int rva = reader.GetMethodDefinition(original).RelativeVirtualAddress;
+        var section = pe.PEHeaders.SectionHeaders.Single(section =>
+            rva >= section.VirtualAddress && rva < section.VirtualAddress + section.SizeOfRawData);
+        donor[section.PointerToRawData + rva - section.VirtualAddress] = 0;
+
+        var comparison = ReturnToSender.CompareMemberBodies(
+            path, reader, original, donor, type, name, 0);
+
+        var completion = Assert.IsType<ResearchProducerSessionOutcome.Completed>(
+            Assert.IsType<LocalComparisonQueryResult.Published>(comparison).Outcome).Completion;
+        var native = Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(
+            Assert.Single(completion.Results).Outcome);
+        Assert.IsType<FindingInspection<CanonicalIlOperation>.Failed>(native.Result.Findings.NewInspection.Value);
+        var (outcome, detail) = AuthoredRebuildFidelity.ClassifyComparison(comparison);
+        Assert.Equal(AuthoredRebuildOutcome.ContextFailed, outcome);
+        Assert.NotEmpty(detail!);
+    }
+
+    [Fact]
+    public void ReturnToSenderMemberComparison_RejectsWrongOriginalModule()
+    {
+        string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var other = new PEReader(File.OpenRead(FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath()));
+        var reader = other.GetMetadataReader();
+
+        var comparison = ReturnToSender.CompareMemberBodies(
+            path, reader, reader.MethodDefinitions.First(), File.ReadAllBytes(path),
+            typeof(ReturnToSenderFixtureCatalogTests).FullName!,
+            nameof(FixtureCatalog_ExposesCheckedInSourcePaths), 0);
+
+        var failure = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(comparison);
+        Assert.Equal(QueryComparisonSide.Before, failure.Side);
+        Assert.Equal(AuthoredRebuildOutcome.ContextFailed,
+            AuthoredRebuildFidelity.ClassifyComparison(comparison).Outcome);
     }
 
     [Fact]

@@ -1,8 +1,11 @@
 using DotnetInspector.Fixtures;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Tests;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
+using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
 
@@ -24,7 +27,7 @@ public sealed class AuthoredBuildContextTests
         var result = Assert.Single(results);
 
         Assert.True(result.ChecksumVerification == SourceChecksumVerification.Exact, result.Detail);
-        Assert.NotNull(result.ImplementationDiff);
+        Assert.NotNull(result.MemberComparison);
         Assert.NotNull(result.AuthoredAttempt);
         Assert.NotNull(result.DecompilerLane.CompilationAttempt);
         Assert.Null(result.DecompilerLane.FinalRequest);
@@ -52,7 +55,23 @@ public sealed class AuthoredBuildContextTests
         Assert.Equal(BuildContextFactStatus.Unknown, Fact(result.AuthoredContext, "optimization").Status);
         Assert.Equal(result.DecompilerLane.CompilationAttempt.Target, result.AuthoredAttempt.Target);
         Assert.NotSame(result.DecompilerLane.CompilationAttempt.Artifact, result.AuthoredAttempt.Artifact);
-        Assert.NotNull(result.ImplementationDiff);
+        var authoredQuery = Assert.IsType<LocalComparisonQueryResult.Published>(result.MemberComparison);
+        var decompiledQuery = Assert.IsType<LocalComparisonQueryResult.Published>(result.DecompilerLane.MemberComparison);
+        Assert.NotSame(authoredQuery.Identity!.Operation, decompiledQuery.Identity!.Operation);
+        var native = Assert.IsType<ResearchProducerSessionOutcome.Completed>(decompiledQuery.Outcome).Completion;
+        var item = Assert.Single(native.Results);
+        var pair = Assert.IsType<ResearchProducerWorkBasis.DesignatedPair>(item.Item.Basis).Pair;
+        Assert.NotEqual(
+            Assert.IsType<MetadataMethodAddress>(Assert.IsType<ResearchTargetOutcome.Resolved>(pair.Before.Outcome).Address).ModuleVersionId,
+            Assert.IsType<MetadataMethodAddress>(Assert.IsType<ResearchTargetOutcome.Resolved>(pair.After.Outcome).Address).ModuleVersionId);
+        Assert.Same(Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(item.Outcome).Result.MemberDiff,
+            result.DecompilerLane.IlDiff);
+        Assert.NotNull(result.DecompilerLane.FidelityDiff);
+        Assert.NotSame(result.DecompilerLane.IlDiff!.Diff, result.DecompilerLane.FidelityDiff);
+        Assert.Equal(FidelityCheck.ClassifyStatus(
+            isFull: true,
+            opcodesExact: result.DecompilerLane.OriginalOpcodes == result.DecompilerLane.RecompiledOpcodes,
+            fidelityDiff: result.DecompilerLane.FidelityDiff), result.DecompilerLane.Status);
     }
 
     [Fact]
@@ -119,13 +138,14 @@ public sealed class AuthoredBuildContextTests
         Assert.Same(decompiler, failed.DecompilerLane);
         Assert.Same(decompiler, different.DecompilerLane);
         Assert.Equal(AuthoredRebuildOutcome.IlDifferent, different.Outcome);
+        Assert.NotSame(debug.MemberComparison!.Identity!.Operation, different.MemberComparison!.Identity!.Operation);
         Assert.Equal(BuildContextFactStatus.Agree, Fact(debug.AuthoredContext, "optimization").Status);
         Assert.Equal(BuildContextFactStatus.Different, Fact(debug.DecompiledContext, "optimization").Status);
         Assert.Equal("debug", Fact(debug.AuthoredContext, "optimization").Effective);
         Assert.Equal("release", Fact(release.AuthoredContext, "optimization").Effective);
         Assert.Equal(AuthoredRebuildOutcome.RecompileFailed, failed.Outcome);
         Assert.NotNull(failed.AuthoredAttempt);
-        Assert.Null(failed.ImplementationDiff);
+        Assert.Null(failed.MemberComparison);
         Assert.Equal("debug", Fact(debug.AuthoredContext, "optimization").Effective);
     }
 
@@ -141,6 +161,7 @@ public sealed class AuthoredBuildContextTests
 
         var replaced = ReturnToSender.WithCompileBackFloor(decompiler, floor);
 
+        Assert.Same(decompiler.MemberComparison, replaced.MemberComparison);
         Assert.True(replaced.UsedCompileBackFloor);
         Assert.Null(replaced.CompilationAttempt);
         Assert.NotNull(decompiler.CompilationAttempt);
@@ -153,7 +174,7 @@ public sealed class AuthoredBuildContextTests
         var context = RecordedBuildContext.Failed(Subject, "PDB options unavailable after decode failure");
         var result = Rebuild(context);
 
-        Assert.NotNull(result.ImplementationDiff);
+        Assert.NotNull(result.MemberComparison);
         Assert.Equal(AuthoredBuildContextStatus.Failed, result.AuthoredContext.Status);
         Assert.Equal(AuthoredBuildContextStatus.Failed, result.DecompiledContext.Status);
         Assert.Null(context.IsDeterministic);
