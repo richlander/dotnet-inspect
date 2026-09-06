@@ -720,17 +720,33 @@ public sealed class AnalysisRequestRejection
 }
 
 /// <summary>Result of host-neutral request capability validation.</summary>
-public abstract record AnalysisRequestPlanResult
+public abstract class AnalysisRequestPlanResult
 {
     private AnalysisRequestPlanResult()
     {
     }
 
-    public sealed record Accepted(AnalysisRequestPlan Plan)
-        : AnalysisRequestPlanResult;
+    public sealed class Accepted : AnalysisRequestPlanResult
+    {
+        internal Accepted(AnalysisRequestPlan plan)
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+            Plan = plan;
+        }
 
-    public sealed record Rejected(AnalysisRequestRejection Rejection)
-        : AnalysisRequestPlanResult;
+        public AnalysisRequestPlan Plan { get; }
+    }
+
+    public sealed class Rejected : AnalysisRequestPlanResult
+    {
+        internal Rejected(AnalysisRequestRejection rejection)
+        {
+            ArgumentNullException.ThrowIfNull(rejection);
+            Rejection = rejection;
+        }
+
+        public AnalysisRequestRejection Rejection { get; }
+    }
 }
 
 /// <summary>
