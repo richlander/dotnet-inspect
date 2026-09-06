@@ -111,6 +111,21 @@ compiled without friend access; only the dedicated catalog suite is an assembly
 friend. See the [ecosystem boundary](design/ecosystem-packs.md#dependency-boundary) and
 [package-set registry gates](design/package-set-registry.md#required-gates).
 
+### IL substrate and diff tests
+
+Run the instruction-substrate and IL comparison suites:
+
+```bash
+dotnet run --project tests/ILInspector.Instructions.Tests -c Release
+dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
+```
+
+Both are xUnit in-process executables and retain separate assemblies and
+`artifacts/` outputs. Their compiler-produced sample types stay with their test
+hosts; the ILDiff suite also retains its test-only Roslyn dependency for source
+inspection. See the [instruction substrate](../src/ILInspector.Instructions/README.md)
+and [IL comparison boundary](../src/ILInspector.ILDiff/README.md).
+
 ## Test tooling activation
 
 The CLI and decompiler suites skip `ilasm`/`ildasm` checks when those tools are

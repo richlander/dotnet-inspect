@@ -375,8 +375,25 @@ This presentation trades some vertical density for visible evidence without
 horizontal scrolling; it does not hide, group, or truncate sites to reduce
 height. A successful empty Calls result retains the section, zero count, and
 explicit absence message. Loading and failure remain separate top-level Facts
-states. Safety facts and subsequent detail sections retain their existing
-presentation.
+states.
+
+Safety facts uses the same readable measure and compact separators. Each
+returned fact keeps its IL offset and raw Kind beside its Operation, followed
+by labeled Requirement and Evidence properties. All five fields remain visible
+in returned order, including repeated values. At constrained pane widths,
+offset and Kind move above Operation; long values wrap within their fact.
+
+A null offset is explicitly `No IL offset`, not an inferred declaration
+category: local evidence can also lack an offset. The section count describes
+returned facts, not IL sites, distinct operations, vulnerabilities, or
+executions. Raw classifications retain their values without added severity,
+safety verdicts, or inferred navigation.
+
+This trades some vertical density for complete visible evidence. A successful
+empty result retains the section, zero count, and existing absence message;
+it does not assert that the method is safe. Loading and failure remain separate
+top-level Facts states. Exception regions and subsequent detail sections retain
+their existing presentation.
 
 #### Graph Explore
 
@@ -557,9 +574,10 @@ Admitted libraries with no public types retain their named Library Overview.
 connects both production browser Overview consumers to this shared frame and
 retires their generic hero composition and Package's inset coordinate editor.
 The user explicitly approved this browser-only presentation scope and requested
-matching local name/icon treatment for Package and Library. Existing typed data supplies the
-content and counts; browser HTML rendering remains the lowering boundary rather
-than Markout because this slice arranges interactive controls and navigation.
+matching local name/icon treatment for Package and Library. Existing typed data
+supplies the content and counts; browser HTML rendering remains the lowering
+boundary rather than Markout because this slice arranges interactive controls
+and navigation.
 The frame reuses the current package-surface conventions, not a new general
 rendering architecture. Other Package and Library lenses remain separate consumers.
 
@@ -613,6 +631,45 @@ strings. The surface creates no page-level horizontal overflow. This slice
 does not change dependency selection, graph construction or navigation,
 Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
 the Metadata Explorer.
+
+### Library References
+
+Library References fills the inspector area without the generic Library hero or
+an inset reference-section heading. The subject path retains navigation context.
+
+```text
+References                                  direct reference count or state
+reference names, versions, cultures, and public-key tokens
+Library asset and assembly identity              TFM · package@version
+```
+
+One independently scrolling region begins with the reference rows and uses the
+available width. The quiet header and bottom context remain in place while the
+list scrolls. Full Library assembly identity and asset path remain available in
+the footer rather than being discarded with the old heading.
+
+Loading, query failure, inspection failure, and successful zero-reference results
+retain the same frame and remain visibly distinct. Existing Library selection,
+query freshness, direct AssemblyRef semantics, counts, order, and field values
+are unchanged.
+
+At narrow widths the existing Types return control shares the quiet header.
+Reference names and identity fields wrap within rows; header status and footer
+values may elide as complete strings with their full text retained. Long values
+and many rows create local scrolling, not page-level horizontal overflow.
+
+The browser-only presentation scope was explicitly approved for
+[the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
+Its one production consumer is Library References; adoption retires only that
+consumer's generic hero and inset reference section. Browser HTML lowering
+continues over the existing typed `BrowserPackageDependencies` reference result.
+This is a placement change, not a new query or rendering architecture. Metadata
+and Package Dependencies are the local composition precedents.
+
+Focused renderer and production-composition browser gates cover wide/narrow
+geometry, long names and identities, many/zero rows, pending and failed results,
+and Library navigation. Subject-strip behavior and other Library lenses are
+separate work.
 
 ### Package Metadata
 

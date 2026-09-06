@@ -15,7 +15,9 @@ normative owner. This model addresses
 The immediate implementation consumer is
 [#5821](https://github.com/richlander/dotnet-inspect/issues/5821): initial
 `WorkspaceScopeSnapshot` and exact Replace/Clear with CLI snapshot adoption.
-Browser adoption follows its Add/Remove and complete-restoration prerequisites;
+[#6151](https://github.com/richlander/dotnet-inspect/issues/6151) extends that
+implementation with exact-package Add/Remove and CLI Add-batch adoption.
+Browser adoption follows complete-restoration and host migration prerequisites;
 expansion also follows later. The model deliberately retains the broader #5796 race acceptance rather
 than making that first implementation slice implement every modeled operation.
 [#5697](https://github.com/richlander/dotnet-inspect/issues/5697) owns the

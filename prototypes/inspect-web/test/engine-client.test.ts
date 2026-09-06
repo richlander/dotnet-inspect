@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMainThreadStartupClient } from "../src/engine-startup.ts";
+import { createMainThreadEngineClient } from "../src/engine-client.ts";
 import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.d.ts";
 import type {
   BrowserHomeDemoCatalog,
+  BrowserHomeDemoResolveResult,
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
@@ -24,6 +25,7 @@ const vocabulary: BrowserVocabularyDocument = {
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "example", title: "Example", summary: "A startup catalog entry." }],
 };
+const missingDemo: BrowserHomeDemoResolveResult = { found: false, demo: null };
 const facets: BrowserPackageQueryFacetCatalog = { facets: [] };
 const gallery: BrowserGalleryDiscoveryCatalog = {
   packageType: {
@@ -52,6 +54,10 @@ function createFacades(calls: string[] = []) {
         calls.push("listHomeDemos");
         return demos;
       },
+      resolveHomeDemo(scenarioId: string) {
+        calls.push(`resolveHomeDemo:${scenarioId}`);
+        return missingDemo;
+      },
     },
     package: {
       listPackageQueryFacets() {
@@ -68,7 +74,7 @@ function createFacades(calls: string[] = []) {
 
 test("startup bindings defer reads until called and preserve generated results in Promises", async () => {
   const calls: string[] = [];
-  const client = createMainThreadStartupClient(createFacades(calls));
+  const client = createMainThreadEngineClient(createFacades(calls));
   assert.deepEqual(calls, []);
 
   const reads = [
@@ -92,12 +98,12 @@ test("startup bindings defer reads until called and preserve generated results i
   ]);
 });
 
-test("each startup binding turns a thrown failure into the same Promise rejection", async () => {
+test("each client binding turns a thrown failure into the same Promise rejection", async () => {
   for (const failure of [new Error("Facade read failed."), new Error("")]) {
     const fail = (): never => { throw failure; };
-    const client = createMainThreadStartupClient({
+    const client = createMainThreadEngineClient({
       host: { buildIdentity: fail },
-      catalog: { listVocabulary: fail, listHomeDemos: fail },
+      catalog: { listVocabulary: fail, listHomeDemos: fail, resolveHomeDemo: fail },
       package: { listPackageQueryFacets: fail, listGalleryDiscoveryCatalog: fail },
     });
     const reads = [
@@ -106,6 +112,7 @@ test("each startup binding turns a thrown failure into the same Promise rejectio
       () => client.catalog.listHomeDemos(),
       () => client.package.listPackageQueryFacets(),
       () => client.package.listGalleryDiscoveryCatalog(),
+      () => client.catalog.resolveHomeDemo("missing"),
     ];
     for (const read of reads) {
       const result = read();
@@ -119,10 +126,20 @@ test("a rejected startup read does not poison neighboring catalog bindings", asy
   const facades = createFacades();
   const failure = new Error("Style vocabulary unavailable.");
   facades.catalog.listVocabulary = () => { throw failure; };
-  const client = createMainThreadStartupClient(facades);
+  const client = createMainThreadEngineClient(facades);
 
   await assert.rejects(client.catalog.listVocabulary(), error => error === failure);
   assert.equal(await client.catalog.listHomeDemos(), demos);
   assert.equal(await client.package.listPackageQueryFacets(), facets);
   assert.equal(await client.package.listGalleryDiscoveryCatalog(), gallery);
+});
+
+test("demo resolution forwards the generated argument and result without replacing not-found", async () => {
+  const calls: string[] = [];
+  const client = createMainThreadEngineClient(createFacades(calls));
+  assert.deepEqual(calls, []);
+  const result = client.catalog.resolveHomeDemo("missing");
+  assert.ok(result instanceof Promise);
+  assert.equal(await result, missingDemo);
+  assert.deepEqual(calls, ["resolveHomeDemo:missing"]);
 });

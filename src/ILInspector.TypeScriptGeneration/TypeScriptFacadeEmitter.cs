@@ -453,9 +453,14 @@ internal static class TypeScriptFacadeEmitter
             var typeNames = new Dictionary<ApiType, string>();
             foreach (ApiType type in surface.Records
                 .Concat(surface.Enums)
+                .Concat(surface.Unions
+                    .Where(union => !surface.WireDirections.TryGetValue(union.Definition, out var direction)
+                        || direction != JsonWireDirection.None)
+                    .Select(union => union.Definition))
                 .OrderBy(CanonicalTypeIdentity, StringComparer.Ordinal))
             {
-                if (!TypeScriptIdentifier.IsIdentifierName(type.Name))
+                string preferredName = DtsEmitter.PreferredTypeName(type);
+                if (!TypeScriptIdentifier.IsIdentifierName(preferredName))
                 {
                     throw new UnsupportedWireContractException(
                         type.MetadataToken is { } token
@@ -468,7 +473,7 @@ internal static class TypeScriptFacadeEmitter
                     type,
                     Allocate(
                         moduleBindings,
-                        type.Name,
+                        preferredName,
                         "type",
                         CanonicalTypeIdentity(type),
                         TypeScriptIdentifier.IsTypeDeclarationIdentifier));

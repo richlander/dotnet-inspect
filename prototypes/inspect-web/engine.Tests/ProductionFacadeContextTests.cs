@@ -49,6 +49,9 @@ public sealed class ProductionFacadeContextTests
             "AsyncLoweringCanary",
             "BuildIdentity",
             "ConfigureHost",
+            "DrainEpochWorkReporter",
+            "RegisterEpochWorkReporter",
+            "UnregisterEpochWorkReporter",
         ],
         [PackageAssembly] =
         [

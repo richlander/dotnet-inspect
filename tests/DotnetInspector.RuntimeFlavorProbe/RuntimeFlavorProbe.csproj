@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPublishable>true</IsPublishable>
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/dotnet-inspect/VersionInfo.cs" Link="VersionInfo.cs" />
+  </ItemGroup>
+</Project>

@@ -41,40 +41,47 @@ public sealed class CompileReferenceRequest
 public sealed class CompileReferenceDescriptor
 {
     internal CompileReferenceDescriptor(
-        CompileReferenceImage image, int selectedOrdinal, MetadataReferenceProperties properties)
+        CompileReferenceImage image, int selectedOrdinal, MetadataReferenceProperties properties,
+        bool isPlatformAuthorized = false)
     {
         Image = image;
         SelectedOrdinal = selectedOrdinal;
         Properties = properties;
+        IsPlatformAuthorized = isPlatformAuthorized;
     }
 
     public CompileReferenceImage Image { get; }
     public ArtifactIdentity InventoryId => Image.InventoryId;
     public int SelectedOrdinal { get; }
     public MetadataReferenceProperties Properties { get; }
-    // This slice has no platform-authorizing policy, even for platform-looking names.
-    public bool IsPlatformAuthorized => false;
+    public bool IsPlatformAuthorized { get; }
 }
 
 /// <summary>
 /// A generation-scoped set key. HexValue alone is not a cross-generation identity:
 /// the encoding uses owner ordinals only as deterministic generation-local order.
+/// Platform keys also retain the typed Services policy-version association.
 /// </summary>
 public sealed class CompileReferenceSetDigest : IEquatable<CompileReferenceSetDigest>
 {
-    internal CompileReferenceSetDigest(ArtifactGenerationIdentity generation, string hexValue)
+    internal CompileReferenceSetDigest(
+        ArtifactGenerationIdentity generation, string hexValue,
+        AssemblyBindingPolicyVersion? ownerPolicyVersion = null)
     {
         Generation = generation;
         HexValue = hexValue;
+        OwnerPolicyVersion = ownerPolicyVersion;
     }
 
     public ArtifactGenerationIdentity Generation { get; }
     public string Algorithm => "SHA-256";
     public string HexValue { get; }
+    public AssemblyBindingPolicyVersion? OwnerPolicyVersion { get; }
     public bool Equals(CompileReferenceSetDigest? other) =>
-        other is not null && ReferenceEquals(Generation, other.Generation) && HexValue == other.HexValue;
+        other is not null && ReferenceEquals(Generation, other.Generation)
+        && ReferenceEquals(OwnerPolicyVersion, other.OwnerPolicyVersion) && HexValue == other.HexValue;
     public override bool Equals(object? obj) => obj is CompileReferenceSetDigest other && Equals(other);
-    public override int GetHashCode() => HashCode.Combine(Generation, HexValue);
+    public override int GetHashCode() => HashCode.Combine(Generation, HexValue, OwnerPolicyVersion);
 }
 
 /// <summary>
@@ -84,14 +91,18 @@ public sealed class CompileReferenceSetDigest : IEquatable<CompileReferenceSetDi
 public sealed class CompileReferenceSet
 {
     readonly CompileReferenceInventory _inventory;
+    internal FrozenPlatformBindings? PlatformBindings { get; }
+    internal AssemblyBindingPolicyVersion BindingVersion { get; } = new();
 
     CompileReferenceSet(
         CompileReferenceInventory inventory,
-        ImmutableArray<CompileReferenceDescriptor> references)
+        ImmutableArray<CompileReferenceDescriptor> references,
+        FrozenPlatformBindings? platformBindings)
     {
         _inventory = inventory;
         Source = inventory.Source;
         References = references;
+        PlatformBindings = platformBindings;
         Digest = ComputeDigest();
     }
 
@@ -102,14 +113,18 @@ public sealed class CompileReferenceSet
     internal static CompileReferenceResult<CompileReferenceSet> Select(
         CompileReferenceInventory inventory,
         IEnumerable<CompileReferenceRequest> requests,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FrozenPlatformBindings? platformBindings = null)
     {
         ArgumentNullException.ThrowIfNull(requests);
         if (Validate(inventory, inventory.Source, cancellationToken) is { } unavailable)
             return new CompileReferenceResult<CompileReferenceSet>.Rejected(unavailable);
 
         var selected = new Dictionary<ArtifactIdentity, (CompileReferenceImage Image, MetadataReferenceProperties Properties)>();
-        foreach (CompileReferenceRequest request in requests)
+        IEnumerable<CompileReferenceRequest> allRequests = platformBindings is null ? requests
+            : requests.Concat(platformBindings.PlatformImages.Select(image =>
+                new CompileReferenceRequest(image.Identity, image.InventoryId)));
+        foreach (CompileReferenceRequest request in allRequests)
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
@@ -142,13 +157,14 @@ public sealed class CompileReferenceSet
 
         ImmutableArray<CompileReferenceDescriptor> descriptors = [.. selected.Values
             .OrderBy(value => value.Image.InventoryId.Ordinal)
-            .Select((value, index) => new CompileReferenceDescriptor(value.Image, index, value.Properties))];
+            .Select((value, index) => new CompileReferenceDescriptor(value.Image, index, value.Properties,
+                platformBindings?.PlatformImages.Contains(value.Image) == true))];
         foreach (CompileReferenceDescriptor descriptor in descriptors)
         {
             if (Validate(inventory, descriptor.Image, cancellationToken) is { } failure)
                 return new CompileReferenceResult<CompileReferenceSet>.Rejected(failure);
         }
-        return new CompileReferenceResult<CompileReferenceSet>.Ready(new(inventory, descriptors));
+        return new CompileReferenceResult<CompileReferenceSet>.Ready(new(inventory, descriptors, platformBindings));
     }
 
     /// <summary>
@@ -211,7 +227,9 @@ public sealed class CompileReferenceSet
         using var encoding = new MemoryStream();
         using (var writer = new BinaryWriter(encoding, Encoding.UTF8, leaveOpen: true))
         {
-            WriteText(writer, "DecompilerHarness.CompileReferenceSet/v1/exact-identity");
+            WriteText(writer, PlatformBindings is null
+                ? "DecompilerHarness.CompileReferenceSet/v1/exact-identity"
+                : "DecompilerHarness.CompileReferenceSet/v2/platform-compatibility");
             WriteImage(writer, Source);
             writer.Write(References.Length);
             foreach (CompileReferenceDescriptor descriptor in References)
@@ -225,24 +243,31 @@ public sealed class CompileReferenceSet
                 writer.Write(descriptor.Properties.EmbedInteropTypes);
                 writer.Write(descriptor.IsPlatformAuthorized);
             }
+            PlatformBindings?.WriteEncoding(writer);
         }
         return new(Source.InventoryId.Generation,
-            Convert.ToHexStringLower(SHA256.HashData(encoding.GetBuffer().AsSpan(0, checked((int)encoding.Length)))));
+            Convert.ToHexStringLower(SHA256.HashData(encoding.GetBuffer().AsSpan(0, checked((int)encoding.Length)))),
+            PlatformBindings?.OwnerVersion);
     }
 
-    static void WriteImage(BinaryWriter writer, CompileReferenceImage image)
+    internal static void WriteImage(BinaryWriter writer, CompileReferenceImage image)
     {
         writer.Write(image.InventoryId.Ordinal);
         WriteText(writer, image.ContentDigest.Algorithm);
         WriteText(writer, image.ContentDigest.HexValue);
         writer.Write(image.ModuleVersionId.ToByteArray());
-        WriteText(writer, image.Identity.Name);
-        WriteText(writer, image.Identity.Version!.ToString());
-        WriteText(writer, image.Identity.Culture ?? "");
-        WriteText(writer, image.Identity.PublicKeyToken ?? "");
+        WriteIdentity(writer, image.Identity);
     }
 
-    static void WriteText(BinaryWriter writer, string value)
+    internal static void WriteIdentity(BinaryWriter writer, AssemblyReferenceIdentity identity)
+    {
+        WriteText(writer, identity.Name);
+        WriteText(writer, identity.Version!.ToString());
+        WriteText(writer, identity.Culture ?? "");
+        WriteText(writer, identity.PublicKeyToken ?? "");
+    }
+
+    internal static void WriteText(BinaryWriter writer, string value)
     {
         // Length-prefixed UTF-16 code units also distinguish unpaired surrogates.
         writer.Write(value.Length);

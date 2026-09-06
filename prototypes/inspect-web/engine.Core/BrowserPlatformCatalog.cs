@@ -106,7 +106,7 @@ internal static class BrowserPlatformCatalog
                     BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
                         family.RuntimePackage, version, source, configuredSourceIdentity,
                         deadline.Remaining, deadline.Token).ConfigureAwait(false);
-                    leases.Lease(BrowserPackageWorkspace.PackageKey(package.PackageId, package.Version));
+                    leases.Lease(package.CacheKey);
                 }
                 return true;
             },
@@ -201,7 +201,7 @@ internal static class BrowserPlatformCatalog
                         packageId, version, source, configuredSourceIdentity,
                         deadline.Remaining, deadline.Token).ConfigureAwait(false);
                     using var leases = new BrowserPackageWorkspace.PackageLeaseSet();
-                    leases.Lease(BrowserPackageWorkspace.PackageKey(package.PackageId, package.Version));
+                    leases.Lease(package.CacheKey);
                     string[] entries = runtime
                         ? RuntimeEntries(package, tfm)
                         : [.. package.Content.EnumerateEntries()

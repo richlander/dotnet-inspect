@@ -498,7 +498,7 @@ internal static class BrowserPlatformWorkspace
                 BrowserPackage package = await BrowserPlatformCatalog.AcquireRuntimeAsync(
                     targetFramework, family, platformVersion,
                     deadline.Remaining, deadline.Token).ConfigureAwait(false);
-                packageLeases.Lease(BrowserPackageWorkspace.PackageKey(package.PackageId, package.Version));
+                packageLeases.Lease(package.CacheKey);
             }
         }
         Targets.TryGetValue(targetKey, out TargetState? state);

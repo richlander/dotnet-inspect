@@ -7,12 +7,12 @@ one pinned browser workload. It does not define a performance threshold or
 select a runtime by itself.
 
 [#6077](https://github.com/richlander/dotnet-inspect/issues/6077) is the
-end-to-end tracker. It sequences four production-host slices: establish this
-harness and a matched-head baseline, move the isolated CoreCLR deployment to a
-pinned .NET 12 runtime-main cohort without ReadyToRun, enable application
-ReadyToRun, and compare all three configurations before choosing the lasting
-deployment shape. The public Mono .NET 11 deployment remains the control
-throughout.
+end-to-end tracker. It sequences five production-host slices: establish this
+harness, establish a nightly evidence lane, move the isolated CoreCLR
+deployment to a pinned .NET 12 runtime-main cohort without ReadyToRun, enable
+application ReadyToRun, and compare all three configurations before choosing
+the lasting deployment shape. The public Mono .NET 11 deployment remains the
+control throughout.
 
 The deployed Inspect Web sites are the product consumers. The benchmark script
 is the production host for this test infrastructure. Browser-only scope is
@@ -28,7 +28,7 @@ A comparative report requires all of the following:
 - all compared sites reported the same product commit;
 - every measured operation returned the same semantic fingerprint; and
 - the report records the harness revision, host, browser, scenario, individual
-  samples, and summary statistics.
+  samples, host load before and after the run, and summary statistics.
 
 The harness refuses a non-comparable result by default. The
 `--allow-mismatched-commits` option exists only for diagnostic runs that prove
@@ -119,14 +119,44 @@ npm run benchmark:published -- \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 5 \
   --member-count 10 \
-  --output ../../artifacts/inspect-web-runtime-performance.json
+  --output ../../artifacts/inspect-web-runtime-performance.json \
+  --trend-output ../../artifacts/inspect-web-runtime-trend-point.json
 ```
 
 If any sample reaches a product deadline, preserve the rejected report and wait
-for the next controlled run or runtime cohort. A scheduled performance lane
-should provide the stable host and repeated opportunities needed for
-multi-sample evidence; retrying interactively on a busy machine does not turn a
-partial run into comparative evidence.
+for the next controlled run or runtime cohort. Retrying interactively on a busy
+machine does not turn a partial run into comparative evidence.
+
+`--trend-output` writes a compact median summary only when the report is
+comparative. Before each run the harness removes any existing file at that
+path, so a rejected run cannot leave a stale trend point.
+
+## Nightly evidence lane
+
+[`.github/workflows/inspect-web-performance-nightly.yml`](../.github/workflows/inspect-web-performance-nightly.yml)
+runs daily at 02:17 UTC and is also manually dispatchable. It measures Mono
+and CoreCLR in one job on one fresh `ubuntu-26.04` runner, with alternating
+site order, five samples per site, and ten distinct member operations per
+sample. Manual dispatch may change the sample and member counts for diagnostic
+runs without changing the scheduled defaults.
+
+The report records the runner's raw one-, five-, and fifteen-minute load
+averages before and after the browser work, along with values normalized by
+logical processor count. These measurements expose obvious runner contention;
+they do not correct timings or make a rejected result acceptable.
+
+Every run uploads the benchmark log and any raw report for 90 days. An accepted
+run additionally uploads a compact trend point containing the product commit,
+harness revision, environment, configuration, medians, and the raw report's
+SHA-256. The workflow summary presents the same medians for quick comparison.
+The retained trend-point artifacts are the longitudinal input; they are not a
+threshold or regression verdict.
+
+A failed operation, missing or changing product identity, cross-site commit
+mismatch, or semantic divergence produces no trend point and fails the
+workflow after uploading the available evidence. The nightly workflow is
+evidence collection, not a pull-request gate, and it never retries around the
+product's deadline.
 
 For a short diagnostic run while deployments intentionally differ:
 

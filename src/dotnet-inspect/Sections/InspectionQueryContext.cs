@@ -29,6 +29,7 @@ public sealed class InspectionQueryContext : IDisposable
     public required VerboseLogger Logger { get; init; }
     public PdbContext? MetadataContext { get; init; }
     public SourceLinkQueryContext? SourceLinkContext { get; init; }
+    public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
 
     /// <summary>
     /// When supplied, records query execution and expensive resource acquisition. Null for an

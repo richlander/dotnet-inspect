@@ -129,6 +129,9 @@ A workspace is **keyed by its complete exact coordinate set and reused**. The
 package surface, a type projection, an annotated member, Integrations,
 Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
+Retained packages and workspace reuse preserve the selected source-client
+association: matching package coordinates or producer identities do not merge
+distinct clients. Cache and scope limits remain aggregate session limits.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
 Opening, evicting, removing, and releasing the last protected use of a scope
@@ -1004,6 +1007,15 @@ diagnostic probe drives the existing managed async-lowering canary through the
 Worker core and operation authority. It does not move current UI features off
 the main thread.
 
+Before Worker `Ready`, bootstrap registers the managed epoch-work reporter
+through the generated host facade. Both Worker and receiver use the same
+conservative unbounded managed-producer class. Managed callbacks carry the
+Worker-issued allowance unchanged; the realm supplies its epoch identity and
+enforces work-sequence rules. Rejected reporting fails visibly. Cooperative
+cleanup stops admission, drains retained work, and unregisters only after
+drainage; hard Worker termination remains a separate release boundary.
+Feature brokers still need to opt into this source as part of their migration.
+
 Worker protocol version 2 additionally carries nonempty batches of at most 64
 progress or durable events. Each operation registers its own bounded payload
 decoders; the whole batch is validated before any entry reaches operation
@@ -1026,8 +1038,9 @@ npm run inspect-web-worker-browser-binding
 The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
 The gate uses Firefox and the complete published artifact, covering cold and
-warm managed calls, restart, bootstrap rejection, and input during stalled
-Wasm initialization. It does not yet prove responsiveness during managed CPU
+warm managed calls, reporter registration and generated cleanup exports,
+restart, bootstrap rejection, and input during stalled Wasm initialization.
+It does not yet prove responsiveness during managed CPU
 work or complete the Worker lifecycle gate; those and source-feature adoption
 remain focused follow-on slices under #5418 and #5420.
 
@@ -2136,12 +2149,16 @@ npm run benchmark:published -- \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 5 \
   --member-count 10 \
-  --output ../../artifacts/inspect-web-runtime-performance.json
+  --output ../../artifacts/inspect-web-runtime-performance.json \
+  --trend-output ../../artifacts/inspect-web-runtime-trend-point.json
 ```
 
 Comparative reports require the sites to serve the same product commit.
 `--allow-mismatched-commits` permits a diagnostic run but leaves the report
-explicitly non-comparable.
+explicitly non-comparable. The daily
+`inspect-web-performance-nightly.yml` workflow runs the comparison on one
+runner, retains raw evidence for 90 days, and emits a trend point only for a
+fully successful, matched-head, semantically equivalent report.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped

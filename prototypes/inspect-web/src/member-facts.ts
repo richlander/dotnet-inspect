@@ -54,10 +54,7 @@ export function renderMemberFacts(
     </section>
     ${renderAllocationFacts(facts.allocations)}
     ${renderCallFacts(facts.calls)}
-    ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
-      ["Requirement", "requirement"], ["Evidence", "evidence"]
-    ], "No unsafe operations or declaration evidence were found.")}
+    ${renderSafetyFacts(facts.safety)}
     ${renderFactTable("Exception regions", facts.exceptionRegions, [
       ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
       ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
@@ -122,6 +119,27 @@ function renderCallFacts(calls: MemberFacts["calls"]) {
           </div>
         </li>`).join("")}</ol>`
       : '<p class="call-empty">No direct call sites were found in this method.</p>'}
+  </section>`;
+}
+
+function renderSafetyFacts(safety: MemberFacts["safety"]) {
+  return `<section class="safety-facts" aria-labelledby="safety-facts-title">
+    <header><h2 id="safety-facts-title">Safety facts</h2><span>${safety.length} ${safety.length === 1 ? "fact" : "facts"}</span></header>
+    ${safety.length
+      ? `<ol class="safety-rows">${safety.map(fact => `
+        <li class="safety-row">
+          <div class="safety-location">${fact.offset == null
+            ? '<span class="safety-no-offset">No IL offset</span>'
+            : `<code>${escapeHtml(fact.offset)}</code>`}<span class="safety-kind">${escapeHtml(fact.kind)}</span></div>
+          <div class="safety-main">
+            <div class="safety-operation"><code>${escapeHtml(fact.operation)}</code></div>
+            <dl class="safety-properties">
+              <div><dt>Requirement</dt><dd><code>${escapeHtml(fact.requirement)}</code></dd></div>
+              <div><dt>Evidence</dt><dd><code>${escapeHtml(fact.evidence)}</code></dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="safety-empty">No unsafe operations or declaration evidence were found.</p>'}
   </section>`;
 }
 
