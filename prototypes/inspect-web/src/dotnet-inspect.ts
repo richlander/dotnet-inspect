@@ -60,6 +60,10 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
+import {
+  createMainThreadStartupClient,
+  type EngineStartupClient,
+} from "./engine-startup.ts";
 import type {
   MemberSection,
   PackageLens,
@@ -452,7 +456,6 @@ import type {
 // Each generated module publishes its own operations and its own wire declarations, so the
 // application binds every operation through the module that owns it. There is no aggregate
 // facade: a binding below names the facade it came from.
-type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
 type MetadataFacade = typeof import("./facades/inspect-web-metadata.d.ts");
 type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
@@ -462,11 +465,9 @@ type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
 type EngineCoordinator = typeof import("./engine-facades.ts");
 
 let startEngine: EngineCoordinator["startEngine"];
-let inspectBuildIdentity: HostFacade["buildIdentity"];
+let engineStartup: EngineStartupClient;
 let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
-let inspectListPackageQueryFacets: PackageFacade["listPackageQueryFacets"];
-let inspectListGalleryDiscoveryCatalog: PackageFacade["listGalleryDiscoveryCatalog"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
 let matchPackageDependencyCoordinate:
@@ -517,8 +518,6 @@ let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
 let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
 let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
-let inspectListHomeDemos: CatalogFacade["listHomeDemos"];
-let inspectVocabulary: CatalogFacade["listVocabulary"];
 let inspectResolveHomeDemo: CatalogFacade["resolveHomeDemo"];
 let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
 let productHomeDemoCatalogError = "";
@@ -547,12 +546,14 @@ async function loadEngineModule() {
     import("./engine-facades.ts"),
   ]);
   ({ startEngine } = coordinator);
-  ({ buildIdentity: inspectBuildIdentity } = hostFacade);
+  engineStartup = createMainThreadStartupClient({
+    host: hostFacade,
+    package: packageFacade,
+    catalog: catalogFacade,
+  });
   ({
     cancelPackageQuery,
     getPackageDocument: inspectPackageDocument,
-    listPackageQueryFacets: inspectListPackageQueryFacets,
-    listGalleryDiscoveryCatalog: inspectListGalleryDiscoveryCatalog,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -609,8 +610,6 @@ async function loadEngineModule() {
   ({
     decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
     encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
-    listHomeDemos: inspectListHomeDemos,
-    listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
     runHomeDemo: inspectRunHomeDemo,
   } = catalogFacade);
@@ -12585,10 +12584,10 @@ async function bootstrap() {
     reportEngineStatus("Loading .NET WebAssembly…");
     await startEngine(window.location.origin);
     reportEngineStatus("Reading package assemblies…");
-    state.buildIdentity = inspectBuildIdentity();
+    state.buildIdentity = await engineStartup.host.buildIdentity();
     const tEngine = performance.now();
     try {
-      const vocabulary = inspectVocabulary();
+      const vocabulary = await engineStartup.catalog.listVocabulary();
       const sections = vocabulary?.sections || [];
       state.styleTiers = (
         sections.find(section => section.id === "csharp.style-tiers")?.values
@@ -12609,7 +12608,7 @@ async function bootstrap() {
       state.styleCatalogError = errorMessage(error);
     }
     try {
-      setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
+      setProductHomeDemoCatalog((await engineStartup.catalog.listHomeDemos()).demos ?? []);
       productHomeDemoCatalogError = "";
     } catch (error) {
       setProductHomeDemoCatalog([]);
@@ -12618,8 +12617,9 @@ async function bootstrap() {
     }
     try {
       state.packageQueryFacets =
-        packageQueryFacets(inspectListPackageQueryFacets());
-      state.packageQuerySourceCatalog = inspectListGalleryDiscoveryCatalog();
+        packageQueryFacets(await engineStartup.package.listPackageQueryFacets());
+      state.packageQuerySourceCatalog =
+        await engineStartup.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
       state.packageQuerySourceCatalog = null;
