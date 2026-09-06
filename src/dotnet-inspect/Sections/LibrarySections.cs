@@ -171,6 +171,7 @@ public static class LibrarySections
             .Add<UnionTypes>(UnionTypesQuery.Definition)
             .Add<TypeForwarders>(TypeForwardersQuery.Definition)
             .Add<NonNormalizedPaths>()
+            .AddReadyToRunLens()
             .AddMetadataLens()
             .AddBaseCategory(SectionCategoryNames.Library,
                 SectionNames.LibraryInfo,
@@ -222,18 +223,38 @@ public static class LibrarySections
                 context.EnterQuery(query.Name, cost.ToSectionCost(query)))
             .Add(MetadataImageQuery.Definition, ctx =>
                 ctx.Scan(
-                    MetadataImageQuery.Execute,
+                    session => MetadataImageQuery.Execute(
+                        session,
+                        ctx.MetadataRoot),
                     () =>
                     {
                         try
                         {
                             using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
                                 ctx.AssemblyPath);
-                            return MetadataImageQuery.Execute(session);
+                            return MetadataImageQuery.Execute(
+                                session,
+                                ctx.MetadataRoot);
                         }
                         catch (Exception ex)
                         {
                             return new MetadataImageResult.Failed(ex);
+                        }
+                    }))
+            .Add(ReadyToRunImageQuery.Definition, ctx =>
+                ctx.Scan(
+                    ReadyToRunImageQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return ReadyToRunImageQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new ReadyToRunImageResult.Failed(ex);
                         }
                     }))
             .Add(AssemblyReferencesQuery.Definition, ctx =>

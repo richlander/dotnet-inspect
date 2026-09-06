@@ -327,6 +327,16 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataRootInspection.Open(_image.PEReader, root);
 
     /// <summary>
+    /// Describes the validated ReadyToRun envelope, or returns null when the
+    /// image has no canonical ReadyToRun advertisement.
+    /// </summary>
+    public ReadyToRunImageOverview? ReadyToRunImage()
+    {
+        _image.EnsureAlive();
+        return ReadyToRunImageInspector.Describe(_image.PEReader);
+    }
+
+    /// <summary>
     /// A single row of one metadata table, read on demand and independent of any
     /// row window. This is the handle click-through primitive: it reaches a
     /// target row that a windowed <see cref="MetadataTables"/> call did not
