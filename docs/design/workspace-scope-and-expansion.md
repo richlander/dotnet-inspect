@@ -91,15 +91,20 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
-The focused implementation and adjacent-owner regression command is:
+The focused implementation and adjacent-owner regression commands are run
+separately so each named selection has its own nonzero-execution result:
 
 ```bash
 dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
-  -class '*WorkspaceScopeTests' \
-  -class '*ArtifactRootPublicationTests' \
-  -class '*ArtifactRootCorrespondenceTests' \
-  -class '*PackageAssemblyContextRealizationTests' \
-  -class '*WorkspacePackageRootAcquisitionTests'
+  --filter-class '*WorkspaceScopeTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*ArtifactRootPublicationTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*ArtifactRootCorrespondenceTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*PackageAssemblyContextRealizationTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*WorkspacePackageRootAcquisitionTests'
 ```
 
 The [revision/publication model](models/workspace-scope-revisions/README.md)
