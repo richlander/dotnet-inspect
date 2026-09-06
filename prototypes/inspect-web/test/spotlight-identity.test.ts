@@ -3906,9 +3906,6 @@ test("member detail adapters preserve exact engine coordinates", () => {
   assert.match(
     factsRenderer,
     /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
-  assert.match(
-    factsRenderer,
-    /\["Operation", "operation"\],[\s\S]*\["Requirement", "requirement"\],[\s\S]*\["Evidence", "evidence"\]/);
 });
 
 test("type source identity includes decompiler taste", () => {

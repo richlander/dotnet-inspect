@@ -375,8 +375,25 @@ This presentation trades some vertical density for visible evidence without
 horizontal scrolling; it does not hide, group, or truncate sites to reduce
 height. A successful empty Calls result retains the section, zero count, and
 explicit absence message. Loading and failure remain separate top-level Facts
-states. Safety facts and subsequent detail sections retain their existing
-presentation.
+states.
+
+Safety facts uses the same readable measure and compact separators. Each
+returned fact keeps its IL offset and raw Kind beside its Operation, followed
+by labeled Requirement and Evidence properties. All five fields remain visible
+in returned order, including repeated values. At constrained pane widths,
+offset and Kind move above Operation; long values wrap within their fact.
+
+A null offset is explicitly `No IL offset`, not an inferred declaration
+category: local evidence can also lack an offset. The section count describes
+returned facts, not IL sites, distinct operations, vulnerabilities, or
+executions. Raw classifications retain their values without added severity,
+safety verdicts, or inferred navigation.
+
+This trades some vertical density for complete visible evidence. A successful
+empty result retains the section, zero count, and existing absence message;
+it does not assert that the method is safe. Loading and failure remain separate
+top-level Facts states. Exception regions and subsequent detail sections retain
+their existing presentation.
 
 #### Graph Explore
 

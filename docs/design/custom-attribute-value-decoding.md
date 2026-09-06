@@ -21,10 +21,11 @@ paired-walker hazards described under
 [How this design changed](#how-this-design-changed) are gone from the code.
 Slice 3's compiler-produced fixture gate landed in #5148; it does not establish
 real-package certification or a certified producer-SDK range. Slice 4 retires
-the temporary guard bridge and its validation-only mode. D1's generative cost
-gate (#5733), D2's internal-exhaustion evidence (#5397), and broader D3
-certification remain open, so the full invariants below remain targets rather
-than gated facts.
+the temporary guard bridge and its validation-only mode. D2 now has focused
+resource-failure propagation evidence (#5397), using deterministic fault
+injection rather than actual memory pressure. D1's generative cost gate
+(#5733), exhaustive D2 coverage, and broader D3 certification remain open, so
+the full invariants below remain targets rather than gated facts.
 
 ## Responsibility
 
@@ -318,8 +319,10 @@ observer and resolver instances.
 Resource exhaustion is a separate class. An `OutOfMemoryException` raised
 inside materialization crosses no caller boundary, so callback provenance
 cannot protect it. It propagates because it is not a malformed-input outcome.
-Slice 2 removed the catch that converted it to `null`; issue #5397 records that
-repair, while a dedicated internal-resource-exhaustion gate remains missing.
+Slice 2 removed the catch that converted it to `null`. The focused
+[resource-failure propagation gate](#resource-failure-propagation-gate)
+exercises that policy with a raw, injected failure beneath the public decoder,
+separately from callback-provenance tests (#5397).
 
 **D2 is outcome-shaped, and only that.** Its whole content is which of three
 outcomes a caller can observe: a complete value, `null`, or a propagated
@@ -834,7 +837,7 @@ remain `unverified`.**
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
-| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial, landed in #5815; resource-exhaustion propagation remains unverified. |
+| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. The [resource-failure propagation gate](#resource-failure-propagation-gate) covers raw `OutOfMemoryException` propagation from SRM string materialization. | Focused refusal, callback, width-signal, and injected resource-failure cases are gated; exhaustive D2 coverage remains unverified. |
 | **D3** | #5148's fixtures-first gate compares compiler-produced values with independent SRM results and source-owned cross-assembly enum expectations. `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce this fixture subset. | Partial fixture coverage; real-package certification and its producer range remain unverified. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated, landed in #5815. |
 
@@ -958,6 +961,42 @@ I1 offset seam and generated guard-approval assertions are retired, not carried
 as additional D3 requirements. Exhaustive grammar coverage, D1/D2 enumeration,
 and real-package certification are not established by this fixture gate.
 
+### Resource-failure propagation gate
+
+`CustomAttributeFailurePropagationTests.StringMaterializationOutOfMemory_PropagatesUnchanged`
+is the focused Release gate for #5397. It uses SRM's existing
+`MetadataStringDecoder` customization point to inject one
+`OutOfMemoryException` during type-name materialization inside a decode.
+The ordinary, serialized-name-preserving, and detailed public entry points must
+each propagate the original exception instance, rather than return `null` or a
+value.
+
+No `beforeMaterialize` observer or enum resolver is supplied. The failure
+therefore reaches the owned decoder as a raw dependency exception, not through
+its caller-callback provenance sentinel. This distinction is what the existing
+callback tests cannot establish. The compiler-produced `Types` sample already
+used by the fidelity gate supplies ordinary metadata; healthy decodes before
+and after the one-shot injection are controls for the test double.
+
+Gate adequacy was checked at `6e076e9502645b2d0a01550f407bbc9deebb643f` with a
+temporary policy mutation that included `OutOfMemoryException` in the owned
+decoder's refusal filter. All three new cases failed because no exception
+escaped, while 110 neighboring cases still passed. The mutation was removed;
+it is a synthetic regression control, not a reproduction of historical memory
+exhaustion. The implementation repair already landed in #5815.
+
+This follows the existing metadata tests' use of a custom SRM string decoder
+for observation and injected dependency failures for exception-identity checks.
+The metadata test runner is the evidence consumer; it exercises the same shared
+decoder already used by CLI and browser/Wasm. No product hook, new decoding
+path, or host integration is introduced.
+
+The evidence is **fault-injected propagation**, not a claim about actual heap
+exhaustion, recovery under memory pressure, every allocation site, or exhaustive
+D2 grammar coverage. Those stronger claims are not needed to check the decoder's
+exception policy. The test does not exhaust host memory or reproduce a malformed
+resource-amplifying input.
+
 ### Generic-context lookup gate
 
 Within one attribute decode, locating repeated, alternating, or increasing
@@ -1068,7 +1107,7 @@ slice 2. Both are now settled.
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | Merged: fixtures-first D3 value equality and retained-image producer truth. Broader package certification remains outstanding in #5065. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
-| #5397 | Slice 2 no longer catches internal `OutOfMemoryException`; dedicated propagation evidence remains absent, so D2 stays partially unverified. |
+| #5397 | Gated: a one-shot SRM string-materialization fault propagates unchanged through all three public decode surfaces. This is fault-injection evidence, not actual memory-pressure testing or exhaustive D2 coverage. |
 | #5733 | The D1 generative bounded-cost gate; #5065 does not measure cost. |
 | #5742 | Implemented in #5815: the opt-in defaulted-width signal mitigates D3's row-three carve-out. |
 | #5755 | Retained-name evidence and the representation-bound revisit point if the output-shape hold is lifted. |
