@@ -1,5 +1,3 @@
-using DotnetInspector.Packages;
-
 namespace DotnetInspector.SourceSelection;
 
 /// <summary>Inert, bounded package-prefix intent; construction does not authorize source access.</summary>
@@ -9,28 +7,31 @@ public sealed record PackagePrefixRequest
         string prefix,
         int maxPackages,
         bool includePrerelease = false)
+        : this(new PackagePrefixDeclaration(prefix), maxPackages, includePrerelease)
     {
-        ArgumentNullException.ThrowIfNull(prefix);
-        if (!IsPackagePrefix(prefix))
-        {
-            throw new ArgumentException(
-                "A package prefix must be a nonempty literal beginning of a valid package ID.",
-                nameof(prefix));
-        }
+    }
 
+    private PackagePrefixRequest(
+        PackagePrefixDeclaration declaration,
+        int maxPackages,
+        bool includePrerelease)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPackages);
-        Prefix = prefix;
+        Declaration = declaration;
         MaxPackages = maxPackages;
         IncludePrerelease = includePrerelease;
     }
 
-    public string Prefix { get; }
+    /// <summary>Applies consumer policy while retaining the exact supplied declaration.</summary>
+    public static PackagePrefixRequest Create(
+        PackagePrefixDeclaration declaration,
+        int maxPackages,
+        bool includePrerelease = false) =>
+        new(declaration, maxPackages, includePrerelease);
+
+    public PackagePrefixDeclaration Declaration { get; }
+    public string Prefix => Declaration.Prefix;
     public int MaxPackages { get; }
     public bool IncludePrerelease { get; }
-
-    private static bool IsPackagePrefix(string prefix) =>
-        PackageCoordinateResolver.IsCanonicalPackageId(prefix)
-        || (prefix.Length is > 1 and < PackageCoordinateResolver.MaxPackageIdLength
-            && prefix[^1] is '.' or '-'
-            && PackageCoordinateResolver.IsCanonicalPackageId(prefix[..^1]));
 }

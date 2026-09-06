@@ -41,6 +41,10 @@ public sealed record PackageAuthorityFailure(
     public PackageSourceTimeout? Timeout { get; init; }
 }
 
+internal sealed record ConfiguredPackageCandidateObservation(
+    ConfiguredPackageAuthority Authority,
+    PackageCandidateObservation Observation);
+
 /// <summary>
 /// The package-owned aggregate of version evidence from every eligible
 /// configured authority.
@@ -51,7 +55,8 @@ public sealed class PackageVersionDiscoveryResult
         PackageVersionDiscoveryState state,
         IReadOnlyList<PackageVersionSourceInfo> sourceListings,
         IReadOnlyList<PackageAuthorityFailure> failures,
-        bool hasAnyCandidate)
+        bool hasAnyCandidate,
+        IReadOnlyList<ConfiguredPackageCandidateObservation>? candidates = null)
     {
         State = state;
         SourceListings = new ReadOnlyCollection<PackageVersionSourceInfo>([.. sourceListings]);
@@ -63,6 +68,8 @@ public sealed class PackageVersionDiscoveryResult
         Failures =
             new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         HasAnyCandidate = hasAnyCandidate;
+        Candidates = new ReadOnlyCollection<ConfiguredPackageCandidateObservation>(
+            candidates is null ? [] : [.. candidates]);
     }
 
     public PackageVersionDiscoveryState State { get; }
@@ -73,6 +80,7 @@ public sealed class PackageVersionDiscoveryResult
     public IReadOnlyList<PackageVersionSourceInfo> SourceListings { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
     public bool HasAnyCandidate { get; }
+    internal IReadOnlyList<ConfiguredPackageCandidateObservation> Candidates { get; }
 }
 
 /// <summary>
@@ -127,6 +135,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     /// <summary>
     /// Enumerates versions from every configured authority eligible for one
     /// package ID and adopts their results through exact association lookup.
+    /// A supplied operation context remains caller-owned.
     /// </summary>
     public async Task<PackageVersionDiscoveryResult> GetVersionsAsync(
         string packageId,
@@ -135,7 +144,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         NuGetSourceOptions? sourceOptions = null,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        bool includeUnlisted = false)
+        bool includeUnlisted = false,
+        NuGetOperationContext? operationContext = null)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -167,9 +177,14 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 PackageVersionDiscoveryState.Failed, [], failures, hasAnyCandidate: false);
         }
 
-        using var operation = CreateOperationContext(cancellationToken);
+        using NuGetOperationContext? ownedOperation = operationContext is null
+            ? CreateOperationContext(cancellationToken)
+            : null;
+        NuGetOperationContext operation = operationContext ?? ownedOperation!;
+        cancellationToken = operation.ResolveInvocationToken(cancellationToken);
         IReadOnlyList<InertString> feedLabels = PackageSourceDisplay.ForVersionListings(sources);
         var versions = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<ConfiguredPackageCandidateObservation>();
         bool hasAnyCandidate = false;
         bool operationTimedOut = false;
 
@@ -185,7 +200,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             catch (NuGetOperationTimeoutException)
             {
                 operationTimedOut = true;
-                AddOperationTimeoutFailure(failures);
+                AddOperationTimeoutFailure(failures, operation);
                 for (int remainingIndex = sourceIndex;
                      remainingIndex < sources.Count;
                      remainingIndex++)
@@ -255,6 +270,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                     if ((listed || includeUnlisted)
                         && (includePrerelease || !parsed.IsPrerelease))
                     {
+                        candidates.Add(new(authority.Authority, candidate));
                         string version = candidate.Coordinate.Version;
                         if (!versions.TryGetValue(version, out var rows))
                         {
@@ -274,7 +290,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             catch (NuGetOperationTimeoutException)
             {
                 operationTimedOut = true;
-                AddOperationTimeoutFailure(failures);
+                AddOperationTimeoutFailure(failures, operation);
                 for (int remainingIndex = sourceIndex + 1;
                      remainingIndex < sources.Count;
                      remainingIndex++)
@@ -307,7 +323,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         catch (NuGetOperationTimeoutException)
         {
             operationTimedOut = true;
-            AddOperationTimeoutFailure(failures);
+            AddOperationTimeoutFailure(failures, operation);
         }
 
         PackageVersionDiscoveryState state = operationTimedOut
@@ -323,7 +339,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             state,
             ordered,
             failures,
-            hasAnyCandidate);
+            hasAnyCandidate,
+            candidates);
     }
 
     private static IReadOnlyList<PackageSource> ResolveEligibleSources(
@@ -639,7 +656,11 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 $"Package source {authority} could not be reached while enumerating versions.",
             _ => failure.Message,
         };
-        return new PackageAuthorityFailure(authority, kind, message);
+        return new PackageAuthorityFailure(authority, kind, message)
+        {
+            SourceFailure = failure,
+            ResultSource = failure.Source,
+        };
     }
 
     private static PackageVersionDiscoveryResult Failed(
@@ -651,7 +672,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             hasAnyCandidate: false);
 
     private static void AddOperationTimeoutFailure(
-        List<PackageAuthorityFailure> failures)
+        List<PackageAuthorityFailure> failures,
+        NuGetOperationContext operation)
     {
         if (failures.Any(failure =>
                 failure.Authority == InertString.Empty
@@ -663,7 +685,10 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         failures.Add(new PackageAuthorityFailure(
             InertString.Empty,
             PackageAuthorityFailureKind.Timeout,
-            "The package version operation deadline expired before the aggregate completed."));
+            "The package version operation deadline expired before the aggregate completed.")
+        {
+            Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
+        });
     }
 
     public async ValueTask DisposeAsync()

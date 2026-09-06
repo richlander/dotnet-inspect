@@ -1001,6 +1001,7 @@ public class IlToolsActivationTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ReleaseCertificationValidator_SelfTest()
     {
         var info = new ProcessStartInfo("dotnet")
