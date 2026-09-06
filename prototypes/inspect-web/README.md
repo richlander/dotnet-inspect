@@ -858,6 +858,42 @@ asset to include its compiled reference/implementation and accessor case.
 Only package acquisition is supplied with fixture bytes; comparison uses the
 published generated facade and product query.
 
+## Authored Source Diff
+
+Choose **Compare authored source** for a selected package method, enter the
+other version of the same package, and choose **Compare**. The launching
+version is Before; the entered version is After. Opening or editing the
+dialog does not fetch source, and comparing the same version is valid.
+
+The view uses checksum-accepted PDB source from each version, never a
+decompiled substitute. It distinguishes changed, unchanged, unavailable, and
+failed results. Native moved-line evidence retains both declaration-relative
+line numbers, including moves mixed with content edits. An available
+declaration and its provenance remain visible when the other endpoint has no
+source; that is not a deletion.
+
+The Source facade calls the shared paired query with two protected package
+contexts. The query resolves the logical member independently in each image.
+The browser receives structured native relations rather than CLI text or a
+second browser-computed diff.
+
+Like Method Body Diff, this is a session-local contextual dialog. Changing
+After clears the previous result; dismissal or replacement of the launching
+context disposes its operation. Normal navigation and shared links retain
+their existing meaning. Platform inputs, accessors that cannot designate a
+whole method, arbitrary cross-package comparison, and portable comparison
+links are outside this bounded feature.
+
+See [Inspect Web Source Comparison](../../docs/design/inspect-web-source-comparison.md)
+for the contract and its S4/S5 adoption boundary.
+
+After publishing the engine to `artifacts/inspect-web-publish`, run
+`eng/test-inspect-web-source-comparison-gate.sh` from the repository root.
+It resolves the cataloged version-pair package and SourceLink bytes and drives
+the real dialog in Firefox. For optional live-package evidence, set
+`INSPECT_WEB_SOURCE_DIFF_URL` to a published site and run
+`npm run test:browser -- browser/source-comparison-production.spec.ts`.
+
 ## Unsupported
 
 Each remaining gap is a missing public query that owns its own group session.

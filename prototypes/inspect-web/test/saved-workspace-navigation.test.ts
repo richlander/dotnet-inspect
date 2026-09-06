@@ -333,6 +333,7 @@ function harness() {
     },
     cancelAnnotatedSourceRequest: () => {},
     methodBodyComparison: { dispose: () => {} },
+    sourceComparison: { dispose: () => {} },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},

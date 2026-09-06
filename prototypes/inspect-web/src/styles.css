@@ -3433,6 +3433,14 @@ kbd {
 .method-body-diagnostics small { display: block; color: var(--dim); overflow-wrap: anywhere; }
 .method-body-unavailable h3 { margin: 0 0 6px; }
 .method-body-unavailable p { margin: 0; color: var(--muted); font: 12px/1.6 var(--mono); }
+.source-diff-declaration { margin-top: 10px; }
+.source-diff-declaration summary { cursor: pointer; color: var(--muted); font: 11px var(--mono); }
+.source-diff-declaration pre { overflow-x: auto; }
+.source-diff-lines { margin-top: 10px; }
+.source-diff-line[data-source-diff-kind="Added"] { border-left-color: var(--green); }
+.source-diff-line[data-source-diff-kind="Removed"] { border-left-color: var(--yellow); }
+.source-diff-movement { color: var(--blue); }
+.source-diff-modal [data-source-diff-exact="true"] { color: var(--green); }
 
 @media (max-width: 820px) {
   .method-body-pair,
