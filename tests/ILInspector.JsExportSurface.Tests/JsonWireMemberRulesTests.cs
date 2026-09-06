@@ -565,6 +565,237 @@ public sealed class JsonWireMemberRulesTests
                     contextDefinition));
     }
 
+    [Theory]
+    [InlineData("protected")]
+    [InlineData("private protected")]
+    public void ContextRelativeAccessibilityTreatsCrossNamespaceDerivedContextAsProtectedAccess(
+        string accessibility)
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName baseDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Owners",
+                    ["BaseOwner"]))
+                .Name;
+        MetadataTypeDefinitionName intermediateDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contexts",
+                    ["IntermediateOwner"]))
+                .Name;
+        MetadataTypeDefinitionName derivedDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contexts",
+                    ["DerivedOwner"]))
+                .Name;
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Owners",
+                    ["BaseOwner", "HiddenValue"]))
+                .Name;
+        MetadataTypeDefinitionName contextDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contexts",
+                    ["DerivedOwner", "NestedContextJsonContext"]))
+                .Name;
+        ApiTypeReferenceIdentity baseReference = new(
+            assembly,
+            "Owners.BaseOwner",
+            baseDefinition);
+        ApiTypeReferenceIdentity intermediateReference = new(
+            assembly,
+            "Contexts.IntermediateOwner",
+            intermediateDefinition);
+        ApiTypeReferenceIdentity derivedReference = new(
+            assembly,
+            "Contexts.DerivedOwner",
+            derivedDefinition);
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Owners.BaseOwner.HiddenValue",
+            hiddenDefinition);
+        var declaringType = new ApiType
+        {
+            Namespace = "Owners",
+            Name = "BaseOwner",
+            DefinitionName = baseDefinition,
+            Kind = "class",
+        };
+        ApiMember member = new()
+        {
+            Name = "Hidden",
+            Kind = "field",
+            HasJsonInclude = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnTypeReferences = [hiddenReference],
+            },
+        };
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [baseReference] = declaringType,
+                [intermediateReference] = new ApiType
+                {
+                    Namespace = "Contexts",
+                    Name = "IntermediateOwner",
+                    DefinitionName = intermediateDefinition,
+                    Kind = "class",
+                    BaseTypeReference = baseReference,
+                },
+                [derivedReference] = new ApiType
+                {
+                    Namespace = "Contexts",
+                    Name = "DerivedOwner",
+                    DefinitionName = derivedDefinition,
+                    Kind = "class",
+                    BaseTypeReference = intermediateReference,
+                },
+                [hiddenReference] = new ApiType
+                {
+                    Namespace = "Owners",
+                    Name = "BaseOwner.HiddenValue",
+                    DefinitionName = hiddenDefinition,
+                    Accessibility = accessibility,
+                    Kind = "enum",
+                },
+            };
+
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    declaringType,
+                    member,
+                    JsonWireDirection.Serialize,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+    }
+
+    [Fact]
+    public void ContextRelativeAccessibilityRequiresCompleteCompoundValueTypeAccess()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName baseDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Owners",
+                    ["BaseOwner"]))
+                .Name;
+        MetadataTypeDefinitionName derivedDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contexts",
+                    ["DerivedOwner"]))
+                .Name;
+        MetadataTypeDefinitionName reachableDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Owners",
+                    ["BaseOwner", "ReachableValue"]))
+                .Name;
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Owners",
+                    ["BaseOwner", "HiddenValue"]))
+                .Name;
+        MetadataTypeDefinitionName contextDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contexts",
+                    ["DerivedOwner", "NestedContextJsonContext"]))
+                .Name;
+        ApiTypeReferenceIdentity baseReference = new(
+            assembly,
+            "Owners.BaseOwner",
+            baseDefinition);
+        ApiTypeReferenceIdentity derivedReference = new(
+            assembly,
+            "Contexts.DerivedOwner",
+            derivedDefinition);
+        ApiTypeReferenceIdentity reachableReference = new(
+            assembly,
+            "Owners.BaseOwner.ReachableValue",
+            reachableDefinition);
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Owners.BaseOwner.HiddenValue",
+            hiddenDefinition);
+        var declaringType = new ApiType
+        {
+            Namespace = "Owners",
+            Name = "BaseOwner",
+            DefinitionName = baseDefinition,
+            Kind = "class",
+        };
+        ApiMember member = new()
+        {
+            Name = "Mixed",
+            Kind = "field",
+            HasJsonInclude = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnTypeReferences =
+                [
+                    reachableReference,
+                    hiddenReference,
+                ],
+            },
+        };
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [baseReference] = declaringType,
+                [derivedReference] = new ApiType
+                {
+                    Namespace = "Contexts",
+                    Name = "DerivedOwner",
+                    DefinitionName = derivedDefinition,
+                    Kind = "class",
+                    BaseTypeReference = baseReference,
+                },
+                [reachableReference] = new ApiType
+                {
+                    Namespace = "Owners",
+                    Name = "BaseOwner.ReachableValue",
+                    DefinitionName = reachableDefinition,
+                    Accessibility = "protected",
+                    Kind = "enum",
+                },
+                [hiddenReference] = new ApiType
+                {
+                    Namespace = "Owners",
+                    Name = "BaseOwner.HiddenValue",
+                    DefinitionName = hiddenDefinition,
+                    Accessibility = "private",
+                    Kind = "enum",
+                },
+            };
+
+        Assert.False(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    declaringType,
+                    member,
+                    JsonWireDirection.Serialize,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+    }
+
     [Fact]
     public void GetterOnlyDeserializePropertyRequiresConstructorEvidence()
     {

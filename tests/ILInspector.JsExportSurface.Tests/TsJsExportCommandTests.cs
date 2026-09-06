@@ -2,7 +2,7 @@ using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.MemberConverterFixtures;
 using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
 using ILInspector.JsExportSurface.NestedContextFixtures;
-using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures;
+using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.TypeScriptFixtures;
 using TsJsExport;
@@ -247,11 +247,20 @@ public sealed class TsJsExportCommandTests
                 """,
                 source,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                """
+                export interface PartiallyAccessibleBaseOwner {
+                  readonly Public: string;
+                }
+                """,
+                source,
+                StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "UnreachedNestedContextDto",
                 source,
                 StringComparison.Ordinal);
             Assert.DoesNotContain("Ignored", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Mixed", source, StringComparison.Ordinal);
             Assert.DoesNotContain("Shared", source, StringComparison.Ordinal);
             Assert.DoesNotContain("Item", source, StringComparison.Ordinal);
             Assert.DoesNotContain("HiddenValue", source, StringComparison.Ordinal);

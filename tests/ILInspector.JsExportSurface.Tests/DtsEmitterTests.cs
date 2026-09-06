@@ -8,7 +8,8 @@ using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
-using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures;
+using ILInspector.JsExportSurface.NestedContextFixtures.Contexts;
+using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
 
@@ -2797,6 +2798,20 @@ public sealed class DtsEmitterTests
             """{"Hidden":1}""");
 
         Assert.Equal(1, value);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_OmitsPartiallyAccessibleCompoundValueTypes()
+    {
+        string json =
+            PartiallyAccessibleDerivedOwner.SerializeValue();
+
+        Assert.Contains(
+            "\"Public\":\"public\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Mixed", json, StringComparison.Ordinal);
     }
 
     [Theory]

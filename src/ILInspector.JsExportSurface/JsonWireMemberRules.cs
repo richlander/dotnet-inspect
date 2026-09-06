@@ -205,21 +205,16 @@ public static class JsonWireMemberRules
         if (references is null || references.Count == 0)
             return false;
 
-        return references.Any(reference =>
-            reference.Assembly.Equals(assemblyIdentity)
-            && typesByScopedIdentity.TryGetValue(
-                reference,
-                out ApiType? type)
-            && !IsAccessibleValueType(
-                type,
+        return !HasAccessibleValueType(
+                member,
                 assemblyIdentity,
                 typesByScopedIdentity,
                 contextDefinitionName: null)
-            && IsAccessibleValueType(
-                type,
+            && HasAccessibleValueType(
+                member,
                 assemblyIdentity,
                 typesByScopedIdentity,
-                contextDefinitionName));
+                contextDefinitionName);
     }
 
     public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
@@ -335,6 +330,18 @@ public static class JsonWireMemberRules
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             typesByScopedIdentity)
+        => HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName: null);
+
+    static bool HasAccessibleValueType(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
     {
         if (assemblyIdentity is null)
             return true;
@@ -348,7 +355,8 @@ public static class JsonWireMemberRules
             IsAccessibleValueTypeReference(
                 reference,
                 assemblyIdentity,
-                typesByScopedIdentity));
+                typesByScopedIdentity,
+                contextDefinitionName));
     }
 
     static bool IsAccessibleValueTypeReference(
@@ -356,6 +364,18 @@ public static class JsonWireMemberRules
         ApiAssemblyIdentity assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             typesByScopedIdentity)
+        => IsAccessibleValueTypeReference(
+            reference,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName: null);
+
+    static bool IsAccessibleValueTypeReference(
+        ApiTypeReferenceIdentity reference,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
     {
         if (!reference.Assembly.Equals(assemblyIdentity))
             return true;
@@ -366,7 +386,8 @@ public static class JsonWireMemberRules
             && IsAccessibleValueType(
                 type,
                 assemblyIdentity,
-                typesByScopedIdentity);
+                typesByScopedIdentity,
+                contextDefinitionName);
     }
 
     static bool IsAccessibleValueType(
@@ -447,17 +468,19 @@ public static class JsonWireMemberRules
             return true;
 
         if (contextDefinitionName is null
-            || type.DefinitionName is not { Segments.Length: > 1 } definitionName
-            || contextDefinitionName.Namespace != definitionName.Namespace)
+            || type.DefinitionName is not { Segments.Length: > 1 } definitionName)
         {
             return false;
         }
 
         return type.Accessibility switch
         {
-            "private" => ContextIsNestedWithin(
-                contextDefinitionName.Segments,
-                definitionName.Segments[..^1]),
+            "private"
+                when contextDefinitionName.Namespace
+                    == definitionName.Namespace =>
+                ContextIsNestedWithin(
+                    contextDefinitionName.Segments,
+                    definitionName.Segments[..^1]),
             "protected" or "private protected" =>
                 ContextCanReachProtectedDeclaringType(
                     definitionName,
