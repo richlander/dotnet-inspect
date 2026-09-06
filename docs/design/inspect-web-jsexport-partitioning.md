@@ -186,7 +186,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 50 `[JSExport]` methods.
+The seven rooted export assemblies contain 54 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -210,12 +210,13 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 18 exports
+### Package facade: 19 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
 - `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
+- `ListGalleryDiscoveryCatalog`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
 - `LoadRuntimePackAssembly`
@@ -270,10 +271,13 @@ so absence remains a visible capability result rather than a missing binding.
 The module does not combine Analysis with call-graph topology; graph traversal
 has its own facade and product owner.
 
-### Source facade: 6 exports
+### Source facade: 9 exports
 
+- `CancelMethodBodyComparison`
 - `CancelSourceQuery`
 - `CancelTypeSourceQuery`
+- `QueryMethodBodyComparison`
+- `QueryMethodBodyComparisonTargets`
 - `QueryMemberAnnotatedSource`
 - `QueryMemberSource`
 - `QueryTypeMemberSource`
@@ -284,6 +288,9 @@ its public cancellation operations belong beside the work they cancel.
 Annotated source stays with source because the returned document and its
 viewer contract are the capability being requested; Analysis facts embedded in
 that product document do not transfer ownership to this adapter.
+Method Body Diff likewise projects native C#/IL comparison evidence through
+the shared query; its target inventory and keyed cancellation stay with that
+feature in the same facade.
 
 ### Call-graph facade: 2 exports
 
@@ -529,6 +536,10 @@ declarations remain authoritative. Of its 50 managed exports, 48 are bound by
 `loadEngineModule` in
 [`dotnet-inspect.ts`](../../prototypes/inspect-web/src/dotnet-inspect.ts).
 Generated lifecycle functions are not included in these counts.
+
+Website Gallery adoption (#6019) subsequently adds the synchronous startup
+operation `listGalleryDiscoveryCatalog`. It participates in the same typed
+catalog handoff; the historical counts in this migration snapshot exclude it.
 
 | Current call class | Count | Generated operations | Consumer handoff to prepare |
 | --- | ---: | --- | --- |
@@ -817,7 +828,7 @@ The partition is implemented when all of the following hold:
 1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
    `InspectWebJsExportContext` and proves its root identities equal the seven
    expected managed assemblies.
-2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 50
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 51
    current exports across the seven expected assemblies with no omission or
    duplicate.
 3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,

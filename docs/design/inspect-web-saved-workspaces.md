@@ -25,6 +25,10 @@ control convention. These contracts are consumed, not redefined.
 Add, prefixes, Clear, renaming or updating saves, import/export, synchronization,
 server storage, and the paused editor in #5812 are separate work.
 
+The proposed [Workspace editing contract](inspect-web-workspace-editing.md)
+under #6024 distinguishes editor completion from this already-ready snapshot
+operation. It does not change the storage or Save/Open/Forget behavior below.
+
 ## Behavior
 
 - Save is offered on the Workspace page, enabled for a nonempty ready Workspace.

@@ -78,7 +78,7 @@ jobs:
 
       - name: Run CLI tests
         if: inputs.suite == 'cli'
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow" && dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
 
       - name: Run services tests
         if: inputs.suite == 'services'

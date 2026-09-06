@@ -214,7 +214,8 @@ static class ValidityCheck
                 }
 
                 var evaluationTargets = candidates;
-                var semanticEligible = new ConcurrentBag<ValidityCandidate>();
+                var semanticEligible =
+                    new ConcurrentBag<RenderedValidityCandidate>();
 
                 Parallel.ForEach(evaluationTargets, options, item =>
                 {
@@ -267,54 +268,58 @@ static class ValidityCheck
                         return; // parallel return
                     }
 
-                    semanticEligible.Add(item);
+                    semanticEligible.Add(new RenderedValidityCandidate(
+                        item,
+                        rendered,
+                        projection.RequiresUnsafeBodyModifier));
                 });
 
                 var semanticSample = semanticEligible
-                    .OrderBy(StableValidityHash)
-                    .ThenBy(candidate => StableValidityKey(candidate), StringComparer.Ordinal)
+                    .OrderBy(candidate => StableValidityHash(candidate.Candidate))
+                    .ThenBy(
+                        candidate => StableValidityKey(candidate.Candidate),
+                        StringComparer.Ordinal)
                     .Take(cap)
+                    .ToList();
+                var sampledCandidates = semanticSample
+                    .Select(candidate => candidate.Candidate)
                     .ToHashSet();
 
-                foreach (var item in semanticEligible.Except(semanticSample))
+                foreach (var item in semanticEligible.Where(
+                    candidate => !sampledCandidates.Contains(
+                        candidate.Candidate)))
                 {
+                    var candidate = item.Candidate;
                     results.Add(new MethodResult(
-                        item.TypeName,
-                        item.MethodName,
-                        CorpusMethodIdentity.SignatureText(item.Function.Signature),
+                        candidate.TypeName,
+                        candidate.MethodName,
+                        CorpusMethodIdentity.SignatureText(
+                            candidate.Function.Signature),
                         true,
                         [],
                         false,
                         []));
                 }
+                semanticEligible.Clear();
 
                 Parallel.ForEach(semanticSample, options, item =>
                 {
-                    var typeName = item.TypeName;
-                    var methodName = item.MethodName;
-                    var function = item.Function;
-                    var productParameterList = item.ProductParameterList;
-                    Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
-                        ? method => IrImporter.Import(source, method)
-                        : null;
-                    var projection = lowered
-                        ? CSharpPrinter.PrintLowered(function, importMethodBody)
-                        : CSharpPrinter.PrintRaised(function, importMethodBody);
-                    var rendered = projection.Output;
-                    if (rendered is null)
-                        return;
+                    var candidate = item.Candidate;
+                    var typeName = candidate.TypeName;
+                    var methodName = candidate.MethodName;
+                    var function = candidate.Function;
 
                     Interlocked.Increment(ref semChecked);
                     var semantic = EvaluateRenderedBody(
                         function,
-                        rendered,
+                        item.Rendered,
                         typeName,
                         methodName,
                         constraints,
                         MethodShellContext.Create(
                             function,
-                            projection.RequiresUnsafeBodyModifier),
-                        productParameterList,
+                            item.RequiresUnsafeBodyModifier),
+                        candidate.ProductParameterList,
                         references,
                         parseOptions,
                         compileOptions,
@@ -334,6 +339,11 @@ static class ValidityCheck
         string MethodName,
         IrFunction Function,
         string? ProductParameterList);
+
+    sealed record RenderedValidityCandidate(
+        ValidityCandidate Candidate,
+        string Rendered,
+        bool RequiresUnsafeBodyModifier);
 
     static string StableValidityKey(ValidityCandidate candidate)
         => $"{candidate.TypeName}|{candidate.MethodName}|{CorpusMethodIdentity.SignatureText(candidate.Function.Signature)}";
@@ -355,9 +365,6 @@ static class ValidityCheck
         }
         return hash;
     }
-
-    internal static CSharpParseOptions ParseOptions()
-        => CompilerFeatureOptions.ParseOptions();
 
     internal static CSharpCompilationOptions CompileOptions()
         => new CSharpCompilationOptions(
@@ -749,10 +756,7 @@ static class ValidityCheck
     }
 
     static bool HasAwaitSyntax(IrFunction function)
-        => function.Descendants.Any(static node =>
-            node is AwaitExpression
-                or UsingStatement { IsAwait: true }
-                or ForeachStatement { IsAwait: true });
+        => UnsafeAwaitOperand.ContainsAwait(function);
 
     static string ParameterText(Parameter parameter)
         => parameter.Type.Kind == TypeRefKind.ByRef

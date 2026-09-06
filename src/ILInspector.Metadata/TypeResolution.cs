@@ -23,13 +23,16 @@ public abstract class TypeResolutionStart
     {
         internal Assembly(
             ResolvedAssemblyReference value,
-            AssemblyResolutionScope scope)
+            AssemblyResolutionScope scope,
+            AssemblyBindingOccurrence? occurrence = null)
         {
             Value = value;
             Scope = scope;
+            Occurrence = occurrence;
         }
 
         public ResolvedAssemblyReference Value { get; }
+        public AssemblyBindingOccurrence? Occurrence { get; }
         public AssemblyResolutionScope Scope { get; }
     }
 
@@ -120,6 +123,20 @@ public sealed class TypeResolutionRequest
         return new(new TypeResolutionStart.Assembly(value, scope), type);
     }
 
+    /// <summary>Begins at a selected occurrence without losing its context.</summary>
+    public static TypeResolutionRequest FromOccurrence(
+        AssemblyBindingOccurrence occurrence,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ValidateScope(scope);
+        return new(
+            new TypeResolutionStart.Assembly(
+                occurrence.Assembly, scope, occurrence),
+            type);
+    }
+
     /// <summary>
     /// Creates a request that first binds an assembly reference.
     /// </summary>
@@ -167,6 +184,34 @@ public sealed class TypeResolutionRequest
             type);
     }
 
+    public static TypeResolutionRequest FromCoreLibraryOccurrence(
+        AssemblyBindingOccurrence requestingOccurrence,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(requestingOccurrence);
+        ValidateScope(scope);
+        return new(
+            new TypeResolutionStart.CoreLibrary(
+                AssemblyBindingOrigin.FromOccurrence(requestingOccurrence),
+                scope),
+            type);
+    }
+
+    public static TypeResolutionRequest FromModuleOccurrence(
+        AssemblyBindingOccurrence requestingOccurrence,
+        string moduleName,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(requestingOccurrence);
+        ArgumentException.ThrowIfNullOrWhiteSpace(moduleName);
+        return new(
+            new TypeResolutionStart.Module(
+                moduleName,
+                AssemblyBindingOrigin.FromOccurrence(requestingOccurrence)),
+            type);
+    }
+
     static void ValidateScope(AssemblyResolutionScope scope)
     {
         if (!Enum.IsDefined(scope))
@@ -176,7 +221,7 @@ public sealed class TypeResolutionRequest
 
 /// <summary>
 /// Compares type-resolution requests by the coordinates used by a frozen
-/// resolution manifest. Requesting assemblies remain registration-scoped.
+/// resolution manifest, including acquisition registration and lineage.
 /// </summary>
 public sealed class TypeResolutionRequestComparer
     : IEqualityComparer<TypeResolutionRequest>
@@ -216,6 +261,7 @@ internal abstract record TypeResolutionManifestKey(
             TypeResolutionStart.Assembly assembly =>
                 new Assembly(
                     assembly.Value.Registration,
+                    assembly.Occurrence?.Lineage,
                     assembly.Scope,
                     request.Type),
             TypeResolutionStart.Reference reference =>
@@ -226,12 +272,12 @@ internal abstract record TypeResolutionManifestKey(
                     request.Type),
             TypeResolutionStart.CoreLibrary core =>
                 new CoreLibrary(
-                    core.Origin.Registration,
+                    ManifestOriginKey.From(core.Origin),
                     core.Scope,
                     request.Type),
             TypeResolutionStart.Module module =>
                 new Module(
-                    module.Origin.Registration,
+                    ManifestOriginKey.From(module.Origin),
                     module.Name,
                     request.Type),
             _ => throw new InvalidOperationException(
@@ -240,6 +286,7 @@ internal abstract record TypeResolutionManifestKey(
 
     internal sealed record Assembly(
         AssemblyAcquisitionRegistration Registration,
+        AssemblyBindingLineage? Lineage,
         AssemblyResolutionScope Scope,
         MetadataTypeDefinitionName Name)
         : TypeResolutionManifestKey(Name);
@@ -252,13 +299,13 @@ internal abstract record TypeResolutionManifestKey(
         : TypeResolutionManifestKey(Name);
 
     internal sealed record CoreLibrary(
-        AssemblyAcquisitionRegistration Registration,
+        ManifestOriginKey Origin,
         AssemblyResolutionScope Scope,
         MetadataTypeDefinitionName Name)
         : TypeResolutionManifestKey(Name);
 
     internal sealed record Module(
-        AssemblyAcquisitionRegistration Registration,
+        ManifestOriginKey Origin,
         string ModuleName,
         MetadataTypeDefinitionName Name)
         : TypeResolutionManifestKey(Name);
@@ -266,7 +313,8 @@ internal abstract record TypeResolutionManifestKey(
 
 internal readonly record struct ManifestOriginKey(
     bool IsGlobal,
-    AssemblyAcquisitionRegistration? Registration)
+    AssemblyAcquisitionRegistration? Registration,
+    AssemblyBindingLineage? Lineage = null)
 {
     internal static ManifestOriginKey From(
         AssemblyBindingOrigin origin) =>
@@ -274,7 +322,10 @@ internal readonly record struct ManifestOriginKey(
         {
             AssemblyBindingOrigin.GlobalOrigin => new(true, null),
             AssemblyBindingOrigin.RequestingAssembly assembly =>
-                new(false, assembly.Registration),
+                new(
+                    false,
+                    assembly.Registration,
+                    AssemblyBindingLineage.BindingContext(assembly.Lineage)),
             _ => throw new InvalidOperationException(
                 "Unknown assembly-binding origin."),
         };
@@ -513,13 +564,16 @@ public abstract class TypeResolutionFailure
     {
         internal KindDependencyTypeNotFound(
             ResolvedAssemblyCandidate assembly,
+            AssemblyBindingOccurrence occurrence,
             MetadataTypeDefinitionName type)
         {
             Assembly = assembly;
+            Occurrence = occurrence;
             Type = type;
         }
 
         public ResolvedAssemblyCandidate Assembly { get; }
+        public AssemblyBindingOccurrence Occurrence { get; }
         public MetadataTypeDefinitionName Type { get; }
     }
 
@@ -945,6 +999,7 @@ public sealed class ResolvedTypeDefinition
         ResolvedTypeDefinitionKey key,
         MetadataTypeDefinitionAddress address,
         ResolvedAssemblyCandidate assembly,
+        AssemblyBindingOccurrence occurrence,
         MetadataTypeDefinitionName type,
         MetadataTypeDefinitionKind kind,
         bool declaringAssemblyDefinesCoreLibraryRoot,
@@ -956,6 +1011,7 @@ public sealed class ResolvedTypeDefinition
         Key = key;
         Address = address;
         Assembly = assembly;
+        Occurrence = occurrence;
         Type = type;
         Kind = kind;
         DeclaringAssemblyDefinesCoreLibraryRoot =
@@ -969,6 +1025,7 @@ public sealed class ResolvedTypeDefinition
     public ResolvedTypeDefinitionKey Key { get; }
     public MetadataTypeDefinitionAddress Address { get; }
     public ResolvedAssemblyCandidate Assembly { get; }
+    public AssemblyBindingOccurrence Occurrence { get; }
     public MetadataTypeDefinitionName Type { get; }
     public MetadataTypeDefinitionKind Kind { get; }
     internal int GenericParameterCount { get; }
@@ -991,17 +1048,20 @@ public sealed class TypeForwardingHop
 {
     internal TypeForwardingHop(
         ResolvedAssemblyCandidate sourceAssembly,
+        AssemblyBindingOccurrence sourceOccurrence,
         ImmutableArray<ExportedTypeToken> declarations,
         AssemblyReferenceIdentity targetReference,
         AssemblyResolutionScope scope)
     {
         SourceAssembly = sourceAssembly;
+        SourceOccurrence = sourceOccurrence;
         Declarations = declarations;
         TargetReference = targetReference;
         Scope = scope;
     }
 
     public ResolvedAssemblyCandidate SourceAssembly { get; }
+    public AssemblyBindingOccurrence SourceOccurrence { get; }
     public ImmutableArray<ExportedTypeToken> Declarations { get; }
     public AssemblyReferenceIdentity TargetReference { get; }
     public AssemblyResolutionScope Scope { get; }
@@ -1043,15 +1103,18 @@ public abstract class TypeResolutionAmbiguity
     {
         internal TypeDeclaration(
             ResolvedAssemblyCandidate assembly,
+            AssemblyBindingOccurrence occurrence,
             MetadataTypeDefinitionName type,
             ImmutableArray<TypeDeclarationCandidate> candidates)
         {
             Assembly = assembly;
+            Occurrence = occurrence;
             Type = type;
             Candidates = candidates;
         }
 
         public ResolvedAssemblyCandidate Assembly { get; }
+        public AssemblyBindingOccurrence Occurrence { get; }
         public MetadataTypeDefinitionName Type { get; }
         public ImmutableArray<TypeDeclarationCandidate> Candidates { get; }
     }
@@ -1064,10 +1127,15 @@ public abstract class TypeResolutionAmbiguity
 public abstract class TypeResolutionOutcome
 {
     private protected TypeResolutionOutcome(
-        ImmutableArray<TypeForwardingHop> hops) =>
+        ImmutableArray<TypeForwardingHop> hops,
+        AssemblyBindingOccurrence? terminalOccurrence = null)
+    {
         Hops = hops;
+        TerminalOccurrence = terminalOccurrence;
+    }
 
     public ImmutableArray<TypeForwardingHop> Hops { get; }
+    public AssemblyBindingOccurrence? TerminalOccurrence { get; }
 
     /// <summary>
     /// Exact identity of the terminal assembly named by the outcome. Rejected
@@ -1124,7 +1192,8 @@ public abstract class TypeResolutionOutcome
     {
         internal Resolved(
             ResolvedTypeDefinition definition,
-            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            ImmutableArray<TypeForwardingHop> hops)
+            : base(hops, definition.Occurrence) =>
             Definition = definition;
         public ResolvedTypeDefinition Definition { get; }
     }
@@ -1137,9 +1206,14 @@ public abstract class TypeResolutionOutcome
     {
         internal NotFound(
             ResolvedAssemblyCandidate lastAssembly,
-            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            AssemblyBindingOccurrence lastOccurrence,
+            ImmutableArray<TypeForwardingHop> hops) : base(hops, lastOccurrence)
+        {
             LastAssembly = lastAssembly;
+            LastOccurrence = lastOccurrence;
+        }
         public ResolvedAssemblyCandidate LastAssembly { get; }
+        public AssemblyBindingOccurrence LastOccurrence { get; }
     }
 
     /// <summary>Policy found no assembly for the required binding.</summary>
@@ -1204,7 +1278,12 @@ public abstract class TypeResolutionOutcome
     {
         internal Ambiguous(
             TypeResolutionAmbiguity ambiguity,
-            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            ImmutableArray<TypeForwardingHop> hops)
+            : base(
+                hops,
+                ambiguity is TypeResolutionAmbiguity.TypeDeclaration declaration
+                    ? declaration.Occurrence
+                    : null) =>
             Ambiguity = ambiguity;
         public TypeResolutionAmbiguity Ambiguity { get; }
     }
@@ -1214,7 +1293,9 @@ public abstract class TypeResolutionOutcome
     {
         internal Rejected(
             TypeResolutionFailure failure,
-            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            ImmutableArray<TypeForwardingHop> hops,
+            AssemblyBindingOccurrence? terminalOccurrence = null)
+            : base(hops, terminalOccurrence) =>
             Failure = failure;
         public TypeResolutionFailure Failure { get; }
     }

@@ -33,7 +33,9 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
+| [Dependency Inspection Command](design/dependency-inspection-command.md) | Target unification of dependency graph traversal and normalized evidence under one asset-driven `depends` operation. |
 | [Search Scope Resolution](design/search-scope-resolution.md) | Default activation, explicit-source suppression and composition, and named platform/package scope expansion for search commands. |
+| [Typed Source Intent](design/search-scope-domain.md) | Immutable source declarations, bounded package-prefix requests, and pure search normalization ahead of staged host adoption. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
 | [Repository Dependency Policy](dependency-policy.md) | Evaluated project and compiled assembly dependency rules, JSON policy semantics, and the Release CI gate. |
@@ -76,6 +78,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Finding Producer Design](design/finding-producers.md) | Choosing producer ownership, payloads, identities, result shapes, matching modes, and higher-rung boundaries. |
 | [Finding Instance Census](design/finding-instance-census.md) | Producer-issued receipt and per-instance keys for one sealed Finding census, including exact-association validation. |
 | [Research Finding Census Projection](design/research-finding-census-projection.md) | Preserving one producer-sealed body-fact census through Facts and Annotated Source without shape-derived identity. |
+| [Member Source Presentation](design/member-source-presentation.md) | CLI presentation of one Research-issued Finding census across member Facts and Annotated Source output. |
 | [Finding Value Semantics](design/finding-value-equality.md) | Equality and hashing for Finding-owned structural values, ordered collections, identity sets, union cases, and operation objects. |
 | [Analysis Diff Format](design/analysis-diff.md) | Complete immutable two-version item sequences and exhaustive producer-issued N:M relations for shared CLI and browser/Wasm analysis. |
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
@@ -88,6 +91,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
 | [Integration Scanner Binding](design/integration-scanner-binding.md) | Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution; catalog and host adoption remain staged. |
 | [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
+| [Approved Lazy Traversal](design/approved-lazy-traversal.md) | Proposed, operator-approved cross-owner experience: distinct subjects and traversal permissions, prefix/ecosystem knowledge, lazy demand, Browser defaults, and bounded prefix-only operations. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -136,6 +140,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspect Web SlideStrip](design/inspect-web-slide-strip.md) | Reusable single-region ordered-item control with Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](design/inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
 | [Inspect Web Saved Workspaces](design/inspect-web-saved-workspaces.md) | Named browser-local Save/Open/Forget using canonical packets and the existing one-live-Workspace restoration path. |
+| [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md) | Proposed Browser editor eligibility, explicit Save/Cancel, Inspect terminology, and dirty in-app navigation decisions; owner-backed save completion remains prerequisite work. |
 | [Inspect Web Workspace Add package](design/inspect-web-workspace-add-package.md) | Focused package-search picker appending a resolved coordinate without replacing or evicting current members. |
 | [Inspect Web Navigation Consumer](design/inspect-web-navigation-consumer.md) | Browser-side navigation-result consumer model: canonical location, browser history, transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](design/inspect-web-shell-interaction.md) | Persistent shell and shared transient/routed surface interaction: shell actions, menu/modal semantics, Spotlight Search, Open, Settings entry, and the command palette. |

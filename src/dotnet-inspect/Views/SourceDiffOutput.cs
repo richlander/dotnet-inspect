@@ -17,7 +17,7 @@ public sealed class SourceDiffOutput : IMarkoutFormattable
     /// <summary>The producer-owned source-text analysis, when comparison completed.</summary>
     public AnalysisDiff<string>? Analysis { get; }
 
-    /// <summary>The complete mapped diff, when the endpoints differ.</summary>
+    /// <summary>The complete mapped diff, when comparison completed.</summary>
     public MappedTextDiff? Diff { get; }
 
     /// <summary>Structured provenance, status, or summary fields rendered before the diff.</summary>
@@ -30,16 +30,6 @@ public sealed class SourceDiffOutput : IMarkoutFormattable
     public SourceDiffOutput(string status)
         : this(
             analysis: null,
-            diff: null,
-            fields: [new MarkoutField("Status", status)],
-            showDiff: false)
-    {
-    }
-
-    /// <summary>Creates a visible status result for a completed comparison.</summary>
-    public SourceDiffOutput(string status, AnalysisDiff<string> analysis)
-        : this(
-            analysis,
             diff: null,
             fields: [new MarkoutField("Status", status)],
             showDiff: false)

@@ -89,6 +89,241 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void UnsafeEvaluation_IsNotInlinedIntoAwait()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(Holder, "get_Risky", Int32, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Int32,
+            new LoadProperty(
+                getter,
+                new LoadArgument(0, "holder", Holder),
+                [])));
+        block.Add(new Return(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new LoadLocal(0, Int32)]),
+            Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("holder", Holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("unsafe\n{\n    V_0 = holder.Risky;", output);
+        Assert.Contains("return await", output);
+        Assert.Contains("FromResult(V_0);", output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", output);
+    }
+
+    [Fact]
+    public void AwaitEvaluation_IsNotInlinedIntoUnsafeConsumer()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var risky = new MethodRef(Holder, "Risky", Int32, [Int32], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Int32,
+            new AwaitExpression(
+                new LoadArgument(0, "task", taskOfInt),
+                Int32)));
+        block.Add(new Return(new Call(
+            risky,
+            isVirtual: false,
+            [new LoadLocal(0, Int32)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("task", taskOfInt)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("int V_0 = await task;", output);
+        Assert.Contains("return Risky(V_0);", output);
+        Assert.DoesNotContain("Risky(await", output);
+        Assert.DoesNotContain("unsafe\n{\n    return Holder.Risky(await", output);
+    }
+
+    [Fact]
+    public void UnsafeEvaluation_IsNotInlinedIntoHeaderWhoseBodyAwaits()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(Holder, "get_Risky", Bool, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+        var thenArm = new Block();
+        thenArm.Add(new ExpressionStatement(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new Constant(1, Int32)]),
+            Int32)));
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Bool,
+            new LoadProperty(
+                getter,
+                new LoadArgument(0, "holder", Holder),
+                [])));
+        block.Add(new IfStatement(
+            new LoadLocal(0, Bool),
+            thenArm,
+            elseArm: null));
+        block.Add(new Return(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new Constant(2, Int32)]),
+            Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("holder", Holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Bool],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("V_0 = holder.Risky;", output);
+        Assert.Contains("if (V_0)", output);
+        Assert.DoesNotContain("if (holder.Risky)", output);
+        Assert.DoesNotContain("unsafe\n{\n    if", output);
+    }
+
+    [Fact]
+    public void UpdatedSafePointerComparison_IsNotAnUnsafeAwaitOperand()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var comparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(0, pointer),
+            new Constant(null, pointer));
+
+        Assert.False(UnsafeAwaitOperand.RequiresUnsafeContext(
+            comparison,
+            usesUpdatedMemorySafetyRules: true));
+    }
+
+    [Fact]
+    public void CallerModel_EnforcesNormalizedPointerContracts()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var unresolved = new MethodRef(
+            Holder,
+            "External",
+            Int32,
+            [pointer],
+            HasThis: false);
+        var knownSafe = unresolved with
+        {
+            RequiresUnsafeFact = MetadataFactState.No,
+        };
+        var implicitContract = unresolved with
+        {
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
+        var explicitContract = unresolved with
+        {
+            RequiresUnsafe = true,
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
+
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            unresolved,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            knownSafe,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            knownSafe,
+            usesUpdatedMemorySafetyRules: false));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            implicitContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            implicitContract,
+            usesUpdatedMemorySafetyRules: false));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            explicitContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            explicitContract,
+            usesUpdatedMemorySafetyRules: false));
+    }
+
     // A pure value (no effect, cannot throw) is still unsound to defer past a
     // write to a place it READS. A slot holds `x + 1`; a for-loop follows whose
     // initializer assigns `x = 10`. The slot's single load sits in the loop

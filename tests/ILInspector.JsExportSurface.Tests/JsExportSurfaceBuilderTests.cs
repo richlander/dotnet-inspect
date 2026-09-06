@@ -39,7 +39,7 @@ public sealed class JsExportSurfaceBuilderTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
-            includeAll: false);
+            includeAll: true);
         return JsExportSurfaceBuilder.Build(
             apiSurface,
             OpenWireContractBodyIndex(path));

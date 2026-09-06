@@ -58,9 +58,10 @@ public sealed class ExpressionInliningPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        bool functionContainsAwait = UnsafeAwaitOperand.ContainsAwait(function);
         while (InlineReturnedCallArgumentRunOnce(function, context)
-            || InlineOnce(function, context, _slotsOnly)
-            || InlineLiveRangeOnce(function, context))
+            || InlineOnce(function, context, _slotsOnly, functionContainsAwait)
+            || InlineLiveRangeOnce(function, context, functionContainsAwait))
         {
         }
     }
@@ -118,7 +119,11 @@ public sealed class ExpressionInliningPass : IIrPass
         return false;
     }
 
-    static bool InlineOnce(IrFunction function, PassContext context, bool slotsOnly)
+    static bool InlineOnce(
+        IrFunction function,
+        PassContext context,
+        bool slotsOnly,
+        bool functionContainsAwait)
     {
         var locals = new Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)>();
         var argumentAddresses = new HashSet<int>();
@@ -256,6 +261,23 @@ public sealed class ExpressionInliningPass : IIrPass
             if (!firstLeaf && DefersPastConflictingWrite(store is StoreLocal s2 ? s2.Value : ((StoreStackSlot)store).Value, next))
                 continue;
 
+            var storedValue = store is StoreLocal localStore
+                ? localStore.Value
+                : ((StoreStackSlot)store).Value;
+            if (UnsafeAwaitOperand.RequiresUnsafeContext(
+                    storedValue,
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit)
+                && (UnsafeAwaitOperand.ContainsAwait(next)
+                    || functionContainsAwait && IsUnstructuredBranch(next)))
+                continue;
+            if (UnsafeAwaitOperand.ContainsAwait(storedValue)
+                && UnsafeAwaitOperand.RequiresUnsafeContext(
+                    next,
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit))
+                continue;
+
             var value = (IrExpression)store.DetachChildren()[0];
 
             context.Stepper.StepOver(
@@ -282,7 +304,10 @@ public sealed class ExpressionInliningPass : IIrPass
     /// and a use that sits past interleaved statements, by reasoning over the
     /// store's live range instead of function-wide counts.
     /// </summary>
-    static bool InlineLiveRangeOnce(IrFunction function, PassContext context)
+    static bool InlineLiveRangeOnce(
+        IrFunction function,
+        PassContext context,
+        bool functionContainsAwait)
     {
         var argumentAddresses = new HashSet<int>();
         var addressTakenLocals = new HashSet<int>();
@@ -374,6 +399,20 @@ public sealed class ExpressionInliningPass : IIrPass
                 // A value that reads places must still evaluate first at the use
                 // site; an effect-free value that reads nothing can land anywhere.
                 if ((reads.Count > 0 || RequiresFirstEvaluation(value)) && !IsFirstEvaluatedLeaf(use, useStatement))
+                    continue;
+                if (UnsafeAwaitOperand.RequiresUnsafeContext(
+                        value,
+                        function.UsesUpdatedMemorySafetyRules,
+                        function.SkipLocalsInit)
+                    && (UnsafeAwaitOperand.ContainsAwait(useStatement)
+                        || functionContainsAwait
+                            && IsUnstructuredBranch(useStatement)))
+                    continue;
+                if (UnsafeAwaitOperand.ContainsAwait(value)
+                    && UnsafeAwaitOperand.RequiresUnsafeContext(
+                        useStatement,
+                        function.UsesUpdatedMemorySafetyRules,
+                        function.SkipLocalsInit))
                     continue;
 
                 var inlined = (IrExpression)block.Children[si].DetachChildren()[0];
@@ -621,6 +660,9 @@ public sealed class ExpressionInliningPass : IIrPass
         }
         return false;
     }
+
+    static bool IsUnstructuredBranch(IrNode statement)
+        => statement is ConditionalBranch or SwitchBranch;
 
     /// <summary>True when the node is the first thing the statement evaluates: the spine of first children.</summary>
     static bool IsFirstEvaluatedLeaf(IrNode node, IrNode statement)

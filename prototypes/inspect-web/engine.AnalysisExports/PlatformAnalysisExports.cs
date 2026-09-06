@@ -40,22 +40,27 @@ public static partial class AnalysisExports
         string assemblyFileName,
         string pack)
     {
-        using BrowserPlatformScopeResolution resolution =
+        BrowserPackageIntegrations integrations;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        AssemblyIntegrationsEntry result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                AssemblyContextIntegrationsQuery.ExecuteParticipant);
-        return JsonSerializer.Serialize(
-            CreateIntegrations(
+                pack))
+        {
+            AssemblyIntegrationsEntry result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextIntegrationsQuery.ExecuteParticipant);
+            integrations = CreateIntegrations(
                 BrowserPlatformIdentity.PackageName,
                 resolution.Coordinate.Version,
                 resolution.Scope.Framework,
-                [result]),
+                [result]);
+        }
+
+        return JsonSerializer.Serialize(
+            integrations,
             BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations);
     }
 
@@ -76,23 +81,28 @@ public static partial class AnalysisExports
         string assemblyFileName,
         string pack)
     {
-        using BrowserPlatformScopeResolution resolution =
+        BrowserPackageOpportunities opportunities;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        AssemblyIntegrationOpportunitiesEntry result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                AssemblyContextIntegrationOpportunitiesQuery
-                    .ExecuteParticipant);
-        return JsonSerializer.Serialize(
-            CreateOpportunities(
+                pack))
+        {
+            AssemblyIntegrationOpportunitiesEntry result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextIntegrationOpportunitiesQuery
+                        .ExecuteParticipant);
+            opportunities = CreateOpportunities(
                 BrowserPlatformIdentity.PackageName,
                 resolution.Coordinate.Version,
                 resolution.Scope.Framework,
-                [result]),
+                [result]);
+        }
+
+        return JsonSerializer.Serialize(
+            opportunities,
             BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities);
     }
 

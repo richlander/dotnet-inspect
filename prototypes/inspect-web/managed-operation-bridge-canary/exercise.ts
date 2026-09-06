@@ -727,3 +727,172 @@ export async function exerciseSharedBridge(
   await exerciseSharedCancellationOrigin();
   return bridge.verifySharedBaseline();
 }
+
+export interface EpochExerciseOptions {
+  readonly allowance: string;
+  readonly started: (registration: number, sequence: number, allowance: string) => void;
+  readonly finished: (registration: number, sequence: number) => void;
+  readonly finishEarly?: boolean;
+  readonly skipReuse?: boolean;
+}
+
+function expectEpochOwnership(
+  producerId: string,
+  activeLeases: number,
+  faultRecords: number,
+  name: string,
+): void {
+  const producer = bridge.getSharedSnapshot(producerId);
+  const epoch = bridge.getEpochWorkSnapshot();
+  expect(producer.waiterCount, 0, `${name} remaining waiters`);
+  expect(producer.activeOperations, 0, `${name} active operations`);
+  expect(producer.settledOperations, producer.operations, `${name} settled managed tasks`);
+  expect(producer.producerCompleted, false, `${name} physical completion`);
+  expect(epoch.activeLeases, activeLeases, `${name} active leases`);
+  expect(epoch.faultRecords, faultRecords, `${name} fault records`);
+  expect(epoch.pendingCallouts, 0, `${name} pending callouts`);
+  expect(epoch.registered, true, `${name} reporter registered`);
+}
+
+async function cancelEpochWaiter(
+  operationId: string,
+  operation: Promise<bridge.OperationResultEnvelope>,
+): Promise<void> {
+  expectRequested(bridge.requestCancellation(operationId, "user"), "User", "Leased waiter");
+  expectCanceled(await operation, "User", "Leased waiter");
+}
+
+export async function exerciseEpochBridge(
+  options: EpochExerciseOptions,
+): Promise<bridge.EpochVerificationReceipt> {
+  let currentProducer = "";
+  const starts: number[] = [];
+  const finishes: number[] = [];
+  const register = (registration: number, failure?: "start" | "finish"): void => {
+    bridge.registerEpochReporter(options.allowance, (sequence, allowance): undefined => {
+      const producer = bridge.getSharedSnapshot(currentProducer);
+      expect(producer.waiterCount, 1, "Epoch start represented final waiter");
+      expect(producer.activeOperations, 1, "Epoch start active operation");
+      expect(allowance, options.allowance, "Opaque allowance round trip");
+      if (failure === "start") throw new Error("Epoch start observer failed.");
+      starts.push(sequence);
+      options.started(registration, sequence, allowance);
+      return undefined;
+    }, (sequence): undefined => {
+      expect(bridge.getSharedSnapshot(currentProducer).producerCompleted,
+        true, "Epoch finish physical completion");
+      finishes.push(sequence);
+      options.finished(registration, sequence);
+      if (failure === "finish") throw new Error("Epoch finish observer failed.");
+      return undefined;
+    });
+  };
+
+  register(1);
+  currentProducer = "epoch-shared";
+  bridge.createLeasedSharedProducer(currentProducer, "natural-success");
+  const firstWitness = newProgressWitness();
+  const first = bridge.runSharedOperation("epoch-a", currentProducer, observeProgress(firstWitness));
+  const secondWitness = newProgressWitness();
+  const second = bridge.runSharedOperation("epoch-b", currentProducer, observeProgress(secondWitness));
+  await cancelEpochWaiter("epoch-a", first);
+  expect(starts.length, 0, "Non-final waiter lease allocations");
+  await cancelEpochWaiter("epoch-b", second);
+  expect(starts.join(","), "1", "Final waiter lease start before settlement");
+  expectEpochOwnership(currentProducer, 1, 0, "Epoch handoff");
+  expectThrows(() => bridge.unregisterEpochReporter(), "Unregister active epoch reporter");
+  bridge.reportSharedProgress(currentProducer, 2);
+  expectProgress(firstWitness, ["1:started:false"], "Leased detached callback");
+  expectProgress(secondWitness, [], "Leased neighbor callback");
+
+  if (options.skipReuse !== true) {
+    const laterWitness = newProgressWitness();
+    const later = bridge.runSharedOperation("epoch-later", currentProducer, observeProgress(laterWitness));
+    bridge.reportSharedProgress(currentProducer, 3);
+    expectProgress(laterWitness, ["3:shared:false"], "Later leased waiter");
+    await cancelEpochWaiter("epoch-later", later);
+    expect(starts.join(","), "1", "Reused lease start notifications");
+    expectEpochOwnership(currentProducer, 1, 0, "Reused epoch handoff");
+    bridge.reportSharedProgress(currentProducer, 9);
+    expectProgress(laterWitness, ["3:shared:false"], "Later detached callback");
+  }
+  bridge.completeSharedProducer(currentProducer);
+  if (options.finishEarly === true) bridge.finishSharedFinalization(currentProducer);
+  await waitForSharedPhase(currentProducer, "finalizing");
+  expectEpochOwnership(currentProducer, 1, 0, "Epoch finalization");
+  expect(finishes.length, 0, "Finish notifications before physical finalization");
+  bridge.finishSharedFinalization(currentProducer);
+  expect(await bridge.observeLeasedProducer(currentProducer), "shared-success", "Leased completion");
+  expect(finishes.join(","), "1", "Finalized lease notification");
+  closeSharedScenario(currentProducer, [firstWitness, secondWitness]);
+
+  currentProducer = "epoch-next";
+  bridge.createLeasedSharedProducer(currentProducer, "natural-success");
+  const nextWitness = newProgressWitness();
+  const next = bridge.runSharedOperation(currentProducer, currentProducer, observeProgress(nextWitness));
+  await cancelEpochWaiter(currentProducer, next);
+  expect(starts.join(","), "1,2", "Sequence not reused after finish");
+  bridge.completeSharedProducer(currentProducer);
+  await waitForSharedPhase(currentProducer, "finalizing");
+  expectEpochOwnership(currentProducer, 1, 0, "Next epoch producer");
+  bridge.finishSharedFinalization(currentProducer);
+  expect(await bridge.observeLeasedProducer(currentProducer), "shared-success", "Next leased completion");
+  closeSharedScenario(currentProducer, [nextWitness]);
+
+  currentProducer = "epoch-late-failure";
+  bridge.createLeasedSharedProducer(currentProducer, "late-failure");
+  const lateWitness = newProgressWitness();
+  const late = bridge.runSharedOperation(currentProducer, currentProducer, observeProgress(lateWitness));
+  await cancelEpochWaiter(currentProducer, late);
+  expect(starts.join(","), "1,2,3", "Late producer sequence");
+  const lateFailure = expectRejected(bridge.observeLeasedProducer(currentProducer), "Late leased failure");
+  const drain = bridge.drainEpochReporter();
+  const draining = observeSettlement(drain);
+  bridge.completeSharedProducer(currentProducer);
+  await waitForSharedPhase(currentProducer, "finalizing");
+  expectEpochOwnership(currentProducer, 1, 0, "Late leased finalization");
+  expect(draining.settled, false, "Epoch drain before producer finalization");
+  expectThrows(() => bridge.unregisterEpochReporter(), "Unregister draining epoch reporter");
+  bridge.finishSharedFinalization(currentProducer);
+  await lateFailure;
+  await drain;
+  expect(finishes.join(","), "1,2,3", "Healthy epoch finish notifications");
+  closeSharedScenario(currentProducer, [lateWitness]);
+  bridge.unregisterEpochReporter();
+
+  for (const [registration, failure] of [[2, "start"], [3, "finish"]] as const) {
+    currentProducer = `epoch-${failure}-failure`;
+    register(registration, failure);
+    bridge.createLeasedSharedProducer(
+      currentProducer, failure === "start" ? "stop-and-drain" : "natural-success");
+    const witness = newProgressWitness();
+    const operation = bridge.runSharedOperation(currentProducer, currentProducer, observeProgress(witness));
+    const rejection = failure === "start" ? expectRejected(operation, "Failed lease start") : undefined;
+    expectRequested(bridge.requestCancellation(currentProducer, "user"), "User", "Failing epoch waiter");
+    if (rejection !== undefined) await rejection;
+    else expectCanceled(await operation, "User", "Finish-failure waiter");
+    expectEpochOwnership(currentProducer, failure === "start" ? 0 : 1,
+      failure === "start" ? 1 : 0, "Failing epoch ownership");
+    expect(bridge.getSharedSnapshot(currentProducer).stopRequests,
+      failure === "start" ? 1 : 0, "Failed-start permitted stop");
+    const observation = expectRejected(
+      bridge.observeLeasedProducer(currentProducer), "Failed epoch producer observation");
+    const failedDrain = bridge.drainEpochReporter();
+    const drainSettlement = observeSettlement(failedDrain);
+    const drainFailure = expectRejected(failedDrain, "Failed epoch drain");
+    if (failure === "finish") bridge.completeSharedProducer(currentProducer);
+    await waitForSharedPhase(currentProducer, "finalizing");
+    expect(drainSettlement.settled, false, "Failed epoch drain before physical finalization");
+    expectThrows(() => bridge.unregisterEpochReporter(), "Unregister retained failed work");
+    bridge.finishSharedFinalization(currentProducer);
+    await observation;
+    await drainFailure;
+    expect(bridge.getEpochWorkSnapshot().activeLeases, 0, "Failed epoch terminal leases");
+    expect(bridge.getEpochWorkSnapshot().faultRecords, 0, "Failed epoch terminal fault records");
+    closeSharedScenario(currentProducer, [witness]);
+    bridge.unregisterEpochReporter();
+  }
+  expect(starts.join(","), "1,2,3,1", "All accepted start notifications");
+  expect(finishes.join(","), "1,2,3,1", "All finish attempts without retry");
+  return bridge.verifyEpochBaseline();
+}

@@ -5,6 +5,16 @@ presentation contract for the CLI consumer tracked by #5534.
 
 **Status:** implementation target.
 
+> [!NOTE]
+> [Dependency Inspection Command](dependency-inspection-command.md) defines the
+> target convergence of this command and `depends` into one asset-driven
+> `depends` operation. This document remains the current implementation
+> contract until that migration and the explicit retirement of
+> `dependency-evidence` land. Its prior conclusion that heterogeneous root
+> cardinality requires a separate operation is superseded for that target:
+> the unified command closes one or several roots into one dependency document
+> and one per-root completion model.
+
 ## Owner and claim
 
 The `dependency-evidence` command owns the CLI operation:
