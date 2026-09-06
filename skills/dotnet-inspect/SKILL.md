@@ -25,7 +25,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 | Compare APIs or method bodies | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions); `match Type.MethodA Type.MethodB --package Foo --body` adds C#/IL body differences to the structural result; `match Type.Method --similar --package Foo` ranks structural candidates for discovery. |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo`; use `-D` to discover sections and `-S "Signals,Audit: Findings"` to audit text-bearing files and SourceLink mappings. Load `skill private-feeds` for custom/authenticated sources. |
-| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to preserve an ordered package occurrence set. |
+| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to compose ordered package Roots. Exact duplicates coalesce; packages without compile assemblies remain members. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Dependencies and relationships | `dependency-evidence --package Foo --tfm net10.0` for direct declarations; `depends Type`, `extensions Type`, or `implements Interface` for traversed relationships. Load `skill relationships` for scopes and semantics. |
 

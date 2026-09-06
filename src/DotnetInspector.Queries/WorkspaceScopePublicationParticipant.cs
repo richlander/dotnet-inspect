@@ -2,10 +2,19 @@ using System.Collections.Immutable;
 
 namespace DotnetInspector.Queries;
 
-// Scope implements this internal seam in #5821. It is deliberately unavailable
-// to hosts and cannot accept a public callback or an arbitrary plugin.
-internal sealed class WorkspaceScopePublicationBaseIdentity;
-internal sealed class WorkspaceScopePublicationOperationIdentity;
+/// <summary>Erasing identity for one exact Scope current-snapshot issuance.</summary>
+public sealed class WorkspaceScopePublicationBaseIdentity
+{
+    internal WorkspaceScopePublicationBaseIdentity() { }
+}
+
+/// <summary>Erasing identity for one Scope operation.</summary>
+public sealed class WorkspaceScopePublicationOperationIdentity
+{
+    internal WorkspaceScopePublicationOperationIdentity() { }
+}
+
+// The participant seam remains internal; hosts cannot supply callbacks.
 internal sealed class WorkspaceScopePublicationCandidateIdentity;
 
 internal abstract class WorkspaceScopePublicationResult;

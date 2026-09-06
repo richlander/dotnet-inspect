@@ -223,6 +223,7 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
+import { renderOverviewSurface } from "./overview-surface.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -3505,6 +3506,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const overviewWorkingSurface =
+    (activeScope === "package" && state.packageLens === "overview")
+    || (activeScope === "library" && state.libraryLens === "overview"
+      && selectedLibrary() !== null);
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
   const libraryMetadataWorkingSurface =
@@ -3543,6 +3548,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationIntegrated =
     apiWorkingSurface
     || metadataWorkingSurface
+    || overviewWorkingSurface
     || packageDependenciesWorkingSurface
     || libraryMetadataWorkingSurface
     || memberWorkingSurface;
@@ -3630,7 +3636,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3663,9 +3669,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       highlightCSharp,
     })}`;
 
-  const packageIcon =
-    document.querySelector<HTMLImageElement>("[data-package-icon]");
-  if (packageIcon) {
+  for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
     packageIcon.onerror = () => {
       if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
       packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
@@ -4175,19 +4179,6 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageHeading() {
-  const pkg = currentPackage();
-  return `<header class="type-heading">
-    <div class="type-badge">${pkg.isRuntimePack ? "◎" : "⬡"}</div>
-    <div>
-      <div class="type-namespace">${pkg.isRuntimePack ? "Shared framework" : "NuGet package"}</div>
-      <h1>${escapeHtml(packageDisplayName(pkg))}</h1>
-      <code class="type-signature">${pkg.isRuntimePack ? `${escapeHtml(packageDisplayName(pkg))} · ${escapeHtml(pkg.version)}` : `${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}`}</code>
-    </div>
-    <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
-  </header>`;
-}
-
 function packageCoordinateFields() {
   const pkg = currentPackage();
   return `<label class="version-select">
@@ -4204,21 +4195,12 @@ function packageCoordinateFields() {
   </label>`;
 }
 
-function packageCoordinateControls() {
-  const pkg = currentPackage();
-  return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
-    <div class="section-title">
-      <h2 id="package-coordinate-heading">Package coordinate</h2>
-      <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
-    </div>
-    <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
-  </section>`;
+function renderPackageView() {
+  return packageLensBody();
 }
 
-function renderPackageView() {
-  const body = packageLensBody();
-  if (state.packageLens === "dependencies") return body;
-  return `${packageHeading()}${packageCoordinateControls()}${body}`;
+function libraryIdentity(library: NonNullable<ReturnType<typeof selectedLibrary>>) {
+  return `${library.name}, Version=${library.version}, Culture=${library.culture || "neutral"}, PublicKeyToken=${library.publicKeyToken || "null"}`;
 }
 
 function libraryHeading() {
@@ -4229,7 +4211,7 @@ function libraryHeading() {
     <div>
       <div class="type-namespace">${escapeHtml(library.asset || "Managed library")}</div>
       <h1>${escapeHtml(library.name)}</h1>
-      <code class="type-signature">${escapeHtml(`${library.name}, Version=${library.version}, Culture=${library.culture || "neutral"}, PublicKeyToken=${library.publicKeyToken || "null"}`)}</code>
+      <code class="type-signature">${escapeHtml(libraryIdentity(library))}</code>
     </div>
     <div class="type-metrics"><span><strong>${library.types}</strong> types</span><span><strong>${library.members.toLocaleString()}</strong> members</span></div>
   </header>`;
@@ -4237,7 +4219,8 @@ function libraryHeading() {
 
 function renderLibraryView() {
   const body = libraryLensBody();
-  if (state.libraryLens === "metadata") return body;
+  if (state.libraryLens === "overview"
+    || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
 
@@ -5286,12 +5269,27 @@ function renderPackageOverview() {
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
 
-  return `
+  const contentHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${libraries.length} admitted</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
       <div class="library-list">${libraryRows || '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>'}</div>
     </section>${documentsSection}`;
+
+  return renderOverviewSurface({
+    subject: "package",
+    subjectLabel: pkg.isRuntimePack ? "Shared framework" : "Package",
+    displayName: packageDisplayName(pkg),
+    iconHtml: renderInspectedSubjectIcon(pkg),
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    totalTypes: pkg.totalTypes,
+    totalMembers: pkg.totalMembers,
+    coordinateFieldsHtml: packageCoordinateFields(),
+    contentHtml,
+    escapeHtml,
+  });
 }
 
 function renderLibraryOverview() {
@@ -5330,7 +5328,7 @@ function renderLibraryOverview() {
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
-  return `
+  const contentHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Public surface</h2><span>${library.types} types · ${library.members.toLocaleString()} members</span></div>
       <div class="type-chip-list">${kindChips || '<span class="empty-list">No public types.</span>'}</div>
@@ -5339,6 +5337,22 @@ function renderLibraryOverview() {
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
       <div class="type-chip-list">${namespaceChips}${nsOverflow}</div>
     </section>`;
+
+  const pkg = currentPackage();
+  return renderOverviewSurface({
+    subject: "library",
+    subjectLabel: "Library",
+    displayName: library.name,
+    iconHtml: renderInspectedSubjectIcon(pkg),
+    details: [library.asset || "Managed library", libraryIdentity(library)],
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    totalTypes: library.types,
+    totalMembers: library.members,
+    contentHtml,
+    escapeHtml,
+  });
 }
 
 function renderGraphMemberPendingHtml(

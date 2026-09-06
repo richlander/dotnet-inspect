@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -188,7 +189,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData(false, "net11.0", null, "lib/net11.0/Test.dll", false)]
     [InlineData(false, "net11.0", "producer", "tools/net11.0/any/Test.dll", false)]
     [InlineData(false, "net35-Unity Full v3.5", "producer", "lib/net35-Unity Full v3.5/Test.dll", false)]
-    public void ArtifactBackedSelection_RequiresOneRemoteCompileFramework(
+    public void CompileRoleSelection_RequiresOneRemoteCompileFramework(
         bool isLocalFile,
         string? selectedTargetFramework,
         string? selectedProducerKey,
@@ -198,7 +199,7 @@ public sealed class PackageIntegrationsWorkspaceTests
         Assert.Equal(
             expected,
             Commands.PackageCommand
-                .ShouldUseArtifactBackedPackageIntegrations(
+                .ShouldUsePackageCompileRoles(
                     isLocalFile,
                     selectedTargetFramework,
                     selectedProducerKey,
@@ -298,6 +299,12 @@ public sealed class PackageIntegrationsWorkspaceTests
                     $"Using artifact-backed package Integrations for {targetFramework ?? "net11.0"}.",
                     error);
             }
+            else
+            {
+                Assert.Contains(
+                    "Using artifact-backed selected-entry package Integrations.",
+                    error);
+            }
             if (targetFramework == "all")
             {
                 Assert.Contains("net10.0", output);
@@ -356,6 +363,23 @@ public sealed class PackageIntegrationsWorkspaceTests
                             TestContext.Current.CancellationToken);
 
             Assert.Null(workspace);
+            await using var selected = await PackageIntegrationsWorkspace.CreateSelectedAsync(
+                [
+                    new(Path.Combine(directory, surfacePath), "net11.0", "lib/net11.0"),
+                    new(Path.Combine(directory, nestedPath), "net11.0", "lib/net11.0/x64"),
+                ],
+                directory,
+                PackageInspectionInput.CreateFromBinding(binding),
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(2, selected.ContextGroupCount);
+            await selected.UseAssemblyAsync(
+                Path.Combine(directory, nestedPath),
+                (retained, integrations, _) =>
+                {
+                    Assert.NotNull(retained?.Registration.ArtifactRegistration);
+                    Assert.IsType<AssemblyIntegrationsEntry.Available>(integrations);
+                    return Task.FromResult(true);
+                });
         }
         finally
         {
@@ -393,6 +417,22 @@ public sealed class PackageIntegrationsWorkspaceTests
                             TestContext.Current.CancellationToken);
 
             Assert.Null(workspace);
+            await using var selected = await PackageIntegrationsWorkspace.CreateSelectedAsync(
+                [new(Path.Combine(directory, selectedPath), "net11.0")],
+                directory,
+                PackageInspectionInput.CreateFromBinding(binding),
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(
+                PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                binding.Root.AssetSelection.Status);
+            await selected.UseAssemblyAsync(
+                Path.Combine(directory, selectedPath),
+                (retained, integrations, _) =>
+                {
+                    Assert.NotNull(retained?.Registration.ArtifactRegistration);
+                    Assert.IsType<AssemblyIntegrationsEntry.Available>(integrations);
+                    return Task.FromResult(true);
+                });
         }
         finally
         {
@@ -437,6 +477,22 @@ public sealed class PackageIntegrationsWorkspaceTests
                             TestContext.Current.CancellationToken);
 
             Assert.Null(workspace);
+            await using var selected = await PackageIntegrationsWorkspace.CreateSelectedAsync(
+                [new(Path.Combine(directory, surfacePath), "net11.0")],
+                directory,
+                PackageInspectionInput.CreateFromBinding(binding),
+                cancellationToken: TestContext.Current.CancellationToken);
+            await selected.UseAssemblyAsync(
+                Path.Combine(directory, surfacePath),
+                (retained, integrations, _) =>
+                {
+                    Assert.NotNull(retained);
+                    Assert.Equal("Artifact.Surface.Identity", retained.Identity.Name);
+                    Assert.NotNull(retained.Registration.ArtifactRegistration);
+                    var available = Assert.IsType<AssemblyIntegrationsEntry.Available>(integrations);
+                    Assert.Same(retained.Registration, available.Subject.Registration);
+                    return Task.FromResult(true);
+                });
         }
         finally
         {
@@ -445,7 +501,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
-    public void Create_PartitionsNonNetFrameworkFolders()
+    public async Task Create_PartitionsNonNetFrameworkFolders()
     {
         string directory = Directory.CreateTempSubdirectory(
             "package-integrations-workspace-").FullName;
@@ -466,7 +522,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 first);
             File.Copy(typeof(PdbContext).Assembly.Location, second);
 
-            using var workspace = PackageIntegrationsWorkspace.Create(
+            await using var workspace = await CreateSelectedWorkspaceAsync(
                 [
                     new(
                         first,
@@ -489,7 +545,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
-    public void Create_PartitionsSameFrameworkAcrossAssetContexts()
+    public async Task Create_PartitionsSameFrameworkAcrossAssetContexts()
     {
         string directory = Directory.CreateTempSubdirectory(
             "package-integrations-workspace-").FullName;
@@ -512,7 +568,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 first);
             File.Copy(typeof(PdbContext).Assembly.Location, second);
 
-            using var workspace = PackageIntegrationsWorkspace.Create(
+            await using var workspace = await CreateSelectedWorkspaceAsync(
                 [
                     Commands.PackageCommand
                         .CreatePackageIntegrationAssembly(
@@ -558,7 +614,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                     .Assembly.Location,
                 third);
 
-            using var workspace = PackageIntegrationsWorkspace.Create(
+            await using var workspace = await CreateSelectedWorkspaceAsync(
                 [
                     new(first, "net8.0"),
                     new(second, "net8.0"),
@@ -574,6 +630,8 @@ public sealed class PackageIntegrationsWorkspaceTests
                 (retained, integrations, _) =>
                 {
                     Assert.NotNull(retained);
+                    Assert.NotNull(retained.Registration.ArtifactRegistration);
+                    Assert.Null(retained.Path);
                     AssemblyIntegrationsEntry.Available available =
                         Assert.IsType<
                             AssemblyIntegrationsEntry.Available>(
@@ -635,7 +693,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     public async Task OpportunityDemand_UsesTheStreamingParticipantSnapshot()
     {
         string path = typeof(Npgsql.NpgsqlConnection).Assembly.Location;
-        using var workspace = PackageIntegrationsWorkspace.Create(
+        await using var workspace = await CreateSelectedWorkspaceAsync(
             [new(path, "net11.0")],
             "Test.Package",
             "1.0.0",
@@ -672,11 +730,10 @@ public sealed class PackageIntegrationsWorkspaceTests
     {
         string path =
             typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        using var workspace = PackageIntegrationsWorkspace.Create(
+        await using var workspace = await CreateSelectedWorkspaceAsync(
             [new(path, "net11.0")],
-            PackageIntegrationAcquisition.Remote(
-                "Test.Package",
-                "1.0.0"),
+            "Test.Package",
+            "1.0.0",
             maxRetainedImageBytes: 1,
             includeIntegrationOpportunities: true);
 
@@ -701,7 +758,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     {
         string path =
             typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        using var workspace = PackageIntegrationsWorkspace.Create(
+        await using var workspace = await CreateSelectedWorkspaceAsync(
             [new(path, "net11.0")],
             "Test.Package",
             "1.0.0");
@@ -738,7 +795,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                     .Assembly.Location,
                 first);
             File.Copy(typeof(PdbContext).Assembly.Location, second);
-            using var workspace = PackageIntegrationsWorkspace.Create(
+            await using var workspace = await CreateSelectedWorkspaceAsync(
                 [
                     new(first, "net11.0"),
                     new(second, "net11.0"),
@@ -793,17 +850,22 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData(".Test.Package", "1.2.3", false)]
     [InlineData("Test.Package-", "1.2.3", false)]
     [InlineData("Test..Package", "1.2.3", false)]
-    public void LocalAcquisition_UsesOnlyValidNuspecCoordinates(
+    public async Task LocalAcquisition_UsesOnlyValidNuspecCoordinates(
         string packageId,
         string packageVersion,
         bool expectedPackageProvenance)
     {
-        var acquisition = PackageIntegrationAcquisition.Local(
+        string path = typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
+        await using var workspace = await CreateSelectedWorkspaceAsync(
+            [new(path, "net10.0")],
             packageId,
             packageVersion);
 
         AssemblyResolutionProvenance provenance =
-            acquisition.CreateProvenance("net10.0");
+            await workspace.UseAssemblyAsync(
+                path,
+                (retained, _, _) => Task.FromResult(
+                    Assert.IsType<ResolvedAssemblyReference>(retained).Provenance));
 
         if (expectedPackageProvenance)
         {
@@ -822,24 +884,29 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
-    public void RemoteAcquisition_UsesResolvedCoordinate()
+    public async Task RemoteAcquisition_UsesResolvedCoordinate()
     {
-        var resolution = new Packages.PackageExtractionResult(
-            "/tmp/payload",
-            TempDir: null,
-            PackageName: "Resolved.Package",
-            Version: "2.0.0");
-        var acquisition = PackageIntegrationAcquisition.Remote(
-            resolution,
-            "Wrapper.Package",
-            "1.0.0");
+        const string entry = "tools/net10.0/any/Sample.dll";
+        PackageRootBinding binding = await CreateBindingAsync(
+            (entry, IntegrationAssembly("Sample", "Marker")));
+        var input = PackageInspectionInput.CreateFromBinding(binding);
+        await using var workspace = await PackageIntegrationsWorkspace.CreateSelectedAsync(
+            [new(Path.GetFullPath(entry), "net10.0")],
+            Directory.GetCurrentDirectory(),
+            input,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var package = Assert.IsType<
             AssemblyResolutionProvenance.PackageAsset>(
-            acquisition.CreateProvenance("net10.0"));
+            await workspace.UseAssemblyAsync(
+                entry,
+                (retained, _, _) => Task.FromResult(
+                    Assert.IsType<ResolvedAssemblyReference>(retained).Provenance)));
 
-        Assert.Equal("Resolved.Package", package.PackageId);
-        Assert.Equal("2.0.0", package.PackageVersion);
+        Assert.Equal(binding.Root.PackageId, package.PackageId);
+        Assert.Equal(binding.Root.PackageVersion, package.PackageVersion);
+        Assert.Equal(binding.Coordinate, input.Coordinate);
+        Assert.Same(binding.ContentGenerationIdentity, input.ContentGenerationIdentity);
     }
 
     [Fact]
@@ -850,7 +917,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 "Microsoft.Extensions.Configuration");
         Assert.Null(error);
         Assert.NotNull(path);
-        using var workspace = PackageIntegrationsWorkspace.Create(
+        await using var workspace = await CreateSelectedWorkspaceAsync(
             [new(path, "net11.0")],
             "Test.Package",
             "1.0.0");
@@ -899,11 +966,10 @@ public sealed class PackageIntegrationsWorkspaceTests
     {
         string path =
             typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        using var workspace = PackageIntegrationsWorkspace.Create(
+        await using var workspace = await CreateSelectedWorkspaceAsync(
             [new(path, "net11.0")],
-            PackageIntegrationAcquisition.Remote(
-                "Test.Package",
-                "1.0.0"),
+            "Test.Package",
+            "1.0.0",
             maxRetainedImageBytes: 1);
         List<(string FileName, string Reason)> failures = [];
         int inspectionCount = 0;
@@ -947,8 +1013,8 @@ public sealed class PackageIntegrationsWorkspaceTests
                 FileMode.Open,
                 FileAccess.ReadWrite,
                 FileShare.None);
-            using var workspace =
-                PackageIntegrationsWorkspace.Create(
+            await using var workspace =
+                await CreateSelectedWorkspaceAsync(
                     [new(path, "net11.0")],
                     "Test.Package",
                     "1.0.0");
@@ -1014,6 +1080,160 @@ public sealed class PackageIntegrationsWorkspaceTests
             error.Split(
                 "Integrations inspection failed",
                 StringSplitOptions.None).Length - 1);
+    }
+
+    [Theory]
+    [InlineData("empty-compile", 1)]
+    [InlineData("all-frameworks", 2)]
+    [InlineData("nested", 2)]
+    [InlineData("tools", 2)]
+    [InlineData("no-nuspec", 1)]
+    [InlineData("invalid-nuspec-id", 1)]
+    [InlineData("invalid-nuspec-version", 1)]
+    [InlineData("native-image", 1)]
+    [InlineData("invalid-image", 1)]
+    public async Task PackageCommand_LocalInspectionSelectionPreservesSupportedShapes(
+        string shape,
+        int expectedLibraries)
+    {
+        string directory = Directory.CreateTempSubdirectory("package-selected-command-").FullName;
+        try
+        {
+            byte[] image = File.ReadAllBytes(typeof(Npgsql.NpgsqlConnection).Assembly.Location);
+            List<(string Path, byte[] Content)> entries =
+                [("lib/net11.0/Npgsql.dll", image)];
+            switch (shape)
+            {
+                case "empty-compile":
+                    entries.Add(("ref/net11.0/_._", []));
+                    break;
+                case "all-frameworks":
+                    entries.Add(("lib/net10.0/Npgsql.dll", image));
+                    break;
+                case "nested":
+                    entries.Add(("lib/net11.0/x64/Npgsql.dll", image));
+                    break;
+                case "tools":
+                    entries.Add(("tools/net11.0/any/Npgsql.dll", image));
+                    break;
+                case "native-image":
+                    byte[] native = image.ToArray();
+                    using (var pe = new PEReader(new MemoryStream(native)))
+                    {
+                        int directoriesOffset = pe.PEHeaders.PEHeader!.Magic == PEMagic.PE32Plus
+                            ? 112 : 96;
+                        Array.Clear(native,
+                            pe.PEHeaders.PEHeaderStartOffset + directoriesOffset + 14 * 8, 8);
+                    }
+                    entries.Add(("lib/net11.0/Native.dll", native));
+                    break;
+                case "invalid-image":
+                    entries.Add(("lib/net11.0/Invalid.dll", [1, 2, 3]));
+                    break;
+            }
+            if (shape != "no-nuspec")
+            {
+                string id = shape == "invalid-nuspec-id" ? "Not A Package" : "Selected.Sample";
+                string version = shape == "invalid-nuspec-version" ? "not-a-version" : "1.0.0";
+                entries.Add(("Selected.Sample.nuspec", System.Text.Encoding.UTF8.GetBytes(
+                    $"""
+                    <package><metadata><id>{id}</id><version>{version}</version>
+                    <authors>tests</authors><description>inspection selection</description>
+                    </metadata></package>
+                    """)));
+            }
+            string archive = Path.Combine(directory, "not-a-package-coordinate.nupkg");
+            File.WriteAllBytes(archive, Archive([.. entries]));
+            string[] arguments =
+            [
+                "package", archive, "--all-libraries",
+                "--tfm", shape == "all-frameworks" ? "all" : "net11.0",
+                "-S", "Integration: Opportunities", "--markdown",
+                "--offline", "--no-nuget-cache", "--verbose", "--tips", "q",
+            ];
+            var start = new ProcessStartInfo(
+                Path.Combine(AppContext.BaseDirectory,
+                    OperatingSystem.IsWindows() ? "dotnet-inspect.exe" : "dotnet-inspect"))
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = directory,
+            };
+            start.Environment["XDG_CACHE_HOME"] = Path.Combine(directory, "cache");
+            foreach (string argument in arguments)
+                start.ArgumentList.Add(argument);
+            using Process process = Process.Start(start)
+                ?? throw new InvalidOperationException("Could not start the package command.");
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+            Task<string> stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(120));
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
+                throw;
+            }
+            int exit = process.ExitCode;
+            string output = await stdout;
+            string error = await stderr;
+
+            Assert.True(exit == 0, error);
+            Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
+            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Equal(expectedLibraries, output.Split(
+                "| Aspire | `Npgsql.NpgsqlConnection` |", StringSplitOptions.None).Length - 1);
+            Assert.Contains("Health Checks", output);
+            foreach ((string path, _) in entries.Where(entry => entry.Path.EndsWith("Npgsql.dll")))
+                Assert.Contains(path, output);
+            if (shape is "native-image" or "invalid-image")
+            {
+                Assert.DoesNotContain("Native.dll", output);
+                Assert.DoesNotContain("Invalid.dll", output);
+            }
+            if (shape == "invalid-image")
+            {
+                Assert.Contains("Could not read library:", error);
+            }
+            if (shape == "native-image")
+            {
+                Assert.DoesNotContain("Could not read library:", error);
+            }
+            TestContext.Current.TestOutputHelper?.WriteLine($"{shape}: exit {exit}\n{output}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static ValueTask<PackageIntegrationsWorkspace> CreateSelectedWorkspaceAsync(
+        IEnumerable<PackageIntegrationAssembly> assemblies,
+        string? packageId,
+        string? packageVersion,
+        long? maxRetainedImageBytes = null,
+        bool includeIntegrationOpportunities = false)
+    {
+        PackageIntegrationAssembly[] selected = [.. assemblies];
+        string root = Path.GetDirectoryName(Path.GetFullPath(selected[0].Path))!;
+        while (selected.Any(item => Path.GetRelativePath(root, item.Path)
+            .StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+            root = Path.GetDirectoryName(root)!;
+        return PackageIntegrationsWorkspace.CreateSelectedAsync(
+            selected,
+            root,
+            PackageInspectionInput.CreateLocal(
+                new FileSystemPackageContent(root, null, false, "tests"),
+                packageId,
+                packageVersion),
+            maxRetainedImageBytes,
+            includeIntegrationOpportunities,
+            TestContext.Current.CancellationToken);
     }
 
     static async Task<PackageRootBinding> CreateBindingAsync(

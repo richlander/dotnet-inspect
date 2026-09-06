@@ -17,7 +17,6 @@
     <SignAssembly>false</SignAssembly>
     <!-- CS0436: our System.Linq.Enumerable intentionally shadows the real one. -->
     <NoWarn>$(NoWarn);CS0436</NoWarn>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
 </Project>

@@ -27,12 +27,87 @@ preparation/publication handoff defined by parent slice
 redefine Artifact Acquisition correspondence, generation, status, currentness,
 receipt lifetime, physical publication, or resource-erasure semantics.
 
-The contract is unimplemented beyond the exact runtime Workspace identity and
-transitional package occurrence primitives established by
-[#5656](https://github.com/richlander/dotnet-inspect/pull/5656). Every target
-property below is **unverified** until its named Release gate exists. The
-revision-authority properties additionally require the model described under
-[Concurrency model](#concurrency-model) before implementation.
+### Initial shared implementation
+
+Issue [#5821](https://github.com/richlander/dotnet-inspect/issues/5821) implements
+the initial host-neutral, Package-only closed Scope: complete immutable
+snapshots, exact ordered replacement, Clear, and cancellation of one exact
+preparing operation. It consumes the physical producer landed in
+[#6068](https://github.com/richlander/dotnet-inspect/pull/6068). The fixed initial
+logical profile permits at most 64 distinct Roots; Artifact Acquisition
+continues to enforce physical admission and lifetime limits.
+
+The public entry points on `InspectionWorkspace` are `GetScopeSnapshotAsync`,
+`ReplaceScopeAsync`, `ClearScopeAsync`, and `CancelScopePreparationAsync`.
+Replace consumes already-acquired `PackageRootBinding` inputs, the expected
+`WorkspaceScopeRevision`, and a finite deadline; Clear likewise requires the
+expected revision and deadline. Snapshots and operation results retain
+resource-free Root facts rather than those bindings. Package descriptors
+preserve display `PackageId`, exact `PackageVersion`, and effective
+`TargetFramework` separately from canonical coordinate and selection facts.
+Root-only and explicit-empty selections remain reportable Roots.
+
+Membership changes use the sealed Artifact publication participant. Current
+snapshot reads observe every Ready/Pending/Failed projection under the existing
+composition read lease and perform only the clarified Scope-only refresh;
+they preserve logical revision, occurrences, and Preparing while issuing fresh
+Scope publication and closure identities. The Artifact epoch is unchanged by
+that observation.
+
+The user-authorized first host adoption is the CLI
+([#5513](https://github.com/richlander/dotnet-inspect/issues/5513)) in the same
+issue #5821 slice. Browser adoption remains planned under #5697 after its existing
+Add/Remove and complete-restoration contracts are reconciled; this slice
+preserves existing Browser behavior. Add/Remove, expansion scopes and evidence,
+non-package preparation, Navigation, Definitions, and persistence remain later
+work. The broader target gates below remain **unverified** outside the
+implemented subset. CLI inventory rendering uses the committed snapshot rather
+than constructing a caller-owned occurrence view; it lowers package facts
+through the existing Markout rows without serializing runtime identities.
+The acquisition-only context adapter preserves the existing implementation-
+universe compatibility rule when no exact compile selection exists; the CLI
+continues to display the requested coordinate's framework, while the descriptor
+also retains the selected framework.
+[`WorkspaceCommandTests`](../../src/dotnet-inspect.Tests/WorkspaceCommandTests.cs)
+gates duplicate coalescing before row windows/counts, root-only and explicit-empty
+Roots, display/framework preservation, JSON/JSONL shape, and absence of a
+successful prefix after failed replacement. Browser adoption remains unverified.
+
+The Release implementation gate is
+[`WorkspaceScopeTests`](../../src/DotnetInspector.Queries.Tests/WorkspaceScopeTests.cs).
+Its boundary evidence includes:
+
+| Implemented boundary | Release tests |
+| --- | --- |
+| Complete immutable state and default multi-package replacement | `InitialScopeIsCompleteEmptyClosedAndWorkspaceExact`, `DefaultReplacementPublishesTwoSmallPackagesAndResourceFreePresentation`, `ReplacementKeepsPriorRevisionCurrentDuringPreparation` |
+| All-or-failure, exact duplicate coalescing, and occurrence retention | `OneFailedRootPublishesNoSuccessfulPrefix`, `ExactDuplicatesCoalesceBeforePreparationAndRetainedOccurrencesFollowRequestOrder`, `RemovedThenEqualReaddedRootGetsFreshOccurrence` |
+| Validation before supersession, finite deadlines, and exact cancellation | `InvalidSubmissionsDoNotSupersedeAdmittedPreparation`, `DeadlineExpiryAfterAdmissionCancelsRatherThanRejects`, `ExactCancellationActionSettlesTheOriginalOperationAndCannotCancelAnother`, `CancellationBeforeCommitPreservesPriorRevision`, `CancellationAfterCommitCannotRetractPublication` |
+| Clear and Replace supersession without stale publication | `ClearSupersedesBlockedPreparationWithoutWaitingForCurrentQuery`, `ValidReplaceSupersedesPreparationAndOldCompletionCannotOverwriteIt` |
+| Cancellation/deadline versus supersession preserves the first observed outcome | `CancellationBeforeSupersessionRetainsFirstOutcome`, `SupersessionBeforeCancellationRetainsFirstOutcome` |
+| Complete physical observation without another Artifact publication | `ObservationRefreshPreservesReadyPendingFailedAndDoesNotPublishArtifactComposition`, `RefreshDuringPreparationPreservesPreparingAndStalePhysicalCandidateCannotRebase` |
+| Runtime unavailability and historical resource drainage | `ClosingWorkspaceReportsUnavailableWhileAnAdmittedQueryDrains`, `CloseDuringPreparationSettlesUnavailableAndReleasesOperationAuthority`, `HistoricalSnapshotsAndResultsDoNotRetainRetiredResources` |
+
+The historical-state gate retains both a Preparing snapshot and a committed
+result, awaits actual product retirement settlement, and then checks collection
+of package bindings, content, sessions, and realization resources.
+
+The focused implementation and adjacent-owner regression command is:
+
+```bash
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  -class '*WorkspaceScopeTests' \
+  -class '*ArtifactRootPublicationTests' \
+  -class '*ArtifactRootCorrespondenceTests' \
+  -class '*PackageAssemblyContextRealizationTests' \
+  -class '*WorkspacePackageRootAcquisitionTests'
+```
+
+The [revision/publication model](models/workspace-scope-revisions/README.md)
+provides separate bounded design evidence: all 50 registered exact outcomes
+passed for the clarification preserved at
+[`4e360ae0b3d0a792cecd3a3fc66caceb464fc4b0`](https://github.com/richlander/dotnet-inspect/commit/4e360ae0b3d0a792cecd3a3fc66caceb464fc4b0).
+Those model outcomes do not substitute for Release implementation or host
+conformance gates.
 
 [Approved lazy traversal](approved-lazy-traversal.md) records the approved
 cross-owner target experience for Browser construction defaults, ecosystem
@@ -323,10 +398,12 @@ exact Scope pointer issuance. It is not a revision, closure observation,
 physical-composition identity, operation authority, portable value, or access
 grant.
 
-Scope-only preparation progress, cancellation, supersession, and failure
-pointer swaps observe the shared runtime composition gate but need no Artifact
-publication plan when physical composition is unchanged. Each issues a fresh
-Scope publication base. After the final parent participant is constructed, no
+Scope-only preparation progress, cancellation, supersession, failure, and
+observation of an already-published physical epoch observe the shared runtime
+composition gate but need no Artifact publication plan when they leave physical
+composition unchanged. Each issues a fresh Scope publication base. A physical
+observation refresh preserves the logical revision and every occurrence,
+including those currently Pending or Failed. After the final parent participant is constructed, no
 ordinary progress publication may invalidate it; cancellation or supersession
 that enters the same gate first replaces its expected base before
 `PrepareCommit`. After `PrepareCommit`, independently signaled cancellation or
@@ -405,9 +482,15 @@ A current snapshot read observes the shared runtime composition gate and
 compares the snapshot's physical-composition identity with
 `GetCurrentArtifactRootCompositionGeneration`. Equal identity permits the
 already complete snapshot. Different identity requires one complete projection
-refresh and closure invalidation publication through the parent transition
-before a current snapshot returns; individual per-Root reads are never exposed
-as a mixed-epoch snapshot.
+refresh and closure invalidation before a current snapshot returns. Scope reads
+the complete projection set from one Artifact composition read lease and swaps
+only its preconstructed snapshot while that lease holds the shared gate. This
+issues a fresh Scope publication base and closure observation, preserves the
+logical revision, occurrence identities, and preparing descriptor, and leaves
+the already-current Artifact composition identity unchanged. It does not submit
+an Artifact publication plan: Pending and Failed projections have no Ready
+generation to Retain. Individual per-Root reads are never exposed as a mixed-epoch
+snapshot. Membership-changing publication still uses the parent transition.
 
 An absent correspondence projection for a committed current occurrence is a
 typed invariant or stale-composition failure. A closing or closed runtime
@@ -1216,8 +1299,8 @@ currencies rather than copying physical publication. This is design evidence,
 not Release implementation conformance; the broader expansion, resource-erasure,
 and host gates below remain unverified. The immediate implementation consumer
 is [#5821](https://github.com/richlander/dotnet-inspect/issues/5821), initial
-snapshot and exact Replace/Clear followed by Browser Open/Clear and CLI
-snapshot adoption.
+snapshot and exact Replace/Clear with CLI snapshot adoption. Browser adoption
+follows its Add/Remove and complete-restoration prerequisites.
 
 ## Pathological cases
 
@@ -1322,7 +1405,7 @@ or artifact evidence later claimed by those owners.
 | `RootCapacity_RejectionPreservesCurrentRevision` | A sixty-fifth distinct Root fails visibly without truncation or replacement. |
 | `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's runtime Workspace lifetime. |
 | `RuntimeUnavailable_DoesNotFabricateCurrentScope` | Absent, closing, or closed Artifact runtime state rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
-| `ScopePublication_UsesArtifactRootPublicationPlan` | Every membership, policy, closure, or refresh publication supplies one complete parent-owned physical plan and sealed Scope participant carrying exact current and fresh candidate Scope bases; the parent gate changes both current states or neither. |
+| `ScopePublication_UsesArtifactRootPublicationPlan` | Membership, policy, and closure evaluation publication supplies one complete parent-owned physical plan and sealed Scope participant carrying exact current and fresh candidate Scope bases; the parent gate changes both current states or neither. Observation of an already-published physical epoch instead uses the complete Scope-only refresh under the Artifact read lease and does not submit a physical plan. |
 | `EveryOperationResultCarriesCompleteCurrentSnapshot` | Committed, no-effect, rejected, failed, cancelled, and superseded results require no host reconstruction; Unavailable is explicitly historical and carries no current authority. |
 | `CurrentSnapshot_BindsOnePhysicalCompositionEpoch` | One returned current snapshot carries the owner-issued composition identity and complete Root projections from that epoch; physical movement causes complete refresh or typed refusal, never a mixed-epoch view. |
 | `OwnerPolicyExpansion_CarriesNoActivationAuthority` | Dependency following cannot move Navigation focus. |
