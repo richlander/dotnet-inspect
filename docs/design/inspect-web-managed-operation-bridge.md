@@ -590,8 +590,10 @@ operation also received cancellation. Classification preserves the original
 producer exception for feature diagnostics.
 
 Final detach seals this producer's waiter admission before invoking feature code.
-A feature broker must choose a new producer instance for later requests; key
-selection and cache-result reuse stay feature-owned. Events are scoped to current
+A feature broker must choose an accepting producer for a new attachment. It
+may instead observe an already-retained sealed producer's completion without
+reopening its waiter admission; sharing and result reuse stay feature-owned.
+Events are scoped to current
 attachments, with no bridge-owned replay of events emitted before attachment.
 `BrowserManagedSharedProducerTests` gates this restricted contract through the
 real managed bridge in Release, alongside the existing lifecycle tests.
