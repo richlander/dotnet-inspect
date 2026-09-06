@@ -4,7 +4,7 @@ namespace DotnetInspector.Queries;
 
 /// <summary>
 /// Seals borrowed input occurrences and selection values without inspecting content.
-/// Public comparison execution adopts this boundary in a later migration.
+/// The direct-member query consumes this boundary for local comparison.
 /// </summary>
 public static class QueryComparisonPopulationSealer
 {
@@ -22,17 +22,6 @@ public static class QueryComparisonPopulationSealer
                     : binding.BodyIndex is null
                         ? QueryPopulationRejectionKind.MissingBodyIndex
                         : null);
-    }
-
-    public static QueryPopulationSealingOutcome Execute(
-        BodySignalComparisonPopulationRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        return Seal(request.Before, request.After, request.TypeFilters,
-            request.MemberTargetIdentities, QueryComparisonProfile.BodySignal,
-            static binding => binding.BodyIndex is null
-                ? QueryPopulationRejectionKind.MissingBodyIndex
-                : null);
     }
 
     static QueryPopulationSealingOutcome Seal<TBinding>(
