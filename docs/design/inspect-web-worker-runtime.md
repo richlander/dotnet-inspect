@@ -519,6 +519,7 @@ Accepted(operation, allowance)
 Rejected(operation, error, diagnostic)
 CancelAcknowledged(operation, running | not-active)
 Progress(operation, payload)
+Events(operation, entries)
 Settled(operation,
   Succeeded(result)
   | Failed(expected | unexpected, error, diagnostic)
@@ -549,6 +550,58 @@ quiescence together.
 Promise rejection from the managed facade is not a `Failed` managed result. It
 is a worker boundary failure and begins unexpected epoch draining because the
 worker can no longer prove that the operation boundary remains usable.
+
+### Durable nonterminal delivery
+
+`Events` carries one nonempty batch of at most 64 entries. Each entry is
+`Progress(payload)` or `Durable(payload)`; the feature owns the durable union,
+including its Item and ItemFailure distinctions. There is no terminal entry.
+The existing single-progress message remains an advisory-only path.
+
+The operation reference selects that registration's progress and durable
+codecs. Structural decoding bounds the entry count and constructs closed entry
+records before any feature codec runs. Every entry then satisfies its selected
+owner's explicit payload budget before any entry reaches a producer sink. The
+count bound and per-entry budgets bound a decoded batch; this is not a claim
+of transport backpressure or bounded total feature output.
+
+An accepted Worker invocation has one synchronous batch handoff. It posts the
+batch immediately, in supplied order, without retaining a partial batch or
+coalescing entries. The feature's managed stream adapter retains ownership of
+batch formation, producer-suspension flushing, credit, and cancellation
+checkpoints under the async event-stream contract. A singleton batch is valid.
+The Worker does not wait for a batch to fill or for managed settlement before
+posting it.
+
+All operation messages use the same ordered Worker channel. `Accepted`
+precedes the first event; every posted event batch precedes that invocation's
+`Settled`, including canceled or failed settlement. A boundary failure remains
+epoch failure, not an invented successful completion. Batches admitted before
+an observer reenters operation APIs retain their order; reentrancy does not
+let a later message overtake the current batch's remaining handoffs.
+
+The main adapter hands each entry to `reportProgress` or `reportDurable` in
+order. Those operation-authority ports alone decide current-view publication.
+Logical cancellation, supersession, or a throwing observer may suppress later
+publication but do not grant the transport permission to reorder durable
+entries or turn them into advisory progress. This transport does not reserve
+publication authority for a whole batch.
+
+Event batches have the existing progress message's protocol-state rules:
+they require an accepted, physically open operation, are stale across an old
+epoch, and do not establish task-loop liveness. Malformed or over-budget
+current-epoch batches fail the epoch before publishing a partial batch.
+Operation-resource release still depends on managed settlement or realm
+destruction, not receipt of the last event.
+
+The immediate consumer is Package Query's future Worker adapter under #5987;
+this closes the separately owned durable transport milestone before the
+single-runtime production cutover. It does not move Package Query, adopt its
+credit controls, or activate a second runtime. The existing protocol and
+envelope gates enforce the implementation contract. The focused
+[event-ordering model](models/inspect-web-worker-events/README.md) bounds the
+transport-order claim independently of feature publication and managed
+lifetime.
 
 ## Admission, ordering, and replay
 
