@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  Its [ReadyToRun CLI projection](design/readytorun-cli-projection.md) owns the
+  explicit ReadyToRun section lens and metadata-root subject selection while
+  retaining PE and metadata interpretation in `ILInspector.Metadata`.
   The target
   [dependency inspection command](design/dependency-inspection-command.md)
   owns asset admission, traversal intent, evidence disclosure, graph row
@@ -59,8 +62,12 @@ substrates, and inspection producers that will extend that space.
   optimization-opportunity,
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
-  API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content; the
+  API-comparison, progressive call-graph, and group-scoped source queries. Its
+  target [package dependency traversal](design/package-dependency-traversal.md)
+  owner composes normalized declarations, exact source-authorized candidates,
+  and exact manifest results into one depth-bounded graph with root-relative
+  reachability. The source query owns a Decompiler fallback over retained
+  assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The project
@@ -118,7 +125,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
-  query results. Its proposed, design-locked but not yet implemented
+  query results. Its
+  [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md)
+  query composes normalized declarations with package-owned source
+  authorization and candidate evidence while leaving traversal and Workspace
+  policy to their owners. Its proposed, design-locked but not yet implemented
   [Package Query assembly-pattern
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
@@ -163,6 +174,10 @@ substrates, and inspection producers that will extend that space.
   navigation-result consumer, shell interaction, and page-level composition
   across six focused owners while individual components retain rendering,
   binding, and state-transition responsibilities.
+  [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md)
+  owns the managed Source-facade envelope that carries one Research-issued
+  receipt and its Facts/document instance-key mappings without reconstructing
+  identity in the host.
 - [Approved lazy traversal](design/approved-lazy-traversal.md) is the
   operator-approved cross-owner target experience for subjects, traversal
   permissions, operation demand, Browser defaults, and ecosystem-assisted
@@ -318,6 +333,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [Member signature shape and transport](design/member-signature-shape.md):
+  non-authoritative source/Metadata projection, candidate correspondence,
+  loss-policy rationale, and canonical `mss1` transport.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.
@@ -409,6 +427,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Research Finding census projection](design/research-finding-census-projection.md):
   Research preservation of one body-fact census through Facts and Annotated
   Source.
+- [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md):
+  Source-facade wire projection of one Research-issued receipt and its
+  Facts/document instance-key mappings.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

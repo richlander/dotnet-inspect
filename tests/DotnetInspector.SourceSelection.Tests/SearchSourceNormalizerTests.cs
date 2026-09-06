@@ -44,7 +44,7 @@ public sealed class SearchSourceNormalizerTests
         Assert.Same(intent, result.Intent);
         Assert.Equal(flags == 0, result.UsesImplicitPlatform);
         Assert.Equal(flags == 0 || (flags & 1) != 0 ? PlatformFrameworks : [], result.Frameworks);
-        Assert.Equal(expectedPackages, result.Packages.Select(package => package.PackageId));
+        Assert.Equal(expectedPackages, Coordinates(result).Select(package => package.PackageId));
         Assert.Empty(result.OtherSources);
     }
 
@@ -54,6 +54,8 @@ public sealed class SearchSourceNormalizerTests
         SourceSelector[] selectors =
         [
             new SourceSelector.Package(new("Contoso.Core")),
+            new SourceSelector.PackageReference("Contoso.Core", "latest"),
+            new SourceSelector.PackageArchive("missing.nupkg"),
             new SourceSelector.PackageGroup([]),
             new SourceSelector.PackagePrefix(new("Contoso.", 500)),
             new SourceSelector.Library("not-created.dll"),
@@ -83,7 +85,7 @@ public sealed class SearchSourceNormalizerTests
         SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
         Assert.False(result.UsesImplicitPlatform);
         Assert.Equal(PlatformFrameworks, result.Frameworks);
-        Assert.Equal("Contoso", Assert.Single(result.Packages).PackageId);
+        Assert.Equal("Contoso", Assert.Single(Coordinates(result)).PackageId);
         Assert.Equal(3, result.Intent.Selectors.Count);
     }
 
@@ -102,9 +104,9 @@ public sealed class SearchSourceNormalizerTests
         ]);
 
         SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
-        Assert.Equal([first, unversioned, new("Group.First"), new("Group.Second")], result.Packages);
-        Assert.Same(first, result.Packages[0]);
-        Assert.Same(unversioned, result.Packages[1]);
+        Assert.Equal([first, unversioned, new("Group.First"), new("Group.Second")], Coordinates(result));
+        Assert.Same(first, Assert.IsType<SourceSelector.Package>(result.Packages[0]).Coordinate);
+        Assert.Same(unversioned, Assert.IsType<SourceSelector.Package>(result.Packages[1]).Coordinate);
         Assert.Equal(5, intent.Selectors.Count);
     }
 
@@ -127,7 +129,7 @@ public sealed class SearchSourceNormalizerTests
         intent = intent.Append(new SourceSelector.Package(new("CONTOSO", "1.0.0", "NET10.0")));
 
         SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
-        Assert.Equal(unique, result.Packages);
+        Assert.Equal(unique, Coordinates(result));
     }
 
     [Fact]
@@ -152,6 +154,31 @@ public sealed class SearchSourceNormalizerTests
     }
 
     [Fact]
+    public void SharedPrefixDeclarationRetainsIndependentRequests()
+    {
+        var declaration = new PackagePrefixDeclaration("Aspire.");
+        var small = PackagePrefixRequest.Create(declaration, 5);
+        var large = PackagePrefixRequest.Create(declaration, 250, includePrerelease: true);
+        SourceIntent intent = SourceIntent.Create(
+        [
+            new SourceSelector.PackagePrefix(small),
+            new SourceSelector.PackagePrefix(large),
+        ]);
+
+        SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
+
+        Assert.False(result.UsesImplicitPlatform);
+        Assert.Empty(result.Frameworks);
+        Assert.Empty(result.Packages);
+        Assert.Collection(result.OtherSources,
+            source => Assert.Same(small, Assert.IsType<SourceSelector.PackagePrefix>(source).Request),
+            source => Assert.Same(large, Assert.IsType<SourceSelector.PackagePrefix>(source).Request));
+        Assert.All(result.OtherSources, source => Assert.Same(
+            declaration, Assert.IsType<SourceSelector.PackagePrefix>(source).Request.Declaration));
+        Assert.Equal("Aspire.", declaration.Prefix);
+    }
+
+    [Fact]
     public void OtherSelectorsRetainRelativeOrderAndOccurrences()
     {
         var library = new SourceSelector.Library("first.dll");
@@ -170,7 +197,7 @@ public sealed class SearchSourceNormalizerTests
         Assert.Throws<NotSupportedException>(() =>
             ((IList<SourceSelector>)result.OtherSources).Clear());
         Assert.Throws<NotSupportedException>(() =>
-            ((IList<PackageCoordinate>)result.Packages).Clear());
+            ((IList<SourceSelector.PackageSource>)result.Packages).Clear());
         SearchSourceSelection implicitResult = SearchSourceNormalizer.Normalize(SourceIntent.Empty);
         Assert.Throws<NotSupportedException>(() =>
             ((IList<SearchPlatformFramework>)implicitResult.Frameworks).Clear());
@@ -181,4 +208,7 @@ public sealed class SearchSourceNormalizerTests
     [Fact]
     public void NullDeclarationIsRejected() =>
         Assert.Throws<ArgumentNullException>(() => SearchSourceNormalizer.Normalize(null!));
+
+    private static IEnumerable<PackageCoordinate> Coordinates(SearchSourceSelection selection) =>
+        selection.Packages.Select(source => Assert.IsType<SourceSelector.Package>(source).Coordinate);
 }

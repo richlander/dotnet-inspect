@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.Ecosystems.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -20,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
   </ItemGroup>
 
 </Project>

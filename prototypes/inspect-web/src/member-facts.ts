@@ -53,14 +53,8 @@ export function renderMemberFacts(
       <p class="facts-metadata-identity"><span>Metadata token</span><code>${escapeHtml(`0x${facts.metadataToken.toString(16).padStart(8, "0")}`)}</code></p>
     </section>
     ${renderAllocationFacts(facts.allocations)}
-    ${renderFactTable("Calls", facts.calls, [
-      ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
-    ], "No direct call sites were found in this method.")}
-    ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
-      ["Requirement", "requirement"], ["Evidence", "evidence"]
-    ], "No unsafe operations or declaration evidence were found.")}
+    ${renderCallFacts(facts.calls)}
+    ${renderSafetyFacts(facts.safety)}
     ${renderFactTable("Exception regions", facts.exceptionRegions, [
       ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
       ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
@@ -106,6 +100,46 @@ function renderAllocationFacts(allocations: MemberFacts["allocations"]) {
           </div>
         </li>`).join("")}</ol>`
       : '<p class="allocation-empty">No allocation occurrences were found in this method.</p>'}
+  </section>`;
+}
+
+function renderCallFacts(calls: MemberFacts["calls"]) {
+  return `<section class="call-facts" aria-labelledby="call-facts-title">
+    <header><h2 id="call-facts-title">Calls</h2><span>${calls.length} ${calls.length === 1 ? "call site" : "call sites"}</span></header>
+    ${calls.length
+      ? `<ol class="call-rows">${calls.map(call => `
+        <li class="call-row">
+          <div class="call-location"><code>${escapeHtml(call.offset)}</code><code>${escapeHtml(call.opcode)}</code></div>
+          <div class="call-main">
+            <div class="call-callee"><code>${escapeHtml(call.callee)}</code></div>
+            <dl class="call-properties">
+              <div><dt>Multiplicity</dt><dd><code>${escapeHtml(call.multiplicity)}</code></dd></div>
+              <div><dt>Loop</dt><dd><code>${call.inLoop ? "yes" : "no"}</code></dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="call-empty">No direct call sites were found in this method.</p>'}
+  </section>`;
+}
+
+function renderSafetyFacts(safety: MemberFacts["safety"]) {
+  return `<section class="safety-facts" aria-labelledby="safety-facts-title">
+    <header><h2 id="safety-facts-title">Safety facts</h2><span>${safety.length} ${safety.length === 1 ? "fact" : "facts"}</span></header>
+    ${safety.length
+      ? `<ol class="safety-rows">${safety.map(fact => `
+        <li class="safety-row">
+          <div class="safety-location">${fact.offset == null
+            ? '<span class="safety-no-offset">No IL offset</span>'
+            : `<code>${escapeHtml(fact.offset)}</code>`}<span class="safety-kind">${escapeHtml(fact.kind)}</span></div>
+          <div class="safety-main">
+            <div class="safety-operation"><code>${escapeHtml(fact.operation)}</code></div>
+            <dl class="safety-properties">
+              <div><dt>Requirement</dt><dd><code>${escapeHtml(fact.requirement)}</code></dd></div>
+              <div><dt>Evidence</dt><dd><code>${escapeHtml(fact.evidence)}</code></dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="safety-empty">No unsafe operations or declaration evidence were found.</p>'}
   </section>`;
 }
 

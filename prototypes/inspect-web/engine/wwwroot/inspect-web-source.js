@@ -74,6 +74,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "QueryMemberFindingCensus.1135530322");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.QueryMemberFindingCensus.1135530322\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
         value = $ownDataProperty(value, "QueryMemberSource.641907440");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027SourceExports.QueryMemberSource.641907440\u0027 is not callable.");
@@ -164,6 +172,11 @@ export function cancelTypeSourceQuery(operationId, reason) {
 }
 export async function queryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
     const $result = await $requireManagedExports()["SourceExports"]["QueryMemberAnnotatedSource.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryMemberFindingCensus(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
+    const $result = await $requireManagedExports()["SourceExports"]["QueryMemberFindingCensus.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

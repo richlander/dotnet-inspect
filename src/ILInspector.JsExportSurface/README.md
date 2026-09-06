@@ -317,6 +317,60 @@ are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication` and
 `SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers` gate the
 ordinary-method boundary.
 
+## JSON union alternatives
+
+This section owns slice 2 of
+[#5892](https://github.com/richlander/dotnet-inspect/issues/5892), tracked by
+[#6078](https://github.com/richlander/dotnet-inspect/issues/6078).
+The consumer remains `ts-jsexport`, followed by inspect-web adoption in the
+four-slice tracker. It does not change raw JSExport marshalling.
+
+`Unions` separates a union's case contracts from `Records`: the public `Value`
+property is not an object wire member. Recognition consumes Metadata's typed
+`HasUnionAttribute` fact. The supported convention is a value type with public
+single-argument, by-value case constructors and a public instance,
+parameterless `object Value` getter. Exact case signature trees come from
+Analysis's same-module declared MethodDefs, joined to the Metadata declaration
+by token and structured declaring-type identity. They are not reconstructed
+from rendered attributes, parameter names, or C# type spelling.
+
+For a supported convention, `CaseTypes` retains the constructor alternatives
+and `IncludesNull` is true: the default union state writes JSON null even if no
+constructor parameter is nullable. A case writes its own effective serializer
+contract inline, without a `Value` wrapper or an invented discriminator.
+The case's existing converter, naming, member, and unsupported-type rules
+still apply; case types are not a replacement JSON schema. This is a statement
+about successful serialization, not a guarantee that arbitrary getter code or
+every possible producer value succeeds.
+
+Case discovery carries naming policy, reached wire directions, and context
+scope through constructor edges rather than through the `Value` getter.
+Generic alternatives retain their parameter positions; the authenticated
+closed root shape supplies their type arguments. Unused registrations stay
+unreached, and unsupported declaration-only or union conventions retain a
+`SerializationUnsupportedReason` with unavailable null evidence.
+
+Deserialization classification is deliberately not modeled in this slice.
+`DeserializationUnsupportedReason` remains explicit even when the runtime can
+read a simple scalar union. Writing two object cases or nested unions does not
+prove that a default reader can select the right case. Classifier support and
+its direction-specific admission require their own evidence before that
+boundary can expand.
+
+`JsonUnionWireTests` gates these facts with compiler-produced native unions,
+real source-generated serialization, ambiguous and nested read boundaries,
+case discovery, direction propagation, closed generic signatures, and
+unsupported converter evidence. Its neighboring ordinary DTO remains an
+object. The same suite checks that TypeScript generation rejects a reached
+union until slice 3 implements lowering, rather than emitting a misleading
+interface.
+
+The serializer oracle is bounded to SDK `11.0.100-preview.7.26381.103` and
+[its System.Text.Json source](https://github.com/dotnet/dotnet/tree/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json).
+It uses the authenticated default source-generated context property. Explicit
+resolver results, `WithAddedModifier`, and custom-options context instances
+are not interchangeable with that path and do not inherit its evidence.
+
 Run its test suite in Release:
 
 ```bash

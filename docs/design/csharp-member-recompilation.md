@@ -416,10 +416,8 @@ diff evidence:
 - `Unavailable` retains the endpoint's `Absent` or `Failed` inspection, identity
   failure, or decompilation/diff failure reason.
 
-This target arbiter is **unverified** until
-`CSharpRoundTripChangedRejectsFailureRows` runs in Release. The shipping
-round-trip envelope currently maps any non-exact diff with complete endpoint
-inspections to `Changed`, including a diff whose only rows are failures.
+`CSharpRoundTripChangedRejectsFailureRows` gates producer failure rows and
+identity failures, both alone and alongside change rows, in Release.
 
 This precondition is deliberate: `CSharpBodyDiffResult.IsExact` alone is not the
 arbiter because an empty native diff can also arise when a body fingerprint is
@@ -428,6 +426,36 @@ and preserves all producer-owned rows and failures.
 
 C# equality is useful for spelling and decompiler stability. It does not prove
 that authored source, reconstructed source, or compiled behavior is equivalent.
+
+### Comparison query consumption
+
+`DotnetInspector.RoundTripCompilation` owns this consumer envelope.
+`RoundTripComparison` and `RoundTripScopeComparison` consume the public
+`DirectMemberComparisonQuery` for each pair admitted by their existing
+correspondence and context checks. The
+[direct-member contract](direct-member-comparison.md) supplies exact input
+association; [local publication](local-comparison-publication.md) supplies
+terminal and native evidence. Neither dependency establishes donor
+correspondence or a harness fidelity verdict.
+
+The tools retain the exact `LocalComparisonQueryResult` in the non-serialized
+`Evidence` property. Their materialized rows and independent C#/IL statuses
+come from its native outcomes. Query-origin non-success, non-completed Research
+execution, and unavailable producer evidence stay unavailable, with the
+owner-issued result retained. They do not become an exact or changed result
+because rows are absent. Endpoint inspections are consumed from that result,
+not repeated by the tool.
+
+Original-to-donor correspondence and hashes, compilation-context eligibility,
+and the separate direct cluster-to-all comparison remain required.
+`RoundTripComparisonTests` gates exact and changed pairs, bodyless and malformed
+body evidence, failed correspondence, query designation rejection, retained
+physical addresses and native rows, and direct donor-pair association in
+Release. This is the focused two-helper adoption slice of
+[#6134](https://github.com/richlander/dotnet-inspect/issues/6134), within
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706) step 10.
+ReturnToSender's separate comparison path and fidelity oracle, supported Source
+composition, and final Research retirement are not changed by this adoption.
 
 ### IL arbiter
 
@@ -508,19 +536,22 @@ The adjacent-owner prerequisites are explicit:
   not identify counterpart definitions.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
   the bounded single-signature occurrence decode owned by
-  [`metadata-signature-decoding.md`](metadata-signature-decoding.md). That
-  surface remains planned; the current `SignatureSpellabilityResult` collapses
-  the result to `CanSpell` plus decode status and cannot supply the
-  per-occurrence evidence consumed here.
+  [`metadata-signature-decoding.md`](metadata-signature-decoding.md), landed in
+  [#5927](https://github.com/richlander/dotnet-inspect/pull/5927). Tools adoption
+  remains tracked by [#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
+  The legacy `SignatureSpellabilityResult` collapses the result to `CanSpell`
+  plus decode status and is not a substitute for that per-occurrence evidence.
 - [#5302](https://github.com/richlander/dotnet-inspect/issues/5302) owns terminal
   accessibility independently of resolution. Until its owner-issued result is
   available, tools cannot complete a signature requirement that needs external
   accessibility evidence. Source-local declaration inclusion and nameability
   are tools-owned obligations, not external-accessibility questions.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
-  the artifact owner's on-demand digest over retained immutable content.
-  Current artifact sessions expose `OpenRead`, while the owning design reserves
-  digest authority to the session and marks this API unverified.
+  the artifact owner's on-demand digest over retained immutable content,
+  landed in [#5968](https://github.com/richlander/dotnet-inspect/pull/5968).
+  `ArtifactSetSession.GetContentDigest` and its lease-bound
+  `ArtifactContentReference` forwarding operation supply owner-issued results;
+  tools consume those results rather than compute replacement content digests.
 - [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) is the
   `MemberBodyProducer` design for a complete typed occurrence manifest over each
   receipt-bearing product `CSharpBlockBody`. Original or rebuilt IL cannot prove
@@ -551,7 +582,8 @@ produces a `CompileReferenceInventory` containing every candidate considered.
 Selection produces either one immutable `CompileReferenceSet` or a typed
 failure. Discovery order is never a binding policy.
 
-Before descriptor construction or selection, discovery requests the
+Before constructing frozen-reference descriptors or selecting compiler
+references, discovery requests the
 owner-issued retained-content digest from
 [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) for the source
 artifact and every candidate. If any required digest capability or result is
@@ -608,6 +640,154 @@ every compiler-relevant role. Reordering discovery input without changing
 policy or candidates cannot change the selected order, identity, or outcome.
 The digest authenticates the retained snapshot; it is not a substitute for
 retention, and bracketing hashes of a mutable path are insufficient.
+
+#### Initial selection policy
+
+The initial tools API accepts exact Metadata assembly identities with a required
+version. Neutral culture and an absent public-key token mean neutral and
+unsigned, not wildcard requests. An optional owner-issued artifact identity
+pins one inventory candidate; a mismatching pin does not weaken identity
+matching. Different registrations with equivalent full identities cannot both
+enter a selected set, even through separate pins or aliases, because Metadata
+resolution must remain unique.
+
+Aliases are sorted and deduplicated; an omitted or empty alias list means
+`global`. Repeated selection of one registration coalesces only when compiler
+roles agree. This initial policy grants no platform authorization or preference
+and performs no version roll-forward.
+
+Inventory IDs are owner-issued artifact identities, not durable or displayed
+addresses. Canonical order follows their deterministic generation-local order.
+The set key is the artifact generation together with the set digest; its hex
+value alone is not a cross-generation identity. The digest binds the separate
+source association and ordered selected registrations, content digests, full
+assembly identities, MVIDs, and compiler roles.
+
+The caller owns the original session and query lease through discovery,
+selection, and scoped `Use` operations. Each operation requires current
+authority; a scoped context is not a replacement for that authority. Metadata
+uses the selected guarded openers and Roslyn uses the matching retained
+immutable images. Source locations remain inert provenance, not reopen paths.
+
+`CompileReferenceSetTests` gates this initial policy through exact-identity and
+ambiguity cases, generation-scoped keys, role-sensitive selection and compiler
+binding, digest-before-descriptor ordering, source exclusion, stale authority,
+and retained-snapshot consumption by both Metadata and Roslyn. These gates do
+not establish the later closure, admission, or rebuilt-binding receipts.
+
+#### Explicit platform compatibility policy
+
+[#6120](https://github.com/richlander/dotnet-inspect/issues/6120) adds an
+explicit tools policy for the existing RTS platform-compatibility cases. The
+initial exact-only policy remains the default. The user approved this
+prerequisite to preserve supported behavior before the RTS migration in
+[#6103](https://github.com/richlander/dotnet-inspect/issues/6103); it does not
+authorize a general local roll-forward policy or new platform entitlement.
+
+The policy consumes Services-issued platform selections for a finite set of
+explicit binding requests. Services owns candidate acquisition, platform
+eligibility, precedence, and version selection. Tools records those answers;
+it does not reproduce the owner's probing or forwarding algorithms. Metadata
+may prepare forwarding requests under that policy before the context freezes.
+This preparation is not a signature or body closure receipt.
+
+The initial explicit mode accepts `Platform`-scope assembly-reference requests
+with a required version and either a global or registered source-relative
+origin. It preserves Services' seed continuations; contextual or foreign
+continuations and other target kinds produce a typed unsupported outcome.
+Platform-selected compiler references use the global alias without embedded
+interop types. Ordinary exact requests retain their existing role options;
+conflicting roles cannot silently replace the platform roles.
+
+For each platform-reference request:
+
+1. Services must select a platform acquisition for the original identity and
+   origin in `Platform` scope. The selected acquisition must carry the owner's
+   `PlatformAsset` provenance. Platform scope alone is insufficient: a
+   designated acquisition is not thereby a platform acquisition. Caller-supplied
+   provenance labels, names, paths, keys, and content digests do not grant this
+   authority.
+2. The requested name, culture, and public-key token must match the selected
+   full identity under the initial policy's exact-family semantics. Only the
+   owner-authorized one-way version substitution is permitted; omitted token
+   and culture do not become wildcards.
+3. Services must also select an acquisition in `Any` scope for the
+   platform-selected full identity, retaining the requesting origin. Using
+   the selected version here permits an older platform request without
+   weakening the sibling comparison.
+4. After artifact admission and digest-first discovery, both selections must
+   agree in full identity, MVID, and owner-issued retained-content digest.
+   Missing, ambiguous, unavailable, or disagreeing selections remain visible
+   failures, including a version-skewed sibling that owns the name but cannot
+   satisfy the selected identity.
+5. The compiler set explicitly selects the platform acquisition. An identical
+   sibling remains a distinct, unselected inventory candidate with its own
+   provenance. Digest agreement establishes compatibility for this policy;
+   it neither coalesces registrations nor grants the sibling platform authority.
+
+Supporting-owner acquisition precedes artifact admission; tools descriptor
+construction and compiler selection still follow owner digest acquisition.
+Preparation retains the acquired images before returning, so later publication
+and query consumption cannot reacquire changed path content.
+The tools preparation result retains the association between each original
+Services acquisition registration and the contribution actually registered
+with the artifact owner. It cannot accept a separately asserted association
+based on path, display identity, or digest equality.
+
+The frozen result binds the declared requests, their origin and scope,
+owner policy version, selected registrations, and agreement evidence to one
+artifact generation. The set encoding includes the policy mode and accepted
+binding mappings: different accepted requested versions cannot share a set
+key merely because their compiler images match. Opaque issuer-version
+identity also participates in equality alongside the artifact generation and
+digest. It remains typed; object display text or hash codes are not durable
+policy identity.
+
+Scoped Metadata binding preserves request and origin distinctions and uses
+only the frozen mappings and artifact-guarded images. Roslyn receives the same
+selected images. Unprepared platform bindings remain unavailable; `Use` cannot
+invoke Services, reopen paths, acquire another candidate, or substitute a new
+policy answer. Existing source separation and query-lease lifetime rules still
+apply.
+Origin-free lookup remains exact and `Any`-scope only over the selected set;
+platform compatibility uses the origin-aware `IAssemblyBindingPolicy` surface.
+
+`CompileReferencePlatformPolicyTests` gates unchanged exact-only behavior,
+older platform requests and identical siblings, differing-content and
+version-skewed siblings, and policy-sensitive ordering and identity.
+`OlderPlatformRequestPreparesForwardingAndBindsRetainedCoreLib` and
+`SupportingAcquisitionsAreRetainedBeforeArtifactSealAndScopedUse` exercise
+Metadata forwarding and Roslyn binding to retained images.
+`FrozenBindingsRemapArtifactOriginsAndPreserveScopeAndSeedOccurrences`
+gates origin remapping and unavailable unprepared platform bindings.
+These cases run in the ordinary Release harness contract suite.
+This policy does not expose Services' complete discovery inventory or complete
+the later RTS migration.
+
+#### Tools adoption
+
+[#6005](https://github.com/richlander/dotnet-inspect/issues/6005) tracks the
+frozen-reference implementation within the overall decoder-adoption tracker
+[#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
+The compatibility-preserving frozen-reference adoption path has three steps:
+
+1. Implement the inventory, selected set, and scoped context API. The immediate
+   production host for this test infrastructure is the decompiler harness
+   contract suite, which exercises Metadata and Roslyn with the selected images.
+   This step landed in [#6006](https://github.com/richlander/dotnet-inspect/pull/6006).
+2. Add the explicit platform policy in
+   [#6120](https://github.com/richlander/dotnet-inspect/issues/6120), with the
+   same harness contract suite as its immediate production consumer.
+3. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
+   in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
+   its simple-name-first-wins reference enumeration and competing compiler
+   binding projection on that path.
+
+The user-approved tools-first scope defers CLI/browser production adoption.
+The first step does not relabel the legacy ReturnToSender path as conforming,
+adopt the signature decoder there, or complete closure and admission. These
+steps are prerequisites within #5890's second decoder-adoption step, not a
+claim about the total number of compile-back implementation slices.
 
 ### Compile-context definition identity
 
@@ -1360,9 +1540,10 @@ required preservation boundary.
 
 Issue #4810 adds these named gates:
 
-1. `CompileReferenceSelectionDoesNotUseSimpleNameFirstWins` supplies two
-   non-corresponding candidates with one simple name and proves that reversing
-   discovery order produces the same typed ambiguity.
+1. `CompileReferenceSelectionDoesNotUseSimpleNameFirstWins` supplies
+   non-corresponding candidates with one simple name and proves that exact
+   identity selection is independent of discovery order. Requests admitting
+   multiple candidates produce the same typed ambiguity in either order.
 2. `CompileReferenceSelectionRejectsSameIdentityDifferentContent` proves equal
    assembly identity with a different digest or MVID is not coalesced.
 3. `CompileReferenceSetBindsMetadataAndCompilerToSameSnapshot` replaces a
@@ -1517,7 +1698,7 @@ Issue #4810 adds these named gates:
     after disposal but cannot make this gate pass without the captured owner
     outcome.
 28. `CompileReferenceDigestComesFromRetainedArtifactOwner` declines before
-    descriptor construction or selection while #4916's capability is
+    descriptor construction or selection if any required owner digest is
     unavailable. With every required owner result, descriptor construction may
     begin and each digest matches the retained bytes opened under the same query
     lease. Hashing a mutable path, hashing an independently reopened stream, or

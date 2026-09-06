@@ -391,7 +391,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(55 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(57 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -409,6 +409,8 @@ public class SectionPipelineTests
         Assert.Contains("Context: Instruction", pipeline.AllSectionNames);
         Assert.Contains("Context: Source Location", pipeline.AllSectionNames);
         Assert.Contains("Context: Member", pipeline.AllSectionNames);
+        Assert.Contains(ReadyToRunSectionNames.Image, pipeline.AllSectionNames);
+        Assert.Contains(ReadyToRunSectionNames.Sections, pipeline.AllSectionNames);
         Assert.Contains("Integration: Opportunities", pipeline.AllSectionNames);
         Assert.Contains("Integration: Logging", pipeline.AllSectionNames);
         Assert.Contains("Integration: OpenAPI", pipeline.AllSectionNames);
@@ -793,6 +795,9 @@ public class SectionPipelineTests
                 // hard-coded, so one that gains or loses content moves the exclusion with it and
                 // every non-empty one stays required.
                 .Except(EmptyMetadataSectionsInFixtureImage(), StringComparer.OrdinalIgnoreCase)
+                // The synthetic library fixture is not backed by a ReadyToRun image. These
+                // explicit-only sections are covered by the CoreLib-backed ReadyToRun lens tests.
+                .Except(ReadyToRunSectionNames.All, StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -1810,6 +1815,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 OptimizationOpportunitiesQuery.Definition,
+                ReadyToRunImageQuery.Definition,
                 ResourceTriageQuery.Definition,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
@@ -5646,6 +5652,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_RecordsAndReturnsTheBodyIndexItBuilds()
     {
         var registry = LibrarySections.CreateQueryRegistry();
@@ -5687,6 +5694,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
     {
         var index = Analysis.LibraryBodyIndex.Open(

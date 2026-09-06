@@ -52,6 +52,7 @@ public static class FixtureGroupExtensions
 
 public static class FixtureIds
 {
+    public const string JsExportUnions = "js-export.unions";
     public const string MetadataAttributeEnums = "metadata.attribute-enums";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
@@ -144,6 +145,13 @@ public static class FixtureIds
 
 public static class FixtureCatalog
 {
+    public static readonly FixtureDefinition JsExportUnions = Fixture(
+        FixtureIds.JsExportUnions,
+        "ILInspector.JsExportSurface.UnionFixtures",
+        "ILInspector.JsExportSurface.UnionFixtures.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity),
+        "js-export", "json", "union");
+
     public static readonly FixtureDefinition MetadataAttributeEnums = Fixture(
         FixtureIds.MetadataAttributeEnums,
         "ILInspector.Metadata.AttributeEnumFixtures",
@@ -717,6 +725,7 @@ public static class FixtureCatalog
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
+        JsExportUnions,
         MetadataAttributeEnums,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
@@ -1074,6 +1083,8 @@ public static class FixtureCatalog
     static string RepositoryProjectDirectory(string projectName)
         => projectName switch
         {
+            "ILInspector.JsExportSurface.UnionFixtures" =>
+                "fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures",
             "ILInspector.Metadata.AttributeEnumFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",

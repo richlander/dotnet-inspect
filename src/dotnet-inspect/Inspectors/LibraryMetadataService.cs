@@ -163,6 +163,7 @@ internal static class LibraryMetadataService
                         Logger = logger,
                         MetadataContext = pdbContext,
                         SourceLinkContext = sourceLinkQueryContext,
+                        MetadataRoot = options.MetadataRoot,
                         BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
                         Trace = trace,
                     };
@@ -203,6 +204,7 @@ internal static class LibraryMetadataService
                         FindingSubjectFor(path)),
                 PerformanceTriageOptions = options.PerformanceTriage,
                 BodyKindQueryOptions = options.BodyKindQuery,
+                IntegrationQuery = options.IntegrationQuery,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
@@ -299,6 +301,7 @@ internal static class LibraryMetadataService
                     Logger = logger,
                     MetadataContext = pdbContext,
                     SourceLinkContext = sourceLinkQueryContext,
+                    MetadataRoot = options.MetadataRoot,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
                     Trace = trace,
                 };
@@ -2148,6 +2151,18 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                ReadyToRunImageQuery.Definition,
+                out ReadyToRunImageResult? readyToRun))
+        {
+            inspection.ReadyToRunImageResult = readyToRun;
+            if (readyToRun is ReadyToRunImageResult.Failed failed)
+            {
+                logger.LogWarning(
+                    $"Error reading ReadyToRun image of {path}: {failed.Error.Message}");
+            }
+        }
+
+        if (results.TryGet(
                 AssemblyReferencesQuery.Definition,
                 out AssemblyReferencesResult? references))
         {
@@ -3084,10 +3099,13 @@ internal static class LibraryMetadataService
         switch (entry)
         {
             case AssemblyIntegrationOpportunitiesEntry.Available available:
+                List<IntegrationOpportunityInfo> opportunities = available.Opportunities.IsDefaultOrEmpty
+                    ? []
+                    : available.Opportunities
+                        .Where(opportunity => inspection.IntegrationQuery.Matches(opportunity.GetConcept()))
+                        .ToList();
                 inspection.IntegrationOpportunities =
-                    available.Opportunities.IsDefaultOrEmpty
-                        ? null
-                        : [.. available.Opportunities];
+                    opportunities.Count == 0 ? null : opportunities;
                 break;
 
             case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:

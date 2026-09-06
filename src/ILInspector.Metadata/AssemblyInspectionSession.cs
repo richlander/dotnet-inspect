@@ -327,6 +327,16 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataRootInspection.Open(_image.PEReader, root);
 
     /// <summary>
+    /// Describes the validated ReadyToRun envelope, or returns null when the
+    /// image has no canonical ReadyToRun advertisement.
+    /// </summary>
+    public ReadyToRunImageOverview? ReadyToRunImage()
+    {
+        _image.EnsureAlive();
+        return ReadyToRunImageInspector.Describe(_image.PEReader);
+    }
+
+    /// <summary>
     /// A single row of one metadata table, read on demand and independent of any
     /// row window. This is the handle click-through primitive: it reaches a
     /// target row that a windowed <see cref="MetadataTables"/> call did not
@@ -391,8 +401,19 @@ public sealed class AssemblyInspectionSession : IDisposable
     internal AssemblyReferenceIdentity AssemblyIdentity() =>
         AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
 
-    internal Guid ModuleVersionId()
+    /// <summary>
+    /// This image's module version id, read from the <c>Module</c> table's MVID column.
+    ///
+    /// This is the module identity a consumer joins its own evidence against — a decoded literal,
+    /// a body read, or a row description is only meaningful next to the module it came from — so
+    /// it is a first-class metadata fact rather than an internal detail. It decodes no names,
+    /// signatures, or bodies.
+    ///
+    /// Gate: <c>ModuleVersionId_MatchesTheInspectedModule</c>.
+    /// </summary>
+    public Guid ModuleVersionId()
     {
+        _image.EnsureAlive();
         var reader = _image.GetMetadataReader();
         return reader.GetGuid(reader.GetModuleDefinition().Mvid);
     }

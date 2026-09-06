@@ -66,6 +66,7 @@
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures/ILInspector.JsExportSurface.UnionFixtures.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.Alpha/TsJsExport.ContextFixtures.Alpha.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.Beta/TsJsExport.ContextFixtures.Beta.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
@@ -103,7 +104,6 @@
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
-    <Project Path="src/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
@@ -143,10 +143,8 @@
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
-    <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
     <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
     <Project Path="src/ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
-    <Project Path="src/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
@@ -161,10 +159,13 @@
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
+    <Project Path="tests/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
+    <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />

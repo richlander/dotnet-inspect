@@ -76,13 +76,11 @@
     <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
   </PropertyGroup>
 
-  <!-- Escalated for the same reason as RS0030 above, and deliberately not
-       restricted to .csproj: four fixture projects opt out of the repository-wide
-       TreatWarningsAsErrors default, and one of them is a .vbproj.
-       Without this, a vulnerability in those projects restores with a warning and
-       exit code 0. -->
+  <!-- Source-mapping warnings always fail restore. Audit findings fail only
+       when the nightly audit explicitly enables NuGetAudit. Neither policy is
+       relaxed by a warning-producing fixture's compiler-specific exception. -->
   <PropertyGroup>
-    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1507;NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
 
 </Project>
