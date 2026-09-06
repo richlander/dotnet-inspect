@@ -13,7 +13,7 @@ public static class SearchCommandDefinitions
 {
     public static Command CreateFindCommand(SharedOptions opts)
     {
-        var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");
+        var findCommand = new Command(FindCommand.Name, "Search package facets or types across packages and libraries");
 
         var patternArg = new Argument<string?>("pattern")
         {
@@ -59,10 +59,22 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
-            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (-t up to {FindCommand.PackageProfileMaximumLimit})"
+            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (-t up to {FindCommand.PackageProfileMaximumLimit}). Use -Q Packages for facet queries."
         };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit result count (-t 5) or filter API types by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
+        var candidatesOption = new Option<int?>("--candidates")
+        {
+            Description = "Package Query candidate budget (default 200, or 20 with --package-content; maximum 1000)"
+        };
+        var matchesOption = new Option<int?>("--matches")
+        {
+            Description = "Package Query match budget after facet evaluation (default 100; maximum 1000)"
+        };
+        var packageContentOption = new Option<bool>("--package-content")
+        {
+            Description = "Permit Package Query archive-content facets (at most 20 candidates)"
+        };
 
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
@@ -77,6 +89,10 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(allOption);
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(typeFilterOption);
+        findCommand.Options.Add(opts.RowWhere);
+        findCommand.Options.Add(candidatesOption);
+        findCommand.Options.Add(matchesOption);
+        findCommand.Options.Add(packageContentOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(findCommand);
@@ -92,7 +108,8 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
+            candidatesOption, matchesOption, packageContentOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -109,6 +126,7 @@ public static class SearchCommandDefinitions
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
                         "find --package-prefix Azure.AI            # stream package manifests",
+                        "find -Q Packages                          # discover package query facets",
                         "find Chat* --platform --extensions         # combine scopes");
 
                 case FindOptionsParser.Success success:

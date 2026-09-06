@@ -63,13 +63,6 @@ internal static class QueryDiscoveryCommand
         bool companionDiscover = discover?.Any(IsCompanionName) == true;
         if (query is null && !companionSelect && !companionDiscover)
         {
-            if (result.CommandResult.Command.Name == "find"
-                && result.GetResult(options.Select) is { Implicit: false })
-            {
-                CommandError.Write("find supports -S only for query companion sections; use -Q <section> or -S \"Query: <section>\".");
-                exitCode = 1;
-                return true;
-            }
             return false;
         }
 
@@ -106,6 +99,19 @@ internal static class QueryDiscoveryCommand
                 CommandError.Write($"{option.Name} cannot be combined with query discovery; it does not execute a data query.");
                 exitCode = 1;
                 return true;
+            }
+        }
+        if (result.CommandResult.Command.Name == "find")
+        {
+            foreach (Option option in result.CommandResult.Command.Options.Where(option =>
+                option.Name is "--candidates" or "--matches" or "--package-content"))
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    CommandError.Write($"{option.Name} cannot be combined with query discovery; it does not execute a data query.");
+                    exitCode = 1;
+                    return true;
+                }
             }
         }
         if (query is not null && result.GetValue(options.Schema))
