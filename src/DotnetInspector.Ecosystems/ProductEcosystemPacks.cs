@@ -72,6 +72,7 @@ internal static class ProductEcosystemPacks
         {
             NamespaceRoots = ["Aspire"],
             CorePackages = [new("Aspire.Hosting")],
+            ToolPackages = [new("Aspire.Cli")],
         },
     ]);
 
