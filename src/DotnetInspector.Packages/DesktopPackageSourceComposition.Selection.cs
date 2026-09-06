@@ -107,15 +107,16 @@ public sealed partial class DesktopPackageSourceComposition
             if (coordinate is null)
                 return new(null, null, failures);
 
-            var reporters = new HashSet<ConfiguredPackageAuthority>(ReferenceEqualityComparer.Instance);
-            foreach (ConfiguredPackageCandidateObservation candidate in discovery.Candidates)
-            {
-                if (candidate.Observation.Coordinate == coordinate)
-                    reporters.Add(candidate.Authority);
-            }
-            return await AcquireCoordinateAsync(
-                packageId, coordinate, createStore, sourceOptions, log, operation,
-                limits, transferPolicy, failures, reporters).ConfigureAwait(false);
+            PackageAcquisitionCandidate candidate =
+                discovery.SelectCandidate(coordinate.Version);
+            return await AcquireCandidateAsync(
+                candidate,
+                createStore,
+                log,
+                operation,
+                limits,
+                transferPolicy,
+                failures).ConfigureAwait(false);
         }
         catch (NuGetOperationTimeoutException)
         {
