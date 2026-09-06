@@ -75,10 +75,14 @@ public void SomeExpensiveTheory(string assemblyName)
   — a newly tagged test is automatically excluded.
 - `deep-inspect.yml`'s nightly `dotnet-inspect.Tests` step runs fully
   unfiltered — a newly tagged test automatically keeps running nightly.
-- The decompiler suite uses the same trait and the same
-  `--filter-not-trait "Speed=Slow"` / unfiltered split; see
+- The decompiler suite uses the same trait, but its native xUnit console
+  runner takes a different flag spelling than the CLI suite's Microsoft
+  Testing Platform runner: `dotnet run --project
+  src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
+  (fast) vs. `-trait "Speed=Slow"` (slow-only). See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
-  for that suite's `Area`/`Speed` trait combination.
+  for that suite's full `Area`/`Speed` trait combination and its
+  `--gate fast`/`--gate slow` equivalents.
 
 Tagging a test is a policy change (when it runs), not a behavior change (what
 it asserts). It requires no `.github/workflows/*.yml` edits.

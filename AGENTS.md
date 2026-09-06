@@ -109,9 +109,9 @@ publishing mechanics (exact commands, `@agent_state` fields, `blocked` vs.
   as normal visible output first; only after it appears in the session log may
   you open an approval prompt containing just the concise decision question and
   answer labels — never the report, checkpoint, or evidence itself.
-- **Publish `@agent`/`@agent_state`** after every state change, and **signal
-  `HELP`** when blocked on a human decision; clear both once the window no
-  longer owns the work or the decision arrives.
+- **Publish `@agent`/`@agent_state`** after every state change; clear both
+  only when the window no longer owns the work. **Signal `HELP`** when
+  blocked on a human decision; clear only `HELP` once the decision arrives.
 
 ### Keep the review-clean label current
 
