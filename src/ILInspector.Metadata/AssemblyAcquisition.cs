@@ -783,6 +783,46 @@ public sealed class ResolvedAssemblyReference
             lastWriteTimeUtc);
     }
 
+    /// <summary>
+    /// Adapts admission-projected facts to a compatibility descriptor without
+    /// opening content. The caller retains ownership of the guarded opener.
+    /// </summary>
+    public static ResolvedAssemblyReference CreateFromArtifactProjection(
+        ArtifactAcquisitionRegistration artifactRegistration,
+        ArtifactAssemblyProjection projection,
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(artifactRegistration);
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(openRead);
+        ArgumentNullException.ThrowIfNull(provenance);
+        ArgumentException.ThrowIfNullOrWhiteSpace(projection.Identity.Name);
+        if (!ReferenceEquals(
+                artifactRegistration.Artifact,
+                projection.Registration.Artifact)
+            || !ReferenceEquals(
+                artifactRegistration.Generation,
+                projection.Registration.Generation))
+        {
+            throw new ArgumentException(
+                "The projection must describe the exact artifact registration.",
+                nameof(projection));
+        }
+
+        var registration =
+            new AssemblyAcquisitionRegistration(artifactRegistration);
+        registration.BindModuleVersionId(projection.Registration.ModuleVersionId);
+        return new ResolvedAssemblyReference(
+            registration,
+            projection.Identity,
+            path: null,
+            openRead,
+            provenance,
+            lastWriteTimeUtc);
+    }
+
     static ResolvedAssemblyReference CreateFromStreamWithFallbackIdentityCore(
         ArtifactAcquisitionRegistration? artifactRegistration,
         Func<Stream> openRead,
