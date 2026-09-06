@@ -310,6 +310,11 @@ public class SourceForwarderResolutionTests
             Assert.Equal("Supplier.Symbols", package.PackageId);
             Assert.Equal("2.0.0", package.PackageVersion);
 
+            Assert.Equal("Facade.dll", loaded.GetLibraryAssetPath(directory));
+            Assert.Equal(
+                Path.GetFullPath(targetPath),
+                loaded.GetSourceAssembly(selectedType).Path);
+
             using var source = SourceLinkService.Open(
                 loaded.GetSourceAssembly(selectedType));
             Assert.True(source.Context.NeedsPdb);

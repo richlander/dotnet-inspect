@@ -61,6 +61,33 @@ public partial class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private static void AssertLibraryAsset(string output, string assemblyName)
+    {
+        string field = Assert.Single(
+            output.Split([" | ", "\n"], StringSplitOptions.None),
+            value => value.StartsWith("Library: ", StringComparison.Ordinal));
+        AssertLibraryAssetPath(field["Library: ".Length..], assemblyName);
+    }
+
+    private static void AssertLibraryAssetPath(string path, string assemblyName)
+    {
+        Assert.True(Path.IsPathFullyQualified(path), $"Expected an acquired asset path: {path}");
+        Assert.Equal(assemblyName + ".dll", Path.GetFileName(path));
+        Assert.True(File.Exists(path), $"Expected the acquired asset to exist: {path}");
+    }
+
+    private static void AssertPlatformTypeInfo(string output, string assemblyName)
+    {
+        Assert.Contains("## Type Info", output);
+        string[] rows = output.Split('\n');
+        string libraryRow = Assert.Single(
+            rows, row => row.StartsWith("| Library | ", StringComparison.Ordinal));
+        AssertLibraryAssetPath(libraryRow.Split('|')[2].Trim(), assemblyName);
+        Assert.Single(rows, row => row.StartsWith("| TFM | ", StringComparison.Ordinal));
+        Assert.Single(rows, row => row.StartsWith("| Version | ", StringComparison.Ordinal));
+        Assert.Contains("| Source | Platform |", output);
+    }
+
     private static int CountRenderedMarkdownTableRows(string markdown) =>
         MarkdownTableTestOracle.CountRows(markdown);
 
@@ -3694,7 +3721,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("# System.Text.Json.JsonSerializer", output);
+        Assert.StartsWith("# System.Text.Json.JsonSerializer\n\n", output);
+        AssertLibraryAsset(output, "System.Text.Json");
         Assert.Contains("Kind: class", output);
         Assert.DoesNotContain("├─", output);
     }
@@ -3708,9 +3736,30 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("Library: System.Collections.Immutable", output);
+        AssertLibraryAsset(output, "System.Collections.Immutable");
         Assert.Contains("Source: Platform", output);
         Assert.Contains("## Method Groups", output);
+    }
+
+    [Theory]
+    [InlineData("q")]
+    [InlineData("m")]
+    [InlineData("n")]
+    [InlineData("d")]
+    public async Task Type_SingleType_PlaintextIncludesAcquisitionContext(string verbosity)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer", "--plaintext",
+            $"-v:{verbosity}", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("System.Text.Json.JsonSerializer\n\n", output);
+        AssertLibraryAsset(output, "System.Text.Json");
+        Assert.Contains("Source: Platform", output);
+        Assert.Contains("Version:", output);
+        Assert.Contains("TFM:", output);
+        Assert.DoesNotContain("├─", output);
     }
 
     [Fact]
@@ -3794,7 +3843,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        AssertLibraryAsset(output, "System.Text.RegularExpressions");
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
@@ -3806,7 +3855,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        AssertLibraryAsset(output, "System.Text.RegularExpressions");
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
@@ -3950,7 +3999,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
-        Assert.Contains("Library: System.Collections", output);
+        AssertLibraryAsset(output, "System.Collections");
         Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
     }
 
@@ -3968,8 +4017,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains($"Library: {expectedLibrary}", output);
-        Assert.DoesNotContain("Library: System.Private.CoreLib", output);
+        AssertLibraryAsset(output, expectedLibrary);
     }
 
     [Theory]
@@ -4299,19 +4347,29 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Router_GenericPlatformType_UserFrameworkIsNotDuplicated()
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] args =
+        [
             "System.Collections.Generic.List<T>",
             "--framework",
             "runtime",
             "-S",
             "Type Info",
-            "--count",
             "--tips",
-            "q");
+            "q"
+        ];
 
+        var (exit, output, error) = await RunAppAsync(args);
         Assert.Equal(0, exit);
-        Assert.Equal("7", output.Trim());
         Assert.Empty(error);
+        AssertPlatformTypeInfo(output, "System.Collections");
+
+        var count = await RunAppAsync([.. args, "--count"]);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.Equal(
+            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
+                .ToString(CultureInfo.InvariantCulture),
+            count.Output.Trim());
     }
 
     [Theory]
@@ -5225,20 +5283,30 @@ public partial class CommandExecutionTests
             "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
             + ".ArrayPoolBufferAdapter<T1,T2,T3>";
 
-        var (exit, output, error) = await RunAppAsync(
+        string[] args =
+        [
             target,
             "-t",
             "5",
             "--all",
             "-S",
             "Type Info",
-            "--count",
             "--tips",
-            "q");
+            "q"
+        ];
 
+        var (exit, output, error) = await RunAppAsync(args);
         Assert.Equal(0, exit);
-        Assert.Equal("8", output.Trim());
         Assert.Empty(error);
+        AssertPlatformTypeInfo(output, "Microsoft.AspNetCore.Components.Endpoints");
+
+        var count = await RunAppAsync([.. args, "--count"]);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.Equal(
+            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
+                .ToString(CultureInfo.InvariantCulture),
+            count.Output.Trim());
     }
 
     [Fact]
@@ -6385,7 +6453,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.Json.JsonSerializer", output);
-        Assert.Contains("Library: System.Text.Json", output);
+        AssertLibraryAsset(output, "System.Text.Json");
         Assert.DoesNotContain("Package 'JsonSerializer'", error);
         Assert.Contains("Note: Type 'JsonSerializer' resolved via platform find", error);
     }
@@ -6398,7 +6466,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("Library: System.Collections.Immutable", output);
+        AssertLibraryAsset(output, "System.Collections.Immutable");
         Assert.Contains("## Method Groups", output);
         Assert.DoesNotContain("## Type Parameters", output);
         Assert.Contains("Note: Type 'FrozenDictionary' resolved via platform find", error);
@@ -8228,7 +8296,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("# Microsoft.AspNetCore.Builder.WebApplication", output);
-        Assert.Contains("Library: Microsoft.AspNetCore", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore");
         Assert.Contains("Source: Platform", output);
     }
 
@@ -8246,7 +8314,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ArrayPoolBufferAdapter&lt;", output);
         Assert.Contains(".PooledBuffer", output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Components.Endpoints", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore.Components.Endpoints");
     }
 
     [Fact]
@@ -8265,7 +8333,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "# Microsoft.AspNetCore.Http.HttpResults.Results&lt;",
             output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Http.Results", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore.Http.Results");
     }
 
     [Fact]
@@ -8298,7 +8366,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("# Microsoft.AspNetCore.Http.HttpContext", output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Http.Abstractions", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore.Http.Abstractions");
         Assert.Contains("Source: Platform", output);
     }
 
@@ -8385,10 +8453,9 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Type Info", output);
+        AssertPlatformTypeInfo(output, "System.Text.Json");
         Assert.Contains("| Type | System.Text.Json.JsonSerializer |", output);
         Assert.Contains("| Kind | class |", output);
-        Assert.Contains("| Library | System.Text.Json |", output);
         // Identity, not inventory: the member sections stay out.
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Method Groups", output);
@@ -18559,6 +18626,78 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Member_OverloadInventory_TabularOutputContainsOnlyRows(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", format, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.TrimEnd('\r', '\n').Split('\n');
+        Assert.NotEmpty(lines);
+        if (format == "--jsonl")
+        {
+            Assert.All(lines, line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                Assert.Equal("Serialize", document.RootElement.GetProperty("name").GetString());
+            });
+        }
+        else if (format == "--tsv")
+        {
+            Assert.StartsWith("name\tdigest\tsignature", lines[0]);
+            Assert.NotEmpty(lines.Skip(1));
+            Assert.All(lines.Skip(1), line => Assert.StartsWith("Serialize\t", line));
+        }
+        else
+        {
+            Assert.StartsWith("Name", lines[0]);
+            Assert.Contains("Digest", lines[0]);
+            Assert.Contains("Signature", lines[0]);
+            Assert.Contains("Serialize", output);
+        }
+    }
+
+    [Theory]
+    [InlineData("--tsv", "--rows", "2", 2)]
+    [InlineData("--tsv", "--rows", "1..3", 3)]
+    [InlineData("--tsv", "-n", "2", 1)]
+    [InlineData("--jsonl", "--rows", "2", 2)]
+    [InlineData("--jsonl", "--rows", "1..3", 3)]
+    [InlineData("--jsonl", "-n", "2", 2)]
+    public async Task Member_OverloadInventory_TabularWindowsRetainRows(
+        string format, string window, string value, int expectedRows)
+    {
+        var (exit, output, error) = await RunAppInDirectoryAsync(
+            Environment.CurrentDirectory,
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", format, window, value, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.TrimEnd('\r', '\n').Split('\n');
+        if (format == "--jsonl")
+        {
+            Assert.Equal(expectedRows, lines.Length);
+            Assert.All(lines, line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                Assert.Equal("Serialize", document.RootElement.GetProperty("name").GetString());
+            });
+        }
+        else
+        {
+            Assert.StartsWith("name\tdigest\tsignature", lines[0]);
+            Assert.Equal(expectedRows + 1, lines.Length);
+            Assert.All(lines.Skip(1), line => Assert.StartsWith("Serialize\t", line));
+        }
     }
 
     [Fact]
