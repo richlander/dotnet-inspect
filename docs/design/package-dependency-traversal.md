@@ -251,8 +251,9 @@ because their admission gestures do not authorize recursive source work.
 
 For a direct-only root, the query emits one declaration edge to an unresolved
 declaration-boundary node and performs no candidate or manifest operation.
-The boundary identity is the owner-issued declaration identity plus canonical
-package ID and constraint; it is not a guessed package coordinate.
+The boundary identity combines the root-bound source manifest projection,
+owner-issued declaration identity, canonical package ID, and constraint; it is
+not a guessed package coordinate.
 
 ### Exact candidate resolution
 
@@ -345,7 +346,8 @@ one node even when they require distinct source-relative projections.
 A manifest projection identifies one authority-bearing observation of an exact
 package coordinate. Its identity is owner-issued:
 
-- an explicit root provenance receipt;
+- a traversal-issued projection identity bound to one explicit root occurrence
+  and its owner-issued provenance;
 - a #5765 candidate correspondence plus exact manifest source result; or
 - a proven correspondence that allows one of those observations to satisfy
   the other.
@@ -356,6 +358,12 @@ feeds may publish different bytes for the same coordinate, so non-equivalent
 projections remain separate beneath the shared semantic package node. Their
 outgoing declarations are never silently unioned into one source-independent
 adjacency.
+
+The current direct-nuspec evidence does not carry a typed correspondence
+receipt. Repeated or same-coordinate direct nuspec roots therefore retain
+distinct manifest projections. The traversal must not infer correspondence
+from coordinate, display path, normalized declarations, object identity, or
+byte equality.
 
 An explicit root's supplied manifest evidence does not consume exact-manifest
 acquisition budget. If the same coordinate is later reached through a
@@ -369,6 +377,7 @@ A declaration-boundary node identifies a dependency target for which the
 root's authority permits direct evidence but not exact candidate resolution.
 It retains:
 
+- source manifest projection identity;
 - owner-issued declaration identity;
 - canonical package ID and constraint;
 - inert source spellings; and
@@ -394,8 +403,7 @@ constraint and inert source spellings, plus the exact resolution and source
 evidence supplied by #5765. It also retains one emission authority:
 
 - `ResolvedCandidate`, produced by recursive source authorization; or
-- `DirectBoundary`, with the non-empty ordered set of exact direct-only root
-  occurrences that issued the coalesced boundary edge.
+- `DirectBoundary`, produced for one exact direct-only root occurrence.
 
 Every distinct directed declaration edge remains present. Shared targets,
 cycles, and revisits never justify deleting an edge. A recursively authorized
@@ -426,7 +434,7 @@ An edge is admitted for root occurrence `R` only when both conditions hold:
 1. its source manifest projection is reachable from `R` within the depth rule;
 2. its emission authority matches `R`: `RecursiveSources` admits only
    `ResolvedCandidate` edges, while `DirectDeclarationsOnly` admits only
-   `DirectBoundary` edges whose issuer set contains `R`.
+   `DirectBoundary` edges issued for `R` itself.
 
 Projection correspondence can reuse manifest facts; it never transfers one
 root occurrence's expansion authority to another.
@@ -519,9 +527,7 @@ The query never substitutes `VersionRange.MinVersion`, treats an omitted
 version as latest, or selects from partial source evidence.
 
 For a direct-only root, the query schedules no candidate resolution and emits
-its boundary edges in normalized declaration order. When another direct-only
-root occurrence produces the same semantic boundary edge, the result retains
-one edge and adds that occurrence to the ordered issuer set.
+its boundary edges in normalized declaration order.
 
 ### Shared nodes and expansion caching
 
@@ -751,11 +757,12 @@ identity.
 ### Repeated direct root
 
 When the same direct nuspec root is supplied twice, the two gestures remain
-distinct root occurrences but share semantic package, projection, boundary
-node, and edge identity when their owner-issued provenance corresponds. The
-single `DirectBoundary` edge retains both occurrences in issuer order, and each
-root admits that edge independently. Count and graph projections therefore do
-not duplicate the semantic edge or lose either root's reachability.
+distinct root occurrences and share only semantic package-node identity. Until
+an upstream owner issues typed manifest correspondence, they retain distinct
+root-bound manifest projections, boundary nodes, and edge occurrences. Each
+root admits only its own edge. Count and graph projections preserve both
+supported gestures without guessing that their content observations
+correspond.
 
 ## Evidence
 
@@ -773,7 +780,7 @@ The implementation adds focused Release gates for:
 | Same-coordinate source projections retain distinct adjacency without changing node identity. | `Traversal_SourceRelativeProjectionPreservesDistinctContent` |
 | Direct-only roots emit unresolved boundary edges without source work. | `Traversal_DirectOnlyRootsAreSourceBounded` |
 | Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
-| Repeated direct roots share one boundary edge with both issuers. | `Traversal_RepeatedDirectRootSharesBoundaryEdge` |
+| Repeated direct roots remain distinct without typed correspondence. | `Traversal_RepeatedDirectRootRequiresCorrespondenceToCoalesce` |
 | Typed framework mode, never inert text, controls every group selection. | `Traversal_FrameworkModeIsStructuralCurrency` |
 | Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
 | Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |
