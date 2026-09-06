@@ -972,6 +972,43 @@ test("decoder reentrancy queues later progress and settlement behind the batch",
   await handle.quiesced;
 });
 
+for (const closure of ["restart", "dispose"] as const) {
+  test(`immediate observer ${closure} stops remaining batch handoffs`, async () => {
+    const settlement = deferred<TestSettlement>();
+    let host: WorkerRuntimeHost<string, TestDiagnostic> | null = null;
+    const harness = createHarness({
+      invoke: () => settlement.promise,
+      onFeature: event => {
+        if (event.kind === "durable") host?.[closure]();
+      },
+    });
+    host = harness.host;
+    await startReady(harness);
+    const handle = started(harness.session.start("input", harness.adapter));
+    await harness.environment.flushAsync();
+
+    assert.equal(harness.invocations[0]!.context.reportEvents([
+      { kind: "durable", payload: { kind: "item", value: "first" } },
+      { kind: "progress", payload: "second" },
+      { kind: "durable", payload: { kind: "item", value: "third" } },
+    ]), true);
+
+    assert.deepEqual(harness.events.map(eventLabel), [
+      "started",
+      "item:first",
+      "canceled:worker-restarted",
+    ]);
+    assert.deepEqual(await handle.outcome, {
+      kind: "canceled",
+      reason: "worker-restarted",
+    });
+    await handle.quiesced;
+    assert.equal(harness.transports[0]!.terminated, true);
+    assert.deepEqual(harness.authorityDiagnostics, []);
+    assert.deepEqual(harness.runtimeFailures, []);
+  });
+}
+
 test("reentrant restart follows already queued batch work", async () => {
   const settlement = deferred<TestSettlement>();
   const contextRef: { current: WorkerOperationContext | null } = {

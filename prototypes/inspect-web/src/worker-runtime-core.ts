@@ -1470,6 +1470,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         if (decoded.kind === "failure") return decoded;
         invoke(current => {
           for (const entry of decoded.value.entries) {
+            if (record.logicalClosureReported) break;
             if (entry.kind === "progress")
               current.reportProgress(entry.payload);
             else

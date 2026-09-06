@@ -594,6 +594,12 @@ publication but do not grant the transport permission to reorder durable
 entries or turn them into advisory progress. This transport does not reserve
 publication authority for a whole batch.
 
+Immediate host closure revokes remaining batch handoffs under the existing
+hard-termination rules. Unlike logical feature cancellation, this commits the
+producer's terminal closure, so later entries must not reach its sink. The
+enclosing producer-callout barrier still delays quiescence and realm release
+until the current handoff returns.
+
 Event batches have the existing progress message's protocol-state rules:
 they require an accepted, physically open operation, are stale across an old
 epoch, and do not establish task-loop liveness. Malformed or over-budget
