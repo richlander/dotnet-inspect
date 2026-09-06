@@ -54,6 +54,9 @@
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.CrossAssemblyEnums\ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ClassicAsync\ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" ReferenceOutputAssembly="false" />
@@ -88,6 +91,9 @@
     entry point).
   -->
   <ItemGroup>
+    <Compile Include="..\..\tools\DecompilerHarness\CompileReferenceInventory.cs" Link="CompileReferenceInventory.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CompileReferenceSet.cs" Link="CompileReferenceSet.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CompileReferenceContext.cs" Link="CompileReferenceContext.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\InverseLedger.cs" Link="InverseArchitecture\InverseLedger.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\HarnessLog.cs"
              Link="HarnessLog.cs" />
