@@ -199,5 +199,25 @@ expect_failure \
   skipped-retained-progress \
   "did not execute every baseline scenario exactly once" \
   "$node" "$verifier" "$mono_site" skip-retained-progress
+expect_failure \
+  split-shared-neighbor \
+  "Shared initial waiter count returned 1 instead of 2." \
+  "$node" "$verifier" "$mono_site" split-shared-neighbor
+expect_failure \
+  early-shared-finalization \
+  "Shared finalization physical completion returned true instead of false." \
+  "$node" "$verifier" "$mono_site" early-shared-finalization
+expect_failure \
+  skipped-final-natural \
+  "did not execute every shared scenario exactly once" \
+  "$node" "$verifier" "$mono_site" skip-final-natural
+expect_failure \
+  early-epoch-finalization \
+  "Epoch finalization physical completion returned true instead of false." \
+  "$node" "$verifier" "$mono_site" early-epoch-finalization
+expect_failure \
+  skipped-epoch-reuse \
+  "did not execute every epoch scenario exactly once" \
+  "$node" "$verifier" "$mono_site" skip-epoch-reuse
 
 echo "Managed-operation bridge Browser/Wasm mutations were rejected."

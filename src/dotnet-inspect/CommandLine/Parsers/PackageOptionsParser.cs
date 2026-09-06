@@ -131,6 +131,8 @@ public static class PackageOptionsParser
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
             ListLayout = parseResult.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(parseResult),
+            ListLayoutExplicitlySet =
+                parseResult.GetValue(args.LayoutOption),
             PathFilter = pathFilter,
             PathFilters = pathFilters,
             PathMatchMode = parseResult.GetValue(args.PathMatchOption) ?? "all",

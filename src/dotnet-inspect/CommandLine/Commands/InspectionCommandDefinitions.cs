@@ -352,8 +352,15 @@ public static class InspectionCommandDefinitions
             var requestedFramework = parseResult.GetValue(asmFrameworkOption);
             var requestedPlatformVersion = parseResult.GetValue(asmVersionOption);
             NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+            bool structuralDiscovery =
+                opts.IsDiscoveryMode(parseResult)
+                && opts.ParseSchema(parseResult);
 
-            if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
+            if (structuralDiscovery)
+            {
+                assemblyPath = source;
+            }
+            else if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
                 if (File.Exists(source))
                     assemblyPath = source;

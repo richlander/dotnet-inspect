@@ -1,15 +1,16 @@
-using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using Markout;
 
@@ -50,7 +51,9 @@ public static class MatchCommand
     internal static void WriteDiscoveryOnlyError(string flag)
         => CommandError.Write($"{flag} applies to discovery; add --similar.");
 
-    public static async Task<int> ExecuteAsync(MatchOptions options)
+    public static async Task<int> ExecuteAsync(
+        MatchOptions options,
+        CancellationToken cancellationToken = default)
     {
         if (options.Similar)
             return await MatchDiscovery.ExecuteAsync(options);
@@ -73,13 +76,10 @@ public static class MatchCommand
             return 1;
         }
 
-        // The Implementation Diff section renders one C#/IL side-by-side row set, the same
-        // "one section at a time" restriction diff already enforces for tabular/TSV/JSONL output
-        // (issue #4304 Slice 4).
-        if (options.IncludeImplementation && (options.Tabular || options.Tsv || options.Jsonl))
+        if (options.IncludeBody && (options.Tabular || options.Tsv || options.Jsonl))
         {
             CommandError.Write(
-                "--implementation cannot be combined with --table, --tsv, or --jsonl; "
+                "--body cannot be combined with --table, --tsv, or --jsonl; "
                     + "render Markdown (the default) or --json instead.");
             return 1;
         }
@@ -149,13 +149,13 @@ public static class MatchCommand
                 MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
                 MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
 
-            ImplementationDiffView? implementationView = options.IncludeImplementation
-                ? BuildImplementationDiffView(left, right)
+            MethodBodyDiffDocument? body = options.IncludeBody
+                ? CompareBodies(left, right, result, loaded, source, options, cancellationToken)
                 : null;
 
             if (options.JsonOutput)
             {
-                if (implementationView is null)
+                if (body is null)
                 {
                     JsonOutputHelper.Write(
                         result.Document,
@@ -165,17 +165,25 @@ public static class MatchCommand
                 }
                 else
                 {
-                    var envelope = new MatchImplementationDocument(result.Document, implementationView);
+                    var envelope = new MatchBodyDocument(result.Document, body);
                     JsonOutputHelper.Write(
                         envelope,
-                        MatchImplementationDocumentJsonContext.Default.MatchImplementationDocument,
-                        MatchImplementationDocumentCompactJsonContext.Default.MatchImplementationDocument,
+                        MatchBodyDocumentJsonContext.Default.MatchBodyDocument,
+                        MatchBodyDocumentCompactJsonContext.Default.MatchBodyDocument,
                         options.CompactJson);
                 }
             }
             else
             {
-                WriteMarkoutOutput(left.Display!, right.Display!, result, implementationView, options);
+                WriteMarkoutOutput(left.Display!, right.Display!, result, body, options);
+            }
+
+            if (body is { HasFailures: true })
+            {
+                CommandError.Write(
+                    body.Diagnostic?.Detail
+                        ?? "Method body comparison did not complete successfully; see its typed outcomes.");
+                return 1;
             }
 
             return 0;
@@ -539,45 +547,98 @@ public static class MatchCommand
         return false;
     }
 
-    /// <summary>
-    /// Independently decompiles both selectors' method bodies and projects a C#/IL side-by-side
-    /// implementation-diff view, reusing <see cref="ImplementationDiff.CompareMembers"/> and
-    /// <see cref="DiffOutputFormatter.BuildImplementationDiffView"/> exactly as <c>diff</c>'s
-    /// Implementation Diff section does (issue #4304 Slice 4). <c>CompareMembers</c> makes no
-    /// identity assumption about its two handles, so it applies unchanged to match's
-    /// non-identity-matched pair.
-    /// </summary>
-    static ImplementationDiffView BuildImplementationDiffView(ResolvedSelector left, ResolvedSelector right)
+    static MethodBodyDiffDocument CompareBodies(
+        ResolvedSelector left,
+        ResolvedSelector right,
+        ResearchMatchResult structural,
+        ApiServices.LoadedApiSurface loaded,
+        ApiSourceResult source,
+        MatchOptions options,
+        CancellationToken cancellationToken)
     {
-        using var source = MetadataSource.Open(left.OriginAssemblyPath!);
-        var memberDiff = ImplementationDiff.CompareMembers(
-            source,
-            MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
-            source,
-            MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
+        string image = left.OriginAssemblyPath!;
+        ResolvedAssemblyReference assembly =
+            (left.DeclaringType is { } type ? loaded.TryGetSourceAssembly(type) : null)
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                image, AssemblyResolutionProvenance.Local("match --body"));
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(image)
+            {
+                ProjectAssetsPath = options.ProjectAssetsPath,
+                RootPackageDirectory = source.PackageExtractPath,
+                TargetFramework = options.Tfm ?? source.SelectedTfm,
+                PackageSourceOptions = options.SourceOptions,
+                UsePackageSourcePolicy = source.PackageExtractPath is not null,
+            });
+        using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(assembly, policy);
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
 
-        var member = new ImplementationDiffMember(memberDiff.Subject, memberDiff.Changes)
+        // The structural result retains the physical module identity and tokens selected above.
+        // Carry those addresses, not names or a new token lookup, into the borrowed context.
+        var before = new MetadataMethodAddress(
+            structural.Document.Left.ModuleVersionId,
+            MetadataTokens.MethodDefinitionHandle(structural.Document.LeftToken));
+        var after = new MetadataMethodAddress(
+            structural.Document.Right.ModuleVersionId,
+            MetadataTokens.MethodDefinitionHandle(structural.Document.RightToken));
+        LocalComparisonQueryResult result = DirectMemberComparisonQuery.Execute(
+            group,
+            new DirectMemberComparisonRequest(
+                new(participant, before),
+                new(participant, after),
+                ResearchProducerCatalog.Kinds),
+            cancellationToken);
+        return result switch
         {
-            SourceComparison = memberDiff.SourceComparison,
+            LocalComparisonQueryResult.Published published =>
+                MethodBodyDiffFormatter.Build(left.Display!, right.Display!, published.Outcome),
+            LocalComparisonQueryResult.NonSuccess failure =>
+                BodyQueryFailure(left.Display!, right.Display!, failure),
+            _ => throw new InvalidOperationException("Unknown local comparison query result."),
         };
-        // BuildImplementationDiffView only reads diff.Members; this ResearchComparison is a
-        // type-satisfying formality, not a second, independently meaningful comparison result.
-        var diff = new ImplementationDiffResult(
-            [member],
-            new ResearchComparison(memberDiff.Changes.ToImmutableArray()));
+    }
 
-        return DiffOutputFormatter.BuildImplementationDiffView(
-            $"{left.Display} vs {right.Display}",
-            diff,
-            left.Display!,
-            right.Display!);
+    static MethodBodyDiffDocument BodyQueryFailure(
+        string before,
+        string after,
+        LocalComparisonQueryResult.NonSuccess result)
+    {
+        (string kind, string detail) = result.Failure switch
+        {
+            LocalComparisonQueryFailure.InvalidDesignation failure =>
+                (failure.Kind.ToString(), failure.MetadataFailures.IsDefaultOrEmpty
+                    ? $"The selected physical method is unavailable: {failure.Kind}."
+                    : string.Join("; ", failure.MetadataFailures.Select(item => item.Detail))),
+            LocalComparisonQueryFailure.AccessRejected failure =>
+                (failure.Cause.Kind.ToString(), failure.Cause.Detail),
+            LocalComparisonQueryFailure.PopulationRejected failure =>
+                (failure.Cause.Kind.ToString(), $"Comparison population rejected: {failure.Cause.Kind}."),
+            LocalComparisonQueryFailure.AdmissionRejected failure =>
+                (failure.Cause.Kind.ToString(), failure.Cause.Summary),
+            LocalComparisonQueryFailure.PlanningRejected failure =>
+                (failure.Cause.Kind.ToString(), failure.Cause.Summary),
+            LocalComparisonQueryFailure.DesignationRejected failure =>
+                (failure.Cause.Kind.ToString(), $"Physical pair rejected: {failure.Cause.Kind}."),
+            LocalComparisonQueryFailure.DesignationUnavailable failure =>
+                ("DesignationUnavailable", string.Join("; ", failure.Cause.Endpoints.Select(
+                    endpoint => $"{endpoint.Side}: {endpoint.Kind} ({endpoint.Attempt.Outcome.Kind})"))),
+            LocalComparisonQueryFailure.Cancelled failure =>
+                ("Cancelled", failure.Cause.Message),
+            LocalComparisonQueryFailure.Failed failure =>
+                ("Failed", failure.Cause.Message),
+            _ => throw new InvalidOperationException("Unknown local comparison query failure."),
+        };
+        return MethodBodyDiffFormatter.QueryFailure(
+            before, after, kind, result.Side?.ToString(), detail);
     }
 
     static void WriteMarkoutOutput(
         string leftDisplay,
         string rightDisplay,
         ResearchMatchResult result,
-        ImplementationDiffView? implementationView,
+        MethodBodyDiffDocument? body,
         MatchOptions options)
     {
         var view = MatchOutputFormatter.BuildView(leftDisplay, rightDisplay, result);
@@ -596,10 +657,9 @@ public static class MatchCommand
                 opts =>
                 {
                     var text = MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts);
-                    if (implementationView is not null)
+                    if (body is not null)
                     {
-                        var implementationText = DiffOutputFormatter.RenderImplementationDiffView(implementationView, opts);
-                        text = $"{text}\n\n{implementationText}";
+                        text = $"{text}\n\n{MethodBodyDiffFormatter.Render(body, opts)}";
                     }
 
                     return text;

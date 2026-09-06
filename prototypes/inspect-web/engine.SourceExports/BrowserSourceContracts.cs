@@ -193,6 +193,9 @@ public sealed record BrowserAnnotatedSource
 [JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserTypeSourceResult))]
 [JsonSerializable(typeof(BrowserTypeSourceCancellation))]
+[JsonSerializable(typeof(BrowserMethodBodyTargetsResult))]
+[JsonSerializable(typeof(BrowserMethodBodyComparisonResult))]
+[JsonSerializable(typeof(BrowserMethodBodyComparisonRequest))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserSourceJsonContext : JsonSerializerContext;

@@ -9,6 +9,7 @@ src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Queries
 src/DotnetInspector.ResearchQueries
+src/DotnetInspector.RowSelection
 src/DotnetInspector.Services
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis

@@ -259,7 +259,7 @@ jobs:
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

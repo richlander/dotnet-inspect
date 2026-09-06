@@ -71,6 +71,10 @@ public sealed record VerificationReceipt(
 [JsonSerializable(typeof(OperationResultEnvelope))]
 [JsonSerializable(typeof(CancellationRequestReceipt))]
 [JsonSerializable(typeof(VerificationReceipt))]
+[JsonSerializable(typeof(SharedProducerSnapshot))]
+[JsonSerializable(typeof(SharedVerificationReceipt))]
+[JsonSerializable(typeof(EpochWorkSnapshot))]
+[JsonSerializable(typeof(EpochVerificationReceipt))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class CanaryJsonContext : JsonSerializerContext;
 

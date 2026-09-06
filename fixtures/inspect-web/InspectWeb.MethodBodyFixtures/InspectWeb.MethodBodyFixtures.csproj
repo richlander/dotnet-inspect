@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <Target Name="CopyMethodBodyReferenceFixture" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetRefPath)" DestinationFolder="$(TargetDir)ref" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="BuildMethodBodyFixturePackage" AfterTargets="CopyMethodBodyReferenceFixture">
+    <PropertyGroup>
+      <FixturePackageDirectory>$(IntermediateOutputPath)package/</FixturePackageDirectory>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(FixturePackageDirectory)lib/$(TargetFramework)" />
+    <Copy SourceFiles="$(TargetRefPath)" DestinationFolder="$(FixturePackageDirectory)ref/$(TargetFramework)" />
+    <Copy SourceFiles="InspectWeb.MethodBodyFixtures.nuspec" DestinationFolder="$(FixturePackageDirectory)" />
+    <ZipDirectory SourceDirectory="$(FixturePackageDirectory)" DestinationFile="$(TargetDir)InspectWeb.MethodBodyFixtures.1.0.0.nupkg" Overwrite="true" />
+  </Target>
+</Project>

@@ -183,7 +183,20 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
-        => AddDescriptor<TDescriptor>(queries: [], isApplicable);
+        => AddDescriptor<TDescriptor>(queries: [], isApplicable, canRender: null);
+
+    /// <summary>
+    /// Registers a descriptor with runtime applicability and renderability that
+    /// depend on command context captured by the supplied predicates.
+    /// </summary>
+    public SectionPipeline<TModel> Add<TDescriptor>(
+        Func<TModel, bool> isApplicable,
+        Func<TModel, bool> canRender) where TDescriptor : ISectionDescriptor<TModel>
+    {
+        ArgumentNullException.ThrowIfNull(isApplicable);
+        ArgumentNullException.ThrowIfNull(canRender);
+        return AddDescriptor<TDescriptor>(queries: [], isApplicable, canRender);
+    }
 
     /// <summary>
     /// Registers a section descriptor whose data is supplied by a typed query.
@@ -193,7 +206,7 @@ public sealed class SectionPipeline<TModel>
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
     {
         ArgumentNullException.ThrowIfNull(query);
-        return AddDescriptor<TDescriptor>([query], isApplicable);
+        return AddDescriptor<TDescriptor>([query], isApplicable, canRender: null);
     }
 
     /// <summary>
@@ -207,12 +220,13 @@ public sealed class SectionPipeline<TModel>
         foreach (InspectionQueryDefinition query in queries)
             ArgumentNullException.ThrowIfNull(query);
 
-        return AddDescriptor<TDescriptor>(queries, isApplicable);
+        return AddDescriptor<TDescriptor>(queries, isApplicable, canRender: null);
     }
 
     private SectionPipeline<TModel> AddDescriptor<TDescriptor>(
         IReadOnlyList<InspectionQueryDefinition> queries,
-        Func<TModel, bool>? isApplicable) where TDescriptor : ISectionDescriptor<TModel>
+        Func<TModel, bool>? isApplicable,
+        Func<TModel, bool>? canRender) where TDescriptor : ISectionDescriptor<TModel>
     {
         return Add(new SectionEntry<TModel>
         {
@@ -227,9 +241,9 @@ public sealed class SectionPipeline<TModel>
             SizeClass = TDescriptor.SizeClass,
             Cost = TDescriptor.Cost,
             Queries = [.. queries],
-            HasExplicitApplicability = isApplicable != null,
-            IsApplicable = isApplicable ?? TDescriptor.CanRender,
-            CanRender = TDescriptor.CanRender,
+            HasExplicitApplicability = isApplicable != null || canRender != null,
+            IsApplicable = isApplicable ?? canRender ?? TDescriptor.CanRender,
+            CanRender = canRender ?? TDescriptor.CanRender,
         });
     }
 
