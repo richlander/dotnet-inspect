@@ -24,12 +24,12 @@ string[] positional = args
 // which is the shape this file exists to remove: a caller reading the exit code sees
 // a crash where the contract promises a stated refusal.
 const string UsageText =
-    "Usage: dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false "
+    "Usage: dotnet run "
     + "eng/prepare-decompiler-package-sweep.cs -- "
     + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]"
-    + "\n   or: dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false "
+    + "\n   or: dotnet run "
     + "eng/prepare-decompiler-package-sweep.cs -- --validate-pin <pin-file>..."
-    + "\n   or: dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false "
+    + "\n   or: dotnet run "
     + "eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules";
 
 // The names of the shape rules above, one per line, so that the suite holding them can

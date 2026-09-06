@@ -1,0 +1,66 @@
+name: NuGet audit scheduled
+
+on:
+  schedule:
+    - cron: '37 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  audit:
+    name: Audit NuGet dependencies (${{ matrix.scope }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: solution
+            project: dotnet-inspect.slnx
+          - scope: inspect-web
+            project: prototypes/inspect-web/engine.Tests/InspectWeb.Engine.Tests.csproj
+          - scope: msdl-proxy
+            project: prototypes/inspect-web/msdl-proxy.Tests/MsdlProxy.Tests.csproj
+          - scope: il-roundtrip
+            project: tests/DotnetInspector.ILRoundtrip.Tests/DotnetInspector.ILRoundtrip.Tests.csproj
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install browser workload
+        if: matrix.scope == 'inspect-web'
+        run: dotnet workload install wasm-experimental
+
+      - name: Restore vendored ILAssembler
+        if: matrix.scope == 'il-roundtrip'
+        run: bash eng/restore-ilassembler.sh
+
+      - name: Audit restored dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/nuget-audit"
+          dotnet restore "${{ matrix.project }}" --force-evaluate \
+            -p:Configuration=Release \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            -p:NuGetAuditLevel=low \
+            2>&1 | tee "$RUNNER_TEMP/nuget-audit/restore.log"
+
+      - name: Preserve NuGet audit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-audit-${{ matrix.scope }}
+          path: ${{ runner.temp }}/nuget-audit/
+          if-no-files-found: ignore
+          retention-days: 14

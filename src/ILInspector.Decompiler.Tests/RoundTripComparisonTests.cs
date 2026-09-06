@@ -1,12 +1,16 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.Queries;
 using DotnetInspector.RoundTripCompilation;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Research;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -27,10 +31,11 @@ public sealed class RoundTripComparisonTests
         Assert.Equal(MethodCorrespondenceStatus.Exact, member.Correspondence.Status);
         Assert.Equal(RoundTripEvidenceStatus.Exact, member.CSharpStatus);
         Assert.Equal(IlBodyDiffOutcome.Exact, member.IlStatus);
-        Assert.NotNull(member.Evidence);
+        AssertRetainedEvidence(member);
         string json = JsonSerializer.Serialize(result);
         Assert.Contains("\"cSharpStatus\":0", json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains($"\"token\":{request.Targets[0].Method.Token}", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"evidence\":", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -52,7 +57,7 @@ public sealed class RoundTripComparisonTests
         Assert.Equal(MethodCorrespondenceStatus.Exact, member.Correspondence.Status);
         Assert.Equal(RoundTripEvidenceStatus.Changed, member.CSharpStatus);
         Assert.NotEqual(IlBodyDiffOutcome.Exact, member.IlStatus);
-        Assert.NotNull(member.Evidence);
+        AssertRetainedEvidence(member);
     }
 
     [Fact]
@@ -91,6 +96,135 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
+    public void Compare_PreservesBodylessEndpointAsUnavailable()
+    {
+        var donor = Compile("""
+            namespace ILInspector.Decompiler.Tests;
+            public abstract class RoundTripComparisonFixture
+            {
+                public abstract int Transform(int value);
+            }
+            """);
+
+        var result = RoundTripComparison.Compare(CreateRequest(), donor);
+
+        Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
+        var member = Assert.Single(result.Members);
+        Assert.Equal(MethodCorrespondenceStatus.Exact, member.Correspondence.Status);
+        Assert.Equal(RoundTripEvidenceStatus.Unavailable, member.CSharpStatus);
+        Assert.Equal(IlBodyDiffOutcome.Unavailable, member.IlStatus);
+        Assert.Null(member.CSharpDiff);
+        Assert.NotEmpty(member.CSharpFailure!);
+        Assert.Contains("new absent:", member.IlFailure);
+        ResearchProducerCompletion completion = Completion(member.Evidence);
+        var native = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(
+            completion.Results.Single(result => result.Item.Producer == ResearchProducerKind.CSharp).Outcome).Result;
+        Assert.Null(native.BodyDiff);
+        var absent = Assert.IsType<FindingInspection<CSharpCanonicalLine>.Absent>(
+            native.Findings.NewInspection.Value);
+        Assert.Equal(FindingInspectionAbsenceKind.NoApplicableInput, absent.Kind);
+    }
+
+    [Fact]
+    public void Compare_PreservesMalformedBodyAsUnavailable()
+    {
+        byte[] donor = Compile(DonorSource("value + 1"));
+        using (var pe = new PEReader(new MemoryStream(donor, writable: false)))
+        {
+            var reader = pe.GetMetadataReader();
+            int rva = reader.GetMethodDefinition(FindMethod(
+                reader, nameof(RoundTripComparisonFixture), nameof(RoundTripComparisonFixture.Transform)))
+                .RelativeVirtualAddress;
+            var section = pe.PEHeaders.SectionHeaders.Single(section =>
+                rva >= section.VirtualAddress && rva < section.VirtualAddress + section.SizeOfRawData);
+            donor[section.PointerToRawData + rva - section.VirtualAddress] = 0;
+        }
+
+        var result = RoundTripComparison.Compare(CreateRequest(), donor);
+
+        Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
+        var member = Assert.Single(result.Members);
+        Assert.Equal(MethodCorrespondenceStatus.Exact, member.Correspondence.Status);
+        Assert.Equal(RoundTripEvidenceStatus.Unavailable, member.CSharpStatus);
+        Assert.Equal(IlBodyDiffOutcome.Unavailable, member.IlStatus);
+        Assert.NotNull(member.Evidence);
+        Assert.NotEmpty(member.CSharpFailure!);
+        Assert.NotEmpty(member.IlFailure!);
+    }
+
+    [Fact]
+    public void Compare_PreservesFailedCorrespondenceAsUnavailable()
+    {
+        var valid = CreateRequest();
+        Guid wrongModule = Guid.NewGuid();
+        var request = RoundTripRequest.Create(
+            valid.Artifact,
+            valid.Module with { ModuleVersionId = wrongModule },
+            [valid.Targets[0] with { Method = valid.Targets[0].Method with { ModuleVersionId = wrongModule } }],
+            valid.Scope, valid.BodyPolicy, valid.Replacements);
+
+        var result = RoundTripComparison.Compare(request, File.ReadAllBytes(AssemblyPath));
+
+        Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
+        var member = Assert.Single(result.Members);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, member.Correspondence.Status);
+        Assert.Equal(RoundTripEvidenceStatus.Unavailable, member.CSharpStatus);
+        Assert.Equal(IlBodyDiffOutcome.Unavailable, member.IlStatus);
+        Assert.Null(member.Evidence);
+        Assert.Equal(member.Correspondence.Failure, member.CSharpFailure);
+    }
+
+    [Fact]
+    public void QueryComparison_RetainsRejectedDesignation()
+    {
+        using var original = DecompilerMetadataSource.OpenWithoutSymbols(AssemblyPath);
+        using var donor = DecompilerMetadataSource.OpenWithoutSymbols(AssemblyPath);
+        using var workspace = new InspectionWorkspace();
+        var query = new RoundTripComparisonQuery(workspace, original, donor);
+        var target = CreateRequest().Targets[0].Method;
+
+        var result = query.Compare(target, target with { ModuleVersionId = Guid.NewGuid() });
+
+        Assert.Equal(RoundTripEvidenceStatus.Unavailable, result.CSharpStatus);
+        Assert.Equal(IlBodyDiffOutcome.Unavailable, result.IlStatus);
+        var failure = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(result.Evidence);
+        Assert.Equal(QueryComparisonSide.After, failure.Side);
+        Assert.IsType<LocalComparisonQueryFailure.DesignationUnavailable>(failure.Failure);
+        Assert.NotEmpty(result.CSharpFailure!);
+        Assert.Null(result.CSharpDiff);
+        Assert.Null(result.IlDiff);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void CSharpRoundTripChangedRejectsFailureRows(bool identityFailure, bool includeChanges)
+    {
+        var request = CreateRequest();
+        var member = Assert.Single(RoundTripComparison.Compare(
+            request, Compile(DonorSource("value + 2"))).Members);
+        var native = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(
+            Completion(member.Evidence).Results
+                .Single(result => result.Item.Producer == ResearchProducerKind.CSharp).Outcome).Result;
+        var diff = new CSharpBodyDiffResult(
+            includeChanges ? native.BodyDiff!.Rows : [],
+            identityFailure ? [] :
+            [new("", "", request.Targets[0].Anchor, "Transform",
+                CSharpDiffFailureKind.BodyDiffSkipped, "producer diff failed")],
+            identityFailure ?
+            [new("new", "", 0, default, "identity", "identity resolution failed")] : []);
+        var outcome = new CSharpMemberEndpointComparison(
+            native.Old, native.New, native.Findings, diff);
+
+        var result = RoundTripComparisonQuery.ClassifyCSharp(outcome);
+
+        Assert.Equal(RoundTripEvidenceStatus.Unavailable, result.Status);
+        Assert.Contains(identityFailure ? "identity resolution failed" : "producer diff failed", result.Failure);
+    }
+
+    [Fact]
     public void ScopeCompare_ComparesClusterAndAllDonorsDirectly()
     {
         var clusterRequest = CreateRequest();
@@ -112,6 +246,12 @@ public sealed class RoundTripComparisonTests
         Assert.Equal(IlBodyDiffOutcome.Exact, member.IlStatus);
         Assert.NotNull(result.Cluster);
         Assert.NotNull(result.All);
+        var direct = Completion(member.Evidence);
+        var pair = Assert.IsType<ResearchProducerWorkBasis.DesignatedPair>(direct.WorkItems[0].Basis).Pair;
+        Assert.Equal(Assert.Single(result.Cluster.Members).Correspondence.Target,
+            Assert.IsType<ResearchTargetOutcome.Resolved>(pair.Before.Outcome).Address);
+        Assert.Equal(Assert.Single(result.All.Members).Correspondence.Target,
+            Assert.IsType<ResearchTargetOutcome.Resolved>(pair.After.Outcome).Address);
     }
 
     [Fact]
@@ -205,6 +345,32 @@ public sealed class RoundTripComparisonTests
             [new RoundTripTarget(MetadataMethodAddress.Create(image.Reader, methodHandle), anchor)],
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
+    }
+
+    static ResearchProducerCompletion Completion(LocalComparisonQueryResult? evidence)
+        => Assert.IsType<ResearchProducerSessionOutcome.Completed>(
+            Assert.IsType<LocalComparisonQueryResult.Published>(evidence).Outcome).Completion;
+
+    static void AssertRetainedEvidence(RoundTripMemberComparison member)
+    {
+        var published = Assert.IsType<LocalComparisonQueryResult.Published>(member.Evidence);
+        Assert.NotSame(published.Identity!.Before, published.Identity.After);
+        var completion = Completion(published);
+        Assert.Equal(2, completion.Results.Length);
+        Assert.All(completion.WorkItems, item =>
+        {
+            var pair = Assert.IsType<ResearchProducerWorkBasis.DesignatedPair>(item.Basis).Pair;
+            Assert.Equal(member.Target.Method,
+                Assert.IsType<ResearchTargetOutcome.Resolved>(pair.Before.Outcome).Address);
+            Assert.Equal(member.Correspondence.Target,
+                Assert.IsType<ResearchTargetOutcome.Resolved>(pair.After.Outcome).Address);
+        });
+        var csharp = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(
+            completion.Results.Single(result => result.Item.Producer == ResearchProducerKind.CSharp).Outcome).Result;
+        Assert.Equal(csharp.BodyDiff!.Rows, member.CSharpDiff!.Rows);
+        var il = Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(
+            completion.Results.Single(result => result.Item.Producer == ResearchProducerKind.IlBody).Outcome).Result;
+        Assert.Equal(il.MemberDiff!.Diff.Rows, member.IlDiff!.Rows);
     }
 
     static byte[] Compile(string source)
