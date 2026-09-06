@@ -7,6 +7,10 @@ type WorkerProbe = ReturnType<typeof createEngineWorkerProbe>;
 type WorkerClient = typeof import("../src/engine-worker-client.ts");
 
 declare global {
+  var engineWorkerEpochReporterGate: Pick<
+    typeof import("/inspect-web-host.js"),
+    "registerEpochWorkReporter" | "drainEpochWorkReporter" | "unregisterEpochWorkReporter"
+  >;
   interface Window {
     engineWorkerProbe: WorkerProbe;
     engineWorkerEvents: string[];
@@ -115,13 +119,18 @@ test("restart destroys the old realm and explicitly boots a new epoch", async ({
   expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1", "released:2"]);
 });
 
-test("Worker Ready includes the managed reporter and its generated lifecycle exports", async ({ page }) => {
+test("Worker Ready includes the managed reporter and its generated lifecycle exports", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate",
+    value: "observe-epoch-reporter",
+    url: "http://127.0.0.1:4186",
+  }]);
   const workerReady = page.waitForEvent("worker");
   expect((await start(page)).kind).toBe("started");
   expect((await canary(page)).kind).toBe("succeeded");
   const worker = await workerReady;
   const receipt = await worker.evaluate(async () => {
-    const host = await import("/inspect-web-host.js");
+    const host = globalThis.engineWorkerEpochReporterGate;
     let duplicateRejected = false;
     try {
       host.registerEpochWorkReporter("unused", () => undefined, () => undefined);
