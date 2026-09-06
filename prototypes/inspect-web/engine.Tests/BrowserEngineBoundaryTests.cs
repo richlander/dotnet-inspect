@@ -48,7 +48,7 @@ using BrowserHomeDemoRunMember = InspectWeb.Engine.CatalogFacade.BrowserHomeDemo
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
-public sealed class BrowserEngineBoundaryTests
+public sealed partial class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
 
@@ -399,22 +399,25 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task CancelledWait_ReleasesSharedPackageAcquisition()
+    public async Task CancelledWait_WithoutEpochRetainsPhysicalAcquisitionAndLateFailure()
     {
         var completion =
-            new TaskCompletionSource<int>(
+            new TaskCompletionSource<AcquiredPackageSourcePayload>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+        var acquisition = new BrowserSharedPackageAcquisition(() => completion.Task, epochWork: null);
         using var cancellation = new CancellationTokenSource();
-        Task<int> waiting = BrowserPackageWorkspace.WaitForSharedAcquisitionAsync(
-            completion.Task,
-            cancellation.Token);
-
         cancellation.Cancel();
+        Task<AcquiredPackageSourcePayload> waiting = acquisition.WaitAsync(cancellation.Token);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        Assert.False(waiting.IsCompleted);
         Assert.False(completion.Task.IsCompleted);
-        completion.SetResult(42);
-        Assert.Equal(42, await completion.Task);
+        var lateFailure = new InvalidOperationException("late package failure");
+        completion.SetException(lateFailure);
+        var failure = await Assert.ThrowsAsync<AggregateException>(() => waiting);
+        Assert.IsAssignableFrom<OperationCanceledException>(failure.InnerExceptions[0]);
+        Assert.Same(lateFailure, failure.InnerExceptions[1]);
+        Assert.Same(lateFailure,
+            await Assert.ThrowsAsync<InvalidOperationException>(() => acquisition.Completion));
     }
 
     [Fact]

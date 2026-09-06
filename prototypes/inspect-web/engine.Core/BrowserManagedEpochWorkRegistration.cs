@@ -38,6 +38,18 @@ internal sealed class BrowserManagedEpochWorkRegistration
         }
     }
 
+    internal BrowserManagedEpochWorkSource? SourceForAcquisition
+    {
+        get
+        {
+            lock (_sync)
+                return !_registeredOnce
+                    ? null
+                    : _source
+                        ?? throw new InvalidOperationException("The epoch-work reporter has been unregistered.");
+        }
+    }
+
     internal Task StopAndDrainAsync()
     {
         lock (_sync)

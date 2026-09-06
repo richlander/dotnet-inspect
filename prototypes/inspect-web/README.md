@@ -656,9 +656,14 @@ PDB and source stores are released, so concurrent or evicted requests cannot
 multiply those request-local budgets. This lifetime is gated by
 `SourceOperations_AreExclusiveAndSuperseding` and
 `ActiveScopeLease_PreventsWorkspaceAndPackageEviction`. Cancellation also
-releases a caller waiting on shared package acquisition without canceling that
-bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackageAcquisition`
-gates that separation. Source lookup therefore adds no ambient filesystem
+releases a non-final shared-acquisition waiter without canceling the bounded
+cache operation. The final waiter remains represented until physical completion
+or transfers that producer to the registered managed epoch reporter. A later
+waiter reuses the same acquisition; a sealed terminal drain does not start a
+duplicate download. `BrowserEngineBoundaryTests.AcquisitionLifetime.cs` and
+`CancelledWait_WithoutEpochRetainsPhysicalAcquisitionAndLateFailure` gate that
+handoff. This does not activate Source in the Worker or promise prompt physical
+release before reporter registration. Source lookup therefore adds no ambient filesystem
 dependency or unbounded retained cache. Typed rejection and unavailable
 outcomes become visible failures; only an `Available` result crosses the
 bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
