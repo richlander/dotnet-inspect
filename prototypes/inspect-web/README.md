@@ -1427,14 +1427,14 @@ declared, not by whether its code reaches a browser. Vite is a devDependency and
 its `__vite__mapDeps` helper is in the shipped bundle, so that split was never
 the boundary it resembled.
 
-That check no longer runs in CI. `npm audit` needs npm's advisories endpoint,
+That check no longer gates merges. `npm audit` needs npm's advisories endpoint,
 and it exits non-zero both when it finds an advisory and when it cannot reach
 that endpoint, so the merge gate could not tell a vulnerable dependency from an
 npm outage. On 2026-09-04 the endpoint returned 503s and timeouts for over two
 hours and turned `ci-required` red on unrelated pull requests; a gate that
 blocks merges on a third party's uptime is not measuring this repository.
 
-What watches the lockfile now is Dependabot: the same 168 packages against the
+Dependabot watches the lockfile: the same 168 packages against the
 same advisory database, with vulnerability alerts enabled and a weekly npm
 update schedule for `/prototypes/inspect-web`. The honest difference is timing.
 `npm audit` blocked the merge that introduced an advisory; Dependabot reports
@@ -1442,6 +1442,36 @@ one after it lands and opens a security update. That is weaker, and it is what
 lets the sanitization comment name a gate that is monitoring rather than
 enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
 demand.
+
+The separate `npm audit scheduled` workflow adds an Actions signal at 05:23 UTC
+daily, or on manual dispatch. It is not part of `ci-required` and has no push or
+pull-request trigger. It audits inspect-web's committed lockfile with npm's
+`--package-lock-only --include=dev --audit-level=info --json`: no dependency
+installation or automatic fixes, and development dependencies are included.
+The annotated-source-viewer prototype currently has neither dependencies nor a
+lockfile, so it is not an additional audit target.
+
+`scripts/audit-dependencies.sh` only orchestrates npm's report. A successful
+audit exits 0; reported advisories exit 1 without retrying. An incomplete audit
+(including endpoint failure) is retried after 10 and 30 seconds, then exits 2
+if it still cannot complete. npm's fetch retries do not retry the audit POSTs,
+so these are whole-command retries. The job has a ten-minute timeout and
+30-second npm fetch timeouts. Both non-success outcomes fail the scheduled job,
+with distinct annotations and step summaries; a failed acquisition is never
+described as a clean audit. Every attempt's JSON and stderr are retained in the
+`npm-audit` artifact for 14 days. Dependabot and this schedule are monitoring,
+not merge enforcement.
+
+Run the same check locally from this directory with:
+
+```bash
+bash scripts/audit-dependencies.sh /tmp/inspect-web-npm-audit
+```
+
+`test/npm-audit.test.ts` exercises orchestration with controlled npm outcomes:
+success, informational advisories, transient recovery, and incomplete or
+malformed reports. It runs in the existing inspect-web Node suite on Unix
+hosts; it does not query the live advisory service or implement advisory rules.
 
 `staticwebapp.config.json` owns the browser's enforcing Content-Security-Policy
 on static responses. It follows the

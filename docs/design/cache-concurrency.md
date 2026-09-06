@@ -202,6 +202,15 @@ transactions from older direct-copy writers, earlier layouts that did not
 scope entries by source, and payloads previously misattributed by a
 noncanonical NuGet.org URL shortcut.
 
+Configured-authority acquisition reuses this publication mechanism with a
+separate `package-authority-content-v1` slot family. Its authority key and
+producer evidence are distinct; HTTP authorities without durable identity
+instead publish into caller-owned temporary storage. The
+[package source model](package-source-model.md#caller-pinned-payload-acquisition)
+owns authorization and adoption. The legacy `package-content-v5` family
+remains active for unmigrated callers rather than being relabeled or retired
+by this additive namespace.
+
 ## Versioned cache retirement
 
 Each versioned cache family registers its prefix and current numeric contract.
