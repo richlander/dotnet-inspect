@@ -1387,12 +1387,14 @@ do not provide, and the session provides them without handing out a `PEReader` o
   `EnumerateMethods()` remains what it is — a whole-image inventory whose display names and list
   entries are already allocated by the time a caller could decide it was too expensive.
 - **A bounded body read.** `ReadBounded(methodToken, maxILBytes)` returns a closed
-  `BoundedMethodBodyRead`: `Available`, `NoBody`, `ByteLimitExceeded`, or
+  `BoundedMethodBodyRead`: `Available(IL)`, `NoBody`, `ByteLimitExceeded`, or
   `Unreadable(MethodBodyReadFailure)`. The IL code size comes from the method's tiny/fat header
-  in the mapped image, so an over-limit body is refused — with its true size — before any body
-  block is constructed and before any IL is copied. What is *not* bounded by the caller's budget:
-  for an admitted body, the platform also parses the exception clauses the image declares.
-  A nonzero-RVA method with a non-IL implementation is refused as
+  in the mapped image, so an over-limit body is refused — with its true size — before any IL is
+  copied. Beyond the session's already-retained image, an admitted read materializes one IL
+  array of at most `maxILBytes` plus constant-size bookkeeping. Exception regions and local
+  signatures are not materialized. A consumer that needs those whole-body facts uses `TryRead`,
+  which has no caller-supplied byte limit; the bounded path reads only the header and IL extent,
+  not the rest of the body block. A nonzero-RVA method with a non-IL implementation is refused as
   `UnsupportedImplementation`, not interpreted as an IL byte stream.
 - **A bounded literal read.** `ReadBoundedUserString(token, maxCharacters)` validates the `#US`
   token kind, heap offset, odd encoded length, and terminal 0/1 flag before decoding, so
@@ -1412,6 +1414,7 @@ The bounds are the caller's, not the session's: this seam sets no policy about w
 a body is *worth*, and it stays out of what its consumers decide with the bytes. Gates:
 `MethodRows_CountAndDescribeMatchTheEnumeratedInventory`,
 `BoundedBody_ReturnsExactILWithinTheLimit`,
+`BoundedBody_MaterializesILWithoutExceptionRegions`,
 `BoundedBody_RefusesAnOverLimitBodyWithItsTrueSize`,
 `BoundedBody_DistinguishesNoBodyFromAMissingRow`,
 `BoundedUserString_ReturnsRawContentWithinTheLimit`,

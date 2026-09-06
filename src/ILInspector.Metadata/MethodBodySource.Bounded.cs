@@ -40,9 +40,9 @@ public enum MethodBodyReadFailure
 
 /// <summary>The outcome of one bounded method-body read.</summary>
 /// <remarks>
-/// Closed and total: every read reports exactly one of a materialized body, a definite absence of
-/// one, a refusal to materialize, or a typed failure. There is no null and no shortened body, so
-/// a consumer can never read "too large" or "malformed" as "no IL".
+/// Closed and total: every read reports exactly one of a materialized IL image, a definite absence
+/// of one, a refusal to materialize, or a typed failure. There is no null and no shortened body,
+/// so a consumer can never read "too large" or "malformed" as "no IL".
 /// </remarks>
 public abstract record BoundedMethodBodyRead
 {
@@ -50,8 +50,15 @@ public abstract record BoundedMethodBodyRead
     {
     }
 
-    /// <summary>The body fit the declared byte limit and was copied whole.</summary>
-    public sealed record Available(MethodBodyData Body) : BoundedMethodBodyRead;
+    /// <summary>
+    /// The body's IL fit the declared byte limit and was copied whole. Only IL is materialized:
+    /// exception regions and local signatures are not materialized. Beyond the session's
+    /// retained image, the read needs this array plus constant-size bookkeeping.
+    /// A consumer that needs whole-body facts uses
+    /// <see cref="MethodBodySource.TryRead(int, out MethodBodyData?, out string?)"/>, which is
+    /// unbounded by design.
+    /// </summary>
+    public sealed record Available(ImmutableArray<byte> IL) : BoundedMethodBodyRead;
 
     /// <summary>The row declares no IL body.</summary>
     public sealed record NoBody : BoundedMethodBodyRead;
@@ -177,25 +184,30 @@ public sealed partial class MethodBodySource
     /// </param>
     /// <remarks>
     /// <para>
-    /// What is bounded: the IL code size is read from the method's tiny or fat header
-    /// (ECMA-335 §II.25.4) in the already-mapped image before any body block is constructed and
-    /// before any IL is copied. A body over the limit is therefore refused without allocating its
-    /// IL, and the returned <see cref="ImmutableArray{T}"/> never exceeds
-    /// <paramref name="maxILBytes"/>. Exactly one IL copy is made for an admitted body.
+    /// Beyond the session's already-retained image, an admitted read materializes one IL array
+    /// of at most <paramref name="maxILBytes"/> bytes plus constant-size bookkeeping.
+    /// An over-limit read does not materialize IL. Exception regions, local signatures, and the
+    /// body block itself are not materialized; those whole-body facts remain on
+    /// <see cref="TryRead(int, out MethodBodyData?, out string?)"/>.
     /// </para>
     /// <para>
-    /// What is not bounded: for an admitted body, <c>PEReader.GetMethodBody</c> also parses the
-    /// method's exception-handling clauses, and that array's size follows the clause count the
-    /// image declares rather than <paramref name="maxILBytes"/>. It is bounded by the image, not
-    /// by the caller's budget. No IL or exception clauses are parsed for a refused body.
+    /// The limit is enforced before the allocation it governs: the IL code size comes from the
+    /// method's tiny or fat header (ECMA-335 §II.25.4) in the already-mapped image, and an
+    /// over-limit body is refused with its true size before any IL is copied. The IL is then
+    /// copied straight out of the mapped body, which is the same content
+    /// <c>PEReader.GetMethodBody</c> would expose — a correspondence
+    /// <c>BoundedBody_ReturnsExactILWithinTheLimit</c> gates against that reader for both a tiny
+    /// and a fat body.
     /// </para>
     /// <para>
-    /// Unlike <see cref="TryRead(int, out MethodBodyData?, out string?)"/>, which reports every
-    /// refusal as a message string, each outcome here is typed, so "no body", "too large", and
-    /// "malformed" stay distinguishable.
+    /// Unlike <see cref="TryRead(int, out MethodBodyData?, out string?)"/> — which is unbounded,
+    /// materializes exception regions, and reports every refusal as a message string — each
+    /// outcome here is typed, so "no body", "too large", and "malformed" stay distinguishable. A
+    /// consumer that needs whole-body facts uses that path deliberately.
     /// </para>
     /// <para>
     /// Gates: <c>BoundedBody_ReturnsExactILWithinTheLimit</c>,
+    /// <c>BoundedBody_MaterializesILWithoutExceptionRegions</c>,
     /// <c>BoundedBody_RefusesAnOverLimitBodyWithItsTrueSize</c>,
     /// <c>BoundedBody_DistinguishesNoBodyFromAMissingRow</c>.
     /// </para>
@@ -218,7 +230,7 @@ public sealed partial class MethodBodySource
                 MethodBodyReadFailure.UnsupportedImplementation);
         }
 
-        if (!TryReadILByteCount(rva, out int ilByteCount))
+        if (!TryReadILExtent(rva, out int headerSize, out int ilByteCount))
             return new BoundedMethodBodyRead.Unreadable(MethodBodyReadFailure.MalformedBody);
 
         if (ilByteCount > maxILBytes)
@@ -226,9 +238,8 @@ public sealed partial class MethodBodySource
 
         try
         {
-            var block = _peReader.GetMethodBody(rva);
             return new BoundedMethodBodyRead.Available(
-                new MethodBodyData(block.GetILContent(), block.ExceptionRegions));
+                _peReader.GetSectionData(rva).GetContent(headerSize, ilByteCount));
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -339,12 +350,14 @@ public sealed partial class MethodBodySource
     }
 
     /// <summary>
-    /// The IL code size declared by the body header at <paramref name="rva"/>, read without
-    /// constructing a body block. This is the measurement that lets an over-limit body be refused
-    /// before it is materialized.
+    /// Where the IL starts within the body at <paramref name="rva"/> and how many bytes of it
+    /// there are, read from the body header without constructing a body block. This is the
+    /// measurement that lets an over-limit body be refused before anything is materialized, and
+    /// the extent the admitted copy uses.
     /// </summary>
-    bool TryReadILByteCount(int rva, out int ilByteCount)
+    bool TryReadILExtent(int rva, out int headerSize, out int ilByteCount)
     {
+        headerSize = 0;
         ilByteCount = 0;
         try
         {
@@ -354,19 +367,19 @@ public sealed partial class MethodBodySource
 
             BlobReader header = section.GetReader();
             byte first = header.ReadByte();
-            int headerSize;
+            int prefix;
             int codeSize;
             switch (first & 0x03)
             {
                 case 0x02:  // CorILMethod_TinyFormat: size in the upper six bits.
-                    headerSize = 1;
+                    prefix = 1;
                     codeSize = first >> 2;
                     break;
                 case 0x03:  // CorILMethod_FatFormat: flags/header size, max stack, code size.
                     header.Offset = 0;
                     int flagsAndSize = header.ReadUInt16();
-                    headerSize = (flagsAndSize >> 12) * 4;
-                    if (headerSize < 12)
+                    prefix = (flagsAndSize >> 12) * 4;
+                    if (prefix < 12)
                         return false;
                     header.ReadUInt16();  // max stack
                     uint declared = header.ReadUInt32();
@@ -378,9 +391,10 @@ public sealed partial class MethodBodySource
                     return false;
             }
 
-            if (headerSize > section.Length || codeSize > section.Length - headerSize)
+            if (prefix > section.Length || codeSize > section.Length - prefix)
                 return false;
 
+            headerSize = prefix;
             ilByteCount = codeSize;
             return true;
         }
