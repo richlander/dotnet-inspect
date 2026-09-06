@@ -225,7 +225,7 @@ export function emptyOutcome(): QueryOutcome {
   };
 }
 
-export function idleOutcome(): QueryOutcome {
+function idleOutcome(): QueryOutcome {
   return {
     rows: [],
     failures: [],
