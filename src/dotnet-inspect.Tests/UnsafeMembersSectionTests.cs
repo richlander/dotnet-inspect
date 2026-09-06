@@ -133,6 +133,7 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task MemberEffectiveDiscovery_ListsUnsafeOperationsForUnsafeApiMember()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

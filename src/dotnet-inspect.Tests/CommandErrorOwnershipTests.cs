@@ -128,6 +128,7 @@ public class CommandErrorOwnershipTests
     /// accounts for is reported here.
     /// </remarks>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EveryProjectInTheCliClosureIsAnalyzedForTheStderrRule()
     {
         string root = RepositoryRoot();
@@ -448,6 +449,7 @@ public class CommandErrorOwnershipTests
     /// a green suite.
     /// </remarks>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CompiledIl_ReachesStderrOnlyWhereAccountedFor()
     {
         List<string> found = [];
