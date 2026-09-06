@@ -230,7 +230,21 @@ TLA_TOOLS_JAR="$PWD/artifacts/tla2tools.jar" \
 For deterministic traces, run TLC from this model directory with the owner
 directory on `TLA-Library` and `-workers 1 -seed 1 -fp 1`.
 
-### Deterministic trace evidence
+### Scope-only refresh correction
+
+The Scope-only refresh correction rechecked all 50 configurations with the
+repository-pinned jar and OpenJDK 25 through the directory runner at the existing
+120-second per-configuration CI budget. Every exact
+semantic verdict matched, including composition safety across Ready/Pending/Failed
+observations and the existing closure-refresh and gate negative controls.
+`CompositionSafety` explored 98,604 distinct states. These are bounded model
+results, not implementation conformance or hosted-runner timing guarantees.
+
+### Historical deterministic trace evidence
+
+The following traces and counts predate the Scope-only refresh correction.
+They record the original model and its liveness partitioning, not the current
+model's state counts.
 
 The direct probes used Linux, OpenJDK `21.0.12`, and immutable TLA+ mirror
 build `2026.08.11.125311`, revision `0894c34`, SHA-256
