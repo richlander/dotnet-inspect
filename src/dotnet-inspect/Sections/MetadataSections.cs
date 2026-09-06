@@ -6,7 +6,7 @@ namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Registration of the <c>@Metadata</c> lens on the library pipeline: one section per projected
-/// ECMA-335 table plus <c>Metadata: Image</c> for the image-level facts that are not rows.
+/// ECMA-335 table plus fixed image, ReadyToRun, and coordinate-scoped heap sections.
 ///
 /// The sections are generated from <see cref="MetadataSectionNames"/> rather than hand-declared as
 /// one descriptor type each. A per-table descriptor type would restate the projector's table list
@@ -33,6 +33,9 @@ public static class MetadataSections
     /// <c>CommandExecutionTests.MetadataLens_NoVerbosity_RendersAnyMetadataSection</c>, which
     /// walks the whole verbosity ladder plus <c>-S @All</c>. Because the two properties are
     /// redundant, that gate catches the loss of both but not of one; treat either as load-bearing.
+    ///
+    /// Fixed image, ReadyToRun, and heap-coordinate sections are network-free instead;
+    /// <see cref="SectionEntry{TModel}.ExplicitOnly"/> keeps them outside automatic views.
     ///
     /// Members are also <see cref="SectionEntry{TModel}.ListedInCatalog"/> <c>= false</c> so
     /// seventeen mostly-empty table rows do not flood the top-level <c>-D</c> catalog; they stay

@@ -56,8 +56,10 @@ physical root with manifest-request provenance. Table and heap addresses stay
 relative to the selected root, including `--heap`, `--rows`, and `--count`.
 An absent or malformed requested manifest fails; it never falls back to CLI
 metadata. Use `--metadata-root cli` to request the CLI root explicitly.
+Do not combine `--metadata-root` with the separate `--il-offsets` batch mode.
 Use `--jsonl` or `--tsv` for structured rows; `--json` is supported for Count
-and discovery, not root-selected or ReadyToRun row output.
+and discovery, not root-selected or ReadyToRun row output, including
+`-S @Metadata`.
 
 ## Query one table
 

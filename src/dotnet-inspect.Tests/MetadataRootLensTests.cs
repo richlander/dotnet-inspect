@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
@@ -71,6 +72,28 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("| Canonical root |", output, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(CliRoot, "--count")]
+    [InlineData(CliRoot, "--jsonl")]
+    [InlineData(ManifestRoot, "--count")]
+    [InlineData(ManifestRoot, "--jsonl")]
+    public async Task MetadataLens_ManifestRoot_RejectsIlOffsetBatches(
+        string root,
+        string format)
+    {
+        using var inputs = new SyntheticImageDirectory();
+        string coordinates = inputs.Write(
+            "coordinates.txt", "0x06000001+0x1\n0x06000001+0x6\n"u8.ToArray());
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--metadata-root", root,
+            "--il-offsets", coordinates, format, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--metadata-root cannot be combined with --il-offsets.", error, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The two recognized tokens are matched case-insensitively, and <c>cli</c> names the root the
     /// lens already read — so an explicit CLI selection reports the same coordinates the default
@@ -129,6 +152,23 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(ReadyToRunImageFixture.ManifestDependencyName, defaultOutput, StringComparison.Ordinal);
         Assert.Equal(cliOutput, defaultOutput);
         Assert.NotEqual(cliOutput, manifestOutput);
+    }
+
+    [Fact]
+    public async Task MetadataLens_ManifestRoot_MixedSelectionKeepsOrdinaryAssemblySections()
+    {
+        using var images = new SyntheticImageDirectory();
+        string path = images.Write("Manifest.Lib.dll", ManifestImageBytes());
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", path, "--metadata-root", ManifestRoot,
+            "-S", "Metadata: AssemblyRef", "-S", SectionNames.CustomAttributes, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Metadata: AssemblyRef", output, StringComparison.Ordinal);
+        Assert.Contains(ReadyToRunImageFixture.ManifestDependencyName, output, StringComparison.Ordinal);
+        Assert.Contains($"## {SectionNames.CustomAttributes}", output, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -710,14 +750,16 @@ public partial class CommandExecutionTests
     /// library document -- a document that contains none of the requested facts. The count and
     /// discovery carve-outs stay available because neither emits section rows.
     /// </summary>
-    [Fact]
-    public async Task MetadataLens_R2RSection_JsonIsRejectedWithTheRowRemedy()
+    [Theory]
+    [InlineData(ReadyToRunSection)]
+    [InlineData(SectionCategoryNames.Metadata)]
+    public async Task MetadataLens_R2RSection_JsonIsRejectedWithTheRowRemedy(string selection)
     {
         using var images = new SyntheticImageDirectory();
         string path = images.Write("Manifest.Lib.dll", ManifestImageBytes());
 
         var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
-            "library", path, "-S", ReadyToRunSection, "--json", "--tips", "q");
+            "library", path, "-S", selection, "--json", "--tips", "q");
 
         Assert.Equal(1, jsonExit);
         Assert.DoesNotContain("\"file_name\"", jsonOutput, StringComparison.Ordinal);
@@ -726,23 +768,31 @@ public partial class CommandExecutionTests
 
         // The column variant is refused too; either owner's diagnostic names the row remedy.
         var (columnExit, columnOutput, columnError) = await RunAppAsync(
-            "library", path, "-S", ReadyToRunSection, "--json", "--columns", "Property,Value", "--tips", "q");
+            "library", path, "-S", selection, "--json", "--columns", "Property,Value", "--tips", "q");
 
         Assert.Equal(1, columnExit);
         Assert.Empty(columnOutput);
         Assert.Contains("--jsonl", columnError, StringComparison.Ordinal);
 
         var (countExit, countOutput, _) = await RunAppAsync(
-            "library", path, "-S", ReadyToRunSection, "--count", "--json", "--tips", "q");
+            "library", path, "-S", selection, "--count", "--json", "--tips", "q");
 
         Assert.Equal(0, countExit);
-        Assert.NotEmpty(countOutput.Trim());
+        using var countJson = JsonDocument.Parse(countOutput);
+        int count = selection == ReadyToRunSection
+            ? countJson.RootElement.GetInt32()
+            : Assert.Single(
+                countJson.RootElement.EnumerateArray(),
+                row => row.GetProperty("section").GetString() == ReadyToRunSection)
+                .GetProperty("count").GetInt32();
+        Assert.Equal(12, count);
 
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
             "library", path, "-D", "@Metadata", "--effective", "--json", "--tips", "q");
 
         Assert.Equal(0, discoverExit);
         Assert.Contains("\"name\"", discoverOutput, StringComparison.Ordinal);
+        Assert.Contains(ReadyToRunSection, discoverOutput, StringComparison.Ordinal);
     }
 
     /// <summary>A ReadyToRun image whose manifest is a well-formed, independent metadata root.</summary>

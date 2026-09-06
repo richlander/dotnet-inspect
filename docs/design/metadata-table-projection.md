@@ -417,8 +417,11 @@ for one invocation. This is an input selector, not a new output shape or a
 second catalog of table names. Omission preserves the existing CLI-root
 behavior without requiring successful R2R discovery. With no explicit section,
 heap coordinate, or discovery request, an explicit root selects
-`Metadata: Image`. A selector combined with an unrelated render selection is
-an error rather than an ignored option.
+`Metadata: Image`. An explicit render selection must include at least one
+root-scoped metadata section; otherwise the selector would be ignored and the
+request is rejected. Other labelled sections in a mixed selection retain
+ordinary assembly semantics. `--metadata-root` cannot combine with the separate
+`--il-offsets` batch-output mode.
 
 Tables, heap coordinates/listings, row windows, counts, and effective discovery
 all consume the selected root. Root-specific discovery bypasses the
@@ -445,8 +448,10 @@ not replaced. Typed root and R2R models reach the rendering boundary; Markdown,
 TSV, JSONL, and Count use the same fact or metadata rows.
 Library document JSON has not adopted the lowered dialect owned by
 [Projected JSON](projected-json.md). Root-selected and R2R row requests therefore
-reject `--json` instead of returning unrelated typed library metadata. Count
-and discovery retain their existing JSON support. This slice does not broaden
+reject `--json` instead of returning unrelated typed library metadata.
+`-S @Metadata --json` also rejects because the category explicitly selects the
+R2R section. Count and discovery retain their existing JSON support. Existing
+non-root, non-R2R JSON behavior is unchanged; this slice does not broaden
 JSON-dialect adoption.
 This follows the existing `mdi`/SRM-oriented projection rather than adding a
 host parser. The root-scoped facade is the smallest mechanism needed to avoid

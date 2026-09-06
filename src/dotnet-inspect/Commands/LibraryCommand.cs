@@ -177,6 +177,13 @@ public class LibraryCommand
         options = aliasNormalized.Options;
         options = NormalizeReferenceProjection(options);
         if (options.MetadataRoot is not null
+            && !string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+        {
+            CommandError.Write("--metadata-root cannot be combined with --il-offsets.");
+            return 1;
+        }
+
+        if (options.MetadataRoot is not null
             && options.Discover is null
             && options.Select is not { Length: > 0 }
             && string.IsNullOrWhiteSpace(options.HeapParameter))
