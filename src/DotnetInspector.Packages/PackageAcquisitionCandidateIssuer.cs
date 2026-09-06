@@ -216,15 +216,10 @@ public sealed class PackageAcquisitionCandidateIssuer
                 ?? throw new InvalidOperationException(
                     "The package source version operation returned neither a value nor a failure.");
             RequireAuthority(result.Source, authority);
-            if (result.Source.TransportKind
+            bool incompleteGalleryListingState =
+                result.Source.TransportKind
                     == PackageSourceKind.NuGetGallery
-                && !result.HasAuthoritativeListingState)
-            {
-                failures.Add(new PackageAuthorityFailure(
-                    PackageSourceDisplay.ForDiagnostics(authority.Source),
-                    PackageAuthorityFailureKind.IncompleteMetadata,
-                    $"Package source {PackageSourceDisplay.ForDiagnostics(authority.Source)} did not provide authoritative version listing state."));
-            }
+                && !result.HasAuthoritativeListingState;
 
             foreach (PackageCandidateObservation candidate in
                      result.Candidates)
@@ -245,6 +240,12 @@ public sealed class PackageAcquisitionCandidateIssuer
                         "Dependency version discovery requires complete version-enumeration observations.");
                 }
 
+                incompleteGalleryListingState |=
+                    result.Source.TransportKind
+                        == PackageSourceKind.NuGetGallery
+                    && candidate.ListingState is
+                        PackageListingState.Unknown
+                        or PackageListingState.NotApplicable;
                 hasAnyCandidate = true;
                 bool listed = !result.HasAuthoritativeListingState
                     || candidate.ListingState
@@ -257,6 +258,14 @@ public sealed class PackageAcquisitionCandidateIssuer
                     candidate.Coordinate.Version,
                     labels[index].ToString(),
                     listed));
+            }
+
+            if (incompleteGalleryListingState)
+            {
+                failures.Add(new PackageAuthorityFailure(
+                    PackageSourceDisplay.ForDiagnostics(authority.Source),
+                    PackageAuthorityFailureKind.IncompleteMetadata,
+                    $"Package source {PackageSourceDisplay.ForDiagnostics(authority.Source)} did not provide authoritative version listing state."));
             }
         }
 

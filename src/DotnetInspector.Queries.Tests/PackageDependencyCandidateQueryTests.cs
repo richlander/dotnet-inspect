@@ -255,6 +255,37 @@ public sealed class PackageDependencyCandidateQueryTests
         Assert.Equal(0, source.DiscoveryCalls);
     }
 
+    [Theory]
+    [InlineData("[1.0.0]")]
+    [InlineData("1.0.0")]
+    public async Task CandidateResolution_ContextCancellationReachesSourceOperation(
+        string constraint)
+    {
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        using var context = new NuGetOperationContext(cancellation.Token);
+        var source = new CancellationObservingCandidateSource(
+            cancellation.Token);
+#pragma warning disable xUnit1051 // The default invocation token is the contract under test.
+        Task<PackageDependencyCandidateResult> pending =
+            PackageDependencyCandidateQuery.ExecuteAsync(
+                new PackageDependencyCandidateRequest.Declared(
+                    Declaration(constraint)),
+                source,
+                operationContext: context).AsTask();
+#pragma warning restore xUnit1051
+
+        await source.Entered.WaitAsync(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await pending);
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
     [Fact]
     public async Task CandidateResolution_IncompletePinnedAuthorizationIsNotDenial()
     {
@@ -323,8 +354,11 @@ public sealed class PackageDependencyCandidateQueryTests
             Assert.Single(resolved.Candidate.Authorities).Observation);
     }
 
-    [Fact]
-    public async Task CandidateResolution_GalleryUnknownListingStateIsIncomplete()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CandidateResolution_GalleryUnknownListingStateIsIncomplete(
+        bool hasAuthoritativeListingState)
     {
         var configuredSource = new PackageSource(
             "gallery",
@@ -333,7 +367,7 @@ public sealed class PackageDependencyCandidateQueryTests
             new UniformPackageSourceAuthorization([configuredSource]),
             authority => CreateVersionSourceClient(
                 authority,
-                hasAuthoritativeListingState: false,
+                hasAuthoritativeListingState,
                 PackageListingState.Unknown,
                 "1.0.0"));
 
@@ -730,6 +764,53 @@ public sealed class PackageDependencyCandidateQueryTests
                 discovery
                 ?? throw new InvalidOperationException(
                     "No discovery result was configured."));
+        }
+    }
+
+    private sealed class CancellationObservingCandidateSource(
+        CancellationToken expectedToken) :
+        IPackageDependencyCandidateSource
+    {
+        private readonly TaskCompletionSource _entered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public async ValueTask<PackageAcquisitionCandidateResult>
+            ResolvePinnedCandidateAsync(
+                PackageSourceCoordinate coordinate,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            await WaitForCancellationAsync(cancellationToken);
+            throw new InvalidOperationException(
+                "Cancellation did not stop pinned candidate resolution.");
+        }
+
+        public async Task<PackageVersionDiscoveryResult>
+            DiscoverDependencyVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            await WaitForCancellationAsync(cancellationToken);
+            throw new InvalidOperationException(
+                "Cancellation did not stop dependency version discovery.");
+        }
+
+        private async Task WaitForCancellationAsync(
+            CancellationToken cancellationToken)
+        {
+            _entered.TrySetResult();
+            if (cancellationToken != expectedToken)
+            {
+                throw new InvalidOperationException(
+                    "The source operation did not receive the context caller token.");
+            }
+
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
         }
     }
 

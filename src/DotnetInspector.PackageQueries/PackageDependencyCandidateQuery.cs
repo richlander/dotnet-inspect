@@ -150,7 +150,7 @@ public static class PackageDependencyCandidateQuery
             PackageAcquisitionCandidateResult authorization =
                 await source.ResolvePinnedCandidateAsync(
                     exactCoordinate,
-                    cancellationToken,
+                    effectiveCancellationToken,
                     operation).ConfigureAwait(false);
             effectiveCancellationToken.ThrowIfCancellationRequested();
             if (authorization.State
@@ -198,7 +198,7 @@ public static class PackageDependencyCandidateQuery
         PackageVersionDiscoveryResult discovery =
             await source.DiscoverDependencyVersionsAsync(
                 declaration.CanonicalPackageId,
-                cancellationToken,
+                effectiveCancellationToken,
                 operation).ConfigureAwait(false);
         effectiveCancellationToken.ThrowIfCancellationRequested();
         if (!discovery.Contract.SupportsDependencyRangeResolution)

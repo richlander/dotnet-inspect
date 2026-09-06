@@ -312,6 +312,7 @@ The implementation is gated in Release by:
 | Repeated exact candidates coalesce without erasing declarations | `CandidateResolution_CandidateCorrespondenceExcludesDeclarationIdentity` |
 | Caller cancellation retains its token | `CandidateResolution_CallerCancellationPropagates` |
 | Context-carried cancellation precedes local mismatch results | `CandidateResolution_ContextCancellationPrecedesRestoredMismatch` |
+| Context-carried cancellation reaches pending source operations | `CandidateResolution_ContextCancellationReachesSourceOperation` |
 | Pinned operation timeout remains incomplete evidence | `CandidateResolution_IncompletePinnedAuthorizationIsNotDenial` |
 | A display-limited discovery result is not range evidence | `CandidateResolution_RejectsInsufficientDiscoveryContract` |
 | Search observations cannot masquerade as complete enumeration | `CandidateResolution_RejectsNonEnumerationObservations` |
