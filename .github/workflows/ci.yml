@@ -720,7 +720,7 @@ jobs:
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
       # round-trip — so they run unconditionally rather than behind a path filter.
       - name: Run InertText tests
-        run: dotnet run --project src/InertText.Tests -c Release
+        run: dotnet run --project tests/InertText.Tests -c Release
 
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,
