@@ -1007,6 +1007,15 @@ diagnostic probe drives the existing managed async-lowering canary through the
 Worker core and operation authority. It does not move current UI features off
 the main thread.
 
+Before Worker `Ready`, bootstrap registers the managed epoch-work reporter
+through the generated host facade. Both Worker and receiver use the same
+conservative unbounded managed-producer class. Managed callbacks carry the
+Worker-issued allowance unchanged; the realm supplies its epoch identity and
+enforces work-sequence rules. Rejected reporting fails visibly. Cooperative
+cleanup stops admission, drains retained work, and unregisters only after
+drainage; hard Worker termination remains a separate release boundary.
+Feature brokers still need to opt into this source as part of their migration.
+
 Worker protocol version 2 additionally carries nonempty batches of at most 64
 progress or durable events. Each operation registers its own bounded payload
 decoders; the whole batch is validated before any entry reaches operation
@@ -1029,8 +1038,9 @@ npm run inspect-web-worker-browser-binding
 The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
 The gate uses Firefox and the complete published artifact, covering cold and
-warm managed calls, restart, bootstrap rejection, and input during stalled
-Wasm initialization. It does not yet prove responsiveness during managed CPU
+warm managed calls, reporter registration and generated cleanup exports,
+restart, bootstrap rejection, and input during stalled Wasm initialization.
+It does not yet prove responsiveness during managed CPU
 work or complete the Worker lifecycle gate; those and source-feature adoption
 remain focused follow-on slices under #5418 and #5420.
 
