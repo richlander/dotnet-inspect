@@ -669,6 +669,9 @@ jobs:
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
+      - name: Run CSharp snapshot preservation tests
+        run: dotnet run --project src/ILInspector.CSharp.Tests -c Release -- -method '*SnapshotTypeForRendering_*'
+
       - name: Run artifact contract tests
         run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 

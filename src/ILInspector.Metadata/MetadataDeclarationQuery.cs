@@ -103,6 +103,9 @@ public static class MetadataDeclarationQuery
             IntroducedTypeParameterCounts =
                 GetIntroducedTypeParameterCounts(reader, typeHandle),
             Accessibility = TypeAccessibility(typeDef),
+            MetadataToken = MetadataTokens.GetToken(typeHandle),
+            Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),
+            LayoutDetails = ApiTypeLayoutFacts.Read(reader, moduleVersionId, typeHandle),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
             Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
@@ -217,6 +220,8 @@ public static class MetadataDeclarationQuery
             {
                 Name = declaration.MetadataName,
                 Kind = "field",
+                DeclarationMetadataToken = MetadataTokens.GetToken(fieldHandle),
+                FieldLayout = ApiFieldLayoutFacts.Read(reader, moduleVersionId, typeHandle, fieldHandle),
                 ReturnType = declaration.ReturnType,
                 SignatureModel = declaration.ReturnType is null
                     ? null
