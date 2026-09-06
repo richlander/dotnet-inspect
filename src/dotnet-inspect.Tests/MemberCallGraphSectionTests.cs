@@ -121,7 +121,7 @@ public class MemberCallGraphSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            $"--where Kind=... targets section '{SectionNames.BodyShapes}'.",
+            $"--where Kind=... targets section '{SectionNames.BodyShapes}' or '{SectionNames.BodyShapeSummary}'.",
             result.Error);
         Assert.DoesNotContain("File not found", result.Error);
     }

@@ -275,7 +275,7 @@ public sealed class BodyShapeSummaryApiTests
         Assert.Equal(ApiMemberDetailSectionDescriptors.BodyShapes.Capabilities,
             ApiMemberDetailSectionDescriptors.BodyShapeSummary.Capabilities);
         Assert.Equal(
-            ["Count", "Kind", "Match"],
+            ["Kind", "Match", "Count"],
             ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema()
                 .GetSection(SectionNames.BodyShapeSummary)!.Items.Select(item => item.Name));
     }

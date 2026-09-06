@@ -1504,7 +1504,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Aspire (List`1): computed projection still null after the walk",
         "LibraryInspection.AssemblyAttributeInspection (FindingInspection`1): computed projection still null after the walk",
         "LibraryInspection.Authentication (List`1): computed projection still null after the walk",
-        "LibraryInspection.BodyShapes (List`1): computed projection still null after the walk",
+        "LibraryInspection.BodyShapeSummary (List`1): computed projection still null after the walk",
         "LibraryInspection.Configuration (List`1): computed projection still null after the walk",
         "LibraryInspection.CustomAttributes (List`1): computed projection still null after the walk",
         "LibraryInspection.DependencyInjection (List`1): computed projection still null after the walk",
@@ -1950,10 +1950,13 @@ public class LibraryViewShapeDerivedContainmentTests
                 return Hostile;
             }
 
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            if (type.IsGenericType
+                && (type.GetGenericTypeDefinition() == typeof(List<>)
+                    || type.GetGenericTypeDefinition() == typeof(IReadOnlyList<>)))
             {
-                var list = (System.Collections.IList)Activator.CreateInstance(type)!;
                 var element = type.GetGenericArguments()[0];
+                var listType = typeof(List<>).MakeGenericType(element);
+                var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
 
                 if (element == typeof(string))
                 {

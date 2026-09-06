@@ -1344,6 +1344,7 @@ public sealed record ApiBodyShapeSummaryRow(string Kind, string Match, int Count
 {
     public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
     public string Match { get; init; } = MarkoutInline.Code(Match);
+    public int Count { get; init; } = Count;
 
     internal static ApiBodyShapeSummaryRow FromSummary(Output.BodyShapeSummary summary)
         => new(summary.Kind, summary.Match, summary.Count);
