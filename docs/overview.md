@@ -154,6 +154,11 @@ substrates, and inspection producers that will extend that space.
   permissions, operation demand, Browser defaults, and ecosystem-assisted
   retrieval. It is not a new runtime owner; component contracts and their
   focused adoption remain with the participating owners.
+- [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
+  owns the proposed Browser editor execution-eligibility and leave-decision
+  contract. It consumes owner-backed edit-save completion and existing
+  navigation outcomes; it does not own admission, persistence, history,
+  focus, or layout.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
