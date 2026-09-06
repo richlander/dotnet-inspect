@@ -391,7 +391,10 @@ combines:
 
 The edge retains the complete normalized declaration, including its canonical
 constraint and inert source spellings, plus the exact resolution and source
-evidence supplied by #5765.
+evidence supplied by #5765. It also retains one emission authority:
+
+- `ResolvedCandidate`, produced by recursive source authorization; or
+- `DirectBoundary`, produced for one exact direct-only root occurrence.
 
 Every distinct directed declaration edge remains present. Shared targets,
 cycles, and revisits never justify deleting an edge. A recursively authorized
@@ -401,9 +404,10 @@ boundary edge by contract and is not a failed candidate attempt.
 
 A direct-only root and a recursive root may share the same exact source node.
 The result can then contain both a boundary edge and a resolved edge for the
-same normalized declaration under distinct manifest projections. Projection
-identity and per-root admission keep the two authority contexts distinct; a
-host must not union them into one root-independent tree.
+same normalized declaration, whether their manifest projections are distinct
+or owner-issued correspondence coalesces them. Edge emission authority and
+per-root admission keep the two authority contexts distinct; a host must not
+union them into one root-independent tree.
 
 ### Root-relative reachability
 
@@ -415,6 +419,16 @@ The result carries:
   source-relative manifest projection; and
 - for each graph edge and root occurrence, its admitted occurrence distance
   (`source projection distance + 1`) or the fact that it is not admitted.
+
+An edge is admitted for root occurrence `R` only when both conditions hold:
+
+1. its source manifest projection is reachable from `R` within the depth rule;
+2. its emission authority matches `R`: `RecursiveSources` admits only
+   `ResolvedCandidate` edges, while `DirectDeclarationsOnly` admits only
+   `DirectBoundary` edges issued for `R` itself.
+
+Projection correspondence can reuse manifest facts; it never transfers one
+root occurrence's expansion authority to another.
 
 This relation is part of the reusable result, not a CLI rendering repair.
 Tree, Mermaid, table, JSON, Browser, and count projections must not each
@@ -452,10 +466,11 @@ Depth counts edges from each explicit root:
 
 - depth `0` is the root node;
 - maximum depth `1` admits direct dependency edges;
-- maximum depth `N` admits an edge from a source manifest projection whose
-  distance from that root is less than `N`; the edge occurrence is at source
-  distance plus one even when its semantic target node has a shorter minimum
-  distance through another path; and
+- after the root-authority rule selects eligible edges, maximum depth `N`
+  admits an edge from a source manifest projection whose distance from that
+  root is less than `N`; the edge occurrence is at source distance plus one
+  even when its semantic target node has a shorter minimum distance through
+  another path; and
 - omitted depth requests complete traversal within source authorization and
   finite producer budgets.
 
@@ -521,7 +536,7 @@ Reuse does not imply global visitation. Root-relative distance and edge
 admission are evaluated separately for every root occurrence and manifest
 projection. When a root later reaches a shared projection at a shorter
 distance, traversal reuses its adjacency but propagates that root through
-every newly in-bound edge.
+every newly in-bound edge permitted by that root's expansion authority.
 
 An explicit root's already-supplied projection is reused without acquisition
 only under the owner-issued correspondence rule above. Otherwise the exact
@@ -720,6 +735,16 @@ affected roots, and partial completion. It does not acquire the visible
 candidate or report a dependency-free leaf. An owner-classified exact
 declaration remains governed by the separate pinned-acquisition rule.
 
+### Mixed expansion authority
+
+When a direct nuspec root and a recursively authorized package root name the
+same exact coordinate, owner-issued correspondence may allow their manifest
+projection to be shared. The direct root still admits only its own
+`DirectBoundary` edges and remains `SourceBounded`; the recursive root admits
+only `ResolvedCandidate` edges and may traverse their target projections.
+Neither root inherits the other's authority through shared node or projection
+identity.
+
 ## Evidence
 
 The implementation adds focused Release gates for:
@@ -735,6 +760,7 @@ The implementation adds focused Release gates for:
 | Root evidence replaces acquisition only with owner-issued correspondence. | `Traversal_RootEvidenceRequiresCandidateCorrespondenceForReuse` |
 | Same-coordinate source projections retain distinct adjacency without changing node identity. | `Traversal_SourceRelativeProjectionPreservesDistinctContent` |
 | Direct-only roots emit unresolved boundary edges without source work. | `Traversal_DirectOnlyRootsAreSourceBounded` |
+| Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
 | Typed framework mode, never inert text, controls every group selection. | `Traversal_FrameworkModeIsStructuralCurrency` |
 | Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
 | Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |

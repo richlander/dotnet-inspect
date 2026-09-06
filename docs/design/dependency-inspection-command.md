@@ -412,6 +412,10 @@ relation:
 - for each root occurrence and graph edge, whether that edge is admitted from
   that root within the requested depth.
 
+Reusable producers also intersect admission with each root's expansion
+authority. Sharing a semantic node or source projection never lets a
+source-bounded root inherit recursive edges authorized by another root.
+
 Cycles terminate because an owner-issued expansion identity is propagated for
 one root occurrence only when traversal discovers a shorter distance. Package
 traversal uses source-relative manifest projection identity while retaining
