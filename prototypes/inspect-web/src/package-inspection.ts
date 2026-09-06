@@ -1,6 +1,7 @@
 import {
   packageIdentityKey,
   type DependencyGroupData,
+  type LibraryLens,
   type PackageLens,
   type PackageIdentity,
 } from "./data.ts";
@@ -45,7 +46,9 @@ export function resolvePackagePerformanceMember(
 export interface PackageInspectionState {
   packages: AppPackage[];
   atPackageRoot: boolean;
+  atLibraryRoot: boolean;
   packageLens: PackageLens;
+  libraryLens: LibraryLens;
   packageDependencies: BrowserPackageDependencies | null;
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
@@ -78,6 +81,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageDependencies>;
   queryPackageIntegrations(
     packageModel: AppPackage,
+    library: string,
   ): Promise<BrowserPackageIntegrations>;
   queryPlatformIntegrations(
     framework: string,
@@ -87,6 +91,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageIntegrations>;
   queryPackageOpportunities(
     packageModel: AppPackage,
+    library: string,
   ): Promise<BrowserPackageOpportunities>;
   queryPlatformOpportunities(
     framework: string,
@@ -96,6 +101,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageOpportunities>;
   queryPackagePerformance(
     packageModel: AppPackage,
+    library: string,
   ): Promise<PackagePerformance>;
   queryPlatformPerformance(
     framework: string,
@@ -103,7 +109,10 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
-  queryPackageMetadata(packageModel: AppPackage): Promise<PackageMetadata>;
+  queryPackageMetadata(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageMetadata>;
   queryPlatformMetadata(
     framework: string,
     platformVersion: string,
@@ -312,7 +321,9 @@ export function createPackageInspectionCoordinator(
         if (generation === packageResultGeneration) {
           dependencies.refreshPackageStats();
           dependencies.render();
-          await ensureWorkspaceDependencies();
+          if (state.atPackageRoot && state.packageLens === "dependencies") {
+            await ensureWorkspaceDependencies();
+          }
         }
       }
     },
@@ -345,7 +356,9 @@ export function createPackageInspectionCoordinator(
               coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
-          : await dependencies.queryPackageIntegrations(packageModel);
+          : await dependencies.queryPackageIntegrations(
+              packageModel,
+              scopedLibrary ?? "");
         if (ownsRequest()) {
           state.packageIntegrations = result;
         }
@@ -389,7 +402,9 @@ export function createPackageInspectionCoordinator(
               coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
-          : await dependencies.queryPackageOpportunities(packageModel);
+          : await dependencies.queryPackageOpportunities(
+              packageModel,
+              scopedLibrary ?? "");
         if (ownsRequest()) {
           state.packageOpportunities = result;
         }
@@ -433,7 +448,9 @@ export function createPackageInspectionCoordinator(
               coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
-          : await dependencies.queryPackagePerformance(packageModel);
+          : await dependencies.queryPackagePerformance(
+              packageModel,
+              scopedLibrary ?? "");
         if (ownsRequest()) {
           state.packagePerformance = result;
         }
@@ -479,7 +496,9 @@ export function createPackageInspectionCoordinator(
               coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
-          : await dependencies.queryPackageMetadata(packageModel);
+          : await dependencies.queryPackageMetadata(
+              packageModel,
+              scopedLibrary ?? "");
         if (ownsRequest()) {
           const completeFailure = (result.assemblies?.length ?? 0) === 0
             ? result.inspectionError

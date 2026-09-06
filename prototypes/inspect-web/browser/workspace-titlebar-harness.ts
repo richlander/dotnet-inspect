@@ -10,6 +10,7 @@ import {
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
+  LibraryLens,
   MemberSection,
   PackageLens,
   TypeLens,
@@ -43,6 +44,7 @@ import {
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import { renderPackageOverviewSurface } from "../src/package-overview.ts";
+import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
 import { allocationFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
 import {
@@ -130,11 +132,17 @@ const packageIcon = params.has("fallback")
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
   ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
+  : packageMetadataMode
+    ? [
+        { kind: "package", label: "System.Text.Json", copyable: true },
+        { kind: "library", label: "System.Text.Json", copyable: true },
+      ]
   : packageMode
     ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
       ? [
           { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
             label: longMode
@@ -152,6 +160,7 @@ const subjectPath = workspaceMode
         ]
       : [
           { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
             label: longMode
@@ -216,16 +225,17 @@ function workspaceDetailHtml(): string {
 
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
-  : packageMode
+  : packageMetadataMode
+    ? "library"
+    : packageMode
     ? "package"
     : memberMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = packageDependenciesMode
   ? "dependencies"
-  : packageMetadataMode
-    ? "metadata"
-    : "overview";
+  : "overview";
+let activeLibraryLens: LibraryLens = packageMetadataMode ? "metadata" : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
@@ -261,6 +271,16 @@ const packageStrip: readonly (
   ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
   ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
 ];
+const libraryStrip: readonly (
+  readonly [LibraryLens, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["references", "References", scopeBarShortLabel("References"), "⇄"],
+  ["integrations", "Integrations", scopeBarShortLabel("Integrations"), "◇"],
+  ["opportunities", "Opportunities", scopeBarShortLabel("Opportunities"), "△"],
+  ["analysis", "Analysis", scopeBarShortLabel("Analysis"), "⌁"],
+  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+];
 const typeStrip: readonly (
   readonly [TypeLens, string, string, string]
 )[] = [
@@ -283,6 +303,8 @@ function scopeBarHtml() {
     ? []
     : activeScope === "package"
       ? packageStrip
+      : activeScope === "library"
+        ? libraryStrip
       : activeScope === "member"
         ? (emptyMode ? [] : memberStrip)
         : typeStrip;
@@ -294,11 +316,15 @@ function scopeBarHtml() {
       ? null
       : activeScope === "package"
         ? activePackageLens
+        : activeScope === "library"
+          ? activeLibraryLens
         : activeScope === "member"
           ? activeMemberSection
           : activeTypeLens,
     stripAttribute: activeScope === "package"
       ? "data-package-lens"
+      : activeScope === "library"
+        ? "data-library-lens"
       : activeScope === "member"
         ? "data-member-section"
         : "data-lens",
@@ -309,9 +335,17 @@ function scopeBarHtml() {
   });
 }
 
-const contentNavigationLabel = memberMode ? "Members" : "Types";
+const contentNavigationLabel = packageOverviewMode
+  ? "Libraries"
+  : memberMode ? "Members" : "Types";
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
+  : packageOverviewMode
+    ? renderPackageNav({
+        libraries: [{ id: "example", name: "Example.Library", types: 32, members: 1234 }],
+        selectedLibrary: "example",
+        escapeHtml,
+      })
   : `<aside id="content-navigation-pane" class="type-browser${memberMode ? " member-nav" : ""}" aria-label="${contentNavigationLabel}">
       <header class="browser-head">
         <span class="pane-label">${contentNavigationLabel.toUpperCase()}</span>
@@ -331,7 +365,8 @@ const navigationHtml = workspaceMode
           <button class="active">all kinds</button>
         </div>
       </div>
-      <div id="type-list" class="type-list" role="listbox" tabindex="0">
+      <div id="type-list" class="type-list" role="listbox" tabindex="0"
+        data-nav-scope="${memberMode ? "members:System.Text.Json.JsonSerializer" : "types"}">
         <button class="type-row selected" type="button" role="option"
           aria-selected="true" data-harness-navigation-row>
           <span class="${memberMode ? "member-icon" : "kind-icon"}">${memberMode ? "M" : "C"}</span>
@@ -356,13 +391,13 @@ function detailHtml() {
       : "Example.Library";
     const libraries = emptyMode ? "" : Array.from(
       { length: longMode ? 30 : 2 },
-      (_, index) => `<div class="library-row">
-        <div class="library-row-head">
-          <button type="button" class="library-name as-button" data-lib-scope="${name}${index}">${name}${index}</button>
+      (_, index) => `<button class="library-row as-button" data-lib-scope="${name}${index}">
+        <span class="library-row-head">
+          <span class="library-name">${name}${index}</span>
           <span class="library-metric">16 types · 617 members</span>
-        </div>
-        <div class="library-kinds"><button type="button" class="lib-kind as-button" data-lib-scope="${name}${index}" data-lib-kind="class"><strong>16</strong> classes</button></div>
-      </div>`,
+        </span>
+        <span class="library-asset">lib/net10.0/${name}${index}.dll</span>
+      </button>`,
     ).join("");
     return renderPackageOverviewSurface({
       packageId: "System.Text.Json",
@@ -375,12 +410,8 @@ function detailHtml() {
         <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>`,
       contentHtml: `
         <section class="document-section">
-          <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} loaded</span></div>
+          <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} admitted</span></div>
           <div class="library-list">${libraries}</div>
-        </section>
-        <section class="document-section">
-          <div class="section-title"><h2>Namespaces</h2><span>${emptyMode ? 0 : 1} — click to filter</span></div>
-          <div class="type-chip-list">${emptyMode ? "" : `<button class="type-chip" data-namespace-jump="${name}">${name}</button>`}</div>
         </section>
         ${renderPackageDocuments([{
           kind: "readme",
@@ -899,6 +930,10 @@ function bindHarnessScopeBar() {
       activeMemberSection = section;
       renderHarnessScopeBar();
     },
+    onLibraryLensSelect: lens => {
+      activeLibraryLens = lens;
+      renderHarnessScopeBar();
+    },
     onPackageLensSelect: lens => {
       activePackageLens = lens;
       renderHarnessScopeBar();
@@ -949,7 +984,7 @@ function enterEmptyMemberNavigation() {
         ${renderContentNavigationCloseButton()}
       </header>
       <div id="type-list" class="type-list member-list" role="listbox"
-        tabindex="0">
+        tabindex="0" data-nav-scope="members:System.Text.Json.JsonSerializer">
         <div class="empty-list">No members match these filters.</div>
       </div>
     </aside>`;

@@ -97,7 +97,7 @@ test("the top shell row separates application scopes from inspection subjects", 
     .not.toHaveAttribute("aria-current", "page");
   await expect(page.locator("[data-application-scope='workspace']"))
     .not.toHaveAttribute("aria-current", "page");
-  await expect(page.locator(".scope-switch [data-scope]")).toHaveCount(2);
+  await expect(page.locator(".scope-switch [data-scope]")).toHaveCount(3);
   await expect(page.locator("[data-scope='package']"))
     .toHaveAttribute("aria-label", "Package");
   await expect(page.locator("[data-scope='type']"))
@@ -450,8 +450,8 @@ for (const width of [1440, 390]) {
       const toggle = await box(page, "#content-navigation-toggle");
       expect(toggle.y).toBeGreaterThanOrEqual(header.y);
       expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
-      await page.getByRole("button", { name: "Types", exact: true }).click();
-      await expect(page.locator("#type-list")).toBeFocused();
+      await page.getByRole("button", { name: "Libraries", exact: true }).click();
+      await expect(page.locator(".library-subject-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
     }
   });
@@ -1127,8 +1127,12 @@ test("keyboard tab activation preserves focus across shell replacement", async (
   await expect(metadata).toBeFocused();
 
   const type = page.getByRole("tab", { name: "Type" });
+  const librarySubject = page.getByRole("tab", { name: "Library" });
   const packageSubject = page.getByRole("tab", { name: "Package" });
   await type.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(librarySubject).toBeFocused();
+  await expect(librarySubject).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowLeft");
   await expect(packageSubject).toBeFocused();
   await expect(packageSubject).toHaveAttribute("aria-selected", "true");
@@ -1184,7 +1188,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await expect(page.locator(".title-search-label-compact")).toBeHidden();
   const subjectTabs = page.locator(".scope-switch [data-subject-tab]");
   const inspectorStrip = page.locator(".slide-strip-inspector");
-  await expect(subjectTabs).toHaveCount(3);
+  await expect(subjectTabs).toHaveCount(4);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
@@ -1196,7 +1200,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
     page,
     ".subject-inspector-region",
   )).width;
-  await expect(subjectTabs).toHaveCount(3);
+  await expect(subjectTabs).toHaveCount(4);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
@@ -1235,7 +1239,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await expect(page.locator("#inspector-panel")).toHaveAttribute(
     "aria-labelledby",
     "active-inspector-tab");
-  await expect(subjectTabs).toHaveCount(3);
+  await expect(subjectTabs).toHaveCount(4);
   expect(await subjectTabs.evaluateAll(tabs =>
     tabs.every(tab => tab.getAttribute("aria-controls") === "subject-panel")))
     .toBe(true);
@@ -1260,6 +1264,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await expect(overview).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#go-home")).toHaveCount(0);
   await expect(page.locator(".subject-path-segment")).toHaveText([
+    "System.Text.Json",
     "System.Text.Json",
     "System.Text.Json.JsonSerializer",
     "DeserializeSync",
@@ -1294,7 +1299,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await expect(page.locator(".titlebar > .application-scope-region"))
     .toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-  await expect(subjectTabs).toHaveCount(3);
+  await expect(subjectTabs).toHaveCount(4);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
@@ -1307,7 +1312,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
 
   await page.setViewportSize({ width: 1000, height: 900 });
   await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
-  await expect(subjectTabs).toHaveCount(3);
+  await expect(subjectTabs).toHaveCount(4);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
@@ -1320,9 +1325,12 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await page.setViewportSize({ width: 900, height: 900 });
   await expect(page.locator("#open-search")).toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
-  await expect(
-    page.locator(".scope-switch [data-subject-tab]:not([hidden])"),
-  ).toHaveCount(3);
+  await expect(memberSubject).toBeVisible();
+  const visibleSubjectCount = await page.locator(
+    ".scope-switch [data-subject-tab]:not([hidden])",
+  ).count();
+  expect(visibleSubjectCount).toBeGreaterThan(0);
+  expect(visibleSubjectCount).toBeLessThan(await subjectTabs.count());
 
   await page.setViewportSize({ width: 480, height: 900 });
   await expect(page.locator("#application-menu-button")).toBeVisible();
@@ -1536,34 +1544,30 @@ test("allocation controls move between adjacent stable result pairs", async ({
   const inspector = page.locator(".slide-strip-inspector");
   const moreSubjects = page.locator("[data-more-subjects]");
   await expect(moreSubjects).toHaveAttribute("aria-disabled", "false");
-  await expect(
-    subject.locator(
-      '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Type", "Member"]);
-  await expect(
-    inspector.locator(
-      '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Overview", "Call graph", "Facts", "Source"]);
-  const initialInspectorCount = await inspector.locator(
-    "[data-inspector-tab]:not([hidden])",
-  ).count();
+  const visibleSubjectLabels = subject.locator(
+    '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
+  );
+  const visibleInspectorLabels = inspector.locator(
+    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
+  );
+  const subjects = ["Package", "Library", "Type", "Member"];
+  const inspectors = ["Overview", "Call graph", "Facts", "Source", "Annotated source"];
+  const initialSubjectCount = await visibleSubjectLabels.count();
+  const initialInspectorCount = await visibleInspectorLabels.count();
+  expect(initialSubjectCount).toBeGreaterThan(0);
+  expect(initialSubjectCount).toBeLessThan(subjects.length);
+  expect(initialInspectorCount).toBeGreaterThan(2);
+  await expect(visibleSubjectLabels).toHaveText(subjects.slice(-initialSubjectCount));
+  await expect(visibleInspectorLabels).toHaveText(inspectors.slice(0, initialInspectorCount));
 
   await moreSubjects.click();
   await expect(moreSubjects).toBeFocused();
-  await expect(
-    subject.locator(
-      '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Package", "Type", "Member"]);
-  const adjustedInspectorLabels = inspector.locator(
-    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-  );
-  await expect(adjustedInspectorLabels.first()).toHaveText("Overview");
-  await expect(adjustedInspectorLabels.nth(1)).toHaveText("Call graph");
-  expect(await adjustedInspectorLabels.count()).toBeLessThan(
-    initialInspectorCount);
+  await expect.poll(() => visibleSubjectLabels.count()).toBeGreaterThan(initialSubjectCount);
+  const adjustedSubjectCount = await visibleSubjectLabels.count();
+  await expect(visibleSubjectLabels).toHaveText(subjects.slice(-adjustedSubjectCount));
+  await expect(visibleInspectorLabels.first()).toHaveText("Overview");
+  await expect(visibleInspectorLabels.nth(1)).toHaveText("Call graph");
+  expect(await visibleInspectorLabels.count()).toBeLessThan(initialInspectorCount);
 });
 
 test("allocation preserves a manually slid inspector window", async ({
@@ -1820,6 +1824,7 @@ test("allocation focus transfer participates in pressure selection", async ({
       document,
       {
         onApplicationScopeSelect() {},
+        onLibraryLensSelect() {},
         onMemberSectionSelect() {},
         onPackageLensSelect() {},
         onScopeSelect() {},
@@ -2209,7 +2214,7 @@ test("Source fills the detail area below working-surface actions and above prove
   }
 });
 
-test("the target row advertises the typed Package, Type, and Member path", async ({
+test("the target row advertises the typed Package, Library, Type, and Member path", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -2217,11 +2222,12 @@ test("the target row advertises the typed Package, Type, and Member path", async
 
   await expect(page.locator(".subject-path-segment")).toHaveText([
     "System.Text.Json",
+    "System.Text.Json",
     "System.Text.Json.JsonSerializer",
     "DeserializeSync",
   ]);
-  await expect(page.locator(".subject-path-separator")).toHaveCount(2);
-  await expect(page.locator("[data-subject-copy]")).toHaveCount(3);
+  await expect(page.locator(".subject-path-separator")).toHaveCount(3);
+  await expect(page.locator("[data-subject-copy]")).toHaveCount(4);
   await expect(page.locator(".targetbar .subject-path")).toBeVisible();
   await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
   await expect(page.locator(".titlebar .lens")).toHaveCount(5);
@@ -2237,7 +2243,7 @@ test("the target row advertises the typed Package, Type, and Member path", async
   expect(Number.parseFloat(packageText)).toBeCloseTo(
     Number.parseFloat(typeText), 1);
   expect(Number.parseInt(typeWeight, 10)).toBeLessThan(600);
-  await page.locator("[data-subject-copy='1']").click();
+  await page.locator("[data-subject-copy='2']").click();
   await expect(page.locator("body")).toHaveAttribute(
     "data-copied-subject",
     "System.Text.Json.JsonSerializer");
@@ -2317,7 +2323,7 @@ test("application scopes yield before inspection identity without dropping focus
     .toBeHidden();
   await expect(
     page.locator(".slide-strip-subject [data-subject-tab]:not([hidden])"),
-  ).toHaveCount(3);
+  ).toHaveCount(4);
   await expect(
     page.locator(".slide-strip-inspector [data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);

@@ -218,9 +218,9 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 ## Working surfaces
 
 Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Package Metadata, Source, Annotated Source, and Diagnostics are working surfaces
-rather than documents inset inside a general page. The Metadata Explorer retains its
-separately owned full-bleed composition.
+Library Metadata, Source, Annotated Source, and Diagnostics are working surfaces
+rather than documents inset inside a general page. The Metadata Explorer retains
+its separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -491,28 +491,28 @@ horizontal overflow.
 
 ### Package Overview
 
-Package Overview uses the complete package inspector area, following Package
-Metadata and Dependencies rather than repeating the package hero and inset
+Package Overview uses the complete package inspector area, following Library
+Metadata and Package Dependencies rather than repeating the package hero and inset
 coordinate editor. The persistent subject path supplies package identity.
 
 ```text
 Overview                                      type and member totals
 Version · Framework
-libraries, namespace filters, package documents
+admitted libraries, package documents
 package@version                                    active framework
 ```
 
 The quiet header preserves the package's type and member totals. Existing
 Version and Framework controls occupy one compact row. One independently
-scrolling content region contains the loaded-library breakdown, namespace
-filters, and document links. The platform library picker remains with the
-Libraries section. Existing library/kind selection, namespace navigation,
-document opening, counts, and ordering retain their semantics.
+scrolling content region contains the admitted-library inventory and document
+links. The platform library picker remains with the Libraries section. Library
+rows enter the existing Library subject; kind and namespace navigation remain
+within that subject. Document opening, counts, and ordering retain their semantics.
 
 The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Types return control shares the quiet header,
+framework. At narrow widths the Libraries return control shares the quiet header,
 controls wrap within their row, and header/footer values may elide as complete
-strings. Long library, namespace, and document names remain contained without
+strings. Long library names, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, controls, and coordinates remain in place.
 
@@ -532,7 +532,8 @@ rendering architecture. Other package lenses remain separate consumers.
 
 Browser coverage exercises the production frame, overflow, narrow navigation
 placement, and controls. Published-site evidence separately exercises the full
-production library, namespace, coordinate, and document navigation.
+production Library entry, coordinate, and document navigation. The production
+composition fixture also confirms that returning from Library restores Overview.
 
 ### Package Dependencies
 
