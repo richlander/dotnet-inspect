@@ -343,6 +343,10 @@ original IDs, Root kind, and purposes. Retire their execution bindings, not
 their descriptors or compatibility-manifest entries. Append the three new IDs
 on implementation; do not rewrite the two old entries.
 
+`root.package-overview` retains its `Package overview` semantic-role value;
+`package.overview` carries that same value in the Package kind. Role uniqueness
+is per kind, not catalog-wide; no role is removed or replaced at this cutover.
+
 The old tombstones do not acquire Package applicability. Their former
 package-capable-Root domain has no subject in Navigation's adopted grammar:
 Package and non-package Root are mutually exclusive. Consequently, neither a
@@ -407,6 +411,10 @@ generic applicable-tombstone positive and wrong-subject negative using a
 subject kind that remains constructible after the identity cutover. The
 original package-capable-Root witness belongs to the pre-adoption baseline,
 not a reason to preserve that subject family.
+
+The catalog gate must cover every declared role and preserve per-kind
+uniqueness while permitting the same role across kinds. Replace its initial
+catalog-wide exactly-once role assertion at adoption.
 
 `ViewFacetRegistryTests.WorkspacePackageAdoption_PreservesExactLookupOutcomes`
 is the required outcome-level adoption gate: it exercises the new available,
