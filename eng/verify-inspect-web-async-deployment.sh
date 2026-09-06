@@ -442,7 +442,7 @@ const integerFields = [
 assert.ok(integerFields.every(Number.isInteger), "receipt counts are not integers");
 assert.equal(census.assembly_count, 7);
 assert.equal(assemblies.length, 7);
-assert.equal(census.js_export_method_count, 50);
+assert.equal(census.js_export_method_count, 51);
 assert.ok(census.async_method_count > 0);
 assert.equal(
   census.async_method_count,
