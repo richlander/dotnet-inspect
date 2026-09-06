@@ -3215,6 +3215,61 @@ occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
 eligibility, closure evidence, Navigation focus, browser history, packet
 schema, source authorization, or a new preparation/adoption transaction.
 
+### Scoped execution over a committed package Root
+
+Issue [#6168](https://github.com/richlander/dotnet-inspect/issues/6168) exposes
+`InspectionWorkspace.ExecutePackageRootQueryAsync` for ordinary consumers of
+the existing Package producer. This owner makes one claim:
+
+> A consumer may execute against one exact committed package Root generation
+> while the Workspace holds its existing query lease for the complete awaited
+> operation.
+
+The operation consumes the existing package correspondence, generation
+freshness precondition, and optional expected surface binding-policy version.
+The receiving Workspace's ordinary admission gate remains authoritative:
+generation mismatch precedes policy mismatch, closing/closed outcomes remain
+distinct, and a rejected admission does not invoke the consumer. No acquisition
+or new realization is requested by this operation.
+
+The consumer borrows the existing `PackageAssemblyContextRealization` only
+during its callback. It may choose the appropriate existing role and run
+ordinary typed group queries; it neither disposes nor retains the realization
+or groups as a Workspace handle. Returned values are materialized query
+results, not borrowed resource access. Root-only and explicit-empty packages
+still admit a callback with no assembly contexts. The query owner decides the
+meaning of that disposition; this boundary does not substitute an empty group
+or conflate it with an unavailable Root.
+
+Removal or replacement stops new admission without retracting an admitted
+callback's lease. Existing group-close semantics still apply: retaining a
+Root lease is not permission to start new group work after Workspace close
+begins. Close waits for the callback to return or fail before releasing its
+Root resources. Consumer exceptions propagate unchanged; cancellation can
+interrupt admission and is passed through for cooperative use during the
+callback. Cancellation after a successful callback does not retroactively
+discard its result.
+
+This scoped borrowing follows the existing guarded-content callback and
+group-query conventions. It adds no query-selection policy, Workspace-wide
+snapshot transaction, population union, or alternative lease protocol.
+
+The Release gate is `WorkspaceRootQueryTests`, including an ordinary
+non-friend consumer in `tests/DotnetInspector.Queries.Consumer`. Its cases
+cover real committed package queries and provenance, shared/separate roles,
+no-assembly dispositions, admission rejection, callback failure and
+cancellation, and removal/close while a callback is admitted. The existing
+`ArtifactRootPublicationTests` and `WorkspaceScopeTests` remain the adjacent
+owner regression gates.
+
+The immediate production consumer is the four-command configured-Workspace
+search adoption in [#6170](https://github.com/richlander/dotnet-inspect/issues/6170).
+Parent [#6167](https://github.com/richlander/dotnet-inspect/issues/6167) counts
+four delivery milestones, including the separate dependency query and
+Browser/Wasm adoption. This access slice supplies the shared prerequisite;
+its consumer harness does not complete CLI or Browser production adoption.
+Ordinary source-option acquisition remains unchanged.
+
 ### Artifact Root preparation and scope publication
 
 Artifact Acquisition owns one focused handoff from provisional physical Root

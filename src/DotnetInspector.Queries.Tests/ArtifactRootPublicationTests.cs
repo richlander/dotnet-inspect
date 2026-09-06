@@ -52,7 +52,8 @@ public sealed class ArtifactRootPublicationTests
                 await Plan(workspace, scope, initialAuthority, [initialReceipt]))).Published);
         ArtifactRootScopeProjection old = initial.Roots[0];
         using InspectionWorkspace.ArtifactRootQueryLease oldQuery = Available(
-            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, old.Correspondence, Ready(old)));
+            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, old.Correspondence, Ready(old),
+                cancellationToken: TestContext.Current.CancellationToken));
         var authority = Authority(workspace);
 
         ArtifactRootResult<ArtifactRootPreparationReceipt> result =
@@ -101,7 +102,8 @@ public sealed class ArtifactRootPublicationTests
         Assert.Equal(ArtifactRootFailure.Absent, Rejected(await workspace.GetCurrentRootScopeProjectionAsync(
             workspace.Identity, removed.Correspondence)));
         Assert.Equal(ArtifactRootFailure.ArtifactGenerationMismatch, Rejected(
-            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, removed.Correspondence, Ready(removed))));
+            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, removed.Correspondence, Ready(removed),
+                cancellationToken: TestContext.Current.CancellationToken)));
         var clearAuthority = Authority(workspace);
         ArtifactRootPublicationOutcome clear = await workspace.PublishArtifactRootCompositionAsync(new(
             clearAuthority, current.Composition, [], [], scope.Participant(clearAuthority)));
@@ -150,7 +152,8 @@ public sealed class ArtifactRootPublicationTests
         foreach (ArtifactRootScopeProjection projection in published.Published.Roots)
         {
             using InspectionWorkspace.ArtifactRootQueryLease access = Available(
-                await workspace.EnterArtifactRootQueryAsync(workspace.Identity, projection.Correspondence, Ready(projection)));
+                await workspace.EnterArtifactRootQueryAsync(workspace.Identity, projection.Correspondence, Ready(projection),
+                    cancellationToken: TestContext.Current.CancellationToken));
             Assert.False(access.Realization.HasAssemblyContexts);
         }
     }
@@ -476,14 +479,15 @@ public sealed class ArtifactRootPublicationTests
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Drain.Root");
         ArtifactRootScopeProjection old = first.Roots[0];
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
-            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, old.Correspondence, Ready(old)));
+            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, old.Correspondence, Ready(old),
+                cancellationToken: TestContext.Current.CancellationToken));
         ResolvedAssemblyReference assembly = Assert.Single(query.Realization.SurfaceParticipants).Participant.Assembly;
         ArtifactRootPublishedComposition replacement = await PublishPackages(workspace, scope, "Drain.Root");
         Assert.Equal(old.Correspondence, replacement.Roots[0].Correspondence);
         Assert.NotSame(Ready(old), Ready(replacement.Roots[0]));
         Assert.Equal(ArtifactRootFailure.ArtifactGenerationMismatch, Rejected(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity, old.Correspondence, Ready(old),
-                query.Realization.SurfaceGroup.BindingPolicyVersion)));
+                query.Realization.SurfaceGroup.BindingPolicyVersion, TestContext.Current.CancellationToken)));
         using (Stream stream = assembly.OpenRead())
             Assert.True(stream.Length > 0);
         Task<InspectionWorkspaceCloseReport> close = workspace.CloseAsync();
@@ -513,7 +517,8 @@ public sealed class ArtifactRootPublicationTests
         Assert.IsType<ArtifactRootRealizationStatus.Failed>(Available(
             await workspace.GetCurrentRootScopeProjectionAsync(workspace.Identity, ready.Correspondence)).Status);
         Assert.Equal(ArtifactRootFailure.ArtifactGenerationMismatch, Rejected(
-            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, ready.Correspondence, Ready(ready))));
+            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, ready.Correspondence, Ready(ready),
+                cancellationToken: TestContext.Current.CancellationToken)));
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, Binding("Status.Root"));
         ArtifactRootReplacementSettlement replacement = Available(
@@ -536,7 +541,8 @@ public sealed class ArtifactRootPublicationTests
         ArtifactRootPublishedComposition other = await PublishPackages(foreign, new(foreign.Identity), "Foreign.Root");
         using InspectionWorkspace.ArtifactRootQueryLease otherQuery = Available(
             await foreign.EnterArtifactRootQueryAsync(foreign.Identity,
-                other.Roots[0].Correspondence, Ready(other.Roots[0])));
+                other.Roots[0].Correspondence, Ready(other.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         ArtifactRootPublishedComposition current = await PublishPackages(workspace, scope, "Foreign.Root");
         foreach (ArtifactRootGenerationReference generation in new[]
         {
@@ -546,12 +552,12 @@ public sealed class ArtifactRootPublicationTests
             Assert.Equal(ArtifactRootFailure.ArtifactGenerationMismatch, Rejected(
                 await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
                     current.Roots[0].Correspondence, generation,
-                    otherQuery.Realization.SurfaceGroup.BindingPolicyVersion)));
+                    otherQuery.Realization.SurfaceGroup.BindingPolicyVersion, TestContext.Current.CancellationToken)));
         }
         Assert.Equal(ArtifactRootFailure.BindingPolicyMismatch, Rejected(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
                 current.Roots[0].Correspondence, Ready(current.Roots[0]),
-                otherQuery.Realization.SurfaceGroup.BindingPolicyVersion)));
+                otherQuery.Realization.SurfaceGroup.BindingPolicyVersion, TestContext.Current.CancellationToken)));
     }
 
     [Fact]
@@ -586,7 +592,8 @@ public sealed class ArtifactRootPublicationTests
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Active.Root");
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                first.Roots[0].Correspondence, Ready(first.Roots[0])));
+                first.Roots[0].Correspondence, Ready(first.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         ResolvedAssemblyReference assembly = query.Realization.SurfaceParticipants[0].Participant.Assembly;
@@ -616,7 +623,8 @@ public sealed class ArtifactRootPublicationTests
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Stream.Root");
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                first.Roots[0].Correspondence, Ready(first.Roots[0])));
+                first.Roots[0].Correspondence, Ready(first.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         using Stream stream = query.Realization.SurfaceParticipants[0].Participant.Assembly.OpenRead();
         query.Dispose();
         await workspace.RetireArtifactRootAsync(first.Roots[0].Correspondence, Ready(first.Roots[0]));
@@ -654,7 +662,8 @@ public sealed class ArtifactRootPublicationTests
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Budget.Root");
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
-            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, first.Roots[0].Correspondence, Ready(first.Roots[0])));
+            await workspace.EnterArtifactRootQueryAsync(workspace.Identity, first.Roots[0].Correspondence, Ready(first.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         await workspace.RetireArtifactRootAsync(first.Roots[0].Correspondence, Ready(first.Roots[0]));
         Assert.Equal(ArtifactRootFailure.BudgetExceeded, Rejected(
             await workspace.PreparePackageArtifactRootsAsync(Authority(workspace), [Binding("Over.Budget")], Options)));
@@ -685,7 +694,8 @@ public sealed class ArtifactRootPublicationTests
             authority, [Binding("Charge.Third")]));
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                current.Roots[0].Correspondence, Ready(current.Roots[0])));
+                current.Roots[0].Correspondence, Ready(current.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         var clearAuthority = Authority(workspace);
         Assert.NotNull((await workspace.PublishArtifactRootCompositionAsync(new(
             clearAuthority, current.Composition, [], [], scope.Participant(clearAuthority)))).Published);
@@ -810,7 +820,8 @@ public sealed class ArtifactRootPublicationTests
                     await Plan(workspace, scope, authority, [receipt]))).Published);
             projection = published.Roots[0];
             using InspectionWorkspace.ArtifactRootQueryLease query = Available(
-                await workspace.EnterArtifactRootQueryAsync(workspace.Identity, projection.Correspondence, Ready(projection)));
+                await workspace.EnterArtifactRootQueryAsync(workspace.Identity, projection.Correspondence, Ready(projection),
+                    cancellationToken: TestContext.Current.CancellationToken));
             resources.Add(new(query.Realization));
             resources.Add(new(query.Realization.SurfaceGroup));
             var clear = Authority(workspace);
