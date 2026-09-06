@@ -125,7 +125,6 @@
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <Project Path="src/ILInspector.CallGraph/ILInspector.CallGraph.csproj" />
-    <Project Path="src/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
@@ -158,6 +157,7 @@
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
+    <Project Path="tests/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
     <Project Path="tests/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
