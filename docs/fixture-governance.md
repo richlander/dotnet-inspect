@@ -21,6 +21,23 @@ Classify by consumption, not by project name. For example,
 `NuGetFetch.CustomClientFixture` is compiled and invoked as an external API
 consumer. Both live under `tests/nuget/`, not in the inspected-artifact catalog.
 
+Their test host lives under `tests/NuGetFetch.Tests`. Use the same selection as
+CI to exclude private-feed tests:
+`dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"`.
+The separate plugin process and external-client project keep their existing
+build boundaries; the host's location does not change their roles.
+
+An executable can still be an inspected fixture: `RunFaster.AllocationFixture`
+supplies allocation IL correlated with a recorded `.nettrace`. Its project and
+trace live together under `fixtures/runfaster/`; the trace's copied test-output
+location is a separate catalog contract, not its source location.
+
+The corresponding test executable and its compiler-produced sample types live
+under `tests/runfaster.Tests`. Run the complete suite with
+`dotnet run --project tests/runfaster.Tests -c Release`. A test-project move
+preserves the test host, inherited build settings and built-output locations;
+intentional changes to those contracts belong in a separate change.
+
 `tests/DotnetInspector.FixtureInfrastructure` owns fixture registration and
 resolution. It records repository-relative project directories explicitly;
 source location must not be inferred from a project or assembly name. Shared

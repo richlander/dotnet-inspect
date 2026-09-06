@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using Markout;
@@ -29,80 +30,184 @@ public class ApiCommand
     internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
-        if (!(options.RouterDeferredTypeOrMember
-                || RequiresMemberPipelineLookup(options))
-            || options.Discover is not null
-            || options.IncludeSections is not null
-            || options.Select is not { Length: > 0 })
+        string[]? selectors =
+            options.Discover is { Length: > 0 }
+                ? options.Discover
+                : options.Select;
+        if (options.IncludeSections is not null
+            || selectors is not { Length: > 0 })
         {
             return false;
         }
 
-        var memberPipelines = new[]
+        return RejectUniversallyInvalidMemberSelect(
+            options.Discover,
+            options.Select,
+            options.SelectDefault,
+            options.RouterDeferredTypeOrMember,
+            includeMemberTypeView:
+                options.RouterDeferredTypeOrMember
+                || options.MemberFilter.Count == 0);
+    }
+
+    internal static bool RejectUniversallyInvalidMemberSelect(
+        string[]? discover,
+        string[]? select,
+        bool selectDefault,
+        bool allowListingPipeline,
+        bool includeMemberTypeView)
+    {
+        var allMemberPipelines = new[]
         {
             ApiMemberSectionDescriptors.CreatePipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline(),
         };
-        var knownSections = memberPipelines.SelectMany(
-                static pipeline => pipeline.SelectableSectionNames)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var memberPipelines =
+            includeMemberTypeView
+                ? allMemberPipelines
+                : allMemberPipelines[1..];
+        string[] knownSections =
+        [
+            .. memberPipelines
+                .SelectMany(static pipeline =>
+                    pipeline.SelectableSectionNames),
+        ];
+        knownSections =
+        [
+            .. knownSections.Distinct(
+                StringComparer.OrdinalIgnoreCase),
+        ];
+        string[] defaultSections =
+        [
+            .. memberPipelines
+                .SelectMany(pipeline =>
+                    ReferenceEquals(
+                        pipeline,
+                        allMemberPipelines[2])
+                        ? pipeline.FixedOverviewSectionNames
+                        : pipeline.InfoSectionNames),
+        ];
         Dictionary<string, string[]> categories =
             new(StringComparer.OrdinalIgnoreCase);
-
         foreach (var pipeline in memberPipelines)
             AddCategories(pipeline.GetCategoryMap());
 
-        var result = SelectResolver.ResolveSelectAsSections(
-            options.Select,
+        bool hasSelection =
+            select is { Length: > 0 }
+            || selectDefault;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            select,
             knownSections,
-            infoSections: [],
+            defaultSections,
             categories,
-            selectDefault: false);
-        bool totalFailure = result.Unresolved.Count > 0
-            && result.Sections is null or { Count: 0 };
-        if (totalFailure
-            && options.RouterDeferredTypeOrMember
-            && ResolvesAgainstListingPipeline(options.Select))
+            selectDefault);
+        if (hasSelection
+            && IsTotalFailure(selection))
         {
-            return false;
+            if (!allowListingPipeline)
+                return SelectOutput.WriteUnresolved(selection);
+
+            var listingPipeline =
+                ApiTypeSectionDescriptors.CreatePipeline();
+            SelectResult listingSelection =
+                SelectResolver.ResolveSelectAsSections(
+                    select,
+                    listingPipeline.SelectableSectionNames,
+                    listingPipeline.FixedOverviewSectionNames,
+                    listingPipeline.GetCategoryMap(),
+                    selectDefault);
+            if (IsTotalFailure(listingSelection))
+                return SelectOutput.WriteUnresolved(selection);
+
+            knownSections =
+                listingPipeline.SelectableSectionNames;
+            categories =
+                new Dictionary<string, string[]>(
+                    listingPipeline.GetCategoryMap(),
+                    StringComparer.OrdinalIgnoreCase);
+            selection = listingSelection;
         }
 
-        return totalFailure && SelectOutput.WriteUnresolved(result);
+        if (discover is not { Length: > 0 })
+            return false;
 
-        static bool ResolvesAgainstListingPipeline(string[] selectors)
+        SelectResult discovery = ResolveDiscovery(
+            selection,
+            knownSections,
+            categories);
+        if (IsTotalFailure(discovery)
+            && allowListingPipeline)
         {
-            var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-            var listingResult = SelectResolver.ResolveSelectAsSections(
-                selectors,
-                pipeline.SelectableSectionNames,
+            var listingPipeline =
+                ApiTypeSectionDescriptors.CreatePipeline();
+            SelectResult listingSelection =
+                SelectResolver.ResolveSelectAsSections(
+                    select,
+                    listingPipeline.SelectableSectionNames,
+                    listingPipeline.FixedOverviewSectionNames,
+                    listingPipeline.GetCategoryMap(),
+                    selectDefault);
+            SelectResult listingDiscovery = ResolveDiscovery(
+                listingSelection,
+                listingPipeline.SelectableSectionNames,
+                listingPipeline.GetCategoryMap());
+            if (!IsTotalFailure(listingDiscovery))
+                return false;
+        }
+        return IsTotalFailure(discovery)
+            && SelectOutput.WriteUnresolved(discovery);
+
+        SelectResult ResolveDiscovery(
+            SelectResult candidateSelection,
+            IReadOnlyList<string> candidateSections,
+            IReadOnlyDictionary<string, string[]> candidateCategories)
+        {
+            IReadOnlyList<string> discoverySections = hasSelection
+                ? [.. candidateSelection.Sections ?? []]
+                : candidateSections;
+            var discoverySet = new HashSet<string>(
+                discoverySections,
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string[]> discoveryCategories =
+                candidateCategories
+                    .Select(pair => new KeyValuePair<string, string[]>(
+                        pair.Key,
+                        [.. pair.Value.Where(discoverySet.Contains)]))
+                    .Where(pair => pair.Value.Length > 0)
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value,
+                        StringComparer.OrdinalIgnoreCase);
+            return SelectResolver.ResolveSelectAsSections(
+                discover,
+                discoverySections,
                 infoSections: [],
-                pipeline.GetCategoryMap(),
+                discoveryCategories,
                 selectDefault: false);
-            return listingResult.Sections is { Count: > 0 };
         }
 
         void AddCategories(
-            IReadOnlyDictionary<string, string[]> additions)
+            IReadOnlyDictionary<string, string[]> source)
         {
-            foreach (var (name, sections) in additions)
+            foreach (var (name, sections) in source)
             {
-                categories[name] = categories.TryGetValue(
-                    name,
-                    out var existing)
-                    ? existing.Concat(sections)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray()
-                    : sections;
+                categories[name] =
+                    categories.TryGetValue(
+                        name,
+                        out string[]? existing)
+                        ? existing.Concat(sections)
+                            .Distinct(
+                                StringComparer.OrdinalIgnoreCase)
+                            .ToArray()
+                        : sections;
             }
         }
-    }
 
-    private static bool RequiresMemberPipelineLookup(MemberOptions options) =>
-        options.MemberFilter.Count == 0
-        && options.TypeName is { } memberTypeName
-        && FqnParser.LastTopLevelDot(memberTypeName) > 0;
+        static bool IsTotalFailure(SelectResult result) =>
+            result.Unresolved.Count > 0
+            && result.Sections is null or { Count: 0 };
+    }
 
     internal static bool RejectRouteIndependentOptionShape(
         MemberOptions options)
@@ -144,6 +249,24 @@ public class ApiCommand
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var bareSelectSections = typePipeline.FixedOverviewSectionNames;
 
+        if (options.DiscoverDeferredToListing)
+        {
+            SelectResult discoverResult =
+                ResolveDiscoveryForListing(
+                    options,
+                    typePipeline);
+            if (DiscoverOutput.WriteUnresolvedSections(
+                    discoverResult))
+            {
+                return null;
+            }
+
+            options = options with
+            {
+                DiscoverDeferredToListing = false,
+            };
+        }
+
         if (HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(
@@ -170,11 +293,14 @@ public class ApiCommand
             }
             : options with { SelectDeferredToListing = false };
 
-        // The preamble skips the selection-arity checks for a deferred select because it cannot yet
-        // know which pipeline will render. Now it is known, so they run here against the sections
-        // the listing actually resolved. The payload projections are deliberately not re-checked:
-        // the listing refuses them outright further down, and that reason is the useful one.
-        if (options.SelectDeferredToListing)
+        // Re-check selection arity against the final listing catalog. The payload projections are
+        // deliberately not re-checked: the listing refuses them outright further down, and that
+        // reason is the useful one.
+        bool hasCatalogDependentSelection =
+            options.SelectDeferredToListing
+            || options.Select is { Length: > 0 }
+            || options.SelectDefault;
+        if (hasCatalogDependentSelection)
         {
             if (listingOptions.Discover == null && listingOptions.Count
                 && (!CountOutput.ValidateSectionsSelected(
@@ -201,35 +327,21 @@ public class ApiCommand
     // ===== Shared Preamble =====
 
     /// <summary>
-    /// True when <c>-S</c> failed against the single-type pipeline but resolves against the type
-    /// listing, so the preamble must carry the decision forward instead of rejecting it.
+    /// True when a single-type request's selection can belong to a type listing, so
+    /// catalog-dependent validation must wait for target resolution.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// This deliberately only intercepts the <em>total</em> failure that would otherwise return 1,
-    /// mirroring <see cref="SelectOutput.WriteUnresolved"/>'s own definition of that state. Nothing
-    /// that succeeds today can reach the deferral, which bounds the change to invocations that
-    /// already exit 1: a partial match still warns and proceeds exactly as before.
-    /// </para>
-    /// <para>
     /// A name valid for neither pipeline is a plain typo and still fails here, keeping the fast
     /// rejection -- and the single-type suggestions -- for the case that cannot be a listing.
-    /// </para>
     /// </remarks>
     internal static bool ShouldDeferSelectToListing(
         ApiOptions options,
         bool singleTypeMode,
-        SelectResult singleTypeResult,
         SectionPipeline<ApiSurface> typePipeline)
     {
-        // Only `type` falls back from a single-type request to a listing. `member` renders a member
-        // view or nothing, and the `api` shim renders nothing at all.
-        if (options is not TypeOptions || !singleTypeMode || options.Select is not { Length: > 0 })
-            return false;
-
-        bool totalFailure = singleTypeResult.Unresolved.Count > 0
-            && singleTypeResult.Sections is null or { Count: 0 };
-        if (!totalFailure)
+        if (options is not TypeOptions
+            || !singleTypeMode
+            || (options.Select is not { Length: > 0 } && !options.SelectDefault))
             return false;
 
         return ResolveSelectForListing(options, typePipeline).Sections is { Count: > 0 };
@@ -243,30 +355,70 @@ public class ApiCommand
             typePipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
 
+    private static SelectResult ResolveDiscoveryForListing(
+        ApiOptions options,
+        SectionPipeline<ApiSurface> typePipeline)
+        => SelectResolver.ResolveSelectAsSections(
+            options.Discover,
+            typePipeline.SelectableSectionNames,
+            typePipeline.FixedOverviewSectionNames,
+            typePipeline.GetCategoryMap(),
+            selectDefault: false);
+
+    internal static bool ShouldDeferDiscoveryToListing(
+        ApiOptions options,
+        bool singleTypeMode,
+        SelectResult singleTypeResult,
+        SectionPipeline<ApiSurface> typePipeline)
+    {
+        if (options is not TypeOptions
+            || !singleTypeMode
+            || options.Discover is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        bool totalFailure =
+            singleTypeResult.Unresolved.Count > 0
+            && singleTypeResult.Sections
+                is null or { Count: 0 };
+        return totalFailure
+            && ResolveDiscoveryForListing(
+                    options,
+                    typePipeline)
+                .Sections is { Count: > 0 };
+    }
+
     /// <summary>
-    /// Reports a deferred <c>-S</c> against the single-type pipeline for a query that turned out to
-    /// render a single type after all, restoring the rejection the preamble held back. Returns true
-    /// when the caller should stop.
+    /// Resolves a deferred selection and validates its output shape after lookup
+    /// chooses the single-type catalog.
     /// </summary>
-    /// <remarks>
-    /// Resolution is repeated against the same three inputs the preamble used, so it reproduces the
-    /// same total failure and the same message. It reports unconditionally rather than forwarding
-    /// <see cref="SelectOutput.WriteUnresolved"/>'s partial-match result: a deferral is only ever
-    /// created from a total failure, and treating a hypothetical partial as "carry on" would render
-    /// the single-type view with the selector silently dropped.
-    /// </remarks>
-    internal static bool RejectDeferredSelectForSingleType(ApiOptions options, SectionPipeline<ApiType> memberPipeline)
+    internal static TypeOptions? ReresolveSectionsForSingleType(TypeOptions options)
     {
         if (!options.SelectDeferredToListing)
+            return options;
+
+        var (preamble, error) = RunPreamble(
+            options with { SelectDeferredToListing = false },
+            allowListingFallback: false);
+        return error.HasValue ? null : (TypeOptions)preamble.Options;
+    }
+
+    internal static bool RejectDeferredDiscoveryForSingleType(
+        ApiOptions options,
+        SectionPipeline<ApiType> memberPipeline)
+    {
+        if (!options.DiscoverDeferredToListing)
             return false;
 
-        var result = SelectResolver.ResolveSelectAsSections(
-            options.Select,
-            memberPipeline.SelectableSectionNames,
-            memberPipeline.FixedOverviewSectionNames,
-            memberPipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
-        SelectOutput.WriteUnresolved(result);
+        SelectResult result =
+            SelectResolver.ResolveSelectAsSections(
+                options.Discover,
+                memberPipeline.SelectableSectionNames,
+                memberPipeline.FixedOverviewSectionNames,
+                memberPipeline.GetCategoryMap(),
+                selectDefault: false);
+        DiscoverOutput.WriteUnresolvedSections(result);
         return true;
     }
 
@@ -275,60 +427,56 @@ public class ApiCommand
         SectionPipeline<ApiSurface> TypePipeline,
         SectionPipeline<ApiType> MemberPipeline);
 
-    internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
+    internal static (PreambleResult Result, int? Error) RunPreamble(
+        ApiOptions options,
+        ResolvedMemberInspectionPlan? resolvedPlan = null,
+        bool allowListingFallback = true)
     {
         options = options with { UserVerbosityOverride = options.UserVerbosity };
+        if (options.Discover is not null
+            && !options.EffectiveDiscovery)
+        {
+            StructuralDiscoveryPlan structuralPlan =
+                StructuralViewRegistry.CreateApiPlan(options);
+            StructuralDiscoveryRequest request =
+                StructuralDiscoveryRequest.From(options);
+            int exitCode = structuralPlan switch
+            {
+                StructuralDiscoveryPlan.Resolved resolved =>
+                    StructuralViewRegistry.Execute(
+                        resolved.Route,
+                        request),
+                StructuralDiscoveryPlan.Alternatives alternatives =>
+                    StructuralViewRegistry.Execute(
+                        alternatives.Value,
+                        request),
+                _ => 1,
+            };
+            return (null!, exitCode);
+        }
+
         if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
             options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
 
+        resolvedPlan ??=
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var structuralDetailOptions = options.Discover is not null
-                                      && !options.EffectiveDiscovery
-            ? TryGetDottedDetailDiscoveryOptions(options)
-            : null;
-        var memberPipeline = ApiMemberSectionPipelines.Create(
-            structuralDetailOptions ?? options);
-        bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
-        bool typeNameIsGlob =
-            hasTypeName
-            && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
-        bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
-        var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
-        if (structuralDetailOptions is null
-            && options is MemberOptions memberOptions
-            && memberOptions.MemberFilter.Count == 0
-            && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
-        {
-            knownSections = knownSections
-                .Concat(ApiMemberDetailSectionDescriptors.CreatePipeline().SelectableSectionNames)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        }
-
-        // Discovery mode: -D/--discover lists effective sections (resolves source) by
-        // default; --schema opts out to the cheap, offline static schema listing.
-        if (options.Discover != null && !options.EffectiveDiscovery)
-        {
-            var structuralOptions =
-                (ApiOptions?)structuralDetailOptions ?? options;
-            var schema = singleTypeMode
-                ? GetTypeDocumentSchema(structuralOptions)
-                : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-
-            // Restrict plain discovery to columns/sections queryable under the active options.
-            if (singleTypeMode)
-            {
-                schema = RestrictSchemaToSections(schema, knownSections);
-                schema = ToQueryableSchema(schema, structuralOptions);
-            }
-
-            return (null!, DiscoverOutput.Execute(options.Discover, schema,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                projection: options));
-        }
-
+        var memberPipeline =
+            resolvedPlan.Selection.Catalog
+                is InspectionCatalogIdentity.ApiMember
+                or InspectionCatalogIdentity.ApiMemberOverload
+                or InspectionCatalogIdentity.ApiMemberDetail
+                ? ApiInspectionCatalogRegistry.CreateMemberPipeline(
+                    resolvedPlan.Selection.Catalog,
+                    resolvedPlan.Intent.Members.OverloadIndex)
+                : ApiMemberSectionDescriptors.CreatePipeline();
+        bool singleTypeMode =
+            resolvedPlan.Selection.Catalog
+                != InspectionCatalogIdentity.ApiType;
+        var knownSections = singleTypeMode
+            ? memberPipeline.SelectableSectionNames
+            : typePipeline.SelectableSectionNames;
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
         // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
         // same shape for a 250-member class and an 8-member enum, where the member sections it used
@@ -345,7 +493,8 @@ public class ApiCommand
         // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
         // mean the same thing here that it means everywhere else.
         var usesFixedOverview = options is TypeOptions
-            || ApiMemberSectionPipelines.UsesDetailPipeline(options);
+            || resolvedPlan.Selection.Catalog
+                == InspectionCatalogIdentity.ApiMemberDetail;
         var bareSelectSections = usesFixedOverview
             ? singleTypeMode
                 ? memberPipeline.FixedOverviewSectionNames
@@ -371,24 +520,51 @@ public class ApiCommand
         // Both paths still enforce Body Shapes requirements before acquisition.
         if (options is not MemberOptions { MemberSectionsPreResolved: true })
         {
-            var selectResult = SelectResolver.ResolveSelectAsSections(
-                options.Select,
-                knownSections,
-                bareSelectSections,
-                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                selectDefault: options.SelectDefault);
-            if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+            bool hasSelection =
+                options.Select is { Length: > 0 }
+                || options.SelectDefault;
+            SelectResult selectResult =
+                options.Discover is null
+                || !hasSelection
+                    ? resolvedPlan.Selection.ToSelectResult()
+                    : SelectResolver.ResolveSelectAsSections(
+                        options.Select,
+                        knownSections,
+                        bareSelectSections,
+                        singleTypeMode
+                            ? memberPipeline.GetCategoryMap()
+                            : typePipeline.GetCategoryMap(),
+                        selectDefault: options.SelectDefault);
+            bool discoveryOnly =
+                options.Discover is not null
+                && !hasSelection;
+            if (allowListingFallback
+                && ShouldDeferSelectToListing(options, singleTypeMode, typePipeline))
             {
-                // `-D` advertised these names and `-S` rejected them, on the same command line: the
-                // preamble was answering for the single-type pipeline while the render is a listing.
-                // Hold the rejection rather than resolving it here, because which pipeline is right is
-                // not known until the type lookup runs.
                 options = options with { SelectDeferredToListing = true };
+            }
+            else if (allowListingFallback
+                && discoveryOnly
+                && ShouldDeferDiscoveryToListing(
+                    options,
+                    singleTypeMode,
+                    selectResult,
+                    typePipeline))
+            {
+                options = options with
+                {
+                    DiscoverDeferredToListing = true,
+                };
             }
             else
             {
-                if (SelectOutput.WriteUnresolved(selectResult))
+                if (discoveryOnly
+                    ? DiscoverOutput.WriteUnresolvedSections(
+                        selectResult)
+                    : SelectOutput.WriteUnresolved(selectResult))
+                {
                     return (null!, 1);
+                }
                 if (ApplyBodyShapeSelectionRequirements(
                         options,
                         selectResult) is { } bodyShapeError)
@@ -396,7 +572,8 @@ public class ApiCommand
                     CommandError.Write(bodyShapeError);
                     return (null!, 1);
                 }
-                if (selectResult.Sections != null)
+                if (!discoveryOnly
+                    && selectResult.Sections != null)
                 {
                     options = options with
                     {
@@ -430,6 +607,15 @@ public class ApiCommand
                 IncludeSections = selectResult.Sections,
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
+        }
+        (options, string? findingCensusSelectionError) =
+            NormalizeFindingCensusSelection(
+                options,
+                memberPipeline.SelectableSectionNames);
+        if (findingCensusSelectionError is not null)
+        {
+            CommandError.Write(findingCensusSelectionError);
+            return (null!, 1);
         }
         if (options is
             {
@@ -528,6 +714,9 @@ public class ApiCommand
         if (!options.Count)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
+        if (options.RenderOptions is not null)
+            return (new PreambleResult(options, typePipeline, memberPipeline), null);
+
         // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
         // CLI edge and attach the decompiler spelling options to the flowed
         // options. Config discovery lives only here; the decompiler library stays
@@ -568,6 +757,64 @@ public class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static (ApiOptions Options, string? Error) NormalizeFindingCensusSelection(
+        ApiOptions options,
+        IReadOnlyList<string> memberSections)
+    {
+        if (options.IncludeSections?.Contains(SectionNames.FindingCensus) != true
+            || options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true)
+        {
+            return (options, null);
+        }
+
+        bool hasNonExactFindingCensusSelector =
+            options.Select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    selector,
+                    memberSections);
+                return matches.Count == 1
+                       && matches[0].Equals(
+                           SectionNames.FindingCensus,
+                           StringComparison.OrdinalIgnoreCase);
+            }) == true;
+        if (hasNonExactFindingCensusSelector)
+        {
+            return (
+                options,
+                $"section '{SectionNames.FindingCensus}' requires an exact -S selector.");
+        }
+
+        bool hasBroadFindingCensusSelector =
+            options.Select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    selector,
+                    memberSections);
+                return matches.Count > 1
+                       && matches.Contains(
+                           SectionNames.FindingCensus,
+                           StringComparer.OrdinalIgnoreCase);
+            }) == true;
+        if (!SelectResolver.IsAllSelector(options.Select)
+            && !hasBroadFindingCensusSelector)
+        {
+            return (
+                options,
+                $"section '{SectionNames.FindingCensus}' cannot be selected through a category.");
+        }
+
+        var sections = new HashSet<string>(
+            options.IncludeSections,
+            StringComparer.OrdinalIgnoreCase);
+        sections.Remove(SectionNames.FindingCensus);
+        return (options with { IncludeSections = sections }, null);
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
@@ -711,53 +958,6 @@ public class ApiCommand
             return options with { MermaidOutput = false };
 
         return options;
-    }
-
-    static bool MightPeelDottedGenericMemberSelector(string? typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return false;
-
-        var lastDot = FqnParser.LastTopLevelDot(typeName);
-        if (lastDot <= 0 || lastDot == typeName.Length - 1)
-            return false;
-
-        return MemberTargetSelector.Parse(typeName[(lastDot + 1)..]).GenericArity.HasValue;
-    }
-
-    static MemberOptions? TryGetDottedDetailDiscoveryOptions(
-        ApiOptions options)
-    {
-        if (options is not MemberOptions
-            {
-                MemberFilter.Count: 0,
-                TypeName: { } typeName
-            } memberOptions)
-        {
-            return null;
-        }
-
-        var lastDot = FqnParser.LastTopLevelDot(typeName);
-        if (lastDot <= 0 || lastDot == typeName.Length - 1)
-            return null;
-
-        var selector =
-            MemberTargetSelector.Parse(typeName[(lastDot + 1)..]);
-        if (!selector.OverloadIndex.HasValue
-            && string.IsNullOrWhiteSpace(selector.DigestPrefix))
-        {
-            return null;
-        }
-
-        return memberOptions with
-        {
-            MemberFilter = new HashSet<string>(
-                [selector.Name],
-                StringComparer.OrdinalIgnoreCase),
-            OverloadIndex = selector.OverloadIndex,
-            MemberDigest = selector.DigestPrefix,
-            MemberGenericArity = selector.GenericArity,
-        };
     }
 
     private static bool ValidateRouteIndependentOptionShape(
@@ -1160,6 +1360,11 @@ public class ApiCommand
     }
 
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
+        => GetTypeDocumentSchema(
+            ApiMemberSectionPipelines.UsesDetailPipeline(options));
+
+    private static DocumentSchema GetTypeDocumentSchema(
+        bool includeExactMemberColumns)
     {
         var schema = MergeSchemas(
             ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema(),
@@ -1174,7 +1379,7 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
-        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+        if (!includeExactMemberColumns)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Evidence Method", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
@@ -1189,6 +1394,35 @@ public class ApiCommand
             "field",
             CallGraphFieldSelection.Names);
         return detailSchema;
+    }
+
+    internal static DocumentSchema GetStructuralSchema(
+        InspectionCatalogIdentity identity)
+    {
+        if (identity == InspectionCatalogIdentity.ApiType)
+        {
+            return ApiViewContext.Default
+                .GetSchemaInfo<CliApiSurface>()!
+                .ToDocumentSchema();
+        }
+
+        if (identity is not (
+            InspectionCatalogIdentity.ApiMember
+            or InspectionCatalogIdentity.ApiMemberOverload
+            or InspectionCatalogIdentity.ApiMemberDetail))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(identity),
+                identity,
+                "The requested identity is not an API catalog.");
+        }
+        ApiInspectionCatalog catalog =
+            ApiInspectionCatalogRegistry.Get(identity);
+        return RestrictSchemaToSections(
+            GetTypeDocumentSchema(
+                identity
+                == InspectionCatalogIdentity.ApiMemberDetail),
+            catalog.SectionNames);
     }
 
     private static DocumentSchema MergeSchemas(params DocumentSchema[] schemas)
@@ -1341,26 +1575,53 @@ public class ApiCommand
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
         var explicitInclude = options is MemberOptions { MemberSectionsPreResolved: true };
-        var sections = new HashSet<string>(
+        if (options.Discover is { Length: > 0 } discover)
+        {
+            bool hasSelection =
+                options.IncludeSections is not null
+                || options.Select is { Length: > 0 }
+                || options.SelectDefault;
+            IReadOnlyList<string> discoveryScope =
+                hasSelection
+                    ? [.. pipeline.GetCandidateSections(
+                        options.Verbosity,
+                        options.IncludeSections)]
+                    : pipeline.SelectableSectionNames;
+            var discoverySet = new HashSet<string>(
+                discoveryScope,
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string[]> categories =
+                pipeline.GetCategoryMap()
+                    .Select(pair =>
+                        new KeyValuePair<string, string[]>(
+                            pair.Key,
+                            [.. pair.Value.Where(
+                                discoverySet.Contains)]))
+                    .Where(pair => pair.Value.Length > 0)
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value,
+                        StringComparer.OrdinalIgnoreCase);
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                discover,
+                discoveryScope,
+                infoSections: [],
+                categories);
+            var discoveredSections = new HashSet<string>(
+                resolved.Sections ?? [],
+                StringComparer.OrdinalIgnoreCase);
+            if (!options.BodyKindQuery.HasFilter)
+                discoveredSections.Remove(SectionNames.BodyShapes);
+            return discoveredSections;
+        }
+
+        return new HashSet<string>(
             pipeline.GetEffectiveSections(
                 type,
                 options.Verbosity,
                 options.IncludeSections,
                 explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
-        if (options.Discover is { Length: > 0 } discover)
-        {
-            var resolved = SelectResolver.ResolveSelectAsSections(
-                discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
-            if (!resolved.HasError && resolved.Sections is { Count: > 0 })
-                sections.UnionWith(resolved.Sections);
-        }
-        if (!options.BodyKindQuery.HasFilter
-            && options.Discover is not null)
-        {
-            sections.Remove(SectionNames.BodyShapes);
-        }
-        return sections;
     }
 
     // ===== Full API Surface Rendering =====
@@ -2191,7 +2452,7 @@ public class ApiCommand
         return 1;
     }
 
-    internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
+    internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null, ResolvedAssemblyReference? sourceAssembly = null)
     {
         var sink = output ?? Console.Out;
 
@@ -2199,6 +2460,29 @@ public class ApiCommand
         {
             CommandError.Write(
                 $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+            return 1;
+        }
+        if (IsInvalidFindingCensusJsonSelection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' must be the only selected section under --json.");
+            return 1;
+        }
+        if (IsInvalidFindingCensusProjection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' is an indivisible document payload; "
+                + "use Markdown/plaintext or exact singleton --json without row, column, count, or payload projection.");
+            return 1;
+        }
+        bool findingCensusExplicitlySelected =
+            HasExplicitFindingCensusSelector(options);
+        if (findingCensusExplicitlySelected
+            && (type.Members.Count != 1
+                || !type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked)))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' requires one selected body-backed member.");
             return 1;
         }
 
@@ -2238,6 +2522,7 @@ public class ApiCommand
         }
 
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        bool findingCensusJson = IsFindingCensusJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
         bool sourceSectionExplicitlySelected =
@@ -2283,7 +2568,8 @@ public class ApiCommand
             return 1;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
+            && !sourceDocumentJson && !findingCensusJson)
         {
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.PerformanceTriage)
@@ -2423,7 +2709,7 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    options.DllPath!, GetRequestedMemberSections(type, options), type, options);
+                    options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -2513,6 +2799,29 @@ public class ApiCommand
                 sourceDocument,
                 Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
                 Decompiler.AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                options.CompactJson);
+            return 0;
+        }
+
+        if (findingCensusExplicitlySelected
+            && view.MemberCode?.FindingCensus is null)
+        {
+            CommandError.Write(FindingCensusError(view.MemberCode));
+            return 1;
+        }
+
+        if (findingCensusJson)
+        {
+            if (view.MemberCode?.FindingCensus is not { } findingCensus)
+            {
+                CommandError.Write(FindingCensusError(view.MemberCode));
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                findingCensus,
+                MemberFindingCensusJsonContext.Default.MemberFindingCensusEnvelope,
+                MemberFindingCensusCompactJsonContext.Default.MemberFindingCensusEnvelope,
                 options.CompactJson);
             return 0;
         }
@@ -3006,6 +3315,7 @@ public class ApiCommand
         {
             SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
+            SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content ?? "",
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
@@ -3091,7 +3401,8 @@ public class ApiCommand
         string? PackageName,
         string? PackageVersion,
         string? ApiSource,
-        string? SelectedTfm);
+        string? SelectedTfm,
+        ResolvedAssemblyReference? SourceAssembly = null);
 
     internal static int ExecuteEffectiveDiscovery(
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
@@ -3145,7 +3456,7 @@ public class ApiCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: memberPipeline.GetCategoryMap(),
+            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
             projection: options);
     }
 
@@ -3360,7 +3671,8 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions);
+                    renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions,
+                    acquisition?.SourceAssembly);
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
@@ -3667,6 +3979,60 @@ public class ApiCommand
             SectionNames.AnnotatedSourceDocument,
             StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsFindingCensusJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && !IsColumnProjectionRequested(options)
+           && options.Limit is null
+           && !IsLineLimitRequested()
+           && options.Rows is null
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.FindingCensus)
+           && HasOnlyExplicitFindingCensusSelectors(options);
+
+    private static bool IsInvalidFindingCensusJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.FindingCensus)
+           && HasExplicitFindingCensusSelector(options)
+           && (sections.Count != 1
+               || !HasOnlyExplicitFindingCensusSelectors(options));
+
+    private static bool IsInvalidFindingCensusProjection(ApiOptions options)
+        => options.IncludeSections?.Contains(SectionNames.FindingCensus) == true
+           && HasExplicitFindingCensusSelector(options)
+           && (options.Count
+               || options.Tabular
+               || options.Tsv
+               || options.Jsonl
+               || IsProjectionRequested(options)
+               || IsColumnProjectionRequested(options)
+               || options.Limit is not null
+               || IsLineLimitRequested()
+               || options.Rows is not null);
+
+    private static bool IsLineLimitRequested()
+        => ArgumentPreprocessor.HeadLines is not null
+           || ArgumentPreprocessor.TailLines is not null;
+
+    private static bool HasOnlyExplicitFindingCensusSelectors(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.FindingCensus)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitFindingCensusSelector);
+
+    private static bool HasExplicitFindingCensusSelector(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true
+            : options.Select?.Any(IsExplicitFindingCensusSelector) == true;
+
+    private static bool IsExplicitFindingCensusSelector(string selector)
+        => selector.Equals(
+            SectionNames.FindingCensus,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
         => options is MemberOptions { MemberSectionsPreResolved: true }
             ? options.ExactIncludeSections?.Contains(
@@ -3691,6 +4057,10 @@ public class ApiCommand
                 "; ",
                 failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
             : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
+
+    internal static string FindingCensusError(MemberCodeView? memberCode)
+        => memberCode?.FindingCensusFailure
+            ?? $"section '{SectionNames.FindingCensus}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

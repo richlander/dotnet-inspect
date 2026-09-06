@@ -164,6 +164,15 @@ public static class ArgumentPreprocessor
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;
+                continue;
+            }
+
+            if (token != "--"
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && bool.TryParse(args[i + 1], out _))
+            {
+                i++;
             }
         }
 

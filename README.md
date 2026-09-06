@@ -74,6 +74,13 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+Use `-D --schema` to inspect the syntax-selected structural view without
+acquiring or loading the target. Package `--library` and `--all-libraries`
+queries expose their route-specific schemas before package resolution, while
+ambiguous commandless or dotted-member targets return separately labeled
+alternatives rather than a lookup-chosen union. A commandless
+`<target> --all-libraries` gesture always selects the package aggregate view.
+
 ## Demo: query rendered C# body shapes
 
 Discover the stable IDs accepted by body queries:
@@ -117,7 +124,7 @@ stderr rather than mixed into structured output.
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
-| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in implementation evidence. |
+| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
@@ -147,7 +154,7 @@ stderr rather than mixed into structured output.
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
-| `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. |
+| `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `workspace` | Render an ordered runtime Workspace package-occurrence view for packages with selected managed assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. |
@@ -304,6 +311,7 @@ dotnet-inspect type string --shape
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
@@ -323,10 +331,24 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Te
 
 ```bash
 dotnet-inspect match Left.Compute Right.Compute --library ./app.dll
-dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --implementation
+dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --body
 dotnet-inspect match Sample.Encode --similar --library ./app.dll
 dotnet-inspect match Sample.Encode --similar --library ./app.dll --assembly-wide --top 10
 ```
+
+`--body` adds decompiled C# and IL body differences alongside the independent
+structural-match result. Both methods must resolve to the same physical
+assembly. A bodyless or unavailable endpoint stays visible rather than implying
+equal bodies. Use Markdown (the default) or `--json`; body evidence is not
+supported with `--table`, `--tsv`, `--jsonl`, or `--similar`.
+`--body --json` returns a `match`/`body` envelope: the body document retains
+per-producer native verdicts, physical endpoint addresses and availability,
+structured C#/IL differences, diagnostics, and cleanup outcomes. Plain
+`match --json` keeps its existing flat structural document. `--body` returns
+nonzero on query cancellation or failed body comparison while preserving the available output;
+a valid bodyless endpoint is reported as `NoApplicableInput`, not a body match.
+The [publication and CLI gates](docs/design/local-comparison-publication.md#demo-and-gates)
+cover these distinctions.
 
 `--similar` ranks structural candidates for one seed method. It is a discovery
 step, not a verdict: a rank establishes no relation, no semantic equivalence,

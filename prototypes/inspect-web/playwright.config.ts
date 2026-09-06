@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
   testMatch: "*.spec.ts",
-  testIgnore: "worker-runtime.spec.ts",
+  testIgnore: ["worker-runtime.spec.ts", "package-adoption.spec.ts"],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

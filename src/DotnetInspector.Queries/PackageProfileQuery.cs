@@ -243,57 +243,17 @@ public static class PackageProfileQuery
                 continue;
             }
 
-            PackageSourceCoordinate coordinate = expectedCoordinate;
-            PackageSourceOperationResult<PackageSourceManifest> manifestResult =
-                await source.GetManifestAsync(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    cancellationToken,
-                    operationContext).ConfigureAwait(false);
-            if (manifestResult.Failure is { } manifestFailure)
+            var (manifestFacts, manifestFailure) = await AcquireManifestAsync(
+                source,
+                candidate.Candidate,
+                candidate.Metadata.Id,
+                candidate.Metadata.Version,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+            if (manifestFailure is not null)
             {
                 failures++;
-                yield return new PackageProfileEvent.Failure(
-                    new PackageProfileFailure(
-                        candidate.Metadata.Id,
-                        candidate.Metadata.Version,
-                        manifestFailure.Source,
-                        PackageProfileFailureKind.ManifestAcquisition,
-                        manifestFailure.Message));
-                continue;
-            }
-
-            PackageSourceManifest manifest =
-                manifestResult.Value
-                ?? throw new InvalidOperationException(
-                    "The package source manifest operation completed without a value or failure.");
-            if (manifest.Coordinate != coordinate
-                || !ReferenceEquals(
-                    manifest.Source,
-                    candidate.Candidate.Source)
-                || !ReferenceEquals(manifest.Source, source.Source))
-            {
-                failures++;
-                yield return Failure(
-                    candidate,
-                    PackageProfileFailureKind.ManifestContract,
-                    "The package source returned a manifest with mismatched coordinate or provenance.");
-                continue;
-            }
-
-            PackageManifestFactsResult manifestFacts =
-                PackageManifestFactsQuery.Execute(
-                    manifest.Content.ToArray(),
-                    coordinate);
-            if (manifestFacts is PackageManifestFactsResult.Failed
-                manifestFailureResult)
-            {
-                failures++;
-                yield return Failure(
-                    candidate,
-                    PackageProfileFailureKind.InvalidManifest,
-                    manifestFailureResult.Failure.Message,
-                    manifestFailureResult.Failure.Reason);
+                yield return new PackageProfileEvent.Failure(manifestFailure);
                 continue;
             }
 
@@ -310,8 +270,9 @@ public static class PackageProfileQuery
                     candidate.Metadata.TotalDownloads,
                     candidate.Metadata.Verified,
                     candidate.Candidate.Source,
-                    ((PackageManifestFactsResult.Available)manifestFacts)
-                        .Value));
+                    manifestFacts
+                        ?? throw new InvalidOperationException(
+                            "Manifest acquisition returned no facts or failure.")));
         }
 
         yield return new PackageProfileEvent.Completed(
@@ -322,6 +283,59 @@ public static class PackageProfileQuery
                 matches,
                 failures,
                 searchResult.TruncationReason));
+    }
+
+    internal static async ValueTask<(
+        PackageManifestFacts? Facts,
+        PackageProfileFailure? Failure)> AcquireManifestAsync(
+            IPackageSourceClient source,
+            PackageCandidateObservation candidate,
+            string packageId,
+            string version,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceCoordinate coordinate = candidate.Coordinate;
+        PackageSourceOperationResult<PackageSourceManifest> result =
+            await source.GetManifestAsync(
+                coordinate.PackageId,
+                coordinate.Version,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        if (result.Failure is { } failure)
+        {
+            return (null, new PackageProfileFailure(
+                packageId, version, failure.Source,
+                PackageProfileFailureKind.ManifestAcquisition,
+                failure.Message));
+        }
+
+        PackageSourceManifest manifest = result.Value
+            ?? throw new InvalidOperationException(
+                "The package source manifest operation completed without a value or failure.");
+        if (manifest.Coordinate != coordinate
+            || !ReferenceEquals(manifest.Source, candidate.Source)
+            || !ReferenceEquals(manifest.Source, source.Source))
+        {
+            return (null, new PackageProfileFailure(
+                packageId, version, candidate.Source,
+                PackageProfileFailureKind.ManifestContract,
+                "The package source returned a manifest with mismatched coordinate or provenance."));
+        }
+
+        PackageManifestFactsResult facts = PackageManifestFactsQuery.Execute(
+            manifest.Content.ToArray(), coordinate);
+        return facts switch
+        {
+            PackageManifestFactsResult.Available available => (available.Value, null),
+            PackageManifestFactsResult.Failed failed => (null,
+                new PackageProfileFailure(
+                    packageId, version, candidate.Source,
+                    PackageProfileFailureKind.InvalidManifest,
+                    failed.Failure.Message,
+                    failed.Failure.Reason)),
+            _ => throw new InvalidOperationException("Unknown manifest facts result."),
+        };
     }
 
     private static PackageProfileEvent.Failure Failure(

@@ -1019,8 +1019,8 @@ public static class ApiSurfaceExtractor
                     continue;
                 }
 
-                // Skip compiler-generated methods (lambdas, state machines, etc.)
-                if (methodName.StartsWith("<"))
+                // Keep generated bodies out of ordinary API views unless explicitly requested.
+                if (methodName.StartsWith("<") && !includeCompilerGenerated)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1140,6 +1140,8 @@ public static class ApiSurfaceExtractor
                         method.GetGenericParameters().Count,
                     HasMethodBody =
                         method.RelativeVirtualAddress != 0,
+                    MethodImplementation = ApiMethodImplementationFacts.Read(
+                        reader, moduleVersionId, methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1372,6 +1374,9 @@ public static class ApiSurfaceExtractor
                     AccessorMemorySafety = ReadAccessorMemorySafety(
                         reader, GetMemorySafetyIndex(), moduleVersionId,
                         [accessors.Getter, accessors.Setter, .. accessors.Others]),
+                    AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                        reader, moduleVersionId,
+                        [accessors.Getter, accessors.Setter, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(propHandle)],
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
@@ -1404,6 +1409,12 @@ public static class ApiSurfaceExtractor
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    GetterHasMethodBody = accessors.Getter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Getter).RelativeVirtualAddress != 0,
+                    SetterHasMethodBody = accessors.Setter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Setter).RelativeVirtualAddress != 0,
                     HasGetter = !accessors.Getter.IsNil,
                     GetterAccessibility = accessors.Getter.IsNil
                         ? null
@@ -1796,6 +1807,9 @@ public static class ApiSurfaceExtractor
                     AccessorMemorySafety = ReadAccessorMemorySafety(
                         reader, GetMemorySafetyIndex(), moduleVersionId,
                         [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
+                    AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                        reader, moduleVersionId,
+                        [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(eventHandle)],
                     ReturnType = eventType,
                     Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
@@ -1826,7 +1840,11 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
+                        : MetadataTokens.GetToken(accessors.Remover),
+                    AdderHasMethodBody = adder.RelativeVirtualAddress != 0,
+                    RemoverHasMethodBody = accessors.Remover.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Remover).RelativeVirtualAddress != 0
                 };
 
                 budget?.RetainMember(member);
@@ -2895,7 +2913,9 @@ public static class ApiSurfaceExtractor
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
-        methodName.StartsWith("op_", StringComparison.Ordinal);
+        methodName.StartsWith(
+            "op_",
+            StringComparison.Ordinal);
 
     private static void AttachLocalExtensionMethods(
         ApiSurface surface,
@@ -2973,6 +2993,8 @@ public static class ApiSurfaceExtractor
                     IsSealed = extension.IsSealed,
                     IsUnsafe = extension.IsUnsafe,
                     MemorySafety = extension.MemorySafety,
+                    MethodImplementation = extension.MethodImplementation,
+                    HasMethodBody = extension.HasMethodBody,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,

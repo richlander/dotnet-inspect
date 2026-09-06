@@ -33,6 +33,8 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.SourceDiff.V1\DotnetInspector.SourceDiff.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.SourceDiff.V2\DotnetInspector.SourceDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.RestoredProjectFixtures\DotnetInspector.RestoredProjectFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />

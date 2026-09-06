@@ -103,12 +103,20 @@ when it is also a struct receiver. Preserving that local must not make an
 already reconstructed foreach fail the iterator's reconstruction contract;
 `IteratorReconstructionPassTests.ForeachDelegationIterator_PreservesNamedStructReceiver`
 gates the compiler-produced case in P2.
-The foreach-delegation recipe declines a state-dispatch prefix containing
-unowned initialization instead of discarding a captured receiver binding.
-`ForeachDelegationIterator_UnownedReceiverInitializationDeclines` gates the
-collection-receiver and yielded-projection cases.
-[#5923](https://github.com/richlander/dotnet-inspect/issues/5923) tracks consuming
-that surviving receiver evidence.
+The foreach-delegation recipe preserves a direct reference-type capture of the
+kickoff's original `this`. The capture must identify the same typed field on the
+authenticated state machine and the kickoff's own receiver binder; the field
+name or argument ordinal alone is insufficient. An entry-block receiver alias
+must have one initialization and only value reads. Its initialization survives
+dispatch removal, and captured-field reads retain the kickoff receiver binding
+in collection acquisition and yielded projections. Writes or address escapes
+of that capture, a different captured receiver, and all other useful dispatch
+initialization remain decline boundaries rather than default-initialized
+substitutes. Value-type receiver copies are not covered by this rule.
+`ForeachDelegationIterator_PreservesCapturedInstance`,
+`ForeachDelegationIterator_UnownedReceiverInitializationDeclines`, and
+`ForeachDelegationIterator_CopiedValueReceiverDeclines` gate these cases for
+[#5923](https://github.com/richlander/dotnet-inspect/issues/5923).
 
 ### Portable PDB boundary
 
@@ -374,9 +382,17 @@ Expected: `ReverseCopy` declarations and uses are named `i` and `j`, not `V_0`
 and `V_1`. `StoreElementNamedReceiverTemp` retains the declaration and use of
 `trimmed` rather than inlining it away.
 `YieldNamedStructReceiver` retains `date` in its foreach and `date.Year` yield.
-The two instance-iterator probes remain visibly unsupported while #5923 is
-open: their captured receiver initialization cannot be discarded with state
-dispatch scaffolding. They must not emit a raised body using a default receiver.
+The instance-iterator probes retain the original `this` binding when acquiring
+the collection (`YieldYears`) or evaluating the yielded projection
+(`YieldAdjustedYears`). `YieldCombinedYears` exercises both uses alongside
+another same-typed receiver. `IteratorValueReceiverNameSamples.YieldYears`
+remains visibly unsupported: a copied value-type receiver is outside this
+reference-capture rule.
+
+```bash
+inspect_member ILInspector.Decompiler.Tests.IteratorReceiverNameSamples YieldCombinedYears "$CFG"
+inspect_member ILInspector.Decompiler.Tests.IteratorValueReceiverNameSamples YieldYears "$CFG"
+```
 
 ### P3: lambda parameter and capture names
 

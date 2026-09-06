@@ -837,6 +837,67 @@ It does not:
 - construct assembly binding groups;
 - render diagnostics.
 
+#### On-demand retained-content digests
+
+`ArtifactSetSession.GetContentDigest` and the corresponding
+`ArtifactContentReference` operation implement [#4916](https://github.com/richlander/dotnet-inspect/issues/4916).
+The artifact-session owner issues an immutable SHA-256 digest bound to the exact
+`ArtifactIdentity` and generation. Its lowercase hexadecimal value is content
+evidence, not artifact correspondence: equal bytes do not coalesce distinct
+registrations, artifacts, or generations.
+
+Every request uses the existing query-content authorization and access lifetime,
+including requests for a cached value. `Accessed.Value` carries the owner-issued
+digest. The existing typed `Unauthorized` arm covers missing, foreign, disposed,
+revoked, replaced, or ended query authority; it does not invent a finer
+authorization classification. A current lease selecting an identity outside
+the session remains a lookup error. The value may escape the query; it contains
+no borrowed content view, stream, or lease.
+
+The operation is explicit and lazy. Ordinary acquisition and publication do not
+hash. The first authorized request invokes its required `chargeWork` callback
+with the retained byte length immediately before the hash pass. The callback
+applies the requesting operation's budget; it may refuse by throwing, and that
+exception propagates without a published digest. A successful value is reused
+by later authorized requests without another charge or hash pass. Concurrent
+requests for one artifact share the successful cold computation. Neither
+computation nor reuse opens the original source or changes the catalog.
+
+Cancellation follows scoped-content semantics: it is observed before admission
+and after the synchronous operation, and remains cancellation. Once charged,
+the bounded hash pass completes and memoizes its value even if cancellation is
+requested during it; a cancelled caller does not receive that value, but the
+completed work is not charged again. An admitted operation may finish after
+authorization expires, and pins retained resources until it returns. Charge
+callbacks have the same synchronous lifetime restriction as other content
+callbacks: they must not wait for disposal of their own session.
+
+The existing generation-access model supplies the authorization and quiescence
+basis. This operation reuses that protocol rather than adding publication or
+release states. SHA-256 and per-artifact lazy computation follow ordinary .NET
+hashing and memoization; no worker thread is required. Release gates are:
+
+- `Digest_ChargesColdPassAndReusesOwnerValue`
+- `Digest_UsesRetainedSnapshotWithoutReopeningSource`
+- `Digest_EqualBytesDoNotCoalesceArtifactIdentity`
+- `Digest_RejectsAuthorityEvenWhenCached`
+- `Digest_ReferenceRevalidatesAndAuthorizesBeforeLookup`
+- `Digest_ChargeFailurePropagatesWithoutPublishingValue`
+- `Digest_CancellationRemainsCancellationAndCompletedWorkIsMemoized`
+- `Digest_ConcurrentRequestsShareOneColdPass`
+- `Digest_ActiveComputationPinsReleaseAndValueCanEscape`
+
+The immediate consumer is the artifact contract harness; the intended
+production consumer is tools compile-back reference selection, tracked by
+[#5890](https://github.com/richlander/dotnet-inspect/issues/5890). Digest adoption
+has two steps: this owner API with its harness consumer, then consumption by
+the tools frozen-reference stage within that tracker's second decoder-adoption
+step. The user selected #4916 as the prerequisite in the tools-first sequence;
+CLI/Wasm production adoption remains deferred, not implied by the portable API.
+No existing eager-hash path is replaced, and this slice does not construct a
+compiler reference set, artifact manifest, or admission receipt. The result is
+structured data; rendering remains with its eventual consumer.
+
 ### Multiple sources are ordinary
 
 A workspace is not associated with one source. For example:
@@ -1540,8 +1601,9 @@ do not expose their backing arrays. Rebuild, replacement, symlink retargeting,
 or deletion after acquisition cannot substitute new bytes into the published
 snapshot.
 
-The ordinary retained snapshot does not compute a digest eagerly. The target
-owner-mediated on-demand digest remains unverified.
+The ordinary retained snapshot does not compute a digest eagerly. Its
+[owner-mediated on-demand digest](#on-demand-retained-content-digests) is a
+separate authorized query over those retained bytes.
 
 #### Shared local-path admission
 
@@ -3548,7 +3610,10 @@ compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
 explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
-Workspace-wide admission budgets, single-flight/reentrancy, content digests,
+Owner-mediated on-demand content digests are covered by the
+[named digest gates](#on-demand-retained-content-digests).
+
+Workspace-wide admission budgets, single-flight/reentrancy,
 assembly-group reporting into session quiescence, and Metadata consumption of
 workspace roles remain unverified.
 
