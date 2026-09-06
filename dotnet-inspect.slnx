@@ -84,6 +84,7 @@
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Base/DotnetInspector.Services.RouteLearning.Base.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Consumer/DotnetInspector.Services.RouteLearning.Consumer.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Contract/DotnetInspector.Services.RouteLearning.Contract.csproj" />
+    <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase/DotnetInspector.Services.RouteLearning.InterfaceBase.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Middle/DotnetInspector.Services.RouteLearning.Middle.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated/DotnetInspector.Services.RouteLearning.Unrelated.csproj" />
     <Project Path="fixtures/shared/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />

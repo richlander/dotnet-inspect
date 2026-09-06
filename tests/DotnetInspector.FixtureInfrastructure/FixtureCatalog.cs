@@ -128,6 +128,8 @@ public static class FixtureIds
 
     public const string ServicesRouteLearningBase =
         "services.route-learning.base";
+    public const string ServicesRouteLearningInterfaceBase =
+        "services.route-learning.interface-base";
     public const string ServicesRouteLearningContract =
         "services.route-learning.contract";
     public const string ServicesRouteLearningMiddle =
@@ -630,6 +632,16 @@ public static class FixtureCatalog
                 FixtureBoundary.CrossAssemblyBoundary),
             "services", "binding", "route-learning", "compile-contract");
 
+    public static readonly FixtureDefinition ServicesRouteLearningInterfaceBase =
+        Fixture(
+            FixtureIds.ServicesRouteLearningInterfaceBase,
+            "DotnetInspector.Services.RouteLearning.InterfaceBase",
+            "DotnetInspector.Services.RouteLearning.Base.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyName,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "services", "binding", "resolver-lineage", "interface-base");
+
     public static readonly FixtureDefinition ServicesRouteLearningMiddle =
         Fixture(
             FixtureIds.ServicesRouteLearningMiddle,
@@ -728,6 +740,7 @@ public static class FixtureCatalog
         RestoredProjectDependencyFacts,
         ServicesRouteLearningBase,
         ServicesRouteLearningContract,
+        ServicesRouteLearningInterfaceBase,
         ServicesRouteLearningMiddle,
         ServicesRouteLearningConsumer,
         ServicesRouteLearningUnrelated,
@@ -1036,6 +1049,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.Base" => "fixtures/services/DotnetInspector.Services.RouteLearning.Base",
             "DotnetInspector.Services.RouteLearning.Consumer" => "fixtures/services/DotnetInspector.Services.RouteLearning.Consumer",
             "DotnetInspector.Services.RouteLearning.Contract" => "fixtures/services/DotnetInspector.Services.RouteLearning.Contract",
+            "DotnetInspector.Services.RouteLearning.InterfaceBase" => "fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase",
             "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",

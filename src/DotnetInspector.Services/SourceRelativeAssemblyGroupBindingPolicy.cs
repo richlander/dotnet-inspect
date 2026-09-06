@@ -12,6 +12,10 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
     IAssemblyBindingPolicy
 {
     readonly ImmutableArray<ResolvedAssemblyReference> _roots;
+    readonly ImmutableDictionary<
+        AssemblyAcquisitionRegistration,
+        AssemblyRoute> _routes;
+    readonly ImmutableArray<IAssemblyBindingPolicy> _delegates;
     BindingPolicyState _state;
 
     public SourceRelativeAssemblyGroupBindingPolicy(
@@ -26,6 +30,10 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             AssemblyAcquisitionRegistration,
             AssemblyRoute>(
                 ReferenceEqualityComparer.Instance);
+        var delegates = ImmutableArray.CreateBuilder<
+            IAssemblyBindingPolicy>();
+        var seenDelegates = new HashSet<IAssemblyBindingPolicy>(
+            ReferenceEqualityComparer.Instance);
         foreach ((ResolvedAssemblyReference assembly,
             IAssemblyBindingPolicy policy) in participants)
         {
@@ -35,6 +43,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             routes.Add(
                 assembly.Registration,
                 new AssemblyRoute(assembly, policy));
+            if (seenDelegates.Add(policy))
+                delegates.Add(policy);
         }
 
         if (roots.Count == 0)
@@ -45,42 +55,50 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         _roots = roots.ToImmutable();
-        ImmutableDictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyRoute> initialRoutes = routes.ToImmutable();
-        _state = new BindingPolicyState(
-            new AssemblyBindingPolicyVersion(),
-            initialRoutes[_roots[0].Registration].Policy,
-            initialRoutes,
-            new IntrinsicSelectionCache());
+        _routes = routes.ToImmutable();
+        _delegates = delegates.ToImmutable();
+        _state = CreateState();
     }
 
     public AssemblyBindingPolicyVersion Version =>
-        Volatile.Read(ref _state).Version;
+        CurrentState().Version;
 
     public AssemblyBindingSelectionSnapshot Select(
         AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        BindingPolicyState state = Volatile.Read(ref _state);
-        return new AssemblyBindingSelectionSnapshot(
-            state.Version,
-            Select(state, request));
+        BindingPolicyState state = CurrentState();
+        try
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                state.Version,
+                Select(state, request));
+        }
+        catch (ForeignSnapshotException foreign)
+        {
+            return foreign.Snapshot;
+        }
     }
 
     AssemblyBindingSelection Select(
         BindingPolicyState state,
         AssemblyBindingRequest request)
     {
-        IAssemblyBindingPolicy policy =
-            PolicyFor(state, request.Origin);
+        if (RouteRequest(state, request) is not { } route)
+        {
+            return AssemblyBindingSelection.Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidBindingOrigin));
+        }
+
         if (request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
             && request.Origin
-                is AssemblyBindingOrigin.RequestingAssembly requesting
-            && AssemblyFor(state, requesting.Registration)
-                is { } requestingAssembly)
+                is AssemblyBindingOrigin.RequestingAssembly requesting)
         {
-            var key = (requesting.Registration, request.Scope);
+            var key = new IntrinsicSelectionKey(
+                requesting.Assembly,
+                requesting.Lineage,
+                request.Scope);
             if (!state.IntrinsicSelections.TryGet(
                     key,
                     out Lazy<AssemblyBindingSelection>?
@@ -91,7 +109,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         key,
                         () => SelectIntrinsicCoreLibrary(
                             state,
-                            requestingAssembly,
+                            route,
+                            requesting,
                             request.Origin,
                             request.Scope));
             }
@@ -136,14 +155,28 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                             reference.Identity)),
                 ];
                 if (matches.Length == 1)
-                    return AssemblyBindingSelection.Found(matches[0]);
+                {
+                    return IssueSelection(
+                        state,
+                        route,
+                        AssemblyBindingSelection.Found(matches[0]));
+                }
                 if (matches.Length > 1)
                     return AssemblyBindingSelection.Multiple(matches);
             }
         }
 
         AssemblyBindingSelectionSnapshot? snapshot =
-            policy.Select(request);
+            route.Delegate.Policy.Select(route.DelegatedRequest);
+        if (snapshot is not null
+            && !ReferenceEquals(
+                route.Delegate.Version,
+                snapshot.Version))
+        {
+            _ = CurrentState();
+            throw new ForeignSnapshotException(snapshot);
+        }
+
         AssemblyBindingSelection selection =
             AssemblyBindingSelection.ValidateForRequest(
                 request,
@@ -174,17 +207,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             selection = mismatch;
         }
 
-        switch (selection)
-        {
-            case AssemblyBindingSelection.Selected selected:
-                Register([selected.Assembly], policy);
-                break;
-            case AssemblyBindingSelection.Ambiguous ambiguous:
-                Register(ambiguous.Assemblies, policy);
-                break;
-        }
-
-        return selection;
+        return IssueSelection(state, route, selection);
     }
 
     static AssemblyBindingSelection ComposePendingDesignated(
@@ -257,9 +280,18 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         requested,
                         candidate,
                         ignoreVersion: true)));
-        return AssemblyBindingSelection.Found(
-            designatedCandidates[0],
-            platforms);
+        ResolvedAssemblyReference chosen = designatedCandidates[0];
+        return policySelection
+                is AssemblyBindingSelection.Selected delegated
+            && ReferenceEquals(
+                chosen.Registration,
+                delegated.Assembly.Registration)
+                ? AssemblyBindingSelection.FoundOccurrence(
+                    delegated.Occurrence,
+                    platforms)
+                : AssemblyBindingSelection.Found(
+                    chosen,
+                    platforms);
     }
 
     static ImmutableArray<ResolvedAssemblyReference> DesignatedCandidates(
@@ -379,110 +411,202 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
         BindingPolicyState state,
-        ResolvedAssemblyReference requestingAssembly,
+        RoutedRequest route,
+        AssemblyBindingOrigin.RequestingAssembly requesting,
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope)
-        => IntrinsicCoreLibraryBinding.Select(
-            requestingAssembly,
-            facade => Select(
-                state,
-                new AssemblyBindingRequest(
-                    AssemblyBindingTarget.Reference(facade),
-                    origin,
-                    scope)));
-
-    static IAssemblyBindingPolicy PolicyFor(
-        BindingPolicyState state,
-        AssemblyBindingOrigin origin)
     {
-        if (origin is not AssemblyBindingOrigin.RequestingAssembly requesting)
-            return state.Default;
+        AssemblyBindingSelection selection =
+            IntrinsicCoreLibraryBinding.Select(
+                requesting.Assembly,
+                facade => Select(
+                    state,
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(facade),
+                        origin,
+                        scope)));
+        selection = AssemblyBindingSelection.ValidateForRequest(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                origin,
+                scope),
+            selection);
+        AssemblyBindingOccurrence? requestingOccurrence =
+            route.RequestingOccurrence;
+        if (selection
+                is AssemblyBindingSelection.Selected selected
+            && selected.Occurrence.Lineage
+                == AssemblyBindingLineage.Seed
+            && requestingOccurrence is not null
+            && ReferenceEquals(
+                selected.Assembly.Registration,
+                requesting.Assembly.Registration))
+        {
+            return IssueSelection(
+                state,
+                route,
+                AssemblyBindingSelection.FoundOccurrence(
+                    requestingOccurrence,
+                    selected.ShadowedAssemblies));
+        }
 
-        return state.Routes.TryGetValue(
-            requesting.Registration,
-            out AssemblyRoute? route)
-                ? route.Policy
-                : state.Default;
+        return IssueSelection(state, route, selection);
     }
 
-    static ResolvedAssemblyReference? AssemblyFor(
+    RoutedRequest? RouteRequest(
         BindingPolicyState state,
-        AssemblyAcquisitionRegistration registration)
-        => state.Routes.GetValueOrDefault(registration)?.Assembly;
+        AssemblyBindingRequest request)
+    {
+        if (request.Origin
+            is not AssemblyBindingOrigin.RequestingAssembly requesting)
+        {
+            return new RoutedRequest(
+                state.DelegateFor(DefaultRoute.Policy),
+                request,
+                null);
+        }
 
-    void Register(
-        IEnumerable<ResolvedAssemblyReference> assemblies,
-        IAssemblyBindingPolicy policy)
+        if (requesting.Lineage is null
+            || requesting.Lineage == AssemblyBindingLineage.Seed)
+        {
+            AssemblyRoute route = _routes.GetValueOrDefault(
+                    requesting.Registration)
+                ?? DefaultRoute;
+            return new RoutedRequest(
+                state.DelegateFor(route.Policy),
+                request,
+                requesting.Occurrence
+                    ?? AssemblyBindingOccurrence.Seed(
+                        requesting.Assembly));
+        }
+
+        if (requesting.Lineage
+                is not SourceRelativeBindingLineage lineage
+            || !ReferenceEquals(lineage.Issuer, this)
+            || !ReferenceEquals(lineage.State, state))
+        {
+            return null;
+        }
+
+        return new RoutedRequest(
+            lineage.Delegate,
+            new AssemblyBindingRequest(
+                request.Target,
+                AssemblyBindingOrigin.FromOccurrence(
+                    lineage.DelegatedOccurrence),
+                request.Scope),
+            lineage.DelegatedOccurrence);
+    }
+
+    AssemblyBindingSelection IssueSelection(
+        BindingPolicyState state,
+        RoutedRequest route,
+        AssemblyBindingSelection selection)
+    {
+        if (selection
+            is not AssemblyBindingSelection.Selected selected)
+        {
+            return selection;
+        }
+
+        if (selected.Occurrence.Lineage
+                is SourceRelativeBindingLineage issued
+            && ReferenceEquals(issued.Issuer, this)
+            && ReferenceEquals(issued.State, state))
+        {
+            return selection;
+        }
+
+        DelegateCapture bindingDelegate = route.Delegate;
+        AssemblyBindingOccurrence delegatedOccurrence =
+            selected.Occurrence;
+        if (_routes.TryGetValue(
+                selected.Assembly.Registration,
+                out AssemblyRoute? canonicalRoute))
+        {
+            bindingDelegate = state.DelegateFor(
+                canonicalRoute.Policy);
+            delegatedOccurrence = AssemblyBindingOccurrence.Seed(
+                canonicalRoute.Assembly);
+        }
+
+        var lineage = new SourceRelativeBindingLineage(
+            this,
+            state,
+            bindingDelegate,
+            delegatedOccurrence);
+        return AssemblyBindingSelection.FoundOccurrence(
+            lineage.Issue(selected.Assembly),
+            selected.ShadowedAssemblies);
+    }
+
+    BindingPolicyState CurrentState()
     {
         while (true)
         {
             BindingPolicyState current = Volatile.Read(ref _state);
-            ImmutableDictionary<
-                AssemblyAcquisitionRegistration,
-                AssemblyRoute> routes = current.Routes;
+            if (IsCurrent(current))
+                return current;
 
-            bool changed = false;
-            foreach (ResolvedAssemblyReference assembly in assemblies)
-            {
-                if (routes.ContainsKey(assembly.Registration))
-                    continue;
-
-                routes = routes.Add(
-                    assembly.Registration,
-                    new AssemblyRoute(assembly, policy));
-                changed = true;
-            }
-
-            if (!changed)
-                return;
-
-            BindingPolicyState replacement =
-                current.WithLearnedRoutes(routes);
-            if (ReferenceEquals(
-                    Interlocked.CompareExchange(
-                        ref _state,
-                        replacement,
-                        current),
-                    current))
-            {
-                return;
-            }
+            BindingPolicyState replacement = CreateState();
+            Interlocked.CompareExchange(
+                ref _state,
+                replacement,
+                current);
         }
     }
 
+    bool IsCurrent(BindingPolicyState state)
+    {
+        foreach (IAssemblyBindingPolicy policy in _delegates)
+        {
+            if (!ReferenceEquals(
+                    state.DelegateFor(policy).Version,
+                    policy.Version))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    BindingPolicyState CreateState()
+    {
+        var delegates = ImmutableDictionary.CreateBuilder<
+            IAssemblyBindingPolicy,
+            DelegateCapture>(
+                ReferenceEqualityComparer.Instance);
+        foreach (IAssemblyBindingPolicy policy in _delegates)
+        {
+            delegates.Add(
+                policy,
+                new DelegateCapture(policy, policy.Version));
+        }
+
+        return new BindingPolicyState(
+            new AssemblyBindingPolicyVersion(),
+            delegates.ToImmutable(),
+            new IntrinsicSelectionCache());
+    }
+
+    AssemblyRoute DefaultRoute => _routes[_roots[0].Registration];
+
     sealed class BindingPolicyState(
         AssemblyBindingPolicyVersion version,
-        IAssemblyBindingPolicy defaultPolicy,
         ImmutableDictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyRoute> routes,
+            IAssemblyBindingPolicy,
+            DelegateCapture> delegates,
         IntrinsicSelectionCache intrinsicSelections)
     {
         internal AssemblyBindingPolicyVersion Version { get; } =
             version;
-        internal IAssemblyBindingPolicy Default { get; } =
-            defaultPolicy;
-        internal ImmutableDictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyRoute> Routes
-        { get; } =
-                routes;
         internal IntrinsicSelectionCache IntrinsicSelections { get; } =
             intrinsicSelections;
 
-        internal BindingPolicyState WithLearnedRoutes(
-            ImmutableDictionary<
-                AssemblyAcquisitionRegistration,
-                AssemblyRoute> learnedRoutes)
-        {
-            // Learning only fills previously unknown registrations, so cached
-            // intrinsic answers for already-known origins remain valid.
-            return new BindingPolicyState(
-                Version,
-                Default,
-                learnedRoutes,
-                IntrinsicSelections);
-        }
+        internal DelegateCapture DelegateFor(
+            IAssemblyBindingPolicy policy) =>
+            delegates[policy];
     }
 
     sealed class AssemblyRoute(
@@ -495,17 +619,73 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             policy;
     }
 
+    sealed class DelegateCapture(
+        IAssemblyBindingPolicy policy,
+        AssemblyBindingPolicyVersion version)
+    {
+        internal IAssemblyBindingPolicy Policy { get; } = policy;
+        internal AssemblyBindingPolicyVersion Version { get; } =
+            version;
+    }
+
+    sealed record SourceRelativeBindingLineage :
+        AssemblyBindingLineage
+    {
+        internal SourceRelativeBindingLineage(
+            SourceRelativeAssemblyGroupBindingPolicy issuer,
+            BindingPolicyState state,
+            DelegateCapture bindingDelegate,
+            AssemblyBindingOccurrence delegatedOccurrence)
+            : base(state.Version)
+        {
+            Issuer = issuer;
+            State = state;
+            Delegate = bindingDelegate;
+            DelegatedOccurrence = delegatedOccurrence;
+        }
+
+        internal SourceRelativeAssemblyGroupBindingPolicy Issuer
+        {
+            get;
+        }
+        internal BindingPolicyState State { get; }
+        internal DelegateCapture Delegate { get; }
+        internal AssemblyBindingOccurrence DelegatedOccurrence
+        {
+            get;
+        }
+
+        internal AssemblyBindingOccurrence Issue(
+            ResolvedAssemblyReference assembly) =>
+            CreateOccurrence(assembly);
+    }
+
+    sealed class ForeignSnapshotException(
+        AssemblyBindingSelectionSnapshot snapshot) : Exception
+    {
+        internal AssemblyBindingSelectionSnapshot Snapshot { get; } =
+            snapshot;
+    }
+
+    readonly record struct RoutedRequest(
+        DelegateCapture Delegate,
+        AssemblyBindingRequest DelegatedRequest,
+        AssemblyBindingOccurrence? RequestingOccurrence);
+
+    readonly record struct IntrinsicSelectionKey(
+        ResolvedAssemblyReference RequestingAssembly,
+        AssemblyBindingLineage? Lineage,
+        AssemblyResolutionScope Scope);
+
     sealed class IntrinsicSelectionCache
     {
         readonly object _gate = new();
         readonly Dictionary<
-            (AssemblyAcquisitionRegistration Origin,
-                AssemblyResolutionScope Scope),
+            IntrinsicSelectionKey,
             Lazy<AssemblyBindingSelection>> _selections = [];
 
         internal bool TryGet(
-            (AssemblyAcquisitionRegistration Origin,
-                AssemblyResolutionScope Scope) key,
+            IntrinsicSelectionKey key,
             out Lazy<AssemblyBindingSelection>? selection)
         {
             lock (_gate)
@@ -513,8 +693,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         internal Lazy<AssemblyBindingSelection> GetOrAdd(
-            (AssemblyAcquisitionRegistration Origin,
-                AssemblyResolutionScope Scope) key,
+            IntrinsicSelectionKey key,
             Func<AssemblyBindingSelection> select)
         {
             lock (_gate)
