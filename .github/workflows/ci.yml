@@ -691,10 +691,10 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
       - name: Run instruction-substrate tests
-        run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Instructions.Tests -c Release
 
       - name: Run IL diff tests
-        run: dotnet run --project src/ILInspector.ILDiff.Tests -c Release
+        run: dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
 
       - name: Run metadata tests
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
