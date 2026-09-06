@@ -51,6 +51,9 @@ internal static class LibraryInspectionDisplay
 public class LibraryInspection
 {
     [JsonIgnore]
+    internal IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
+
+    [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
 
     [JsonIgnore]

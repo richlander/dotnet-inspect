@@ -135,6 +135,23 @@ public class LibraryCommand
 
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
+        if (options.IntegrationQuery.HasFilter
+            && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
+                || options.PerformanceTriage.HasRanking))
+        {
+            CommandError.Write(
+                "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+            return 1;
+        }
+        if (options.IntegrationQuery.HasFilter
+            && (options.ILOffsetParameter is not null || options.ILOffsetsPath is not null
+                || options.HeapParameter is not null || options.ExtractResources is not null
+                || options.Print || options.Value || options.Urls || options.Paths))
+        {
+            CommandError.Write(
+                "Integration ecosystem queries support section rows, columns, and counts, not coordinate or extraction operations.");
+            return 1;
+        }
         var assemblyPath = options.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
         var sections = catalog.Sections;
@@ -295,6 +312,25 @@ public class LibraryCommand
 
         if (options.Discover is null || fullEffectiveDiscovery)
         {
+            if (options.IntegrationQuery.HasFilter)
+            {
+                string[] integrationSections =
+                    [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities];
+                if (options.IncludeSections is not { Count: > 0 })
+                {
+                    options = options with
+                    {
+                        IncludeSections = [.. integrationSections],
+                        FixedOverview = false,
+                    };
+                }
+                else if (!options.IncludeSections.Overlaps(integrationSections))
+                {
+                    CommandError.Write(
+                        "--where ecosystem=... targets Integrations. Omit -S or include an Integration section.");
+                    return 1;
+                }
+            }
             bool bodyShapesSelected =
                 options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
             if (options.BodyKindQuery.HasFilter
@@ -3012,6 +3048,10 @@ public class LibraryCommand
                 writeEmptyNote: false);
             return true;
         }
+
+        if (options.IntegrationQuery.HasFilter
+            && section.StartsWith(IntegrationSectionNames.Prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;
