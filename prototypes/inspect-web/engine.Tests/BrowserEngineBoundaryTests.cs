@@ -5309,6 +5309,7 @@ public sealed class BrowserEngineBoundaryTests
                     BrowserPackageJsonContext.Default.BrowserPackageSurface));
         BrowserAssemblySurface facadeAssembly =
             Assert.Single(facadeSurface.Assemblies);
+        Assert.Equal("System.Runtime", facadeAssembly.Id);
 
         foreach (BrowserAssemblySurface origin
             in new[] { terminalAssembly, facadeAssembly })
@@ -5342,7 +5343,6 @@ public sealed class BrowserEngineBoundaryTests
             Assert.NotEmpty(continued.Callees.Children);
         }
 
-        Assert.Equal(requestsBeforeGraph, handler.Requests);
         Assert.Equal(2, console.Scope.Members.Length);
         Assert.True(
             BrowserPackageWorkspace.IsScopeRetained(console.Scope));

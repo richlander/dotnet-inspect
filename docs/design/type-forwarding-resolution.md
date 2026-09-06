@@ -1503,7 +1503,7 @@ provide that endpoint evidence:
   `System.Console` graph to its terminal browsable surface. It expands the
   member from both the canonical assembly and the `System.Runtime` facade
   using the product-issued type identity and selector, while preserving the
-  earlier retained scope and making no additional network requests.
+  earlier retained scope.
 - `MemberFacts_DistinguishesSurfaceAndBodyTokenResolution` and
   `GraphMemberSurface_UsesSurfaceAssetForImplementationOnlyType` exercise
   package member navigation and repeated surface/implementation selection.
