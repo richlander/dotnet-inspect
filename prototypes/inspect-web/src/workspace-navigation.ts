@@ -1,9 +1,11 @@
 import {
   graphMemberShareTarget,
+  isLibraryLens,
   isMemberSection,
   isPackageLens,
   isTypeLens,
   replaceCurrentNavigationEntry,
+  type LibraryLens,
   type MemberSection,
   type PackageLens,
   type PlatformPack,
@@ -42,7 +44,9 @@ export interface WorkspaceView {
   bodyTarget: BodyTarget | null;
   memberSection: MemberSection;
   atPackageRoot: boolean;
+  atLibraryRoot: boolean;
   packageLens: PackageLens;
+  libraryLens: LibraryLens;
   libraryScope: string[] | null;
 }
 
@@ -63,7 +67,9 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     g: graphTarget,
     s: view.memberSection,
     pr: view.atPackageRoot,
+    lr: view.atLibraryRoot,
     pl: view.packageLens,
+    ll: view.libraryLens,
     ls: view.libraryScope,
   });
 }
@@ -673,7 +679,12 @@ function decodeWorkspaceShareState(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
-  if (state.view.lens && !isTypeLens(state.view.lens)) {
+  const libraryLens = state.view.lens?.startsWith("library:")
+      ? state.view.lens.slice("library:".length)
+      : null;
+  if (state.view.lens
+    && !isTypeLens(state.view.lens)
+    && !isLibraryLens(libraryLens)) {
     return {
       error: `The shared workspace view lens '${state.view.lens}' is not supported by this browser.`,
     };
@@ -703,19 +714,29 @@ function resolveView(token: string): {
   lens: TypeLens | null;
   workspaceSubjectOpen: boolean;
   atPackageRoot: boolean;
+  atLibraryRoot: boolean;
   packageLens: PackageLens | null;
+  libraryLens: LibraryLens | null;
 } {
   const workspaceSubjectOpen = token === "workspace";
   const atPackageRoot =
     workspaceSubjectOpen || token === "pkg" || token.startsWith("pkg:");
+  const atLibraryRoot = token === "library" || token.startsWith("library:");
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
+  const libraryLensToken = atLibraryRoot ? token.split(":")[1] : undefined;
   return {
     lens: isTypeLens(token) ? token : null,
     workspaceSubjectOpen,
     atPackageRoot,
+    atLibraryRoot,
     packageLens: atPackageRoot
       ? (isPackageLens(packageLensToken)
         ? packageLensToken
+        : "overview")
+      : null,
+    libraryLens: atLibraryRoot
+      ? (isLibraryLens(libraryLensToken)
+        ? libraryLensToken
         : "overview")
       : null,
   };
@@ -872,7 +893,9 @@ function resolveWorkspaceLocation(
     lens: view.lens,
     workspaceSubjectOpen: view.workspaceSubjectOpen,
     atPackageRoot: view.atPackageRoot,
+    atLibraryRoot: view.atLibraryRoot,
     packageLens: view.packageLens,
+    libraryLens: view.libraryLens,
     tabs,
     active,
     contexts,
