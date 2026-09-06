@@ -559,12 +559,15 @@ public class UnraisedLocalFunctionCallTests
         // (`op_Increment`/`op_Decrement`), and never bindable as `Deconstruct`, which C#
         // resolves only against members and extension methods. None can be `<M>g__F|0_0`.
         //
-        // Six reach here through `ImmutableArray<MethodRef>` evidence collections
+        // Seven reach here through `ImmutableArray<MethodRef>` evidence collections
         // (`ConsumedMemberRefs`/`ConsumedMethods`) rather than a callee property. Those
         // hold the members the pattern consumed — `GetEnumerator`, `MoveNext`, `Current`,
         // `Dispose`, await-pattern members, property setters, `<Clone>$` — as typed evidence routed to
         // ReturnToSender (see ConsumedMemberEvidence). They are never spelled as a callee
         // in output, and none can be a local function.
+        // Interpolation additionally retains the DefaultInterpolatedStringHandler
+        // constructor, AppendLiteral/AppendFormatted and ToStringAndClear members.
+        // Calls inside interpolation holes remain ordinary descendant Call nodes.
         //
         // The last two reach here only through a CARRIER record, which is why widening
         // the walk to follow carriers was needed to see them at all: `ChainedAssignment`
@@ -587,6 +590,7 @@ public class UnraisedLocalFunctionCallTests
             nameof(ForeachStatement),
             nameof(UsingStatement),
             nameof(AwaitExpression),
+            nameof(InterpolatedStringExpression),
             nameof(ObjectInitializerExpression),
             nameof(WithExpression),
             nameof(InitializerBlock),
