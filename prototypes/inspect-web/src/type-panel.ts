@@ -336,7 +336,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${renderContentNavigationCloseButton()}
         </div>
       </div>
-      <button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="Back to ${parentSubject}">
+      <button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
         <span class="chevron">‹</span>
         <span class="type-name">${escapeHtml(library)}</span>
         <small>library</small>

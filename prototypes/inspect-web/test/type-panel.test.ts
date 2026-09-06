@@ -584,7 +584,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /id="content-navigation-pane"/);
   assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
-  assert.match(html, /data-type-nav-back title="Back to library" aria-label="Back to library"/);
+  assert.match(html, /data-type-nav-back title="Back to library" aria-label="System\.Text\.Json: Back to library"/);
   assert.match(html, />System\.Text\.Json<\/span>/);
   assert.doesNotMatch(html, /type-library-context/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
@@ -640,7 +640,7 @@ test("the type nav handles a package with no projected types", () => {
 
   assert.match(html, /data-nav-selection=""/);
   assert.match(html, /No public types match this filter\./);
-  assert.match(html, /data-type-nav-back title="Back to package" aria-label="Back to package"/);
+  assert.match(html, /data-type-nav-back title="Back to package" aria-label="System\.Text\.Json: Back to package"/);
 });
 
 test("the member nav marks the active group and its selected overload", () => {

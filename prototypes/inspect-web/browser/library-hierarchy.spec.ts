@@ -250,6 +250,7 @@ for (const [width, selectedLibrary, activation] of [
       await page.getByRole("button", { name: "Types", exact: true }).click();
     }
     const back = page.locator(".type-browser .nav-back-row");
+    await expect(back).toHaveAccessibleName(`${selectedLibrary.name}: Back to package`);
     if (activation === "click") {
       await back.click();
     } else {
@@ -301,6 +302,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
     }
     const back = page.locator(".type-browser .nav-back-row");
     await expect(back).toHaveAttribute("title", "Back to library");
+    await expect(back).toHaveAccessibleName("Example.Other: Back to library");
     if (activation === "click") {
       await back.click();
     } else {

@@ -682,9 +682,10 @@ supplied action ID and generation; they do not derive actions from row identity
 or text. The type-navigation heading shows the product-issued Type-inventory
 Library context and links back to the Library subject for changes. When that
 Library subject is already active, the same back control returns to the
-enclosing coordinate root instead. Its accessible name and tooltip identify
-the actual destination. It is not a second library selector, and the UI does
-not recalculate context, eligibility, or retention from assembly membership.
+enclosing coordinate root instead. Its accessible name retains the visible
+Library name; the accessible name and tooltip identify the actual parent
+destination. It is not a second library selector, and the UI does not
+recalculate context, eligibility, or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
