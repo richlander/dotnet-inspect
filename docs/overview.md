@@ -167,6 +167,10 @@ substrates, and inspection producers that will extend that space.
   navigation-result consumer, shell interaction, and page-level composition
   across six focused owners while individual components retain rendering,
   binding, and state-transition responsibilities.
+  [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md)
+  owns the managed Source-facade envelope that carries one Research-issued
+  receipt and its Facts/document instance-key mappings without reconstructing
+  identity in the host.
 - [Approved lazy traversal](design/approved-lazy-traversal.md) is the
   operator-approved cross-owner target experience for subjects, traversal
   permissions, operation demand, Browser defaults, and ecosystem-assisted
@@ -416,6 +420,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Research Finding census projection](design/research-finding-census-projection.md):
   Research preservation of one body-fact census through Facts and Annotated
   Source.
+- [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md):
+  Source-facade wire projection of one Research-issued receipt and its
+  Facts/document instance-key mappings.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

@@ -555,6 +555,7 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
@@ -759,6 +760,16 @@ work and owns publication` gate that single-threaded Browser/Wasm protection.
 `graph-only implementation bodies select, switch, and clear` gates the mutable
 application projection that authorizes accessor fallback and removes that
 authorization when the selected target no longer matches a product body.
+
+`QueryMemberFindingCensus` requests Facts rows and the portable source document
+through one Research member projection. Its Source-facade envelope carries one
+producer-issued receipt, per-row Finding instance keys, the existing annotated
+source envelope, and the document-fact sidecar keys. It validates that both
+projections describe the same key set before serialization and preserves the
+nested `AnnotatedSourceDocument` wire shape unchanged. The existing
+Analysis-only `QueryMemberFacts` payload remains separate. Browser selection
+and stale-result behavior follow under #5517 rather than entering this
+transport operation.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
