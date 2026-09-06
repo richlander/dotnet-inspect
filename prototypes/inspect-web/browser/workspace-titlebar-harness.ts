@@ -406,9 +406,7 @@ function detailHtml() {
       subject: packageOverviewMode ? "package" : "library",
       subjectLabel: packageOverviewMode ? "Package" : "Library",
       displayName: longMode ? name : packageOverviewMode ? "System.Text.Json" : name,
-      iconHtml: packageOverviewMode
-        ? `<span class="subject-icon" aria-hidden="true"><img src="${escapeHtml(packageIcon)}" alt=""></span>`
-        : '<span class="subject-icon" aria-hidden="true">◫</span>',
+      iconHtml: `<span class="subject-icon" aria-hidden="true"><img src="${escapeHtml(packageIcon)}" alt=""></span>`,
       details: libraryOverviewMode
         ? [`lib/net10.0/${name}.dll`, `${name}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null`]
         : [],

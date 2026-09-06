@@ -222,6 +222,7 @@ for (const width of [1440, 390]) {
     await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
     expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
+    const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
     await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
@@ -243,7 +244,8 @@ for (const width of [1440, 390]) {
     expect(await libraryOverview.boundingBox()).toEqual(
       await page.locator("#inspector-panel").boundingBox());
     expect((await libraryOverview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
-    await expect(libraryOverview.locator(".overview-identity .subject-icon")).toHaveText("◫");
+    await expect(libraryOverview.locator(".overview-identity [data-package-icon]")).toBeVisible();
+    expect(await libraryOverview.locator("[data-package-icon]").getAttribute("src")).toBe(packageIconSource);
     await expect(libraryOverview.locator(".overview-identity-detail")).toHaveText([
       "lib/net10.0/Example.Other.dll",
       "Example.Other, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
@@ -260,21 +262,27 @@ for (const width of [1440, 390]) {
   });
 }
 
-test("both Package icons retain the existing image fallback", async ({ page }) => {
-  await installFacades(page);
-  await page.goto(root);
-  const icons = page.locator("[data-package-icon]");
-  await expect(icons).toHaveCount(2);
-  await icons.evaluateAll(images => {
-    for (const image of images) {
-      image.setAttribute("src", "data:image/png;base64,broken");
-      image.dispatchEvent(new Event("error"));
+for (const subject of ["Package", "Library"]) {
+  test(`both package icons retain the existing image fallback on ${subject} Overview`, async ({ page }) => {
+    await installFacades(page);
+    await page.goto(root);
+    if (subject === "Library") {
+      await page.locator('.package-overview-surface [data-lib-scope="asset:core"]').click();
+      await expect(page.locator(".library-overview-surface")).toBeVisible();
+    }
+    const icons = page.locator("[data-package-icon]");
+    await expect(icons).toHaveCount(2);
+    await icons.evaluateAll(images => {
+      for (const image of images) {
+        image.setAttribute("src", "data:image/png;base64,broken");
+        image.dispatchEvent(new Event("error"));
+      }
+    });
+    for (const image of await icons.all()) {
+      await expect(image).toHaveAttribute("src", "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
     }
   });
-  for (const image of await icons.all()) {
-    await expect(image).toHaveAttribute("src", "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
-  }
-});
+}
 
 for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"]] as const) {
   test(`narrow Library navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {

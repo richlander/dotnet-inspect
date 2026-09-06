@@ -5341,7 +5341,7 @@ function renderLibraryOverview() {
     subject: "library",
     subjectLabel: "Library",
     displayName: library.name,
-    iconHtml: '<span class="subject-icon" aria-hidden="true">◫</span>',
+    iconHtml: renderInspectedSubjectIcon(pkg),
     details: [library.asset || "Managed library", libraryIdentity(library)],
     packageId: pkg.id,
     packageVersion: pkg.version,

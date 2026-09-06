@@ -529,9 +529,9 @@ The quiet header preserves the current subject's type and member totals. Existin
 Package Version and Framework controls occupy one compact row; Library Overview
 does not gain coordinate controls. One independently scrolling content region
 starts with a larger icon and readable name, the surface's single visible
-level-one heading. Package reuses its existing icon selection and fallback;
-Library uses its established glyph and retains asset path and full assembly
-identity. The identity is part of the full-width content, not a new inset card.
+level-one heading. Both subjects reuse the package's existing icon selection and
+fallback. Library retains its own name, asset path and full assembly identity.
+The identity is part of the full-width content, not a new inset card.
 
 Package content retains the admitted-library inventory and document links. The
 platform library picker remains with the Libraries section. Library rows enter
