@@ -1436,11 +1436,11 @@ kbd {
 .facts-metadata-identity { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 0; font-size: 12px; }
 .facts-metadata-identity > span { color: var(--muted); }
 .facts-metadata-identity code { min-width: 0; color: var(--text); font: 12px var(--mono); overflow-wrap: anywhere; }
-.allocation-facts, .call-facts, .safety-facts { max-width: 900px; margin-top: 20px; font-size: 13px; line-height: 1.5; }
-.allocation-facts > header, .call-facts > header, .safety-facts > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.allocation-facts h2, .call-facts h2, .safety-facts h2 { margin: 0; font-size: 14px; font-weight: 600; }
-.allocation-facts > header > span, .call-facts > header > span, .safety-facts > header > span { color: var(--muted); font-size: 12px; }
-.allocation-rows, .call-rows, .safety-rows { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.allocation-facts, .call-facts, .safety-facts, .finding-facts { max-width: 900px; margin-top: 20px; font-size: 13px; line-height: 1.5; }
+.allocation-facts > header, .call-facts > header, .safety-facts > header, .finding-facts > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.allocation-facts h2, .call-facts h2, .safety-facts h2, .finding-facts h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.allocation-facts > header > span, .call-facts > header > span, .safety-facts > header > span, .finding-facts > header > span { color: var(--muted); font-size: 12px; }
+.allocation-rows, .call-rows, .safety-rows, .finding-rows { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
 .allocation-row, .call-row, .safety-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .allocation-location, .call-location, .safety-location { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
 .allocation-location code, .call-location code, .safety-location code { color: var(--muted); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
@@ -1457,6 +1457,19 @@ kbd {
 .allocation-empty, .call-empty, .safety-empty { margin: 0; padding: 10px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 .call-callee, .safety-operation { margin-bottom: 5px; overflow-wrap: anywhere; }
 .call-properties, .safety-properties { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
+.finding-row { border-bottom: 1px solid var(--line); }
+.finding-row > button, .finding-row > div { width: 100%; display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: start; gap: 14px; padding: 10px 0; color: var(--text); text-align: left; }
+.finding-row > button { border: 0; border-radius: 0; background: transparent; cursor: pointer; }
+.finding-row > button:hover { background: rgba(255,255,255,.025); }
+.finding-row > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.finding-row.selected > button { background: linear-gradient(90deg, var(--accent-soft), transparent); }
+.finding-location, .finding-main { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.finding-location code, .finding-location span, .finding-main small, .finding-instance-key, .finding-identity-unavailable { color: var(--muted); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+.finding-main strong, .finding-main > span { overflow-wrap: anywhere; }
+.finding-instance-key { padding-right: 8px; }
+.finding-identity-unavailable { max-width: 130px; text-align: right; }
+.finding-selection-error { padding: 9px 10px; border: 1px solid var(--danger); color: var(--danger); }
+.finding-empty { color: var(--muted); }
 @container member-surface (max-width: 760px) {
   .allocation-properties { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 14px; }
 }
@@ -1466,6 +1479,9 @@ kbd {
   .facts-summary-value { flex-basis: auto; max-width: 100%; }
   .allocation-row, .call-row, .safety-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .allocation-location, .call-location, .safety-location { flex-direction: row; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .finding-row > button, .finding-row > div { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .finding-location { flex-direction: row; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .finding-identity-unavailable { max-width: none; text-align: left; }
 }
 .assembly-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .assembly-grid .assembly-cell { display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; background: var(--panel); min-width: 0; }

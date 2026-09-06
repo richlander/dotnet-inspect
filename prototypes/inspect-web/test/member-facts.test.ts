@@ -2,13 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import type { MemberFacts } from "../src/member-detail-inspection.ts";
+import {
+  selectFindingInstance,
+} from "../src/finding-interaction.ts";
 import { allocationFactsFixture, callFactsFixture, memberFactsFixture, safetyFactsFixture } from "./member-facts-fixture.ts";
+import {
+  memberFindingInteractionFixture,
+} from "./member-finding-census-fixture.ts";
 
 function render(facts: MemberFacts = memberFactsFixture()) {
   return renderMemberFacts({
     memberFacts: facts,
     memberFactsLoading: false,
     memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: memberFindingInteractionFixture(),
+    memberFindingSelectionError: "",
   });
 }
 
@@ -80,6 +90,10 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFacts: memberFactsFixture(),
     memberFactsLoading: true,
     memberFactsError: "",
+    memberAnnotatedLoading: true,
+    memberAnnotatedError: "",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
   });
   assert.match(loading, /Analyzing method/);
   assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts/);
@@ -88,6 +102,10 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFacts: null,
     memberFactsLoading: false,
     memberFactsError: "Could not decode <method>.",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "Finding projection failed.",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
@@ -96,7 +114,71 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFacts: null,
     memberFactsLoading: false,
     memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
   }), /No facts result was returned/);
+});
+
+test("Finding rows preserve display-identical instances and exact selection", () => {
+  const interaction = memberFindingInteractionFixture();
+  const selected = selectFindingInstance(
+    interaction,
+    interaction.census.factCensusReceipt,
+    42,
+  ).interaction;
+  const html = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: selected,
+    memberFindingSelectionError: "",
+  });
+
+  assert.match(html, /<h2 id="finding-facts-title">Findings<\/h2><span>3 Findings<\/span>/);
+  assert.equal((html.match(/data-finding-instance=/g) ?? []).length, 2);
+  assert.match(
+    html,
+    /class="finding-row">\s*<button[^>]*data-finding-instance="41"[^>]*aria-pressed="false"/,
+  );
+  assert.match(
+    html,
+    /class="finding-row selected">\s*<button[^>]*data-finding-instance="42"[^>]*aria-pressed="true"/,
+  );
+  assert.equal((html.match(/<strong>allocation<\/strong>/g) ?? []).length, 2);
+  assert.match(html, /#41/);
+  assert.match(html, /#42/);
+  assert.match(html, /member-header/);
+  assert.match(html, /Source identity unavailable/);
+});
+
+test("Finding census failures and selection mismatches remain visible", () => {
+  const failure = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "Receipt mismatch.",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
+  });
+  assert.match(failure, /Finding census failed/);
+  assert.match(failure, /Receipt mismatch\./);
+
+  const selectionFailure = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: memberFindingInteractionFixture(),
+    memberFindingSelectionError: "The selected Finding belongs to a stale census.",
+  });
+  assert.match(selectionFailure, /role="alert"/);
+  assert.match(selectionFailure, /stale census/);
 });
 
 test("member Facts escapes summary evidence and all relocated detail sections", () => {

@@ -10,16 +10,21 @@ import {
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleViewerCatalog } from "./annotated-source-result-fixture.ts";
 import {
-  cancelAnnotatedSourceRequest,
+  cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type DocumentableMemberSurface,
-  type MemberAnnotatedRequest,
   type MemberDetailInspectionDependencies,
   type MemberDetailInspectionState,
   type MemberDocumentationRequest,
+  type MemberFindingCensusRequest,
   type MemberFacts,
   type MemberFactsRequest,
 } from "../src/member-detail-inspection.ts";
+import {
+  createMemberFindingInteraction,
+  selectFindingInstance,
+  type MemberFindingCensus,
+} from "../src/finding-interaction.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 import {
   createAppMemberSurface,
@@ -28,6 +33,9 @@ import {
 import type {
   BrowserMemberSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import {
+  memberFindingCensusFixture,
+} from "./member-finding-census-fixture.ts";
 
 function wireMemberSurface(
   overrides: Partial<BrowserMemberSurface> = {},
@@ -127,6 +135,10 @@ function annotatedResult(): AnnotatedSourceResult {
   };
 }
 
+function findingCensusResult(): MemberFindingCensus {
+  return memberFindingCensusFixture();
+}
+
 function inspectionState(
   overrides: Partial<MemberDetailInspectionState> = {},
 ): MemberDetailInspectionState {
@@ -137,6 +149,8 @@ function inspectionState(
     memberAnnotatedKey: "",
     memberAnnotatedEmbedded: null,
     memberAnnotatedModal: null,
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
     memberFacts: null,
     memberFactsLoading: false,
     memberFactsError: "",
@@ -177,9 +191,9 @@ function documentationRequest(
   };
 }
 
-function annotatedRequest(
-  overrides: Partial<MemberAnnotatedRequest> = {},
-): MemberAnnotatedRequest {
+function findingCensusRequest(
+  overrides: Partial<MemberFindingCensusRequest> = {},
+): MemberFindingCensusRequest {
   return {
     signature: "annotated",
     packageId: "Example.Package",
@@ -231,7 +245,7 @@ function inspectionDependencies(
       parameters: { value: "The value to run." },
       exceptions: [],
     }),
-    queryAnnotated: async () => annotatedResult(),
+    queryFindingCensus: async () => findingCensusResult(),
     queryFacts: async () => factsResult(),
     describeError: error =>
       error instanceof Error ? error.message : String(error),
@@ -544,23 +558,31 @@ test("stale documentation failure cannot overwrite newer request state", async (
   assert.equal(state.memberDocumentationLoading, true);
 });
 
-test("annotated source publishes exact current results and initializes its reader", async () => {
-  const result = annotatedResult();
+test("Finding census publishes exact current results and initializes its reader", async () => {
+  const result = findingCensusResult();
+  const annotated = result.annotatedSource;
+  const prior = selectFindingInstance(
+    createMemberFindingInteraction(findingCensusResult()),
+    result.factCensusReceipt,
+    41,
+  ).interaction;
   const preservedFocus = focusSnapshot();
   const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
   const state = inspectionState({
     memberAnnotatedEmbedded: {
-      ...createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+      ...createEmbeddedSession(createAnnotatedSourceViewerModel(annotated)),
       primary: { kind: "node", id: 1 },
     },
     memberAnnotatedModal: {
-      ...createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+      ...createEmbeddedSession(createAnnotatedSourceViewerModel(annotated)),
       surface: "modal",
     },
+    memberFindingInteraction: prior,
+    memberFindingSelectionError: "old selection failure",
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async request => {
+      queryFindingCensus: async request => {
         assert.deepEqual(
           [
             request.typeIdentity,
@@ -584,13 +606,16 @@ test("annotated source publishes exact current results and initializes its reade
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
-  assert.equal(state.memberAnnotated, result);
+  assert.equal(state.memberAnnotated, annotated);
+  assert.equal(state.memberFindingInteraction?.census, result);
+  assert.equal(state.memberFindingInteraction?.selectedInstanceKey, null);
+  assert.equal(state.memberFindingSelectionError, "");
   assert.equal(state.memberAnnotatedLoading, false);
   assert.deepEqual(
     state.memberAnnotatedEmbedded,
-    createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+    createEmbeddedSession(createAnnotatedSourceViewerModel(annotated)),
   );
   assert.equal(state.memberAnnotatedModal, null);
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
@@ -605,14 +630,14 @@ test("cached annotated failure renders without querying again", async () => {
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         queries++;
-        return annotatedResult();
+        return findingCensusResult();
       },
       render: () => renders++,
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(queries, 0);
   assert.equal(renders, 1);
@@ -620,7 +645,9 @@ test("cached annotated failure renders without querying again", async () => {
 });
 
 test("cached annotated source renders without querying again", async () => {
-  const cached = annotatedResult();
+  const cachedCensus = findingCensusResult();
+  const cached = cachedCensus.annotatedSource;
+  const cachedInteraction = createMemberFindingInteraction(cachedCensus);
   let queries = 0;
   let renders = 0;
   const cachedSession =
@@ -629,67 +656,74 @@ test("cached annotated source renders without querying again", async () => {
     memberAnnotated: cached,
     memberAnnotatedKey: "annotated",
     memberAnnotatedEmbedded: cachedSession,
+    memberFindingInteraction: cachedInteraction,
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         queries++;
-        return annotatedResult();
+        return findingCensusResult();
       },
       render: () => renders++,
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(queries, 0);
   assert.equal(renders, 1);
   assert.equal(state.memberAnnotated, cached);
+  assert.equal(state.memberFindingInteraction, cachedInteraction);
   assert.equal(state.memberAnnotatedEmbedded, cachedSession);
 });
 
 test("cleared annotated source reloads for the same member", async () => {
-  const current = annotatedResult();
+  const current = findingCensusResult();
   let queries = 0;
   const state = inspectionState({
     memberAnnotatedKey: "annotated",
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         queries++;
         return current;
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(queries, 1);
-  assert.equal(state.memberAnnotated, current);
+  assert.equal(state.memberAnnotated, current.annotatedSource);
+  assert.equal(state.memberFindingInteraction?.census, current);
   assert.equal(state.memberAnnotatedLoading, false);
 });
 
 test("another member does not reuse a cached annotated source", async () => {
-  const cached = annotatedResult();
-  const current = annotatedResult();
+  const cachedCensus = findingCensusResult();
+  const cached = cachedCensus.annotatedSource;
+  const current = findingCensusResult();
   let queries = 0;
   const state = inspectionState({
     memberAnnotated: cached,
     memberAnnotatedKey: "previous",
+    memberFindingInteraction:
+      createMemberFindingInteraction(cachedCensus),
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         queries++;
         return current;
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(queries, 1);
   assert.equal(state.memberAnnotatedKey, "annotated");
-  assert.equal(state.memberAnnotated, current);
+  assert.equal(state.memberAnnotated, current.annotatedSource);
   assert.notEqual(state.memberAnnotated, cached);
+  assert.equal(state.memberFindingInteraction?.census, current);
   assert.equal(state.memberAnnotatedLoading, false);
 });
 
@@ -702,9 +736,9 @@ test("duplicate in-flight annotated requests do not query or mutate state", asyn
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         queries++;
-        return annotatedResult();
+        return findingCensusResult();
       },
       render: () => renders++,
       renderPreservingMemberFocus: () => {
@@ -713,7 +747,7 @@ test("duplicate in-flight annotated requests do not query or mutate state", asyn
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(queries, 0);
   assert.equal(renders, 1);
@@ -721,28 +755,28 @@ test("duplicate in-flight annotated requests do not query or mutate state", asyn
   assert.equal(state.memberAnnotatedLoading, true);
 });
 
-test("canonical transitions settle annotated source before snapshot", () => {
+test("canonical transitions settle Finding census before snapshot", () => {
   const state = inspectionState({
     memberAnnotatedLoading: true,
     memberAnnotatedKey: "annotated",
     memberAnnotatedError: "stale",
   });
 
-  assert.equal(cancelAnnotatedSourceRequest(state), true);
+  assert.equal(cancelFindingCensusRequest(state), true);
   assert.equal(state.memberAnnotatedLoading, false);
   assert.equal(state.memberAnnotatedKey, "");
   assert.equal(state.memberAnnotatedError, "");
-  assert.equal(cancelAnnotatedSourceRequest(state), false);
+  assert.equal(cancelFindingCensusRequest(state), false);
 });
 
-test("another member starts while an annotated request is in flight", async () => {
-  const previous = deferred<AnnotatedSourceResult>();
-  const current = deferred<AnnotatedSourceResult>();
+test("another member starts while a Finding census request is in flight", async () => {
+  const previous = deferred<MemberFindingCensus>();
+  const current = deferred<MemberFindingCensus>();
   let queries = 0;
   const state = inspectionState();
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: request => {
+      queryFindingCensus: request => {
         queries++;
         return request.signature === "previous"
           ? previous.promise
@@ -750,32 +784,75 @@ test("another member starts while an annotated request is in flight", async () =
       },
     }));
 
-  const previousLoad = coordinator.loadAnnotated(
-    annotatedRequest({ signature: "previous" }));
-  const currentLoad = coordinator.loadAnnotated(annotatedRequest());
+  const previousLoad = coordinator.loadFindingCensus(
+    findingCensusRequest({ signature: "previous" }));
+  const currentLoad =
+    coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(queries, 2);
   assert.equal(state.memberAnnotatedKey, "annotated");
   assert.equal(state.memberAnnotatedLoading, true);
 
-  previous.resolve(annotatedResult());
+  previous.resolve(findingCensusResult());
   await previousLoad;
   assert.equal(state.memberAnnotated, null);
   assert.equal(state.memberAnnotatedLoading, true);
 
-  const currentResult = annotatedResult();
+  const currentResult = findingCensusResult();
   current.resolve(currentResult);
   await currentLoad;
-  assert.equal(state.memberAnnotated, currentResult);
+  assert.equal(state.memberAnnotated, currentResult.annotatedSource);
+  assert.equal(state.memberFindingInteraction?.census, currentResult);
   assert.equal(state.memberAnnotatedLoading, false);
 });
 
-test("current annotated rejection remains visible", async () => {
+test("an older same-signature Finding census cannot replace the latest request", async () => {
+  const first = deferred<MemberFindingCensus>();
+  const intervening = deferred<MemberFindingCensus>();
+  const latest = deferred<MemberFindingCensus>();
+  const queries = [first, intervening, latest];
+  let queryIndex = 0;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFindingCensus: async () => queries[queryIndex++]!.promise,
+    }));
+
+  const firstLoad = coordinator.loadFindingCensus(findingCensusRequest());
+  const interveningLoad = coordinator.loadFindingCensus(
+    findingCensusRequest({ signature: "intervening" }));
+  const latestLoad = coordinator.loadFindingCensus(findingCensusRequest());
+
+  const latestResult = {
+    ...findingCensusResult(),
+    factCensusReceipt: "33333333-3333-3333-3333-333333333333",
+  };
+  latest.resolve(latestResult);
+  await latestLoad;
+  assert.equal(
+    state.memberFindingInteraction?.census.factCensusReceipt,
+    latestResult.factCensusReceipt,
+  );
+
+  first.resolve(findingCensusResult());
+  intervening.resolve(findingCensusResult());
+  await Promise.all([firstLoad, interveningLoad]);
+
+  assert.equal(state.memberAnnotated, latestResult.annotatedSource);
+  assert.equal(
+    state.memberFindingInteraction?.census.factCensusReceipt,
+    latestResult.factCensusReceipt,
+  );
+  assert.equal(state.memberAnnotatedKey, "annotated");
+  assert.equal(state.memberAnnotatedLoading, false);
+});
+
+test("current Finding census rejection remains visible", async () => {
   let focusRenders = 0;
   const state = inspectionState();
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         throw new Error("document rejected");
       },
       renderPreservingMemberFocus: () => {
@@ -784,14 +861,14 @@ test("current annotated rejection remains visible", async () => {
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest());
+  await coordinator.loadFindingCensus(findingCensusRequest());
 
   assert.equal(state.memberAnnotatedLoading, false);
   assert.equal(state.memberAnnotatedError, "document rejected");
   assert.equal(focusRenders, 2);
 });
 
-test("annotated success requires the current member even when its key is unchanged", async () => {
+test("Finding census success requires the current member even when its key is unchanged", async () => {
   let focusRenders = 0;
   const state = inspectionState({
     memberAnnotatedKey: "previous",
@@ -805,7 +882,7 @@ test("annotated success requires the current member even when its key is unchang
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest({
+  await coordinator.loadFindingCensus(findingCensusRequest({
     isCurrent: () => false,
   }));
 
@@ -815,33 +892,39 @@ test("annotated success requires the current member even when its key is unchang
   assert.equal(focusRenders, 1);
 });
 
-test("annotated success requires its request key even when the member is current", async () => {
-  const query = deferred<AnnotatedSourceResult>();
+test("Finding census success requires its request key even when the member is current", async () => {
+  const query = deferred<MemberFindingCensus>();
   const state = inspectionState();
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => query.promise,
+      queryFindingCensus: async () => query.promise,
     }));
 
-  const load = coordinator.loadAnnotated(annotatedRequest());
+  const load = coordinator.loadFindingCensus(findingCensusRequest());
+  const currentCensus = findingCensusResult();
+  const currentInteraction =
+    createMemberFindingInteraction(currentCensus);
   state.memberAnnotatedKey = "newer";
-  query.resolve(annotatedResult());
+  state.memberAnnotated = currentCensus.annotatedSource;
+  state.memberFindingInteraction = currentInteraction;
+  query.resolve(findingCensusResult());
   await load;
 
-  assert.equal(state.memberAnnotated, null);
+  assert.equal(state.memberAnnotated, currentCensus.annotatedSource);
+  assert.equal(state.memberFindingInteraction, currentInteraction);
   assert.equal(state.memberAnnotatedKey, "newer");
   assert.equal(state.memberAnnotatedLoading, true);
 });
 
-test("stale annotated rejection cannot replace a newer request", async () => {
-  const query = deferred<AnnotatedSourceResult>();
+test("stale Finding census rejection cannot replace a newer request", async () => {
+  const query = deferred<MemberFindingCensus>();
   const state = inspectionState();
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => query.promise,
+      queryFindingCensus: async () => query.promise,
     }));
 
-  const load = coordinator.loadAnnotated(annotatedRequest({
+  const load = coordinator.loadFindingCensus(findingCensusRequest({
     isCurrent: () => false,
   }));
   state.memberAnnotatedKey = "newer";
@@ -854,7 +937,7 @@ test("stale annotated rejection cannot replace a newer request", async () => {
   assert.equal(state.memberAnnotatedLoading, true);
 });
 
-test("annotated rejection requires the current member even when its key is unchanged", async () => {
+test("Finding census rejection requires the current member even when its key is unchanged", async () => {
   let focusRenders = 0;
   const state = inspectionState({
     memberAnnotatedKey: "previous",
@@ -862,7 +945,7 @@ test("annotated rejection requires the current member even when its key is uncha
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => {
+      queryFindingCensus: async () => {
         throw new Error("stale failure");
       },
       renderPreservingMemberFocus: () => {
@@ -871,7 +954,7 @@ test("annotated rejection requires the current member even when its key is uncha
       },
     }));
 
-  await coordinator.loadAnnotated(annotatedRequest({
+  await coordinator.loadFindingCensus(findingCensusRequest({
     isCurrent: () => false,
   }));
 
@@ -881,15 +964,15 @@ test("annotated rejection requires the current member even when its key is uncha
   assert.equal(focusRenders, 1);
 });
 
-test("annotated rejection requires its request key even when the member is current", async () => {
-  const query = deferred<AnnotatedSourceResult>();
+test("Finding census rejection requires its request key even when the member is current", async () => {
+  const query = deferred<MemberFindingCensus>();
   const state = inspectionState();
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryAnnotated: async () => query.promise,
+      queryFindingCensus: async () => query.promise,
     }));
 
-  const load = coordinator.loadAnnotated(annotatedRequest());
+  const load = coordinator.loadFindingCensus(findingCensusRequest());
   state.memberAnnotatedKey = "newer";
   state.memberAnnotatedError = "newer failure";
   query.reject(new Error("stale failure"));
@@ -900,14 +983,17 @@ test("annotated rejection requires its request key even when the member is curre
   assert.equal(state.memberAnnotatedLoading, true);
 });
 
-test("member facts publish current results and invalidate annotated content", async () => {
+test("member facts publish current results without invalidating the Finding census", async () => {
   const result = factsResult();
-  const priorAnnotated = annotatedResult();
+  const priorCensus = findingCensusResult();
+  const priorAnnotated = priorCensus.annotatedSource;
+  const priorInteraction = createMemberFindingInteraction(priorCensus);
   const preservedFocus = focusSnapshot();
   const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
   const state = inspectionState({
     memberAnnotated: priorAnnotated,
     memberAnnotatedError: "old annotated failure",
+    memberFindingInteraction: priorInteraction,
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
@@ -941,8 +1027,9 @@ test("member facts publish current results and invalidate annotated content", as
 
   assert.equal(state.memberFacts, result);
   assert.equal(state.memberFactsLoading, false);
-  assert.equal(state.memberAnnotated, null);
-  assert.equal(state.memberAnnotatedError, "");
+  assert.equal(state.memberAnnotated, priorAnnotated);
+  assert.equal(state.memberAnnotatedError, "old annotated failure");
+  assert.equal(state.memberFindingInteraction, priorInteraction);
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
 });
 
@@ -971,13 +1058,16 @@ test("cached member facts failure renders without querying again", async () => {
 
 test("cached member facts render without querying or invalidating annotated content", async () => {
   const cached = factsResult();
-  const annotated = annotatedResult();
+  const census = findingCensusResult();
+  const annotated = census.annotatedSource;
+  const interaction = createMemberFindingInteraction(census);
   let queries = 0;
   let renders = 0;
   const state = inspectionState({
     memberFacts: cached,
     memberFactsKey: "facts",
     memberAnnotated: annotated,
+    memberFindingInteraction: interaction,
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
@@ -994,6 +1084,7 @@ test("cached member facts render without querying or invalidating annotated cont
   assert.equal(renders, 1);
   assert.equal(state.memberFacts, cached);
   assert.equal(state.memberAnnotated, annotated);
+  assert.equal(state.memberFindingInteraction, interaction);
 });
 
 test("same member facts request does not duplicate in-flight analysis", async () => {

@@ -331,7 +331,7 @@ function harness() {
       cancelCurrentRequest: () => {},
       clearGraphSource: () => {},
     },
-    cancelAnnotatedSourceRequest: () => {},
+    cancelFindingCensusRequest: () => {},
     methodBodyComparison: { dispose: () => {} },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
