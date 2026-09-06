@@ -308,6 +308,8 @@ public sealed partial class CSharpPrinter
             {
                 LocalNames = lambda.LocalNames,
                 SynthesizedLocalNames = lambda.SynthesizedLocalNames,
+                LocalDeclaredInNestedScope = lambda.LocalDeclaredInNestedScope,
+                LocalNameImportCauses = lambda.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };

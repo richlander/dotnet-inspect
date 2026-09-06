@@ -1523,7 +1523,8 @@ public sealed partial class CSharpPrinter
                         _declaringStores.Add(store);
                         _legacyAwaitScopedDeclarations.Add(store);
                     }
-                    else if (function.IsLocalDeclaredInNestedScope(store.Index)
+                    else if ((function.IsLocalDeclaredInNestedScope(store.Index)
+                            || store.Parent is Block { Parent: Block })
                         && LocalReferencesStayInsideStoreBlock(function, store))
                     {
                         // The PDB scoped this local to a nested block, so the source
@@ -1634,6 +1635,105 @@ public sealed partial class CSharpPrinter
                     continue;
                 }
                 _declaringStores.Remove(init);
+            }
+        }
+    }
+
+    internal static IReadOnlyDictionary<int, IrNode> LocalDeclarationScopes(
+        IrNode scope, int localCount)
+    {
+        IrFunction? function = scope as IrFunction;
+        if (function is null)
+        {
+            var owner = scope is Lambda or LocalFunctionStatement ? scope : scope.Parent;
+            (BlockContainer? Body, ImmutableArray<TypeRef> Locals, ImmutableArray<string?> Names,
+                ImmutableArray<bool> NestedScopes, ImmutableArray<Parameter> Parameters, TypeRef? ReturnType) nested = owner switch
+            {
+                Lambda lambda => (lambda.Body, lambda.Locals, lambda.LocalNames, lambda.LocalDeclaredInNestedScope, lambda.Parameters, LambdaReturnType(lambda) ?? TypeRef.CoreLib("System", "Void")),
+                LocalFunctionStatement local => (local.Body, local.Locals, local.LocalNames, local.LocalDeclaredInNestedScope, local.Parameters, local.ReturnType),
+                _ => default,
+            };
+            if (nested.Body is null || nested.ReturnType is null)
+                return new Dictionary<int, IrNode>();
+            IrFunction? enclosing = null;
+            for (IrNode? ancestor = owner?.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            {
+                if (ancestor is IrFunction parentFunction)
+                {
+                    enclosing = parentFunction;
+                    break;
+                }
+            }
+            function = new IrFunction(
+                "", enclosing?.DeclaringType ?? TypeRef.CoreLib("System", "Object"),
+                new MethodSignature(nested.ReturnType, nested.Parameters, false, 0),
+                nested.Locals, (BlockContainer)nested.Body.Clone())
+            {
+                LocalNames = nested.Names,
+                LocalDeclaredInNestedScope = nested.NestedScopes,
+                UsesUpdatedMemorySafetyRules = owner is Lambda { UsesUpdatedMemorySafetyRules: true }
+                    or LocalFunctionStatement { UsesUpdatedMemorySafetyRules: true },
+                SkipLocalsInit = owner is Lambda { SkipLocalsInit: true }
+                    or LocalFunctionStatement { SkipLocalsInit: true },
+            };
+            if (enclosing is not null)
+                function.CopyTypeFactsFrom(enclosing);
+        }
+
+        // Use the same placement decision as emission, including unsafe-run
+        // hoisting. Disjoint PDB ranges alone cannot authorize name reuse.
+        var printer = new CSharpPrinter(function)
+        {
+            _labelTargets = CollectBranchTargets(function),
+        };
+        printer.CollectDeclaringStores(function);
+        var scopes = Enumerable.Range(0, localCount)
+            .ToDictionary(index => index, _ => (IrNode)function.Body);
+        foreach (var declaration in printer._declaringStores)
+        {
+            int? index = declaration switch
+            {
+                StoreLocal store => store.Index,
+                InitObject { Address: LoadLocalAddress address } => address.Index,
+                _ => null,
+            };
+            if (index is { } local && declaration.Parent is { } parent)
+                scopes[local] = parent is Block { Parent: BlockContainer container } ? container : parent;
+        }
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        {
+            switch (node)
+            {
+                case PatternSwitchExpressionArm arm:
+                    AddOwned(arm.LocalIndex, arm);
+                    AddOwned(arm.Subpattern?.LocalIndex, arm);
+                    break;
+                case UnionSwitchExpressionArm arm:
+                    AddOwned(arm.LocalIndex, arm);
+                    break;
+                case ForeachStatement loop:
+                    AddOwned(loop.LocalIndex, loop);
+                    break;
+                case UsingStatement { DeclaresResourceVariable: true } resource:
+                    AddOwned(resource.LocalIndex, resource);
+                    break;
+                case Fixed { LocalIsStackSlot: false } pin:
+                    AddOwned(pin.LocalIndex, pin);
+                    break;
+                case CatchClause clause:
+                    AddOwned(clause.VariableIndex, clause);
+                    break;
+            }
+        }
+        return scopes;
+
+        void AddOwned(int? index, IrNode owner)
+        {
+            if (index is { } local
+                && IrFunction.LocalSlotReferencesInScope(function.Body, local)
+                    .All(reference => ExactLocalNameAllocation.Contains(owner, reference)))
+            {
+                scopes[local] = owner;
             }
         }
     }
@@ -2021,6 +2121,8 @@ public sealed partial class CSharpPrinter
             {
                 LocalNames = localFunction.LocalNames,
                 SynthesizedLocalNames = localFunction.SynthesizedLocalNames,
+                LocalDeclaredInNestedScope = localFunction.LocalDeclaredInNestedScope,
+                LocalNameImportCauses = localFunction.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = localFunction.SkipLocalsInit,
                 // The nested scope is metadata-free like the enclosing one; carry the
@@ -2334,6 +2436,13 @@ public sealed partial class CSharpPrinter
         statementStartOverride = null;
         _statementIndent = indent;
         string pad = new(' ', indent * 4);
+        if (node is Block lexicalBlock)
+        {
+            sb.Append(pad).AppendLf("{");
+            AppendStatements(sb, lexicalBlock.Children, indent + 1);
+            sb.Append(pad).AppendLf("}");
+            return;
+        }
         if (node is Return && IsSharedScopeLambdaReturn(node))
         {
             sb.Append(pad).AppendLf(LambdaStatement(node)!);

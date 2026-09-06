@@ -426,6 +426,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     body.UsesUpdatedMemorySafetyRules))
             {
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
+                LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
+                LocalNameImportCauses = body.LocalNameImportCauses,
                 CapturedBinderNames = candidate.CapturedBinderNames,
             };
             declarations.Add(declaration);
@@ -691,6 +693,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     {
         if (body.Body.Blocks is not [{ Children: var statements }])
             return false;
+        statements = PdbLocalScopePass.WithoutLexicalBlocks(statements);
 
         for (int i = 0; i < statements.Count; i++)
         {
