@@ -2263,10 +2263,13 @@ limit, an aggregate retained-image bound of `2N` admits projection while
 After caller input validation, the package-owned projection outcome is closed:
 
 - **Available** carries one operation-scoped sparse realization containing the
-  canonical selected asset, exact one-participant group and participant, and
-  the Metadata bridge's `IdentityDecoded` signal. The group is required query
-  authority; the signal prevents a consumer from treating a rejection-carrier
-  identity as decoded assembly evidence.
+  canonical selected asset, exact one-participant group and participant, the
+  Metadata bridge's `IdentityDecoded` signal, and the exact exhaustive
+  `ArtifactAssemblyProjectionOutcome` retained from admission. The group is
+  required query authority; the signal prevents a consumer from treating a
+  rejection-carrier identity as decoded assembly evidence. `Projected`,
+  `NotAssembly`, and `Rejected` are read only from the retained admission
+  outcome and are never inferred from `IdentityDecoded`.
 - **InvalidBinding** means the Root no longer corresponds to the binding's
   content-generation identity.
 - **InvalidSelectedAsset** means the supplied object is not an exact canonical
@@ -2304,24 +2307,103 @@ secondary diagnostics and do not replace the primary failure or cancellation.
 Unexpected implementation exceptions remain exceptional rather than becoming
 success-shaped or generic typed outcomes.
 
-The current artifact materializer's `using`-declaration path can let a throwing
-stream disposal replace a cancellation raised by `ReadAsync`. #5798 must first
-close that owner-local gap by capturing the materialization failure, disposing
-separately, attaching disposal failure as cleanup evidence, and rethrowing the
-original condition. The cancellation-preservation claim remains unverified
-until the named sparse cleanup gate exercises a stream whose read is cancelled
-and whose disposal throws.
+The artifact materializer's former `using`-declaration path could let a
+throwing stream disposal replace a cancellation raised by `ReadAsync`. That
+owner-local gap is now closed: the materializer captures the primary
+materialization failure, disposes the source stream separately, attaches a
+throwing disposal as secondary cleanup evidence on that exact exception, and
+rethrows the original condition with its original token. A disposal failure on
+an otherwise successful read still propagates rather than being swallowed.
+`ArtifactSetSession.GetCleanupFailures` is the typed accessor for that
+secondary evidence, which the session keeps under a private data key rather
+than a caller-guessable string. `AttachCleanupFailures` is the matching entry
+for every producer of that evidence, including callers in other assemblies; it
+merges, so a second attachment to the same failure adds to the first instead of
+discarding it, and no caller reproduces the key. Gated by
+`ArtifactSetSessionCleanupEvidenceTests.DisposalFailureDoesNotReplaceCancelledRead`,
+`DisposalFailureDoesNotReplaceReadFailure`,
+`DisposalFailureOnSuccessfulReadStillPropagates`, and
+`AttachedCleanupEvidenceMergesRatherThanReplaces`.
 
-An available projection is operation-scoped and resource-bearing. It supplies
-the canonical selected asset, group, participant, and `IdentityDecoded` signal
-only. Query roles, selection rationale, sibling accounting, and durable
-evidence remain consumer-owned.
+Before ownership transfers to the candidate workspace, the sparse adapter owns
+its own cleanup and reports it as a bounded, product-authored receipt. The
+receipt is present only when that owner-local cleanup did not complete, is
+always secondary to the typed primary outcome, cancellation, or unexpected
+exception, and is absent on `Available` and on successful cleanup. It carries
+only closed stage and count data — which of the participant, query-lease, and
+artifact-session stages did not complete, and how many failures each observed —
+and never an exception, message, path, package-authored string, stream,
+session, lease, participant, workspace, callback, or opener. A typed accessor
+reads the receipt from the exact primary exception through the same private
+data-key convention. After transfer, the candidate workspace's `CloseAsync`
+remains the release owner and continues to report its own group and artifact
+cleanup failures.
+
+An available projection is operation-scoped and intentionally
+resource-bearing. It supplies the canonical selected asset, group,
+participant, `IdentityDecoded` signal, retained admission outcome, and one
+operation-scoped query entry point only. Query roles, selection rationale,
+sibling accounting, and durable evidence remain consumer-owned.
 
 Artifact registration and participant remain execution authority, not durable
 query evidence. A consumer may copy the package coordinate, content-generation
-identity, selection identity, and selected asset into a resource-free receipt,
-but it cannot retain the workspace, artifact identity or registration,
-group, participant, content opener, stream, session, lease, or callback.
+identity, selection identity, selected asset, and typed admission facts into a
+resource-free receipt, but it cannot retain the workspace, artifact identity or
+registration, group, participant, content opener, stream, session, lease, or
+callback.
+
+Being live is the contract here, not a defect. #5843's public resource-free
+data gate governs the closed facts a consumer copies out — coordinate,
+identities, asset, admission classification, and cleanup receipt — and must not
+be read as a claim that the `Available` execution context is itself
+resource-free. The two are separately gated:
+`Projection_IncompleteCleanupProducesBoundedResourceFreeReceipt` and
+`ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets` close the
+resource-free facts, while `Projection_CloseWaitsForActiveQueryThenDeniesAccess`
+closes the deliberately live one.
+
+Without an entry point, an available projection would hand a consumer a
+participant it could not lawfully query. The realization therefore exposes one
+operation-scoped query call that runs a bounded producer against the retained
+artifact through the assembly-inspection owner's existing revalidation: the
+one-participant group supplies active-operation quiescence, the artifact owner
+supplies the authorized content view, and the owner's
+`ArtifactAssemblyQueryOutcome` is returned unchanged. No raw bytes, stream,
+opener, content view, or query lease crosses that boundary, and none is
+reachable from durable data. When the retained admission is not `Projected`,
+the call refuses with the same owner-typed reason and never runs the producer.
+After workspace close, the call is denied by the group's ordinary disposed
+semantics.
+
+The producer's own shape stays the assembly-inspection owner's. This contract
+fixes only whether a producer may run and under what lifetime, never what a
+producer is handed or what it may charge; the producer type is forwarded
+verbatim at a single call site, so an owner change to that seam adapts here
+without a semantic decision to unwind. Note also what this projection's bounds
+do and do not charge: the selected entry's declared and observed bytes are
+charged before and during its one open, and the retained image is charged at
+group admission, but a transient allocation a producer makes inside a query
+callback is charged by neither. Charge-before-allocation inside a producer is
+the assembly-inspection and analysis owners' property, not something an
+aggregate retained-image budget can supply.
+
+This projection is not a Root publication and does not become one. It mints no
+correspondence, reserves no Root admission, advances no composition generation,
+enters nothing into the Workspace Root registry, and never reaches the Scope
+publication participant; a consumer that needs a published Root uses the
+package Root producer instead. It also deliberately does not reuse that
+producer's extracted construction, because that construction realizes the
+Root's whole role universe — exactly the cost this contract exists to avoid.
+The two are owner-internal siblings over the same package Root binding, not a
+host reconstruction of Root construction, and the sparse path adds no second
+Root lifetime concept.
+
+Where the two do share a concern, they share the implementation rather than
+duplicating it. Cleanup evidence is the concrete case: both attach secondary
+failures to the primary exception through the artifact owner's merging
+`ArtifactSetSession.AttachCleanupFailures` and read them through
+`GetCleanupFailures`, so neither a release sweep nor a materialization
+disposal can silently replace the other's evidence on the same failure.
 
 Workspace close is the candidate release boundary. Disposing a realization
 alone does not release its transferred artifact session, so a streaming caller
@@ -2356,24 +2438,37 @@ metadata as the limit.
 
 The target Release gates are:
 
-- `SparsePackageAssemblyProjection_RejectsReconstructedOrForeignAsset`
-- `SparsePackageAssemblyProjection_UsesOnlyCanonicalAssetFields`
-- `SparsePackageAssemblyProjection_OpensSelectedPackageEntryExactlyOnce`
-- `SparsePackageAssemblyProjection_DoesNotEnumerateOrOpenSiblingEntriesAfterBinding`
-- `SparsePackageAssemblyProjection_ExactAggregatePartitionBoundary`
-- `SparsePackageAssemblyProjection_FileSystemLengthUsesManifestPreflight`
-- `SparsePackageAssemblyProjection_DeclaredOrObservedBytesMapToEntryLimit`
-- `SparsePackageAssemblyProjection_CompatibilityCasesUseMetadataOutcome`
-- `SparsePackageAssemblyProjection_RejectionCarrierIsDeterministicAndNotDecoded`
-- `SparsePackageAssemblyProjection_EmptyCompileGroupImplementationCanProject`
-- `SparsePackageAssemblyProjection_PublishesOneExactParticipantOrNone`
-- `SparsePackageAssemblyProjection_PreservesBindingCorrespondence`
-- `SparsePackageAssemblyProjection_CancellationDuringMaterializationPublishesNone`
-- `SparsePackageAssemblyProjection_CloseWaitsForActiveQueryCallback`
-- `SparsePackageAssemblyProjection_RealizationDisposeRetainsArtifactUntilWorkspaceClose`
-- `SparsePackageAssemblyProjection_TerminalPathsReleaseLeaseAndSession`
-- `SparsePackageAssemblyProjection_CleanupFailurePreservesPrimaryCondition`
-- `SparsePackageAssemblyProjection_BrowserConsumerExecutesQueryThroughGroup`
+The Release gates in `SparsePackageAssemblyProjectionTests` are:
+
+- `Projection_PublishesOneExactParticipantForCanonicalAsset`, which also closes
+  exactly one entry open and no sibling enumeration or reselection after
+  binding
+- `Projection_RetainsProducerPinnedPackageProvenance`
+- `Projection_RejectsReconstructedOrForeignSelectedAsset`
+- `Projection_RejectsGenerationMismatchBeforeContentAccess`
+- `Projection_AggregatePartitionAdmitsAtTwiceTheImage`, the exact `2N` accept
+  and `2N - 1` reject boundary
+- `Projection_DeclaredEntryLimitRejectsBeforeOpen`, paired with
+  `FileSystemPackageContentManifestTests.FileSystemLengthUsesManifestPreflight`
+  for the product filesystem manifest
+- `Projection_ObservedBytesBeyondDeclaredLengthExceedLimit`
+- `Projection_ReportsSelectedEntryUnavailableWithoutContent`
+- `Projection_ReportsArtifactPublicationFailureWithOwnerCodes`
+- `Projection_IncompleteCleanupProducesBoundedResourceFreeReceipt`
+- `Projection_CancellationKeepsCancellationAndAttachesReceipt`
+- `Projection_RunsProducerThroughOwnerAuthorizedQueryView`
+- `Projection_RejectedCarrierRefusesQueryWithOwnerFailure`
+- `Projection_CloseWaitsForActiveQueryThenDeniesAccess`
+- `ProjectionOptions_RequirePositiveExplicitBounds`
+
+Three contract-defining cases have no existing benign fixture and remain
+**unverified** in this slice: a malformed managed image that reaches
+`MalformedMetadata` rather than `NotAssembly`, an empty-MVID assembly, and a
+canonical implementation asset under an explicit empty compile group. The first
+two require crafted malformed binaries, which this repository's fixture policy
+does not admit; the third needs a Root fixture the package owner does not yet
+publish. The `IdentityDecoded`-versus-admission separation is still gated
+through the `NotAssembly` carrier case.
 
 The Package Query evaluator tracked by
 [#5785](https://github.com/richlander/dotnet-inspect/issues/5785) is the first
@@ -2750,6 +2845,167 @@ Both values are erasing projections. They strongly own no
 artifact, assembly context, artifact session, lease, provisional receipt,
 stream opener, delegate, or access authority. Holding either value after
 retirement cannot delay generation quiescence or resource release.
+
+#### Exact package Root acquisition and reacquisition
+
+Correspondence is Workspace-scoped, so it cannot reopen a Root after the
+candidate Workspace that issued it closes. A streaming consumer that closes one
+candidate Workspace per package and later needs the same logical Root — to
+re-run a query, to show provenance, or to hand a result back to a Browser host
+across a transport boundary — needs a second, Workspace-free currency.
+
+Artifact Acquisition therefore also issues an immutable, resource-free
+**reacquisition request** from a `PackageRootBinding`. It reuses the same
+logical package Root request currency as correspondence, including its
+framework and runtime normalization and its structural equality, so two
+requests are equal exactly when this owner classifies them as the same logical
+Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
+identity.
+
+The request preserves two facts separately:
+
+- the realized producer-pinned acquisition coordinate, whose acquisition
+  framework may be absent for framework-neutral source acquisition; and
+- the normalized selection target framework and runtime identifier that froze
+  the binding's compile-asset selection.
+
+Keeping them separate is load-bearing. `WorkspaceContextLoader.LoadAsync`
+realizes every assembly in the Root and requires an acquisition target, so it
+cannot by itself express framework-neutral acquisition paired with a real
+selection target; collapsing the two facts would either fail with
+`MissingAcquisitionTarget` or silently select a different asset universe.
+
+The request carries no generation, selection identity, Workspace identity,
+content, session, lease, callback, opener, path authority, or credential. It is
+therefore safe to hold across candidate Workspace disposal and to observe a
+replacement physical generation, while never silently changing the requested
+target.
+
+##### One acquisition entry for both request forms
+
+A streaming consumer does not only reacquire. Its first candidate arrives as a
+caller-authored exact `ID@VERSION` coordinate, and every later visit to the
+same package arrives as the owner-issued reacquisition request. Both need the
+same thing: one package Root, acquired under the destination host's own policy,
+without full-role assembly realization.
+
+Artifact Acquisition therefore exposes **one** acquisition entry with two
+request forms rather than two acquisition paths. Both forms run the same
+authorization, resolution, and payload acquisition the Workspace loader
+already runs, so neither invents a source policy, a producer preference, or a
+second set of payload bounds. The entry creates no Workspace group and
+realizes no assembly universe, which is what separates it from
+`WorkspaceContextLoader`: that loader realizes every assembly in the Root and
+requires an acquisition target, so it cannot serve framework-neutral
+acquisition paired with a real selection target.
+
+The caller-authored form names an exact package id and version, because this
+owner performs no gallery, prefix, or floating-version discovery — a request
+that did not name an exact version would be asking for one. It names no
+producer: which authorized producer serves the bytes is the destination host's
+decision at acquisition time. Its ordinary shape derives the acquisition
+framework from the selection target; a separate framework-neutral shape states
+the separation explicitly, pairing package-level acquisition with an exact
+selection target, and accepts no runtime identifier because a realized
+coordinate's runtime identifier requires an acquisition framework.
+
+A successful acquisition returns the new `PackageRootBinding`, the live
+acquired payload it was formed from, and the producer-pinned reacquisition
+request issued for the Root that actually resulted. A consumer that started
+from an explicit coordinate therefore holds a reacquirable handle immediately
+and never has to rebuild one from display fields.
+
+The acquisition result is intentionally live and resource-bearing. The
+resource-free restriction is a property of the issued request — the value a
+host may retain past the candidate and hand across a transport boundary — and
+it does not extend to the result that produced it. Reading the result as
+resource-free would be the same misreading as treating the sparse projection's
+`Available` context as a durable resource-free fact.
+
+Exposing the payload is load-bearing for a destination that wraps the acquired
+package in its own coordinate type and verifies that the wrapper and the
+binding name the same content. The payload's content is the exact
+`IPackageContent` instance the binding reads through, so the destination adapts
+that instance and verifies it with the package owner's existing
+`PackageRootRealization.ReferencesContent`. Rebuilding a content handle from
+copied archive bytes instead would copy the payload and mint a second
+`PackageContentGenerationIdentity`, leaving the wrapper and the binding naming
+different retained generations while appearing to agree. Reacquisition served
+by a store entry likewise issues another handle over the same retained
+generation rather than a new one, so a destination may re-enter a Root after
+its candidate closes without paying for the bytes again.
+
+Source, authorization, and selection failures stay visible:
+
+- the authorized producer set is intersected with a pinned request's producer,
+  so a host authorizing several producers for that id still reacquires the Root
+  the binding came from, and an unauthorized producer is a typed
+  `ProducerNotAuthorized`;
+- an authorization naming no producer for a caller-authored coordinate is
+  `PackageUnavailable`, never a fallback to a default feed;
+- an unresolvable coordinate is a typed `InvalidCoordinate`;
+- content served by a producer other than the one a pinned request names is
+  `ProducerNotAuthorized`; and
+- a reacquired Root whose exact logical request differs from the one asked for
+  is `SelectionRequestNotReproduced` rather than a silent substitution.
+
+Typed compile-asset selection failure remains where the package owner already
+reports it, on the returned binding's selection status, so a replacement
+generation that no longer satisfies the selection target reports that
+owner-typed outcome instead of a neighboring asset set. Cancellation is not an
+outcome arm and propagates with the caller's token.
+
+##### The transport seam
+
+Hosts pass the issued request opaquely. Reconstructing one from package id,
+target framework, runtime identifier, asset path, or any other display field is
+outside the contract. In-process that is the value itself. Across a transport
+boundary — a Browser result that outlives the worker that produced it, or a
+candidate disposed before the user acts on the result — the owner also issues a
+single opaque token from the request and decodes it back.
+
+The token is this owner's, not a host format: its version tag, field order, and
+encoding are owner-owned, and only the owner's decode reads it. It carries
+exactly the facts the request carries and no content, generation, Workspace
+identity, session, lease, path, source URL, or credential.
+
+Decoding is total, because a token can arrive from an untrusted transport. It
+is bounded in length before parsing, requires the exact field count, and
+revalidates every field through the owner's own canonical coordinate and
+request construction, so a malformed, over-long, or forged token is a
+`false` return rather than an exception or a value this owner would not have
+issued. A token that is not already canonical is refused rather than silently
+normalized, so one request has exactly one token. A decoded request is a
+request, **not** an authorization: acquiring the Root it names still passes the
+destination host's own source authorization, transfer policy, and payload
+limits. Host caches, registries, credential handling, and worker transport stay
+outside this owner entirely.
+
+##### Release gates
+
+In `SparsePackageAssemblyProjectionTests`:
+`ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets`, which closes
+exactness, normalization, both the pinned-framework and framework-neutral
+shapes, and the resource-free property; and
+`ReacquisitionRequest_SurvivesCandidateWorkspaceDisposal`, which closes
+post-disposal replacement against a new content generation.
+
+In `PackageRootAcquisitionTests`:
+`ExplicitCoordinate_AcquiresRootAndIssuesExactRequest`,
+`Acquired_ExposesTheLiveContentTheBindingReads`,
+`ExactRequest_ReacquiresSameLogicalRootThroughToken`,
+`ExactRequest_SeparatesAcquisitionAndSelectionTargets`,
+`ExactRequest_ReopensAfterCandidateWorkspaceDisposal`,
+`ExplicitCoordinate_UnauthorizedSourcesFailVisibly`,
+`ExactRequest_UnauthorizedProducerFailsVisibly`,
+`Token_RoundTripsExactRequest`, `Token_RejectsMalformedOrNonCanonicalInput`,
+and `ExplicitRequest_StatesItsTargetContract`.
+
+Acquisition against a live feed over the network is **unverified** in this
+slice: the gates serve exact versions from a cached store and fail the test
+host's HTTP client on any request, which exercises authorization, resolution,
+payload acquisition, binding, and the issued request without a network
+dependency.
 
 `ArtifactRootScopeProjection` is an immutable snapshot, not a live view.
 Consumers may retain `ArtifactRootCorrespondence` as logical identity and may

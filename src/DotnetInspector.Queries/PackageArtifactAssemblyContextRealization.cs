@@ -538,8 +538,9 @@ public sealed partial class InspectionWorkspace
         {
             ImmutableArray<Exception> cleanup =
                 await ReleaseAsync().ConfigureAwait(false);
-            if (!cleanup.IsEmpty)
-                failure.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"] = cleanup;
+            // Merged through the artifact owner rather than assigned, so a
+            // disposal failure this exception already carries is not replaced.
+            ArtifactSetSession.AttachCleanupFailures(failure, cleanup);
         }
     }
 }
