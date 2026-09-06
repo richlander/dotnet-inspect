@@ -477,8 +477,6 @@ let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
-let matchPackageDependencyCoordinate:
-  PackageFacade["matchPackageDependencyCoordinate"];
 let inspectPackageCacheStats: PackageFacade["packageCacheStats"];
 let inspectMemberDocumentation: PackageFacade["queryMemberDocumentation"];
 let inspectPackage: PackageFacade["queryPackage"];
@@ -562,7 +560,6 @@ async function loadEngineModule() {
     getPackageDocument: inspectPackageDocument,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
-    matchPackageDependencyCoordinate,
     packageCacheStats: inspectPackageCacheStats,
     queryMemberDocumentation: inspectMemberDocumentation,
     queryPackage: inspectPackage,
@@ -4384,12 +4381,12 @@ function renderLibraryReferences() {
   });
 }
 
-function uniqueCompatiblePackage(
+async function uniqueCompatiblePackage(
   packages: readonly AppPackage[],
   packageId: string,
   declaredRange: string | null | undefined,
 ) {
-  const match = matchPackageDependencyCoordinate(
+  const match = await engineClient.package.matchPackageDependencyCoordinate(
     packageId,
     declaredRange ?? null,
     JSON.stringify(dependencyCoordinateCandidates(packages)));
@@ -4404,26 +4401,57 @@ function uniqueCompatiblePackage(
 function dependencyListSectionHtml(
   groups: readonly BrowserPackageDependencyGroup[],
   selectedGroupIndex: number | null,
+  matches?: readonly (AppPackage | null)[],
 ) {
   const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
   if (!group) throw new Error("Cannot render a dependency list without a dependency group.");
   const deps = group.dependencies || [];
   return `
-    <section class="document-section" id="dep-list-section">
+    <section class="document-section" id="dep-list-section" data-dependency-match-state="${matches || !deps.length ? "ready" : "pending"}" aria-busy="${!matches && deps.length > 0}">
       <div class="section-title"><h2>NuGet dependencies</h2><span>${escapeHtml(group.framework)} · ${deps.length} package${deps.length === 1 ? "" : "s"}</span></div>
       ${deps.length
-        ? `<ul class="dep-list">${deps.map(dependency => {
-            const open = uniqueCompatiblePackage(
-              state.packages,
-              dependency.id,
-              dependency.versionRange);
-            const attrs = open
+        ? `<ul class="dep-list">${deps.map((dependency, index) => {
+            const open = matches?.[index];
+            const attrs = !matches
+              ? 'disabled title="Matching open packages…"'
+              : open
               ? `data-dep-open="${escapeHtml(packageIdentityKey(open))}" title="Switch to ${escapeHtml(dependency.id)}"`
               : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
             return `<li><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
+}
+
+async function renderPackageDependencyList() {
+  const container = document.querySelector<HTMLElement>("#dep-list-section");
+  if (!container || container.dataset.dependencyMatchState !== "pending") return;
+  const data = state.packageDependencies;
+  const groups = data?.dependencyGroups || [];
+  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
+  const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
+  if (!group) throw new Error("Cannot match dependencies without a dependency group.");
+  const packages = state.packages.map(pkg => ({ ...pkg }));
+  const coordinates = JSON.stringify(dependencyCoordinateCandidates(packages));
+  const isCurrent = () =>
+    document.querySelector("#dep-list-section") === container
+    && state.packageDependencies === data
+    && resolveDependenciesGroupIndex(groups) === selectedGroupIndex
+    && JSON.stringify(dependencyCoordinateCandidates(state.packages)) === coordinates;
+  container.dataset.dependencyMatchState = "loading";
+  try {
+    const matches = await Promise.all((group.dependencies || []).map(dependency =>
+      uniqueCompatiblePackage(packages, dependency.id, dependency.versionRange)));
+    if (!isCurrent()) return;
+    container.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex, matches);
+    bindPackageDependencyListEvents();
+  } catch (error) {
+    if (!isCurrent()) return;
+    container.dataset.dependencyMatchState = "failed";
+    container.setAttribute("aria-busy", "false");
+    container.insertAdjacentHTML("beforeend",
+      `<p class="graph-render-error" role="alert">Dependency matching failed: ${escapeHtml(errorMessage(error))}</p>`);
+  }
 }
 
 // Switch the dependency lens to a different target framework without a full page render:
@@ -4445,6 +4473,7 @@ function patchDependenciesGroup() {
   status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
+  observeAsync(renderPackageDependencyList(), "Matching dependency packages");
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
 }
 
@@ -4558,6 +4587,7 @@ function maybeAutoLoadPackageDependencies() {
   if (!packageDependencies && !libraryReferences) return;
   if (state.packageDependenciesKey === packageDependenciesSignature()) {
     if (packageDependencies && state.packageDependencies) {
+      observeAsync(renderPackageDependencyList(), "Matching dependency packages");
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
     }
@@ -9992,36 +10022,49 @@ async function renderDependencyGraph() {
   }
   const pkg = state.package;
   if (!pkg) return;
-  const built = buildDependencyGraphMermaid(
-    {
-      package: pkg,
-      packages: state.packages,
-      dependenciesGroupIndex: state.dependenciesGroupIndex,
-      workspaceDependencies: state.workspaceDependencies,
-      ...(state.packageDependencies
-        ? { packageDependencies: state.packageDependencies }
-        : {}),
-    },
-    (_packages, packageId, versionRange) =>
-      uniqueCompatiblePackage(state.packages, packageId, versionRange));
-  if (!built) {
-    depGraphRenderSequence.invalidate();
-    container.dataset.graphDef = "";
-    pending.invalidate();
-    container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
-    return;
-  }
-  const signature = dependencyGraphRenderSignature(built);
-  // Already showing exactly this graph — nothing to do.
-  if (container.dataset.graphDef === signature && container.querySelector(".graph-viewport")) return;
-  // A render for this exact definition is already in flight on this container; let it finish.
-  // (renderDependencyGraph is invoked repeatedly per render cycle — from both
-  // maybeAutoLoadPackageDependencies and ensureWorkspaceDependencies — so without this guard
-  // two concurrent mermaid.render calls race and one's catch can clobber the other's graph.)
-  if (pending.isPending(signature)) return;
+  const packages = state.packages.map(candidate => ({ ...candidate }));
+  const model = {
+    package: { id: pkg.id, version: pkg.version, activeFramework: pkg.activeFramework },
+    packages,
+    dependenciesGroupIndex: state.dependenciesGroupIndex,
+    workspaceDependencies: { ...state.workspaceDependencies },
+    ...(state.packageDependencies
+      ? { packageDependencies: state.packageDependencies }
+      : {}),
+  };
+  const requestSignature = JSON.stringify([
+    packageIdentityKey(model.package),
+    dependencyCoordinateCandidates(packages),
+    model.dependenciesGroupIndex,
+    model.packageDependencies,
+    model.workspaceDependencies,
+  ]);
+  // Deduplicate before matching: duplicate renders must not supersede their own
+  // pending Mermaid work while awaiting the same coordinate results.
+  if (pending.isPending(requestSignature)) return;
   const seq = depGraphRenderSequence.begin();
-  pending.begin(signature, seq);
+  pending.begin(requestSignature, seq);
+  let phase = "Dependency matching";
   try {
+    const built = await buildDependencyGraphMermaid(
+      model,
+      (_packages, packageId, versionRange) =>
+        uniqueCompatiblePackage(packages, packageId, versionRange));
+    if (!depGraphRenderSequence.isCurrent(seq)
+      || document.querySelector("#dependency-graph-diagram") !== container) return;
+    if (!built) {
+      depGraphRenderSequence.invalidate();
+      container.dataset.graphDef = "";
+      pending.invalidate();
+      container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
+      return;
+    }
+    const signature = dependencyGraphRenderSignature(built);
+    if (container.dataset.graphDef === signature && container.querySelector(".graph-viewport")) {
+      container.querySelector(".graph-render-error")?.remove();
+      return;
+    }
+    phase = "Diagram rendering";
     mermaidModule ??= import("mermaid");
     const { default: mermaid } = await mermaidModule;
     if (!depGraphRenderSequence.isCurrent(seq)) return;
@@ -10078,15 +10121,19 @@ async function renderDependencyGraph() {
       },
     });
   } catch (error) {
-    // Only surface the error if this is still the latest render and nothing else has drawn a graph.
     if (depGraphRenderSequence.isCurrent(seq)
-      && document.querySelector("#dependency-graph-diagram") === container
-      && !container.querySelector(".graph-viewport")) {
-      container.dataset.graphDef = "";
-      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+      && document.querySelector("#dependency-graph-diagram") === container) {
+      const message = `<div class="graph-render-error" role="alert"><strong>${phase} failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+      if (container.querySelector(".graph-viewport")) {
+        container.querySelector(".graph-render-error")?.remove();
+        container.insertAdjacentHTML("beforeend", message);
+      } else {
+        container.dataset.graphDef = "";
+        container.innerHTML = message;
+      }
     }
   } finally {
-    pending.complete(signature, seq);
+    pending.complete(requestSignature, seq);
   }
 }
 
@@ -10118,14 +10165,6 @@ async function openDependencyPackage(
   packageId: string,
   versionRange: string | null | undefined,
 ) {
-  const existing = uniqueCompatiblePackage(
-    state.packages,
-    packageId,
-    versionRange ?? null);
-  if (existing) {
-    switchToPackageForDependencies(packageIdentityKey(existing));
-    return;
-  }
   closeGraphExplorerForNavigation();
   const navigationSeq = navigationSequence.begin();
   state.loading = true;
@@ -10135,6 +10174,15 @@ async function openDependencyPackage(
   state.loadingSubtitle = versionRange || "latest stable";
   render();
   try {
+    const existing = await uniqueCompatiblePackage(
+      state.packages.map(pkg => ({ ...pkg })),
+      packageId,
+      versionRange ?? null);
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (existing) {
+      switchToPackageForDependencies(packageIdentityKey(existing));
+      return;
+    }
     const version =
       await resolveDependencyVersion(packageId, versionRange ?? null);
     if (!navigationSequence.isCurrent(navigationSeq)) return;
