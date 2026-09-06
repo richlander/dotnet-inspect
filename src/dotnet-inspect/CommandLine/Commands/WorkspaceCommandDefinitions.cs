@@ -13,11 +13,11 @@ public static class WorkspaceCommandDefinitions
     {
         var command = new Command(
             WorkspaceCommand.Name,
-            "Show the ordered package occurrences in an inspection Workspace");
+            "Show the committed package Roots in an inspection Workspace");
         var packageOption = new Option<string[]>("--package")
         {
             Description =
-                "Package in the Workspace (name or name@version). Repeat for each package.",
+                "Package in the Workspace (name or name@version). Exact duplicates are shown once.",
             AllowMultipleArgumentsPerToken = false,
         };
         var tfmOption = new Option<string?>("--tfm")

@@ -17,6 +17,9 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
+    <InternalsVisibleTo Include="ILInspector.Decompiler.Tests" />
   </ItemGroup>
 
 </Project>

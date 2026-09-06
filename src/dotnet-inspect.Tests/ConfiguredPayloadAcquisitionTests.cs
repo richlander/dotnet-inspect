@@ -118,6 +118,53 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload(bool localSource)
+    {
+        string id = $"Pinned.Integrations.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id, "Retained package input",
+            library: File.ReadAllBytes(typeof(Npgsql.NpgsqlConnection).Assembly.Location));
+        var requests = new ConcurrentQueue<string>();
+        int transports = 0;
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(source =>
+        {
+            transports++;
+            return new PayloadFeedHandler(source, id,
+                () => new ByteArrayContent(archive), requests);
+        });
+        string source = FirstFeed;
+        if (localSource)
+        {
+            source = Path.Combine(_root, "integration-feed");
+            Directory.CreateDirectory(source);
+            File.WriteAllBytes(Path.Combine(source, $"{id}.{Version}.nupkg"), archive);
+        }
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", source,
+                "--all-libraries", "--tfm", "net11.0",
+                "-S", "Integration: Opportunities", "--markdown", "--verbose", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
+        Assert.Contains("Aspire", output);
+        Assert.Contains("Health Checks", output);
+        Assert.Contains("Npgsql.NpgsqlConnection", output);
+        if (localSource)
+        {
+            Assert.Equal(0, transports);
+            Assert.Empty(requests);
+        }
+        else
+        {
+            Assert.Single(requests, request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal));
+        }
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task AcquirePinned_UnavailableLocalPeersRetainAttributedFailures(bool exactPinExists)
@@ -379,6 +426,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.NotNull(result.TempDir);
             Assert.True(Directory.Exists(result.TempDir));
             Assert.True(File.Exists(result.NupkgPath));
+            AcquiredPackageSourcePayload payload =
+                Assert.IsType<AcquiredPackageSourcePayload>(result.AcquiredPayload);
+            Assert.Equal(result.ExtractPath, payload.Content.RootPath);
+            Assert.Equal(result.ProducerKey, payload.ProducerKey);
+            Assert.Equal(id, payload.Coordinate.PackageId, ignoreCase: true);
+            Assert.Equal("HTTP package content", ReadReadme(payload.Content));
             Assert.Equal("HTTP package content", File.ReadAllText(
                 Path.Combine(result.ExtractPath, "README.md")));
             Assert.Contains(requests, request => request.EndsWith(".nupkg", StringComparison.Ordinal));
@@ -443,12 +496,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string localFeed = Path.Combine(_root, "local-feed");
         string temporaryRoot = Directory.CreateDirectory(Path.Combine(_root, "command-temp")).FullName;
         WriteLocalPackage(localFeed, PayloadId, Readme);
-        using var client = new HttpClient();
         if (warmTarget)
         {
-            PackageExtractionOutcome warm = await AcquireTargetAsync();
-            Assert.True(warm.IsSuccess, warm.ErrorMessage);
-            Assert.False(warm.Result!.FromCache);
+            var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
+                ["package", $"{PayloadId}@{Version}", "--source", localFeed,
+                    "--path", "@readme", "--content", "--bare", "--no-nuget-cache"]);
+            Assert.True(exit == 0, $"Exit {exit}: {error}");
+            Assert.Equal(Readme, output.Trim());
+            Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
+            Directory.Delete(localFeed, recursive: true);
         }
 
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -467,6 +523,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             for (int iteration = 1; iteration <= 2; iteration++)
             {
+                // With the source gone, success proves the isolated CLI retained the target.
+                if (warmTarget || iteration > 1)
+                    Assert.False(Directory.Exists(localFeed));
+
                 var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
                     ["package", $"{WrapperId}@{Version}", "--source", localFeed,
                         "--source", source, "--path", "@readme", "--content", "--bare",
@@ -477,12 +537,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     request.EndsWith(".nupkg", StringComparison.Ordinal)));
                 Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
 
-                PackageExtractionOutcome retained = await AcquireTargetAsync();
-                Assert.True(retained.IsSuccess, retained.ErrorMessage);
-                Assert.True(retained.Result!.FromCache);
-                Assert.Null(retained.Result.TempDir);
-                Assert.Equal(Readme, File.ReadAllText(
-                    Path.Combine(retained.Result.ExtractPath, "README.md")));
+                if (!warmTarget && iteration == 1)
+                    Directory.Delete(localFeed, recursive: true);
             }
         }
         finally
@@ -496,11 +552,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             {
             }
         }
-
-        Task<PackageExtractionOutcome> AcquireTargetAsync() =>
-            DesktopPackageExtractor.ExtractPinnedPackageAsync(client, PayloadId, Version,
-                sourceOptions: new NuGetSourceOptions { Sources = [localFeed] },
-                createComposition: LocalComposition);
     }
 
     private static DesktopPackageSourceComposition CreateComposition(
@@ -561,7 +612,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         new ByteArrayContent(CreatePackage(id, readme));
 
     private static byte[] CreatePackage(
-        string id, string readme, string? redirectId = null, string version = Version)
+        string id, string readme, string? redirectId = null,
+        string version = Version, byte[]? library = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -574,6 +626,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 </metadata></package>
                 """);
             WriteEntry(archive, "README.md", readme);
+            if (library is not null)
+            {
+                using Stream entry = archive.CreateEntry("lib/net11.0/Npgsql.dll").Open();
+                entry.Write(library);
+            }
             if (redirectId is not null)
             {
                 WriteEntry(archive, "tools/net10.0/any/DotnetToolSettings.xml", $"""
