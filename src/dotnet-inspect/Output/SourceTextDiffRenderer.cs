@@ -16,10 +16,16 @@ internal static class SourceTextDiffRenderer
         MemberSourceDiffStatistics statistics = presentation.Statistics;
         if (!statistics.HasDifferences)
         {
-            return new SourceDiffOutput(
-                $"{MemberSourceDiffPresentationAdapter.BeforeLabel} and "
-                + $"{MemberSourceDiffPresentationAdapter.AfterLabel} are identical.",
-                presentation.Analysis);
+            return SourceDiffOutput.CreateSummary(
+                presentation.Analysis,
+                presentation.Diff,
+                [
+                    new MarkoutField(
+                        "Status",
+                        $"{MemberSourceDiffPresentationAdapter.BeforeLabel} and "
+                        + $"{MemberSourceDiffPresentationAdapter.AfterLabel} are identical."),
+                    .. CreateSummaryFields(statistics),
+                ]);
         }
 
         return detailed

@@ -72,20 +72,41 @@ public class SourceTextDiffRendererTests
         Assert.Contains("     last();", output.Content);
     }
 
-    [Fact]
-    public void IdenticalComparison_RemainsAnExplicitCompletedResult()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IdenticalComparison_RetainsStatusAndZeroStatistics(bool detailed)
     {
+        MemberSourceDiffPresentation presentation = Presentation(
+            "public void M() { }",
+            "    public void M() { }");
         SourceDiffOutput output =
             SourceTextDiffRenderer.CreateOutput(
-                Presentation(
-                    "public void M() { }",
-                    "    public void M() { }"));
+                presentation,
+                detailed);
 
-        Assert.Equal(
-            "Status  PDB comparison and Decompiled comparison are identical.",
-            output.Content);
-        Assert.NotNull(output.Analysis);
+        AssertField(
+            output,
+            "Status",
+            "PDB comparison and Decompiled comparison are identical.");
+        AssertField(output, "Added lines", "0");
+        AssertField(output, "Removed lines", "0");
+        AssertField(output, "Changed lines", "0 PDB comparison -> 0 Decompiled comparison");
+        AssertField(output, "Moved lines", "0 PDB comparison -> 0 Decompiled comparison");
+        Assert.Same(presentation.Analysis, output.Analysis);
+        Assert.Same(presentation.Diff, output.Diff);
+        Assert.False(output.ShowDiff);
+        Assert.DoesNotContain("--- PDB comparison", output.Content);
+    }
+
+    [Fact]
+    public void UnavailableComparison_DoesNotInventZeroStatistics()
+    {
+        var output = new SourceDiffOutput("Comparison unavailable.");
+
+        Assert.Null(output.Analysis);
         Assert.Null(output.Diff);
+        Assert.Equal("Status", Assert.Single(output.Fields).Key);
     }
 
     static MemberSourceDiffPresentation Presentation(

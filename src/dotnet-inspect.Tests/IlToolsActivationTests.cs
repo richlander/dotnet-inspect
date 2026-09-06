@@ -813,7 +813,7 @@ public class IlToolsActivationTests
                 "cli",
                 "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
                 "--filter-not-trait \"Speed=Slow\" && " +
-                "dotnet run --project src/DotnetInspector.Presentation.Tests -c Release"),
+                "dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release"),
             (
                 "services",
                 "dotnet run --project " +

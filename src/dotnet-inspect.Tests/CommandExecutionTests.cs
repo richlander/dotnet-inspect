@@ -17271,6 +17271,56 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    public async Task Member_SourceDiff_IdenticalTabularOutputRetainsZeroStatistics(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{nameof(ISourceDiffPropertyShapeFixture.Map)}:1",
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", SectionNames.SourceDiff,
+            format,
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Dictionary<string, string?> fields = new(StringComparer.Ordinal);
+        string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (format == "--jsonl")
+        {
+            foreach (string line in lines)
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                fields.Add(
+                    Assert.IsType<string>(document.RootElement.GetProperty("field").GetString()),
+                    document.RootElement.GetProperty("value").GetString());
+            }
+        }
+        else
+        {
+            Assert.Equal("field\tvalue", lines[0].TrimEnd('\r'));
+            foreach (string line in lines.Skip(1))
+            {
+                string[] columns = line.TrimEnd('\r').Split('\t');
+                Assert.Equal(2, columns.Length);
+                fields.Add(columns[0], columns[1]);
+            }
+        }
+
+        Assert.True(fields.ContainsKey("PDB source"));
+        Assert.True(fields.ContainsKey("Integrity"));
+        Assert.Equal("PDB comparison and Decompiled comparison are identical.", fields["Status"]);
+        Assert.Equal("0", fields["Added lines"]);
+        Assert.Equal("0", fields["Removed lines"]);
+        Assert.Equal("0 PDB comparison -> 0 Decompiled comparison", fields["Changed lines"]);
+        Assert.Equal("0 PDB comparison -> 0 Decompiled comparison", fields["Moved lines"]);
+    }
+
     [Fact]
     public async Task Member_SingleOverload_SourceCategory_IncludesSourceDiff()
     {

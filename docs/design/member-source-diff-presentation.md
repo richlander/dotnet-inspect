@@ -316,6 +316,13 @@ The CLI preserves:
 - explicit identical and unavailable outcomes; and
 - structured table, TSV, and JSONL projections.
 
+Identical completed comparisons retain their zero-valued statistics alongside
+the explicit identical status, at normal and detailed verbosity. Unavailable
+comparisons remain status-only rather than inventing zero counts.
+`Member_SourceDiff_IdenticalTabularOutputRetainsZeroStatistics` gates JSONL and
+TSV output, with the completed/unavailable distinction covered by
+`SourceTextDiffRendererTests` in Release.
+
 The intentional compatibility change includes both comparison endpoints and
 their labels: declaration-leading trivia may be removed from PDB comparison
 text, the decompiled comparison uses product-owned wrapping and body choices,

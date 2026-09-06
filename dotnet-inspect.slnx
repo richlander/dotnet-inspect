@@ -105,7 +105,6 @@
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
-    <Project Path="src/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
@@ -163,6 +162,7 @@
     <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
+    <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/runfaster.Tests/runfaster.Tests.csproj" />

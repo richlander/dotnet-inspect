@@ -702,7 +702,7 @@ jobs:
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
       - name: Run presentation tests
-        run: dotnet run --project src/DotnetInspector.Presentation.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
 
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
