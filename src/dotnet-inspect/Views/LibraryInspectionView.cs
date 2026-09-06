@@ -99,6 +99,32 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
+    public bool HasReadyToRun => _data.ReadyToRunOverview is not null;
+
+    [MarkoutSection(
+        Name = ReadyToRunSectionNames.Image,
+        ShowWhenProperty = nameof(HasReadyToRun))]
+    public List<ReadyToRunImageRow>? ReadyToRunImageSection =>
+        _data.ReadyToRunOverview is not { } overview
+            ? null
+            :
+            [
+                ReadyToRunImageRow.Create(overview),
+            ];
+
+    [MarkoutIgnore]
+    public bool HasReadyToRunSections =>
+        _data.ReadyToRunOverview is { Sections.Length: > 0 };
+
+    [MarkoutSection(
+        Name = ReadyToRunSectionNames.Sections,
+        ShowWhenProperty = nameof(HasReadyToRunSections))]
+    public List<ReadyToRunSectionRow>? ReadyToRunSectionsSection =>
+        _data.ReadyToRunOverview?.Sections
+            .Select(ReadyToRunSectionRow.Create)
+            .ToList();
+
+    [MarkoutIgnore]
     public bool HasAsyncMethods => _data.AsyncMethodCount > 0;
 
     [MarkoutSection(Name = "Async Methods", ShowWhenProperty = nameof(HasAsyncMethods))]
@@ -1979,6 +2005,93 @@ public sealed class PerformanceGroupView
 
     [MarkoutSection(Name = "Performance")]
     public List<PerformanceGroupRow> Performance { get; }
+}
+
+[MarkoutSerializable]
+public sealed record ReadyToRunImageRow
+{
+    public required string Role { get; init; }
+    public required string Advertisements { get; init; }
+    public required string Version { get; init; }
+    public required string Flags { get; init; }
+
+    [MarkoutPropertyName("Header RVA")]
+    public required string HeaderRelativeVirtualAddress { get; init; }
+
+    [MarkoutPropertyName("Header Size")]
+    public required string HeaderSize { get; init; }
+
+    [MarkoutPropertyName("Managed Native Header")]
+    public required string ManagedNativeHeader { get; init; }
+
+    [MarkoutPropertyName("Export Header RVA")]
+    public required string ExportHeaderRelativeVirtualAddress { get; init; }
+
+    [MarkoutPropertyName("Manifest Metadata")]
+    public required string ManifestMetadata { get; init; }
+
+    public static ReadyToRunImageRow Create(ReadyToRunImageOverview overview)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+
+        return new ReadyToRunImageRow
+        {
+            Role = overview.Role.ToString(),
+            Advertisements = overview.Advertisements.ToString(),
+            Version = $"{overview.MajorVersion}.{overview.MinorVersion}",
+            Flags = $"0x{(uint)overview.Flags:X8} ({overview.Flags})",
+            HeaderRelativeVirtualAddress =
+                $"0x{overview.HeaderRelativeVirtualAddress:X8}",
+            HeaderSize = $"{overview.HeaderEncodedSize} bytes",
+            ManagedNativeHeader = overview.ManagedNativeHeaderDirectory is { } managed
+                ? $"0x{managed.RelativeVirtualAddress:X8}, {managed.Size} bytes"
+                : "absent",
+            ExportHeaderRelativeVirtualAddress =
+                overview.ExportHeaderRelativeVirtualAddress is { } export
+                    ? $"0x{export:X8}"
+                    : "absent",
+            ManifestMetadata = overview.ManifestMetadata switch
+            {
+                null => "absent",
+                { AliasesCliMetadataDirectory: true } manifest =>
+                    $"aliases CLI metadata at 0x{manifest.RelativeVirtualAddress:X8}, {manifest.Size} bytes",
+                var manifest =>
+                    $"separate at 0x{manifest.RelativeVirtualAddress:X8}, {manifest.Size} bytes",
+            },
+        };
+    }
+}
+
+[MarkoutSerializable]
+public sealed record ReadyToRunSectionRow
+{
+    public required string Type { get; init; }
+
+    [MarkoutPropertyName("Type ID")]
+    public required string TypeId { get; init; }
+
+    [MarkoutPropertyName("RVA")]
+    public required string RelativeVirtualAddress { get; init; }
+
+    public required int Size { get; init; }
+
+    [MarkoutPropertyName("Aliases CLI Metadata")]
+    [MarkoutBoolFormat("Yes", "No")]
+    public required bool AliasesCliMetadataDirectory { get; init; }
+
+    public static ReadyToRunSectionRow Create(ReadyToRunSectionSummary section)
+        => new()
+        {
+            Type = Enum.IsDefined(section.Type)
+                ? section.Type.ToString()
+                : "Unknown",
+            TypeId = $"0x{(uint)section.Type:X8}",
+            RelativeVirtualAddress =
+                $"0x{section.RelativeVirtualAddress:X8}",
+            Size = section.Size,
+            AliasesCliMetadataDirectory =
+                section.AliasesCliMetadataDirectory,
+        };
 }
 
 [MarkoutSerializable]

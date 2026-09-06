@@ -66,6 +66,7 @@ public class LibraryCommand
     internal static readonly HostQueryDemand[] DiscoveryQueries =
     [
         new("discovery catalog", MetadataImageQuery.Definition),
+        new("ReadyToRun applicability", ReadyToRunImageQuery.Definition),
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
@@ -278,6 +279,12 @@ public class LibraryCommand
                 IncludeSections = selectResult.Sections,
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
+        }
+
+        if (MetadataRootSelectionError(options) is { } metadataRootError)
+        {
+            CommandError.Write(metadataRootError);
+            return 1;
         }
 
         if (options.Discover is null || fullEffectiveDiscovery)
@@ -533,7 +540,8 @@ public class LibraryCommand
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
             && !HasILOffsetCoordinate(options)
-            && !HasHeapCoordinate(options);
+            && !HasHeapCoordinate(options)
+            && options.MetadataRoot == MetadataRootKind.Cli;
 
         if (trace is not null)
             trace.Verbosity = new InertString(TextPolicy.Field, options.Verbosity.ToString());
@@ -741,6 +749,8 @@ public class LibraryCommand
                 {
                     return 1;
                 }
+                if (RejectMissingMetadataRoot(inspection))
+                    return 1;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, subject, null, null, isPlatformAssembly: true,
@@ -922,6 +932,11 @@ public class LibraryCommand
                         options))
                 {
                     return 1;
+                }
+                foreach (var inspected in inspections)
+                {
+                    if (RejectMissingMetadataRoot(inspected))
+                        return 1;
                 }
 
                 bool identifierAuditIncomplete =
@@ -1105,6 +1120,8 @@ public class LibraryCommand
                 {
                     return 1;
                 }
+                if (RejectMissingMetadataRoot(inspection))
+                    return 1;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, subject, null, null, isPlatformAssembly: false,
@@ -1734,6 +1751,41 @@ public class LibraryCommand
     private static bool HasHeapCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.HeapParameter);
 
+    private static string? MetadataRootSelectionError(LibraryOptions options)
+    {
+        if (options.MetadataRoot == MetadataRootKind.Cli)
+            return null;
+
+        if (options.Discover is not null && !options.Effective)
+        {
+            return "--metadata-root requires --effective with -D because "
+                + "structural discovery does not inspect an image.";
+        }
+
+        if (options.IncludeSections?.Any(
+                MetadataSectionNames.IsMetadataSection) == true)
+        {
+            return null;
+        }
+
+        return "--metadata-root requires -S @Metadata or a Metadata: section.";
+    }
+
+    private static bool RejectMissingMetadataRoot(LibraryInspection inspection)
+    {
+        if (inspection.MetadataImageResult
+            is not MetadataImageResult.MissingRoot missing)
+        {
+            return false;
+        }
+
+        string name = missing.Root == MetadataRootKind.ReadyToRunManifest
+            ? "ReadyToRun manifest"
+            : missing.Root.ToString();
+        CommandError.Write($"{name} metadata root is absent.");
+        return true;
+    }
+
     private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
     {
         if (options.Discover != null)
@@ -1885,8 +1937,15 @@ public class LibraryCommand
         MetadataValue? value;
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            value = session.MetadataHeapValue(heap, address);
+            if (inspection.MetadataRoot is { } root)
+            {
+                value = root.HeapValue(heap, address);
+            }
+            else
+            {
+                using var session = AssemblyInspectionSession.Open(path);
+                value = session.MetadataHeapValue(heap, address);
+            }
         }
         catch (Exception ex)
         {

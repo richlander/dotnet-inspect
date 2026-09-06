@@ -307,6 +307,10 @@ public static class InspectionCommandDefinitions
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
         var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
         var heapOption = new Option<string?>("--heap") { Description = "Metadata heap coordinate for the coordinate-scoped heap section (e.g., #Strings:0x1a4)" };
+        var metadataRootOption = new Option<string?>("--metadata-root")
+        {
+            Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
+        };
         var extractResourcesOption = new Option<string?>("--extract-resources")
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
@@ -325,6 +329,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(ilOffsetOption);
         assemblyCommand.Options.Add(ilOffsetsOption);
         assemblyCommand.Options.Add(heapOption);
+        assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -465,6 +470,27 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], .. targets];
             }
 
+            string? metadataRootText = parseResult.GetValue(metadataRootOption);
+            MetadataRootKind metadataRoot;
+            if (string.IsNullOrWhiteSpace(metadataRootText)
+                || metadataRootText.Equals("cli", StringComparison.OrdinalIgnoreCase))
+            {
+                metadataRoot = MetadataRootKind.Cli;
+            }
+            else if (metadataRootText.Equals(
+                "r2r-manifest",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                metadataRoot = MetadataRootKind.ReadyToRunManifest;
+            }
+            else
+            {
+                CommandError.Write(
+                    $"invalid --metadata-root value '{metadataRootText}': "
+                    + "expected cli or r2r-manifest.");
+                return 1;
+            }
+
             var options = new LibraryOptions
             {
                 AssemblyName = assemblyPath,
@@ -482,6 +508,7 @@ public static class InspectionCommandDefinitions
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
                 HeapParameter = parseResult.GetValue(heapOption),
+                MetadataRoot = metadataRoot,
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,

@@ -215,16 +215,21 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
 ```
 
-### Raw metadata
+### ReadyToRun and raw metadata
 
-Metadata sections are opt-in only. Use `@Metadata` to discover or render decoded
-table rows, and `--heap` for one exact heap address.
+ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
+validated image header and section directory. Use `@Metadata` to discover or
+render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
+the ReadyToRun manifest metadata instead of the default CLI root, and `--heap`
+for one exact heap address in the selected root.
 
 ```bash
+dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll --heap "#Strings:0x1a4"
+dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
 
 ## Output and querying

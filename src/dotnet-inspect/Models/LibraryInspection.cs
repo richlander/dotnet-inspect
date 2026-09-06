@@ -734,6 +734,16 @@ public class LibraryInspection
             : null;
 
     /// <summary>
+    /// Captured PE/RVA metadata root used by the lens. Null for source-less
+    /// COFF metadata and when the metadata query did not produce a root.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataRootInspection? MetadataRoot =>
+        MetadataImageResult is MetadataImageResult.Available available
+            ? available.Root
+            : null;
+
+    /// <summary>
     /// The path the metadata lens re-opens to project rows at render time. Captured from the
     /// query adapter rather than recovered from <see cref="FileName"/>, which is a display name and
     /// not always a resolvable path (extracted package assemblies resolve elsewhere).
@@ -750,6 +760,26 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore]
     public MetadataHeapLookup? MetadataHeap { get; set; }
+
+    /// <summary>Typed ReadyToRun query result backing the explicit R2R lens.</summary>
+    [JsonIgnore]
+    public ReadyToRunImageResult? ReadyToRunImageResult
+    {
+        get;
+        set
+        {
+            field = value;
+            _inspectionFailuresInitialized = false;
+            _inspectionFailures = null;
+        }
+    }
+
+    /// <summary>The validated ReadyToRun overview, or null when unavailable.</summary>
+    [JsonIgnore]
+    public ReadyToRunImageOverview? ReadyToRunOverview =>
+        ReadyToRunImageResult is ReadyToRunImageResult.Available available
+            ? available.Overview
+            : null;
 
     [JsonIgnore]
     public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection =>
@@ -891,6 +921,13 @@ public class LibraryInspection
                     MetadataSectionNames.Image,
                     MetadataImageQuery.Definition.Name,
                     metadataFailure.Error.Message));
+            }
+            if (ReadyToRunImageResult is ReadyToRunImageResult.Failed readyToRunFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    ReadyToRunSectionNames.Image,
+                    ReadyToRunImageQuery.Definition.Name,
+                    readyToRunFailure.Error.Message));
             }
             if (SourceAvailabilityQueryResult is SourceAvailabilityResult.Failed availabilityFailure)
             {

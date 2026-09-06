@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 using DotnetInspector.Sections;
@@ -20,6 +23,335 @@ namespace DotnetInspector.Tests;
 public partial class CommandExecutionTests
 {
     private const string MetadataHeadingPrefix = "## " + MetadataSectionNames.Prefix;
+    private const string ReadyToRunHeadingPrefix = "## " + ReadyToRunSectionNames.Prefix;
+
+    [Fact]
+    public void ReadyToRunLens_RegistersBothSectionsUnderOneDoor()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.True(categories.TryGetValue(
+            SectionCategoryNames.ReadyToRun,
+            out var members));
+        Assert.Equal(
+            ReadyToRunSectionNames.All,
+            members);
+        Assert.All(
+            ReadyToRunSectionNames.All,
+            section => Assert.Contains(
+                section,
+                pipeline.AllSectionNames));
+    }
+
+    [Theory]
+    [InlineData("-v:q")]
+    [InlineData("-v:m")]
+    [InlineData("-v:n")]
+    [InlineData("-v:d")]
+    public async Task ReadyToRunLens_NoVerbosity_RendersAnySection(
+        string verbosity)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            verbosity,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            ReadyToRunHeadingPrefix,
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadyToRunLens_Category_RendersImageAndSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-S",
+            SectionCategoryNames.ReadyToRun,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(ReadyToRunSectionNames.Image, output, StringComparison.Ordinal);
+        Assert.Contains(ReadyToRunSectionNames.Sections, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadyToRunLens_EffectiveDiscovery_ListsImageAndSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-D",
+            SectionCategoryNames.ReadyToRun,
+            "--effective",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] names = DiscoveryNames(output);
+        Assert.Contains(ReadyToRunSectionNames.Image, names);
+        Assert.Contains(ReadyToRunSectionNames.Sections, names);
+    }
+
+    [Fact]
+    public async Task ReadyToRunLens_Image_PreservesHeaderAndManifestFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-S",
+            ReadyToRunSectionNames.Image,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            $"## {ReadyToRunSectionNames.Image}",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("| Role |", output, StringComparison.Ordinal);
+        Assert.Contains("ManagedNativeHeader", output, StringComparison.Ordinal);
+        Assert.Contains("separate at 0x", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadyToRunLens_MalformedAdvertisedHeader_FailsVisibly()
+    {
+        string path = WriteMutatedCoreLib(static (image, pe) =>
+        {
+            int headerRva = pe.PEHeaders.CorHeader!.ManagedNativeHeaderDirectory
+                .RelativeVirtualAddress;
+            int headerOffset = FileOffset(pe, headerRva);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(headerOffset + 12, sizeof(uint)),
+                uint.MaxValue);
+        });
+
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                ReadyToRunSectionNames.Image,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("ReadyToRun image", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task MetadataLens_ManifestRoot_ReportsProvenance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "--metadata-root",
+            "r2r-manifest",
+            "-S",
+            MetadataSectionNames.Image,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| Requested root | ReadyToRun manifest |",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Canonical root | ReadyToRun manifest |",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Manifest relationship | separate root |",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MetadataLens_ManifestRoot_ProjectsSelectedRootTables()
+    {
+        string path = typeof(object).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+        MetadataImageOverview cli = session.MetadataRoot()!.Image();
+        MetadataImageOverview manifest = session.MetadataRoot(
+            MetadataRootKind.ReadyToRunManifest)!.Image();
+        var cliCounts = cli.Tables.ToDictionary(
+            static table => table.Index,
+            static table => table.RowCount);
+        var selected = MetadataTableProjector.ProjectedTables.First(
+            table => manifest.Tables.Any(
+                summary => summary.Index == table
+                    && summary.RowCount > 0
+                    && summary.RowCount != cliCounts.GetValueOrDefault(table)));
+        int expected = manifest.Tables.Single(
+            table => table.Index == selected).RowCount;
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            path,
+            "--metadata-root",
+            "r2r-manifest",
+            "-S",
+            MetadataSectionNames.ForTable(selected),
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected.ToString(), output.Trim());
+    }
+
+    [Fact]
+    public async Task MetadataLens_ManifestRoot_ResolvesHeapCoordinatesWithinSelectedRoot()
+    {
+        string path = typeof(object).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+        MetadataRootInspection manifest = session.MetadataRoot(
+            MetadataRootKind.ReadyToRunManifest)!;
+        MetadataHeapEntry entry = manifest.HeapEntries(HeapKind.String)
+            .Entries
+            .First(static entry =>
+                entry.Offset > 1
+                && entry.Value is MetadataValue.HeapReference
+                {
+                    Text: not null,
+                });
+        MetadataValue.HeapReference value =
+            Assert.IsType<MetadataValue.HeapReference>(entry.Value);
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            path,
+            "--metadata-root",
+            "r2r-manifest",
+            "--heap",
+            $"#Strings:{entry.Offset}",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            value.Text!.Value.ToString(),
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MetadataLens_MissingManifestRoot_FailsWithoutCliFallback()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--metadata-root",
+            "r2r-manifest",
+            "-S",
+            MetadataSectionNames.Image,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "ReadyToRun manifest metadata root is absent.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MetadataLens_MalformedManifestRoot_FailsWithoutCliFallback()
+    {
+        string path = WriteMutatedCoreLib(static (image, pe) =>
+        {
+            ReadyToRunSectionSummary manifest =
+                ReadyToRunImageInspector.Describe(pe)!.ManifestMetadata!;
+            int manifestOffset = FileOffset(pe, manifest.RelativeVirtualAddress);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(manifestOffset, sizeof(uint)),
+                0);
+        });
+
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "library",
+                path,
+                "--metadata-root",
+                "r2r-manifest",
+                "-S",
+                MetadataSectionNames.Image,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Metadata image", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task MetadataRoot_RequiresMetadataSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "--metadata-root",
+            "r2r-manifest",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--metadata-root requires -S @Metadata",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MetadataRoot_RejectsUnknownName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--metadata-root",
+            "manifest",
+            "-S",
+            MetadataSectionNames.Image,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "expected cli or r2r-manifest",
+            error,
+            StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// The registered section set is derived from
@@ -1182,4 +1514,27 @@ public partial class CommandExecutionTests
         .Select(l => l.TrimEnd('\r').Split('\t')[0])
         .Where(n => !n.Equals("name", StringComparison.Ordinal))
         .ToArray();
+
+    private static string WriteMutatedCoreLib(Action<byte[], PEReader> mutate)
+    {
+        byte[] image = File.ReadAllBytes(typeof(object).Assembly.Location);
+        using (var pe = new PEReader(new MemoryStream(image, writable: false)))
+            mutate(image, pe);
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-r2r-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        return path;
+    }
+
+    private static int FileOffset(PEReader pe, int relativeVirtualAddress)
+    {
+        int sectionIndex = pe.PEHeaders.GetContainingSectionIndex(
+            relativeVirtualAddress);
+        SectionHeader section = pe.PEHeaders.SectionHeaders[sectionIndex];
+        return section.PointerToRawData
+            + relativeVirtualAddress
+            - section.VirtualAddress;
+    }
 }

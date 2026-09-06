@@ -163,6 +163,7 @@ internal static class LibraryMetadataService
                         Logger = logger,
                         MetadataContext = pdbContext,
                         SourceLinkContext = sourceLinkQueryContext,
+                        MetadataRoot = options.MetadataRoot,
                         BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
                         Trace = trace,
                     };
@@ -299,6 +300,7 @@ internal static class LibraryMetadataService
                     Logger = logger,
                     MetadataContext = pdbContext,
                     SourceLinkContext = sourceLinkQueryContext,
+                    MetadataRoot = options.MetadataRoot,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
                     Trace = trace,
                 };
@@ -2144,6 +2146,18 @@ internal static class LibraryMetadataService
             {
                 logger.LogWarning(
                     $"Error reading metadata image of {path}: {failed.Error.Message}");
+            }
+        }
+
+        if (results.TryGet(
+                ReadyToRunImageQuery.Definition,
+                out ReadyToRunImageResult? readyToRun))
+        {
+            inspection.ReadyToRunImageResult = readyToRun;
+            if (readyToRun is ReadyToRunImageResult.Failed failed)
+            {
+                logger.LogWarning(
+                    $"Error reading ReadyToRun image of {path}: {failed.Error.Message}");
             }
         }
 

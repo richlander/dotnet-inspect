@@ -93,4 +93,10 @@ public static class SectionCategoryNames
     /// view -- that is <see cref="SectionEntry{TModel}.ExplicitOnly"/>.
     /// </summary>
     public const string Metadata = "@Metadata";
+
+    /// <summary>
+    /// Validated ReadyToRun image and section-directory facts. Members are
+    /// explicit-only and remain outside the ordinary library view.
+    /// </summary>
+    public const string ReadyToRun = "@ReadyToRun";
 }
