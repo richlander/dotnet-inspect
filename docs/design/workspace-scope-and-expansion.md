@@ -1029,7 +1029,9 @@ The landed [Package Dependency Evidence
 Query](package-dependency-evidence.md) supplies canonical package identity and
 version-constraint declarations but deliberately does not claim a resolved
 dependency version for package manifests. That result is not directly a
-submit-ready expansion batch. [#5765](https://github.com/richlander/dotnet-inspect/issues/5765)
+submit-ready expansion batch.
+[Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
+tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
 owns the focused host-neutral composition from eligible declaration evidence
 through package-source authorization and version-constraint resolution to an
 owner-issued exact acquisition candidate. Until that adapter lands, a

@@ -122,7 +122,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
-  query results. Its proposed, design-locked but not yet implemented
+  query results. Its
+  [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md)
+  query composes normalized declarations with package-owned source
+  authorization and candidate evidence while leaving traversal and Workspace
+  policy to their owners. Its proposed, design-locked but not yet implemented
   [Package Query assembly-pattern
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
