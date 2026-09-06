@@ -333,6 +333,125 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
 });
 
+test("Libraries navigation exposes the complete truncated name on hover", async ({ page }) => {
+  const longLibrary = {
+    ...core,
+    name: "Example.Serialization.Providers.With.A.Very.Long.Library.Name",
+  };
+  await installFacades(page, {
+    ...surface,
+    assemblies: [longLibrary, other, empty],
+    types: [type("Example.Widget", longLibrary), type("Example.Neighbor", other)],
+  });
+  await page.goto(root);
+  const row = page.locator('.library-subject-list [data-lib-scope="asset:core"]');
+  await expect(row).toBeVisible();
+  const name = row.locator(".type-name");
+  await expect(name).toHaveText(longLibrary.name);
+  expect(await name.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  const location = page.url();
+  await row.hover();
+  await expect(row).toHaveAttribute("title", `Inspect ${longLibrary.name}`);
+  await expect(page.locator('.library-list [data-lib-scope="asset:core"]'))
+    .toHaveAttribute("title", `Inspect ${longLibrary.name}`);
+  await expect(page).toHaveURL(location);
+});
+
+for (const [width, selectedLibrary, activation] of [
+  [900, core, "click"],
+  [480, core, "keyboard"],
+  [900, empty, "keyboard"],
+  [480, empty, "click"],
+] as const) {
+  test(`Library back returns ${selectedLibrary.name} to Package at ${width}px with ${activation}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await page.goto(root);
+    await page.locator(`.library-list [data-lib-scope="${selectedLibrary.id}"]`).click();
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    const libraryLocation = page.url();
+    if (width === 480) {
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+    }
+    const back = page.locator(".type-browser .nav-back-row");
+    await expect(back).toHaveAccessibleName(`${selectedLibrary.name}: Back to package`);
+    if (activation === "click") {
+      await back.click();
+    } else {
+      await back.focus();
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
+    await expect(page.locator(width === 480
+      ? "#content-navigation-toggle" : ".library-subject-list")).toBeFocused();
+    const packageLocation = page.url();
+    expect(packageLocation).not.toBe(libraryLocation);
+
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+    await expect(page).toHaveURL(libraryLocation);
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel h1")).toHaveText(selectedLibrary.name);
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(selectedLibrary.publicTypes);
+    await expect(page.locator(".type-browser .nav-back-row")).toHaveAttribute("title", "Back to package");
+
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+    await expect(page).toHaveURL(packageLocation);
+    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await page.reload();
+    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
+  });
+}
+
+for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) {
+  test(`Type back reveals its Library inspector at ${width}px with ${activation}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await page.goto(root);
+    await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
+    const libraryLocation = page.url();
+    if (width === 480) {
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+    }
+    await page.locator('#type-list [data-type]').click();
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    const typeLocation = page.url();
+    if (width === 480) {
+      await page.getByRole("button", { name: "Types", exact: true }).click();
+    }
+    const back = page.locator(".type-browser .nav-back-row");
+    await expect(back).toHaveAttribute("title", "Back to library");
+    await expect(back).toHaveAccessibleName("Example.Other: Back to library");
+    if (activation === "click") {
+      await back.click();
+    } else {
+      await back.focus();
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
+    await expect(page.locator(width === 480
+      ? "#content-navigation-toggle" : "#type-list")).toBeFocused();
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+    await expect(page.locator("#type-list")).toContainText("Neighbor");
+    await expect(page.locator("#type-list")).not.toContainText("Widget");
+    await expect(page).toHaveURL(libraryLocation);
+
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+    await expect(page).toHaveURL(typeLocation);
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+    await expect(page).toHaveURL(libraryLocation);
+    await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+  });
+}
+
 for (const width of [1440, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
