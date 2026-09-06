@@ -536,6 +536,35 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void VersionFeed_JsonPreservesBooleanListedProperty()
+    {
+        PackageVersionSourceInfo[] versions =
+        [
+            new("2.0.0", "local", Listed: true),
+            new("1.0.0", "nuget.org", Listed: false),
+        ];
+        var output = new StringWriter { NewLine = "\n" };
+
+        OutputFormatter.WriteVersionFeedTable(
+            versions,
+            new InspectionOptions { JsonOutput = true },
+            output);
+
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(versions.Length, rows.Length);
+        for (int i = 0; i < rows.Length; i++)
+        {
+            Assert.Equal(
+                ["version", "feed", "listed"],
+                rows[i].EnumerateObject().Select(property => property.Name));
+            Assert.Equal(versions[i].Version, rows[i].GetProperty("version").GetString());
+            Assert.Equal(versions[i].Feed, rows[i].GetProperty("feed").GetString());
+            Assert.Equal(versions[i].Listed, rows[i].GetProperty("listed").GetBoolean());
+        }
+    }
+
+    [Fact]
     public void VersionListings_JsonUsesTheJsonlRowShape()
     {
         PackageVersionInfo[] versions =

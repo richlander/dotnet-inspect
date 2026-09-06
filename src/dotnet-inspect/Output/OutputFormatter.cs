@@ -277,7 +277,7 @@ public static class OutputFormatter
                     v => new VersionFeedJson(
                         v.Version,
                         v.Feed,
-                        v.Listed ? "listed" : "unlisted"))
+                        v.Listed))
                 .ToList();
             output.WriteLine(JsonSerializer.Serialize(objects, JsonContext.Default.ListVersionFeedJson));
             return;

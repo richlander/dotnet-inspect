@@ -191,9 +191,7 @@ public class PackageVersionTests
             {
                 Assert.True(row.TryGetProperty("version", out _));
                 Assert.True(row.TryGetProperty("feed", out _));
-                Assert.Equal(
-                    JsonValueKind.String,
-                    row.GetProperty("listing").ValueKind);
+                Assert.True(row.GetProperty("listed").GetBoolean());
             });
     }
 

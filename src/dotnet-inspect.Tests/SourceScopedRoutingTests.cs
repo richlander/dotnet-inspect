@@ -573,9 +573,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.False(
             string.IsNullOrWhiteSpace(
                 row.GetProperty("feed").GetString()));
-        Assert.Equal(
-            "listed",
-            row.GetProperty("listing").GetString());
+        Assert.True(row.GetProperty("listed").GetBoolean());
     }
 
     [Fact]
@@ -654,7 +652,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         if (selector == "--versions-with-feed")
         {
             Assert.False(string.IsNullOrWhiteSpace(row.GetProperty("feed").GetString()));
-            Assert.Equal("listed", row.GetProperty("listing").GetString());
+            Assert.True(row.GetProperty("listed").GetBoolean());
         }
     }
 

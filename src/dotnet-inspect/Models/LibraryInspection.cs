@@ -1537,7 +1537,7 @@ public sealed record VersionListingJson(string Version, string Listing);
 public sealed record VersionFeedJson(
     string Version,
     string Feed,
-    string Listing);
+    bool Listed);
 
 public sealed record LibraryIntegrationSignalJson(
     string Kind,

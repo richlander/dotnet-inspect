@@ -519,6 +519,10 @@ Rows and Count follow query resolution: raw and observed pinned results retain
 partial-source disclosure, while latest and range queries with insufficient
 evidence fail before row selection or projection.
 
+The adoption preserves feed document JSON's existing `version`, `feed`, and
+Boolean `listed` fields. The table/JSONL `listing` text remains a separate
+presentation, not a reason to change the typed document schema.
+
 ## Supported spellings and guidance
 
 Only spellings in [Grammar](#grammar) are part of this contract. L3 does not
@@ -602,6 +606,7 @@ The plural package-version adoption is enforced by:
 | --- | --- |
 | `Versions_WithLimit_RespectsLimit`, `Versions_BareShorthandAndTailSelectRows`, and `Versions_ModifierBeforeBareShorthandSelectsRows` | Explicit `-n`, implicit-route `-N`, and either modifier order for Head/Tail select complete version rows. |
 | `Versions_WithLimit_ProducesCompleteJsonRows` and `VersionsWithFeed_WithLimit_ProducesCompleteJsonRows` | JSON contains the selected complete row objects for merged and feed-attributed listings. |
+| `VersionFeed_JsonPreservesBooleanListedProperty` | Feed document JSON retains its established fields and Boolean listing values for both listed and unlisted rows. |
 | `VersionsWithFeed_LinesMakesRenderedClippingExplicit`, `Versions_LinesRejectsDocumentJsonBeforeAcquisition`, and `Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition` | Line intent opts into rendered-line selection where the format remains valid and rejects explicit or environment-selected document JSON before acquisition, including when Boolean-shaped input follows a line modifier. |
 | `Versions_ZeroArityFlagsPreserveFollowingPackageInput` | New plural selectors and line modifiers are zero-arity: following Boolean-shaped package input remains positional rather than disabling the flag. |
 | `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
