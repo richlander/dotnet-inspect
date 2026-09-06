@@ -5276,6 +5276,76 @@ public sealed class BrowserEngineBoundaryTests
         Assert.DoesNotContain(
             forwarded,
             target => target.Assembly == "System.Runtime");
+
+        BrowserCallGraphTarget destination = forwarded[0];
+        BrowserPackageSurface terminalSurface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.LoadRuntimePackAssembly(
+                        framework,
+                        $"{destination.Assembly}.dll",
+                        Assert.IsType<string>(destination.PlatformPack)),
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserTypeSurface terminalType = Assert.Single(
+            terminalSurface.Types,
+            type => type.DefinitionId == destination.TypeDefinitionId);
+        BrowserMemberSurface terminalMember = Assert.Single(
+            terminalType.Api,
+            member => member.GraphSelectorKey == destination.SelectorKey);
+        Assert.Equal(destination.MemberName, terminalMember.Name);
+        BrowserAssemblySurface terminalAssembly = Assert.Single(
+            terminalSurface.Assemblies,
+            assembly => assembly.Id == terminalType.AssemblyId);
+        Assert.Equal(destination.Assembly, terminalAssembly.Id);
+        Assert.Equal(destination.AssemblyVersion, terminalAssembly.Version);
+
+        BrowserPackageSurface facadeSurface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.LoadRuntimePackAssembly(
+                        framework,
+                        "System.Runtime.dll",
+                        "netcore.app"),
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserAssemblySurface facadeAssembly =
+            Assert.Single(facadeSurface.Assemblies);
+        Assert.Equal("System.Runtime", facadeAssembly.Id);
+
+        foreach (BrowserAssemblySurface origin
+            in new[] { terminalAssembly, facadeAssembly })
+        {
+            BrowserCallGraph continued =
+                Assert.IsType<BrowserCallGraph>(
+                    JsonSerializer.Deserialize(
+                        await CallGraphExports.ExpandPlatformCallGraph(
+                            framework,
+                            origin.Id,
+                            "netcore.app",
+                            origin.Version,
+                            origin.Culture,
+                            origin.PublicKeyToken,
+                            Assert.IsType<string>(destination.TypeDefinitionId),
+                            destination.MemberName,
+                            destination.SelectorKey,
+                            metadataToken: 0),
+                        BrowserCallGraphJsonContext.Default.BrowserCallGraph));
+
+            Assert.False(continued.NoBody);
+            BrowserCallGraphTarget focus = Assert.Single(
+                continued.Targets,
+                target => target.Kind == "focus");
+            Assert.Equal(destination.Assembly, focus.Assembly);
+            Assert.Equal(destination.AssemblyVersion, focus.AssemblyVersion);
+            Assert.Equal(destination.TypeDefinitionId, focus.TypeDefinitionId);
+            Assert.Equal(destination.SelectorKey, focus.SelectorKey);
+            Assert.Equal(destination.TypeFullName, continued.Callees.TypeFullName);
+            Assert.Equal(destination.MemberName, continued.Callees.MemberName);
+            Assert.NotEmpty(continued.Callees.Children);
+        }
+
+        Assert.Equal(2, console.Scope.Members.Length);
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(console.Scope));
     }
 
     // A package coordinate becomes a flat-container path segment and a cache key. Both halves are

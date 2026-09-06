@@ -56,6 +56,7 @@ public class SharedOptions
 
     // Discovery option
     public Option<string?> Discover { get; }
+    public Option<string?> QueryHelp { get; }
 
     // Projection options
     public Option<string?> Select { get; }
@@ -129,6 +130,13 @@ public class SharedOptions
             Arity = ArgumentArity.ZeroOrOne
         };
         Discover.Aliases.Add("--discover");
+
+        QueryHelp = new Option<string?>("-Q")
+        {
+            Description = "Discover query-capable sections, or the facets and operators of a section/category (no inspection)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        QueryHelp.Aliases.Add("--query-help");
 
         Select = new Option<string?>("-S")
         {
@@ -659,6 +667,12 @@ public class SharedOptions
     /// </summary>
     public string[]? ParseDiscover(ParseResult parseResult)
         => ParseProjectionList(parseResult, Discover);
+
+    public string[]? ParseQueryHelp(ParseResult parseResult)
+        => ParseProjectionList(parseResult, QueryHelp);
+
+    public bool IsQueryHelpMode(ParseResult parseResult)
+        => parseResult.GetResult(QueryHelp) is { Implicit: false };
 
     /// <summary>
     /// Parses columns list from parse result.

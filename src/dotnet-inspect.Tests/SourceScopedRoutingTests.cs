@@ -1584,8 +1584,16 @@ public sealed class SourceScopedRoutingTests : IDisposable
         ];
         var handlers = new List<NeverCompletesHandler>();
         const string SuccessFlat = "https://success.example/v3/flat2/";
+        // A 500ms request budget (2000ms operation ceiling, 4x per
+        // NuGetFetchOptions.FromRequestTimeout) leaves headroom for the two
+        // real request/response round trips (service index, then flat
+        // container) the first source's canned handler must complete before
+        // the deadline check runs. That check compares wall-clock elapsed
+        // time, not cancellation state, so a too-tight budget can time out
+        // an already-answered canned response under ordinary CI scheduling
+        // jitter alone -- see issue #6036.
         await using var composition = new DesktopPackageSourceComposition(
-            TimeSpan.FromMilliseconds(50),
+            TimeSpan.FromMilliseconds(500),
             new UnavailableCredentialSource(),
             (source, _) =>
             {
@@ -1657,8 +1665,13 @@ public sealed class SourceScopedRoutingTests : IDisposable
             : SuccessSource;
         if (localSuccess)
             WriteLocalPackage(successSource, "timeout-failover", "1.0.0");
+        // See the identical rationale in
+        // OperationContext_OperationTimeoutIsTerminalAcrossAuthorities
+        // (issue #6036): the surviving source's canned handler needs enough
+        // request budget to complete its round trips before a wall-clock
+        // deadline check can spuriously treat it as expired.
         await using var composition = new DesktopPackageSourceComposition(
-            TimeSpan.FromMilliseconds(50),
+            TimeSpan.FromMilliseconds(500),
             new UnavailableCredentialSource(),
             (source, _) => source.Url == TimedOutSource
                 ? new NeverCompletesHandler()
