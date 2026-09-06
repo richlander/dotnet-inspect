@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -552,11 +553,7 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal sealed class CallerBindingPolicy : IAssemblyBindingPolicy
     {
-        readonly Func<
-            ResolvedAssemblyReference,
-            IAssemblyBindingPolicy> _policyFactory;
-        readonly Action? _routeStateCaptured;
-        BindingPolicyState _state;
+        readonly SourceRelativeAssemblyGroupBindingPolicy _policy;
 
         internal CallerBindingPolicy(
             ResolvedAssemblyReference target,
@@ -565,8 +562,7 @@ internal sealed class ApiMemberAnalysisInspection
             : this(
                 target,
                 candidates,
-                CreatePolicyFactory(target, options),
-                routeStateCaptured: null)
+                CreatePolicyFactory(target, options))
         {
         }
 
@@ -575,69 +571,19 @@ internal sealed class ApiMemberAnalysisInspection
             IReadOnlyList<ResolvedAssemblyReference> candidates,
             Func<
                 ResolvedAssemblyReference,
-                IAssemblyBindingPolicy> policyFactory,
-            Action? routeStateCaptured = null)
+                IAssemblyBindingPolicy> policyFactory)
         {
             ArgumentNullException.ThrowIfNull(policyFactory);
-            _policyFactory = policyFactory;
-            _routeStateCaptured = routeStateCaptured;
-            var routes = ImmutableDictionary.CreateBuilder<
-                AssemblyAcquisitionRegistration,
-                Lazy<IAssemblyBindingPolicy>>(
-                    ReferenceEqualityComparer.Instance);
-            RegisterInitial(routes, target);
-            foreach (ResolvedAssemblyReference candidate in candidates)
-                RegisterInitial(routes, candidate);
-
-            ImmutableDictionary<
-                AssemblyAcquisitionRegistration,
-                Lazy<IAssemblyBindingPolicy>> initialRoutes =
-                    routes.ToImmutable();
-            _state = new BindingPolicyState(
-                new AssemblyBindingPolicyVersion(),
-                initialRoutes[target.Registration],
-                initialRoutes);
+            _policy = SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                candidates.Prepend(target)
+                    .DistinctBy(static assembly => assembly.Registration)
+                    .Select(assembly => (assembly, policyFactory(assembly))));
         }
 
-        public AssemblyBindingPolicyVersion Version =>
-            Volatile.Read(ref _state).Version;
+        public AssemblyBindingPolicyVersion Version => _policy.Version;
 
         public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request)
-        {
-            BindingPolicyState state = Volatile.Read(ref _state);
-            Lazy<IAssemblyBindingPolicy> policy = state.Default;
-            if (request.Origin
-                is AssemblyBindingOrigin.RequestingAssembly origin)
-            {
-                if (state.Routes.TryGetValue(
-                        origin.Registration,
-                        out Lazy<IAssemblyBindingPolicy>? originPolicy))
-                {
-                    policy = originPolicy;
-                }
-            }
-
-            AssemblyBindingSelectionSnapshot? snapshot =
-                policy.Value.Select(request);
-            AssemblyBindingSelection selection =
-                AssemblyBindingSelection.ValidateForRequest(
-                    request,
-                    snapshot?.Selection);
-            switch (selection)
-            {
-                case AssemblyBindingSelection.Selected selected:
-                    Register([selected.Assembly]);
-                    break;
-                case AssemblyBindingSelection.Ambiguous ambiguous:
-                    Register(ambiguous.Assemblies);
-                    break;
-            }
-
-            return new AssemblyBindingSelectionSnapshot(
-                state.Version,
-                selection);
-        }
+            AssemblyBindingRequest request) => _policy.Select(request);
 
         static Func<
             ResolvedAssemblyReference,
@@ -654,97 +600,6 @@ internal sealed class ApiMemberAnalysisInspection
                     ApiAnalysisInspection.CreateReferenceResolver(
                         assembly.Path ?? targetPath,
                         options));
-        }
-
-        void RegisterInitial(
-            ImmutableDictionary<
-                AssemblyAcquisitionRegistration,
-                Lazy<IAssemblyBindingPolicy>>.Builder routes,
-            ResolvedAssemblyReference assembly)
-        {
-            if (routes.ContainsKey(assembly.Registration))
-                return;
-
-            routes.Add(
-                assembly.Registration,
-                CreatePolicy(assembly));
-        }
-
-        Lazy<IAssemblyBindingPolicy> CreatePolicy(
-            ResolvedAssemblyReference assembly) =>
-            new(
-                () => _policyFactory(assembly),
-                LazyThreadSafetyMode.ExecutionAndPublication);
-
-        void Register(
-            IEnumerable<ResolvedAssemblyReference> assemblies)
-        {
-            while (true)
-            {
-                BindingPolicyState current = Volatile.Read(ref _state);
-                _routeStateCaptured?.Invoke();
-                ImmutableDictionary<
-                    AssemblyAcquisitionRegistration,
-                    Lazy<IAssemblyBindingPolicy>> routes = current.Routes;
-
-                bool changed = false;
-                foreach (ResolvedAssemblyReference assembly in assemblies)
-                {
-                    if (routes.ContainsKey(assembly.Registration))
-                        continue;
-
-                    routes = routes.Add(
-                        assembly.Registration,
-                        CreatePolicy(assembly));
-                    changed = true;
-                }
-
-                if (!changed)
-                    return;
-
-                BindingPolicyState replacement =
-                    current.WithLearnedRoutes(routes);
-                if (ReferenceEquals(
-                        Interlocked.CompareExchange(
-                            ref _state,
-                            replacement,
-                            current),
-                        current))
-                {
-                    return;
-                }
-            }
-        }
-
-        sealed class BindingPolicyState(
-            AssemblyBindingPolicyVersion version,
-            Lazy<IAssemblyBindingPolicy> defaultPolicy,
-            ImmutableDictionary<
-                AssemblyAcquisitionRegistration,
-                Lazy<IAssemblyBindingPolicy>> routes)
-        {
-            internal AssemblyBindingPolicyVersion Version { get; } =
-                version;
-            internal Lazy<IAssemblyBindingPolicy> Default { get; } =
-                defaultPolicy;
-            internal ImmutableDictionary<
-                AssemblyAcquisitionRegistration,
-                Lazy<IAssemblyBindingPolicy>> Routes
-            { get; } =
-                    routes;
-
-            internal BindingPolicyState WithLearnedRoutes(
-                ImmutableDictionary<
-                    AssemblyAcquisitionRegistration,
-                    Lazy<IAssemblyBindingPolicy>> learnedRoutes)
-            {
-                // Metadata cannot supersede and retry a changed generation
-                // until the atomic selection/version migration is complete.
-                return new BindingPolicyState(
-                    Version,
-                    Default,
-                    learnedRoutes);
-            }
         }
     }
 }

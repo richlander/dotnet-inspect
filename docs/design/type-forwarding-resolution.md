@@ -1342,6 +1342,43 @@ may have handled as incomplete evidence. The existing composite model supports
 the version transitions; these Release cases establish the Queries
 correspondence rather than claiming that the model proves the implementation.
 
+**CLI caller adoption (#5667).** `ApiMemberAnalysisInspection` supplies the
+target and caller participants with command-configured resolvers. Its
+`CallerBindingPolicy` is a transparent adapter over
+`SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly`; it no longer
+constructs resolvers or publishes routes for discovered assemblies. The shared
+Services implementation owns version capture, foreign-snapshot propagation, and
+continuation issuance for this path as well as the existing CLI/Browser
+assembly-group consumers.
+
+Routing-only composition deliberately leaves candidate selection and intrinsic
+binding to its delegates or the surrounding composite. Analysis's existing
+`ScopeFirstBindingPolicy` remains the caller-scope candidate-selection owner.
+Applying the Services group's canonical-candidate precedence inside that
+fallback would change the CLI's selection rules rather than merely adopt
+continuations. A selected configured participant still supplies its configured
+continuation; a transitive non-participant retains its selecting delegate's
+occurrence. Selecting a transitive dependency does not instantiate another
+resolver.
+
+This is one production-adoption and retirement step under #5274. Its concrete
+consumer is CLI `member -S Callers`, through `CallerScopeReachabilityPlan`.
+`CallerBindingContinuationTests.ProjectCallers_RetainTheSelectedProjectContext`
+uses a restored-assets forwarding chain and an unselected same-name DLL beside
+a dependency: that neighboring DLL must not hide the caller selected through
+the project's context. The same command without that neighbor is the adjacent
+ordinary case.
+
+`CallerBindingPolicyTests` gates distinct stable tokens, shared-dependency
+contexts, nested and canonical-participant continuations, invalid origins,
+foreign-snapshot propagation, state refresh, and null-result failure.
+`SourceRelativeAssemblyGroupBindingPolicyTests` also gates retirement when a
+delegate emits a foreign snapshot without changing its advertised version,
+for both group and routing-only composition. The existing composite-version
+and resolver-lineage models supply the bounded correspondence; these Release
+cases establish the implementation gates. Analysis's own fallback-snapshot
+adoption remains #5668; this step does not claim its completion or add retry.
+
 #### Resolver-lineage continuations
 
 > **Status: implemented, with CLI and Browser endpoint evidence.**

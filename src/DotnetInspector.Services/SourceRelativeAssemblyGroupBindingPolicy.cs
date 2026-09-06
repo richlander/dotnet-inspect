@@ -16,14 +16,36 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyAcquisitionRegistration,
         AssemblyRoute> _routes;
     readonly ImmutableArray<IAssemblyBindingPolicy> _delegates;
+    readonly bool _composeParticipantSelections;
     BindingPolicyState _state;
 
     public SourceRelativeAssemblyGroupBindingPolicy(
         IEnumerable<(
             ResolvedAssemblyReference Assembly,
             IAssemblyBindingPolicy Policy)> participants)
+        : this(participants, composeParticipantSelections: true)
+    {
+    }
+
+    /// <summary>
+    /// Routes through participant contexts without applying assembly-group
+    /// candidate precedence. Selection remains owned by the delegates or their
+    /// surrounding composite.
+    /// </summary>
+    public static SourceRelativeAssemblyGroupBindingPolicy CreateRoutingOnly(
+        IEnumerable<(
+            ResolvedAssemblyReference Assembly,
+            IAssemblyBindingPolicy Policy)> participants) =>
+        new(participants, composeParticipantSelections: false);
+
+    SourceRelativeAssemblyGroupBindingPolicy(
+        IEnumerable<(
+            ResolvedAssemblyReference Assembly,
+            IAssemblyBindingPolicy Policy)> participants,
+        bool composeParticipantSelections)
     {
         ArgumentNullException.ThrowIfNull(participants);
+        _composeParticipantSelections = composeParticipantSelections;
         var roots = ImmutableArray.CreateBuilder<
             ResolvedAssemblyReference>();
         var routes = ImmutableDictionary.CreateBuilder<
@@ -89,6 +111,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return AssemblyBindingSelection.Invalid(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.InvalidBindingOrigin));
+        }
+
+        if (!_composeParticipantSelections)
+        {
+            return IssueSelection(
+                state,
+                route,
+                SelectDelegate(state, route, request));
         }
 
         if (request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
@@ -166,21 +196,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             }
         }
 
-        AssemblyBindingSelectionSnapshot? snapshot =
-            route.Delegate.Policy.Select(route.DelegatedRequest);
-        if (snapshot is not null
-            && !ReferenceEquals(
-                route.Delegate.Version,
-                snapshot.Version))
-        {
-            _ = CurrentState();
-            throw new ForeignSnapshotException(snapshot);
-        }
-
         AssemblyBindingSelection selection =
-            AssemblyBindingSelection.ValidateForRequest(
-                request,
-                snapshot?.Selection);
+            SelectDelegate(state, route, request);
         if (reference is not null
             && pendingDesignated is not null)
         {
@@ -208,6 +225,30 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         return IssueSelection(state, route, selection);
+    }
+
+    AssemblyBindingSelection SelectDelegate(
+        BindingPolicyState state,
+        RoutedRequest route,
+        AssemblyBindingRequest request)
+    {
+        AssemblyBindingSelectionSnapshot? snapshot =
+            route.Delegate.Policy.Select(route.DelegatedRequest);
+        if (snapshot is not null
+            && !ReferenceEquals(
+                route.Delegate.Version,
+                snapshot.Version))
+        {
+            Interlocked.CompareExchange(
+                ref _state,
+                CreateState(),
+                state);
+            throw new ForeignSnapshotException(snapshot);
+        }
+
+        return AssemblyBindingSelection.ValidateForRequest(
+            request,
+            snapshot?.Selection);
     }
 
     static AssemblyBindingSelection ComposePendingDesignated(
