@@ -56,10 +56,10 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         {
             if (container.Blocks is [var block] && TryMatch(function, block, context.TypesProvablyDisjoint, out int startIndex, out var switchExpression))
             {
+                context.Stepper.StepOver("raise nested type-pattern dispatch to switch expression", block);
                 block.SetChild(startIndex, new Return(switchExpression!));
                 for (int i = block.Children.Count - 1; i > startIndex; i--)
                     block.Children[i].Detach();
-                context.Stepper.StepOver("raise nested type-pattern dispatch to switch expression", block);
             }
         }
     }
