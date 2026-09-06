@@ -173,6 +173,11 @@ substrates, and inspection producers that will extend that space.
   and typed Method Body Diff presentation. It consumes Queries comparison,
   existing member resolution, modal behavior, and operation lifetime without
   redefining those owners.
+- [Inspect Web Source-diff Transport](design/inspect-web-source-diff-transport.md)
+  owns the proposed member source-diff worker feature payload: admission,
+  complete typed encoding, and bounded browser decoding. It consumes Queries
+  endpoint evidence, shared Presentation, and existing worker/bridge lifetime
+  contracts; page placement and viewer interaction remain separate owners.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS
