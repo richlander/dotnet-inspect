@@ -141,8 +141,8 @@ async function installFacades(
         if (!selected) throw new Error("Unknown library: " + asset);
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], dependencyGroupError: null, assemblyReferenceError: null,
-          assemblyReferences: [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }],
+          dependencyGroups: [], dependencyGroupError: null,
+          assemblyReferences: { references: [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
         };
       }`,

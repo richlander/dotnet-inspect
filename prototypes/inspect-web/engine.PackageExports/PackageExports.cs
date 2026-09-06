@@ -128,8 +128,7 @@ public static partial class PackageExports
         };
 
         string? assembly = null;
-        BrowserAssemblyReference[] assemblyReferences = [];
-        string? assemblyReferenceError = null;
+        BrowserAssemblyReferenceResult assemblyReferences;
         if (coordinate.Selection.IsSelected)
         {
             PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
@@ -145,7 +144,7 @@ public static partial class PackageExports
             {
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceIdentity>>.Available available:
-                    assemblyReferences =
+                    BrowserAssemblyReference[] references =
                     [
                         .. available.Value
                             .Select(reference => reference.ToReference())
@@ -167,15 +166,16 @@ public static partial class PackageExports
                                 reference.Culture,
                                 reference.PublicKeyToken)),
                     ];
+                    assemblyReferences = new(new BrowserAssemblyReferenceList(references));
                     break;
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected:
-                    assemblyReferenceError =
-                        $"{rejected.Failure.Kind} ({rejected.Failure.Detail})";
+                    assemblyReferences = new(
+                        $"{rejected.Failure.Kind} ({rejected.Failure.Detail})");
                     break;
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceIdentity>>.Failed failed:
-                    assemblyReferenceError = failed.Error.Message;
+                    assemblyReferences = new(failed.Error.Message);
                     break;
                 default:
                     throw new InvalidOperationException(
@@ -184,7 +184,8 @@ public static partial class PackageExports
         }
         else
         {
-            assemblyReferenceError = compileLibrary.Message;
+            assemblyReferences = new(
+                compileLibrary.Message ?? "No compile library is available for this package.");
         }
 
         string? dependencyGroupError =
@@ -212,7 +213,6 @@ public static partial class PackageExports
                 ],
                 assemblyReferences,
                 dependencyGroupError,
-                assemblyReferenceError,
                 compileLibrary);
     }
 

@@ -1,4 +1,7 @@
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
+import type {
+  BrowserAssemblyReferenceResult,
+} from "./facades/inspect-web-package.d.ts";
 
 // DOM bindings for package-level navigation surfaces. The application root owns
 // package, filter, graph, and inspection state transitions behind these callbacks.
@@ -63,6 +66,34 @@ export function renderPackageNav(options: PackageNavOptions): string {
       </div>
       <footer class="pane-footer"><span>choose a library</span><span>↵ open</span></footer>
     </aside>`;
+}
+
+export function renderAssemblyReferences(
+  assemblyName: string | null,
+  result: BrowserAssemblyReferenceResult,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const assembly = assemblyName || "selected assembly";
+  if (result === null || typeof result === "string") {
+    const message = result === null
+      ? "The engine returned no assembly-reference result."
+      : result || "No failure details were provided.";
+    return `
+      <section class="document-section">
+        <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)}</span></div>
+        <div class="empty-list">Inspection failed: ${escapeHtml(message)}</div>
+      </section>`;
+  }
+
+  const references = result.references;
+  return `
+    <section class="document-section">
+      <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)} · ${references.length} direct reference${references.length === 1 ? "" : "s"}</span></div>
+      ${references.length
+        ? `<ul class="dep-list">${references.map(reference =>
+            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(`${reference.version} · ${reference.culture || "neutral"} · ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`).join("")}</ul>`
+        : `<div class="empty-list">This assembly declares no direct AssemblyRef rows.</div>`}
+    </section>`;
 }
 
 export function bindPackageDependencyList(

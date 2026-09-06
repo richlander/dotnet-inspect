@@ -364,10 +364,14 @@ public sealed record BrowserPackageDependencies(
     string ActiveFramework,
     string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
-    BrowserAssemblyReference[] AssemblyReferences,
+    BrowserAssemblyReferenceResult AssemblyReferences,
     string? DependencyGroupError,
-    string? AssemblyReferenceError,
     BrowserCompileLibraryAvailability CompileLibrary);
+
+public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
+
+public sealed record BrowserAssemblyReferenceList(
+    BrowserAssemblyReference[] References);
 
 public sealed record BrowserPackageDependencyGroup(
     int Index,

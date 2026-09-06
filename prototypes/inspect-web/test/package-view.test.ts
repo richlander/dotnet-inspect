@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   bindPackageDependencyList,
   bindPackageView,
+  renderAssemblyReferences,
   renderPackageNav,
 } from "../src/package-view.ts";
 import type {
@@ -214,3 +215,46 @@ test("empty package navigation retains its detail-return action", () => {
   assert.match(html, /No managed libraries were selected/);
   assert.match(html, /id="content-navigation-close"/);
 });
+
+test("assembly references render the completed generated list case", () => {
+  const html = renderAssemblyReferences(
+    "Example.dll",
+    { references: [
+      { name: "First", version: "1.0.0.0", culture: null, publicKeyToken: null },
+      { name: "Second", version: "2.0.0.0", culture: "en", publicKeyToken: "abcd" },
+    ] },
+    value => String(value));
+
+  assert.match(html, /Example\.dll · 2 direct references/);
+  assert.match(html, /1\.0\.0\.0 · neutral · unsigned/);
+  assert.match(html, /2\.0\.0\.0 · en · pkt abcd/);
+  assert.ok(html.indexOf("First") < html.indexOf("Second"));
+  assert.doesNotMatch(html, /Inspection failed/);
+});
+
+test("an available empty reference list remains a completed success", () => {
+  const html = renderAssemblyReferences(
+    "Empty.dll", { references: [] }, value => String(value));
+
+  assert.match(html, /0 direct references/);
+  assert.match(html, /This assembly declares no direct AssemblyRef rows/);
+  assert.doesNotMatch(html, /Inspection failed|loader|Loading/);
+});
+
+for (const [result, message] of [
+  ["Inspection could not complete.", "Inspection could not complete."],
+  ["", "No failure details were provided."],
+  [null, "The engine returned no assembly-reference result."],
+] as const) {
+  test(`reference result ${JSON.stringify(result)} renders a settled failure`, () => {
+    const escaped: string[] = [];
+    const html = renderAssemblyReferences(null, result, value => {
+      escaped.push(String(value));
+      return String(value);
+    });
+
+    assert.ok(html.includes(`Inspection failed: ${message}`));
+    assert.deepEqual(escaped, ["selected assembly", message]);
+    assert.doesNotMatch(html, /declares no direct|loader|Loading/);
+  });
+}

@@ -144,6 +144,7 @@ import {
 import {
   bindPackageDependencyList,
   bindPackageView,
+  renderAssemblyReferences,
   renderPackageNav,
   type PackageViewBindingActions,
 } from "./package-view.ts";
@@ -4374,24 +4375,8 @@ function renderLibraryReferences() {
 }
 
 function assemblyReferencesSectionHtml(data: BrowserPackageDependencies) {
-  const references = data.assemblyReferences || [];
-  const assembly = data.assembly || "selected assembly";
-  if (data.assemblyReferenceError) {
-    return `
-      <section class="document-section">
-        <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)}</span></div>
-        <div class="empty-list">Inspection failed: ${escapeHtml(data.assemblyReferenceError)}</div>
-      </section>`;
-  }
-
-  return `
-    <section class="document-section">
-      <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)} · ${references.length} direct reference${references.length === 1 ? "" : "s"}</span></div>
-      ${references.length
-        ? `<ul class="dep-list">${references.map(reference =>
-            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(`${reference.version} · ${reference.culture || "neutral"} · ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`).join("")}</ul>`
-        : `<div class="empty-list">This assembly declares no direct AssemblyRef rows.</div>`}
-    </section>`;
+  return renderAssemblyReferences(
+    data.assembly, data.assemblyReferences, escapeHtml);
 }
 
 function uniqueCompatiblePackage(
