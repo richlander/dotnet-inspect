@@ -464,6 +464,7 @@ public class ILDisassemblerTests
     /// the decoder handles all real-world IL patterns without crashing.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Disassemble_AllMethodsInProjectAssemblies_NoCrashes()
     {
         var testDir = Path.GetDirectoryName(typeof(ILDisassemblerTests).Assembly.Location)!;
@@ -530,6 +531,7 @@ public class ILDisassemblerTests
     /// constrained, readonly, unaligned, localloc, cpblk, initblk, etc.
     /// </summary>
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData("System.Private.CoreLib")]
     [InlineData("System.Collections")]
     [InlineData("System.Linq")]

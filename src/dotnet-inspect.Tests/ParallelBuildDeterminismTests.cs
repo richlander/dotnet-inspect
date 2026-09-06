@@ -29,6 +29,7 @@ public class ParallelBuildDeterminismTests
     });
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ParallelBuild_IsOrderStable_AcrossRepeatedOpens()
     {
         var reference = Signature(Analysis.LibraryBodyIndex.Open(LargeAssemblyPath));

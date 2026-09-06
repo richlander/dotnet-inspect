@@ -1130,6 +1130,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task PackageCommand_IdentifierMetadataFailureIsScopedToIdentifierConsumers()
     {
         string packageId =
