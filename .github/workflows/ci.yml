@@ -684,6 +684,9 @@ jobs:
       - name: Run source-selection public contract tests
         run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
 
+      - name: Run source-delegation public contract tests
+        run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
+
       - name: Run section-row tests
         run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
@@ -727,7 +730,15 @@ jobs:
       # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;
       # the full suite (including those) runs in Deep Inspect. Mark any
       # new Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
+      #
+      # Path-gated on the same `decompilerGates` selection as the separate,
+      # heavier decompiler-gates job: both are driven by the
+      # ILInspector.Decompiler.Tests project-reference closure, so a PR that
+      # cannot affect that project skips this ~8 minute step. A PR that does
+      # touch it still gets both the fast unit tests here and the slow
+      # pre-merge gate preset in decompiler-gates.
       - name: Run decompiler unit tests (fast)
+        if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run analysis tests (fast)

@@ -9,6 +9,7 @@ import type {
 } from "./metadata-viewer.ts";
 
 export interface AppExplorerState extends ExplorerState {
+  assemblyId: string;
   isPlatform: boolean;
   pack: string | null;
   packageId: string;

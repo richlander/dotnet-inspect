@@ -2452,9 +2452,17 @@ Integrations path when the command resolves one default or explicit target frame
 the binding's frozen surface role exactly covers the command's visible library
 selection.
 After the existing desktop extraction resolves the exact package and version,
-the CLI reacquires that immutable payload through the authorized
-`FileSystemPackageStore`, creates its `PackageRootBinding`, and realizes the
-binding in an asynchronous `InspectionWorkspace`. The host maps the existing
+the CLI consumes its retained acquisition-issued payload when available.
+Authority-backed pinned extraction carries that admitted payload through
+caller-owned extraction cleanup; it must not be reacquired by treating producer
+identity as source authority. Older extraction results without a configured
+authority reacquire the same immutable payload through the authorized
+`FileSystemPackageStore`. The CLI creates the `PackageRootBinding` from the
+acquisition result and realizes it in an asynchronous `InspectionWorkspace`.
+`PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload` gates the
+configured HTTP and local-source handoff through the real command, including
+one HTTP payload acquisition and no local-source HTTP transport.
+The host maps the existing
 surface-library selection to its exact body-bearing implementation participant
 when correspondence exists. The selected surface descriptor remains the input
 to ordinary library inspection while only the Integration query runs against
