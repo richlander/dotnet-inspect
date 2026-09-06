@@ -7,8 +7,9 @@ This is the Queries-owned target design for
 rank 5 and delivery step 6 of
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706).
 The physical-pair adapter is implemented by `DirectMemberComparisonQuery` and
-consumed by CLI `match --body`. Workspace forwarding selection, Browser and
-comparison-tool adoption, and broader retirement remain separate work.
+consumed by CLI `match --body` (#5967) and Browser Method Body Diff (#5990).
+Workspace forwarding selection, comparison-tool adoption, and broader
+retirement remain separate work.
 
 `DotnetInspector.Queries` is the single architectural owner. Its optional
 `DotnetInspector.ResearchQueries` companion is the physical dependency boundary
@@ -173,27 +174,27 @@ for unrelated package-role, whole-assembly, body-signal, or Source migrations.
 It does not invoke root-to-terminal forwarding composition. Those scenarios
 remain separate; a physical `ExactAddress` is not retargeted.
 
-The selected route has **8 delivery milestones: 2 complete, 6 remaining** at
+The selected route has **8 delivery milestones: 6 complete, 2 remaining** at
 this update. These are outcomes, not a promise of eight PRs:
 
 | Tracker step | Selected outcome | Status |
 | --- | --- | --- |
 | 1 | Population sealing and exact projection receipt | Complete: #5874 |
 | 18 | Research designated-pair local session | Complete: #5908 |
-| 5 | Lock and implement borrowed-input local publication | Implemented in the combined #5925 cutover; landing pending |
-| 6 | Implement the physical-pair Queries adapter | Implemented in the combined #5925 cutover; landing pending |
-| 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Implemented in the combined #5925 cutover; landing pending |
-| 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Planned |
-| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | After both hosts |
-| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | After both hosts |
+| 5 | Lock and implement borrowed-input local publication | Complete: #5967 |
+| 6 | Implement the physical-pair Queries adapter | Complete: #5967 |
+| 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Complete: #5967 |
+| 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Complete: #5990 |
+| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | #6044 retires the unconsumed body-signal population profile |
+| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining; retained tool/Source callers and #5125 still constrain deletion |
 
-Each host path contains **5 milestones, 2 complete and 3 remaining**:
+Each host path contains **5 milestones, all complete**:
 1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
 not all global retirement in #4706.
 
-Landing the combined cutover completes steps 5, 6, and 8 together: **5 of the
-8 route milestones complete, 3 remaining**. The CLI path then has all five
-milestones; the Browser path has four, with its actual host adoption remaining.
+Landing the scoped Queries cleanup completes seven of this route's eight
+milestones. It does not complete whole-assembly or body-signal execution
+migration, comparison-tool adoption, or global Queries retirement.
 
 Keep the first publication and adapter runtime together with the CLI
 adopting change; the bounded first-adopter exception permits that focused
@@ -207,8 +208,22 @@ The CLI cutover replaces `MatchCommand.BuildImplementationDiffView`'s direct
 Final owner cleanups use
 an actual caller inventory: preserve Source-dependent and assembly-comparison
 behavior, but do not retain unused substrate merely for a future proposal.
-This implementation claims the CLI adoption and that replaced host dispatch
-only, not Browser adoption or global Queries/Research retirement.
+Both bounded hosts now consume the public query. Their adoption and the
+replaced CLI dispatch do not establish global Queries/Research retirement.
+
+The post-adoption caller inventory for #6044 identifies the body-signal
+population binding/request and its sealing/projection branches as unused
+Queries substrate: only `QueryComparisonPopulationTests` constructed that
+profile. Those shared identity, selection, and receipt cases now use the
+implementation profile consumed by both hosts. Existing body-signal and
+whole-assembly query input/result shapes still serve `DiffCommand` and
+`DiffSections`, so they remain until their actual callers migrate.
+
+Research `CompareMembers` still serves `ReturnToSender`, both round-trip
+comparison helpers, and the supported PDB-source composition. Native result
+translations still serve CLI or harness presentation. These are retained
+caller obligations, not unused placeholders; #5125 remains the focused
+Research body-index association retirement issue.
 
 ### Broader migration snapshot
 
@@ -276,7 +291,9 @@ differently named pair remains `SelectionDrift`, covered by prerequisite #5877.
 
 The Queries gates below run in `DirectMemberComparisonQueryTests` in Release.
 CLI adoption is covered by `MatchCommandTests` and `MatchDiscoveryTests`.
-Browser and comparison-tool gates remain **unimplemented and unverified**.
+Browser gates landed in #5990, including published-Wasm acceptance and
+`BrowserMethodBodyOperationTests`. Comparison-tool adoption gates remain
+**unimplemented and unverified**.
 These names describe outcomes, not test seams or a source-scanning policy.
 
 | Gate owner | Required observable outcome |

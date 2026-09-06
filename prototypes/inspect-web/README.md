@@ -559,9 +559,10 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
-| `QueryPackageIntegrations` | one package/version/framework | `PackageWorkspaceIntegrationsQuery.Execute(realization)` |
-| `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
-| `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
+| `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
+| `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `QueryPackageMetadata` | one exact library in a package/version/framework | `AssemblyContextMetadataImageQuery.ExecuteParticipant(...)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
@@ -695,21 +696,21 @@ catalog).
 `EcosystemIntegrationSignalInfo` values by the integration name the scanner
 assigned. That is presentation grouping; no signal, category, or count is
 composed here, and a participant the group could not acquire is reported beside
-the results rather than dropped. Packages with a partial `ref/`/`lib/` pairing
-scan implementation participants first, then scan each reference-only surface
-participant through the non-terminal participant query. The reusable group
-remains intact; `ExecuteParticipant_DoesNotReleaseTheReusableGroup` gates that
-lifetime contract.
+the results rather than dropped. The Library asset ID resolves through the
+product's reference-to-implementation correspondence, with a surface fallback
+for reference-only libraries. Only that participant is scanned. The reusable
+group remains intact; `ExecuteParticipant_DoesNotReleaseTheReusableGroup` gates
+that lifetime contract.
 
-`QueryPackageOpportunities` asks the query registry for the typed Opportunities
-query, which runs its declared Integrations prerequisite over the same retained
-surface group. The product owns opportunity classification, existing-integration
+`QueryPackageOpportunities` runs the typed Opportunities participant query,
+including its Integrations prerequisite, for that same selected Library.
+The product owns opportunity classification, existing-integration
 suppression, and participant failures. The browser only deduplicates identical
 rows and groups them by the returned integration name.
 
-`QueryPackagePerformance` runs the product's group-scoped optimization query
-over implementation participants, falling back to the surface group only for a
-reference-only package. Analysis owns opportunity priority, semantic loop
+`QueryPackagePerformance` runs the product's participant-scoped optimization
+query for the selected Library, falling back to its surface participant for a
+reference-only library. Analysis owns opportunity priority, semantic loop
 classification, generated-framework suppression, member aggregation, and
 deterministic order. The query owns body-index lifetime, binding-contained
 sibling resolution, public API attribution, and typed failures. Lifted evidence
@@ -718,8 +719,9 @@ selectors bridge implementation evidence to the exact rendered
 reference-preferred surface without treating MethodDef tokens as cross-image
 identities. The browser removes rows absent from that surface, emits the surface
 assembly identity, and applies its 200-member display bound afterward while
-preserving product order. Extra implementation-only assemblies are omitted
-rather than making the lens fail, and any bounded-surface notice remains visible
+preserving product order. Both ranking and the bounded navigable-surface query
+inspect only the selected participant, so unrelated libraries do not consume its
+surface budget or contribute failures. Any bounded-surface notice remains visible
 beside the Analysis result. A 201st navigable ranked member produces a visible
 truncation notice instead of making the top 200 look complete. Accessor evidence
 is aggregated under its owning property or event with every body token retained.
@@ -765,7 +767,8 @@ actually declared. The dependency list and graph both follow that explicit UI
 selection for the active package; other open packages use their product-selected
 groups. The selected compile participant's direct references come from the
 assembly-context query; the browser neither parses the nuspec nor opens an
-assembly session.
+assembly session. Package Dependencies shows only NuGet dependency groups;
+Library References shows only the selected Library's assembly references.
 For open-package navigation, JavaScript supplies the loaded coordinates and
 their typed package-versus-platform provenance to
 `PackageDependencyCoordinateMatchQuery`. The product returns `NoMatch`,
@@ -1427,14 +1430,14 @@ declared, not by whether its code reaches a browser. Vite is a devDependency and
 its `__vite__mapDeps` helper is in the shipped bundle, so that split was never
 the boundary it resembled.
 
-That check no longer runs in CI. `npm audit` needs npm's advisories endpoint,
+That check no longer gates merges. `npm audit` needs npm's advisories endpoint,
 and it exits non-zero both when it finds an advisory and when it cannot reach
 that endpoint, so the merge gate could not tell a vulnerable dependency from an
 npm outage. On 2026-09-04 the endpoint returned 503s and timeouts for over two
 hours and turned `ci-required` red on unrelated pull requests; a gate that
 blocks merges on a third party's uptime is not measuring this repository.
 
-What watches the lockfile now is Dependabot: the same 168 packages against the
+Dependabot watches the lockfile: the same 168 packages against the
 same advisory database, with vulnerability alerts enabled and a weekly npm
 update schedule for `/prototypes/inspect-web`. The honest difference is timing.
 `npm audit` blocked the merge that introduced an advisory; Dependabot reports
@@ -1442,6 +1445,36 @@ one after it lands and opens a security update. That is weaker, and it is what
 lets the sanitization comment name a gate that is monitoring rather than
 enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
 demand.
+
+The separate `npm audit scheduled` workflow adds an Actions signal at 05:23 UTC
+daily, or on manual dispatch. It is not part of `ci-required` and has no push or
+pull-request trigger. It audits inspect-web's committed lockfile with npm's
+`--package-lock-only --include=dev --audit-level=info --json`: no dependency
+installation or automatic fixes, and development dependencies are included.
+The annotated-source-viewer prototype currently has neither dependencies nor a
+lockfile, so it is not an additional audit target.
+
+`scripts/audit-dependencies.sh` only orchestrates npm's report. A successful
+audit exits 0; reported advisories exit 1 without retrying. An incomplete audit
+(including endpoint failure) is retried after 10 and 30 seconds, then exits 2
+if it still cannot complete. npm's fetch retries do not retry the audit POSTs,
+so these are whole-command retries. The job has a ten-minute timeout and
+30-second npm fetch timeouts. Both non-success outcomes fail the scheduled job,
+with distinct annotations and step summaries; a failed acquisition is never
+described as a clean audit. Every attempt's JSON and stderr are retained in the
+`npm-audit` artifact for 14 days. Dependabot and this schedule are monitoring,
+not merge enforcement.
+
+Run the same check locally from this directory with:
+
+```bash
+bash scripts/audit-dependencies.sh /tmp/inspect-web-npm-audit
+```
+
+`test/npm-audit.test.ts` exercises orchestration with controlled npm outcomes:
+success, informational advisories, transient recovery, and incomplete or
+malformed reports. It runs in the existing inspect-web Node suite on Unix
+hosts; it does not query the live advisory service or implement advisory rules.
 
 `staticwebapp.config.json` owns the browser's enforcing Content-Security-Policy
 on static responses. It follows the
@@ -1869,6 +1902,33 @@ future acquisition paths. Missing or malformed provenance is shown as
 Symbol/PDB acquisition status is not yet surfaced here — no backend contract
 reports it today — and is a tracked fast-follow.
 
+The workbench subject hierarchy is **Package → Library → Type → Member**.
+Package owns coordinate-wide inventory, documents, and NuGet dependencies.
+Library owns assembly identity, references, integrations, opportunities,
+analysis, metadata, and the exact Type inventory for one admitted assembly.
+Type and Member navigation retain that exact Library ancestry.
+Acquiring a new package from Query, Search, or Commands starts at Package Overview,
+rather than retaining the previous coordinate's Library or Type subject.
+Selecting an already retained package in Search uses the same complete Package
+transition as Workspace navigation, including its Library and Type selection.
+The `type` command enters the selected Type and its exact Library, including
+when invoked from Package, Library, or Member.
+Library selection and package-backed requests use the product-issued assembly
+asset ID; display names do not merge same-named libraries. Libraries without
+public types remain in the Package inventory and support Library inspectors.
+The platform Library omits References until a platform reference-query
+transport is available; the existing platform Analysis limitation stays visible.
+
+`browser/library-hierarchy.spec.ts` exercises the built application and its real
+navigation bindings with deterministic facade responses: the four-level
+hierarchy, exact-library requests, empty-library refresh/history, and a
+single-library neighboring case. It also covers opening another package,
+Search switches between retained packages with distinct Library IDs, and
+cross-Library Type commands, including history and refresh.
+Run `npm run build` before this browser test.
+The engine boundary tests separately exercise product queries and the share
+codec; facade responses in the browser test are not engine evidence.
+
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
 pane), its rendered DOM control bindings (including member filters,
 composition jumps, member navigation, and member/type copy controls), and the
@@ -1893,12 +1953,12 @@ runtime pack — so the component acquires no engine or workspace authority.
 `test/package-bar.test.ts` gates tab markup, active/close state, escaping,
 open-package query parsing, and package selection dispatch.
 
-`src/package-view.ts` owns package-level dependency, overview, type-graph, and
-performance navigation bindings. `dotnet-inspect.ts` still owns package and
-filter state, in-place dependency updates, navigation effects, and member
-inspection effects behind typed callbacks. `test/package-view.test.ts` gates
-dataset decoding, missing values, replacement dependency-list binding, inactive
-surfaces, and no eager dispatch.
+`src/package-view.ts` owns Package-level dependency and Library-inventory
+navigation bindings. `dotnet-inspect.ts` still owns Package and Library state,
+in-place dependency updates, navigation effects, and member inspection effects
+behind typed callbacks. `test/package-view.test.ts` gates dataset decoding,
+missing values, the complete admitted-Library inventory, replacement
+dependency-list binding, inactive surfaces, and no eager dispatch.
 
 `src/library-controls.ts` owns library/accessibility filters, the primary
 Platform library selector, and the lens-scoped Platform library selectors.
@@ -1937,10 +1997,10 @@ byte-divergent badges and checked state, the taste popover's active/default
 states, and the Settings page's theme, close, and active-style-count states.
 
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
-Package/Types/Member control and the buttons beside it for the active scope's
-lenses or member sections), including their rendered DOM bindings.
-`dotnet-inspect.ts` still owns the current scope, the package/type/member lens
-definitions, and each navigation state transition, supplying those effects
+Package/Library/Type/Member control and the buttons beside it for the active
+scope's lenses or member sections), including their rendered DOM bindings.
+`dotnet-inspect.ts` still owns the current scope, the Package/Library/Type/Member
+lens definitions, and each navigation state transition, supplying those effects
 through typed callbacks. `test/scope-bar.test.ts` gates each mutually exclusive
 binding shape, the active scope segment, active lens/section marking,
 keyboard-shortcut indices, and label escaping.
@@ -2033,7 +2093,8 @@ text escaping.
   completes or runs a command.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
-- `share` copies the package, version, framework, type, and lens selection.
+- `share` copies the package, version, framework, library, type, and lens
+  selection.
 - The Taste popover and Settings page consume the same `C# Style Tiers` and
   `C# Style Choices` vocabulary sections as the CLI; the browser does not
   restate their taxonomy.

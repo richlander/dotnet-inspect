@@ -17549,7 +17549,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         string row = Assert.Single(
-            output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
         string[] columns = row.Split('\t');
         Assert.Equal(10, columns.Length);
         Assert.EndsWith("FactsTableFixture::BoxInt", columns[0]);
@@ -27641,7 +27641,7 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--tsv");
 
             Assert.Equal(0, exit);
-            string[] lines = output.Split(
+            string[] lines = output.ReplaceLineEndings("\n").Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
             string[] headers = lines[0].Split('\t');

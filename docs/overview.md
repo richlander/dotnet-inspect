@@ -173,6 +173,11 @@ substrates, and inspection producers that will extend that space.
   and typed Method Body Diff presentation. It consumes Queries comparison,
   existing member resolution, modal behavior, and operation lifetime without
   redefining those owners.
+- [Inspect Web Source-diff Transport](design/inspect-web-source-diff-transport.md)
+  owns the proposed member source-diff worker feature payload: admission,
+  complete typed encoding, and bounded browser decoding. It consumes Queries
+  endpoint evidence, shared Presentation, and existing worker/bridge lifetime
+  contracts; page placement and viewer interaction remain separate owners.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS
@@ -236,12 +241,12 @@ substrates, and inspection producers that will extend that space.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the bounding, fail-closed, and fidelity invariants
-  for a decoder this repository will own, the format's adversarial properties
+  for the repository-owned decoder, the format's adversarial properties
   that force them, the two width-resolution paths, and the bound, charging, and
-  refusal semantics. That contract is **prescriptive ahead of the
-  implementation**: until #5288's slice 2 lands, `AttributeDecoder` still calls
-  SRM's `CustomAttribute.DecodeValue` behind `CustomAttributeValueGuard`, and
-  SRM becomes a test-time fidelity oracle only when it does.
+  refusal semantics. `AttributeDecoder` uses the internal
+  `CustomAttributeValueDecoder`; SRM is a test-time fidelity oracle, not a
+  second production walker. The fixtures-first D3 gate landed in #5148;
+  broader certification and the remaining D1/D2 evidence are still open.
   `SignatureBlobGuard` retains its structural signature bounds.
 
 ## Engineering guidance

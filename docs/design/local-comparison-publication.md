@@ -7,8 +7,9 @@ This is the Queries-owned target contract for
 first profile of publication step 5 in
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706).
 The borrowed-input profile is implemented by `DirectMemberComparisonQuery`
-in `DotnetInspector.ResearchQueries` and consumed by CLI `match --body`.
-The Release gates below cover this profile; Browser adoption remains separate.
+in `DotnetInspector.ResearchQueries` and consumed by CLI `match --body` (#5967)
+and Browser Method Body Diff (#5990). The Release gates below cover publication;
+the Browser owner supplies its own facade and interaction gates.
 
 `DotnetInspector.Queries` is the sole architectural owner. The optional
 `DotnetInspector.ResearchQueries` companion supplies the physical dependency
@@ -26,8 +27,7 @@ The immediate consumer is the
 [direct-member adapter](direct-member-comparison.md) for two explicitly
 selected methods in one already-open implementation assembly. CLI
 `match --body` serves this scenario (formerly `--implementation`). Inspect Web
-will expose
-an explicit comparison action over its existing member selection and retained
+exposes an explicit comparison action over its existing member selection and retained
 implementation participant.
 
 The same method on both sides is valid. Different member names do not imply

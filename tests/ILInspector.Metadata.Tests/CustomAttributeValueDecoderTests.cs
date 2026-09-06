@@ -11,50 +11,44 @@ using ILInspector.Metadata;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Gates the owned decoder and its non-materializing
-/// <see cref="CustomAttributeValueGuard"/> bridge independently of surface
-/// extraction: declared counts are bounded before allocation, and legal
-/// constructor and named-argument layouts remain decodable.
+/// Gates the owned <see cref="CustomAttributeValueDecoder"/> through
+/// <see cref="AttributeDecoder"/> independently of surface extraction:
+/// declared counts are bounded before allocation, and legal constructor
+/// and named-argument layouts remain decodable.
 /// </summary>
-public sealed class CustomAttributeValueGuardTests
+public sealed class CustomAttributeValueDecoderTests
 {
     [Fact]
-    public void HugeArrayCount_IsUnsafe()
+    public void HugeArrayCount_IsRefused()
     {
         using var image = Open(
             BuildArrayCountImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void HugeNamedArgumentCount_IsUnsafe()
+    public void HugeNamedArgumentCount_IsRefused()
     {
         using var image = Open(
             BuildNamedArgumentCountImage(namedArgumentCount: 65_535));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void LegalStringArgument_IsSafe()
+    public void LegalStringArgument_Decodes()
     {
         using var image = Open(BuildStringArgumentImage("ok"));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void LegalInt32Array_IsSafe()
+    public void LegalInt32Array_Decodes()
     {
         using var image = Open(BuildInt32ArrayImage([1, 2, 3]));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         Assert.Single(decoded.Value.FixedArguments);
@@ -64,15 +58,13 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void WideInt32Array_IsSafe()
+    public void WideInt32Array_Decodes()
     {
         int[] elements = new int[4096];
         for (int index = 0; index < elements.Length; index++)
             elements[index] = index;
         using var image = Open(BuildInt32ArrayImage(elements));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         var values = Assert.IsAssignableFrom<ImmutableArray<CustomAttributeTypedArgument<string>>>(
@@ -84,28 +76,24 @@ public sealed class CustomAttributeValueGuardTests
     [Fact]
     public void NestedBoxing_IsRefused()
     {
-        // SRM refuses a boxed object whose boxed type is again a boxed object
-        // (0x51 0x51): DecodeNamedArgumentType yields TaggedObject and the value
-        // switch has no case for it. The owned decoder matches that refusal, so
-        // a chain of boxed tags is structurally unfollowable at the first nest,
-        // regardless of how deep it claims to go.
+        // A boxed object whose boxed type is again a boxed object (0x51 0x51)
+        // is refused at the first nest, regardless of how deep the chain claims
+        // to go.
         using var image = Open(
-            BuildBoxedNestingImage(CustomAttributeValueGuard.MaxSerializedDepth - 1));
+            BuildBoxedNestingImage(CustomAttributeValueDecoder.MaxSerializedDepth - 1));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     /// <summary>
     /// Non-vacuity gate that the value walk is iterative. A recursive walk of a
     /// deeply nested boxed object[] (near <see
-    /// cref="CustomAttributeValueGuard.MaxSerializedDepth"/>) overflowed a
+    /// cref="CustomAttributeValueDecoder.MaxSerializedDepth"/>) overflowed a
     /// 128 KiB native stack; the heap work-stack must still complete at
     /// 128 KiB.
     /// </summary>
     [Fact]
-    public void DeeplyNestedObjectArray_OnSmallNativeStack_IsSafe()
+    public void DeeplyNestedObjectArray_OnSmallNativeStack_Decodes()
     {
         byte[] bytes = BuildNamedNestedArrayImage(NamedArrayNestingAtLimit);
         Exception? failure = null;
@@ -116,13 +104,8 @@ public sealed class CustomAttributeValueGuardTests
                 {
                     using var isolated = Open(bytes);
                     CustomAttribute attribute = FirstAttribute(isolated.Reader);
-                    if (!CustomAttributeValueGuard.IsSafeToDecode(
-                            isolated.Reader,
-                            attribute))
-                    {
-                        failure = new InvalidOperationException(
-                            "Expected the depth-limit blob to be safe.");
-                    }
+                    Assert.NotNull(
+                        AttributeDecoder.TryDecode(isolated.Reader, attribute));
                 }
                 catch (Exception ex)
                 {
@@ -139,12 +122,10 @@ public sealed class CustomAttributeValueGuardTests
     [Fact]
     public void NestedEmptySzArray_IsRefused()
     {
-        // A jagged fixed argument (int[][]) is refused: SRM throws on the inner
-        // SZArray element type, and the owned decoder refuses it in kind.
+        // A jagged fixed argument (int[][]) is refused at the inner SZArray
+        // element type.
         using var image = Open(BuildNestedEmptySzArrayImage(20_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
@@ -155,60 +136,55 @@ public sealed class CustomAttributeValueGuardTests
             BuildArrayCountImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
-        Assert.Equal(CustomAttributeValueGuard.DeclaredSlotCharge, charged);
+        Assert.Equal(CustomAttributeValueDecoder.DeclaredSlotCharge, charged);
     }
 
     [Fact]
-    public void HugeNamedArgumentArrayCount_IsUnsafe()
+    public void HugeNamedArgumentArrayCount_IsRefused()
     {
         using var image = Open(
             BuildNamedArrayCountImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         Assert.Equal(
-            CustomAttributeValueGuard.DeclaredSlotCharge + "V".Length,
+            CustomAttributeValueDecoder.DeclaredSlotCharge + "V".Length,
             charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void LegalNamedInt32Array_IsSafe()
+    public void LegalNamedInt32Array_Decodes()
     {
         using var image = Open(BuildNamedInt32ArrayImage([1, 2, 3]));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void NamedArrayNestingAtLimit_IsSafe()
+    public void NamedArrayNestingAtLimit_Decodes()
     {
         using var image = Open(
             BuildNamedNestedArrayImage(NamedArrayNestingAtLimit));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void NamedArrayNestingJustOverLimit_IsUnsafe()
+    public void NamedArrayNestingJustOverLimit_IsRefused()
     {
         using var image = Open(
             BuildNamedNestedArrayImage(NamedArrayNestingAtLimit + 1));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -218,8 +194,8 @@ public sealed class CustomAttributeValueGuardTests
             BuildTypeRefEnumDesyncImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
@@ -240,8 +216,8 @@ public sealed class CustomAttributeValueGuardTests
             BuildDuplicateTypeDefEnumImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
@@ -249,19 +225,16 @@ public sealed class CustomAttributeValueGuardTests
         Assert.True(
             charged < 1_000,
             $"Expected the 100M to be enum payload, charged {charged}.");
-        Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
     public void ExhaustedJaggedSzArray_IsRefused()
     {
         // A jagged fixed-argument type (an SZArray whose element is an SZArray)
-        // is refused, matching SRM.
+        // is refused.
         using var image = Open(
             BuildDeepJaggedSzArrayImage(depth: 64, count: 2_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
@@ -274,8 +247,8 @@ public sealed class CustomAttributeValueGuardTests
                 elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
@@ -283,12 +256,10 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void TypeRefInt32EnumWithoutLocalMatch_IsSafe()
+    public void TypeRefInt32EnumWithoutLocalMatch_Decodes()
     {
         using var image = Open(BuildTypeRefInt32EnumImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
@@ -298,28 +269,22 @@ public sealed class CustomAttributeValueGuardTests
         using var image = Open(BuildSystemTypeThenStringArrayImage(declareSystemType: true));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        CustomAttributeValue<string>? decoded =
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
-                count => charged = checked(charged + count)));
+                count => charged = checked(charged + count));
+        Assert.NotNull(decoded);
         Assert.True(
             charged < 1_000,
             $"A legal 80-byte blob must stay bounded, charged {charged}.");
 
-        // Fail closed rather than allocate. The guard approved above using its
-        // own "System.Type" comparison, while DecodeValue below classifies
-        // through ArgTypeProvider's. Both render the name from the same handle
-        // through the same resolver functions, but the final predicate is
-        // written twice (gap 8, #5393). If those two spellings ever diverge,
-        // SRM reads 1,868,786,036 as the string[] count and requests roughly
-        // 28,515 MiB -- the failure this canary exists to prevent, which must
-        // never run in CI. Ask the product provider itself, rather than
-        // spelling the comparison a third time here.
+        // The decoder's classifier recognizes System.Type, and the same
+        // decode both stays bounded and returns the shipped argument values.
         TypeReferenceHandle systemType =
             FindTypeReference(image.Reader, "System", "Type");
         Assert.False(systemType.IsNil);
-        var provider = new CustomAttributeValueGuard.Classifier(
+        var provider = new CustomAttributeValueDecoder.Classifier(
             image.Reader,
             preserveSerializedTypeNames: false,
             beforeMaterialize: null,
@@ -327,12 +292,8 @@ public sealed class CustomAttributeValueGuardTests
         Assert.True(
             provider.IsSystemType(
                 provider.GetTypeFromReference(image.Reader, systemType, 0)),
-            "ArgTypeProvider must classify this argument as System.Type. "
-                + "Decoding it as an enum would request about 28,515 MiB.");
+            "The decoder must classify this argument as System.Type.");
 
-        CustomAttributeValue<string>? decoded =
-            AttributeDecoder.TryDecode(image.Reader, attribute);
-        Assert.NotNull(decoded);
         Assert.Equal(
             "Kentico.Content.Web.Mvc.Builder.Localization.Resx.Kentico.Builder",
             decoded.Value.FixedArguments[0].Value);
@@ -342,9 +303,9 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe()
+    public void SystemTypeArgumentReadAsEnum_IsRefusedBeforeAmplifiedCharge()
     {
-        // Non-vacuity for the System.Type classification half of I1, using the
+        // Gates refusal after a System.Type misclassification, using the
         // byte sequence from dotnet/runtime#57531 rather than an invented one.
         // Only the first parameter's declared type changes: reading it as an
         // Int32-width enum consumes the SerString length byte and "Ken", so the
@@ -352,25 +313,20 @@ public sealed class CustomAttributeValueGuardTests
         // the real 1. That is 1,868,786,036 declared slots -- 28,515 MiB at
         // DeclaredSlotCharge, matching the 28,517 MiB the issue reported.
         //
-        // Pin that offset arithmetic against the fixture, because the charge
-        // assertion below cannot: DeclaredSlotCharge saturates at int.MaxValue
-        // for any count above 134,217,727, and all four plausible misread
-        // widths (1, 2, 4, and 8 bytes) land on four bytes of this type name
-        // that exceed it. The charge therefore gates amplification-and-refusal,
-        // not the specific offset the narrative above names.
+        // Pin the offset arithmetic against the fixture independently of the
+        // observer, which must not receive the refused array's declared charge.
         Assert.Equal(
             1_868_786_036,
             BinaryPrimitives.ReadInt32LittleEndian(
                 ShippedSystemTypeBlob.Slice(6)));
 
-        // The guard must refuse before anything is materialized. This test
-        // never calls DecodeValue, so the amplified allocation is asserted
-        // through the declared charge and never attempted.
+        // The owned decoder refuses the count before charging or allocating
+        // the array.
         using var image = Open(BuildSystemTypeThenStringArrayImage(declareSystemType: false));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
@@ -378,12 +334,10 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void LocalInt64EnumFixedArgument_IsSafe()
+    public void LocalInt64EnumFixedArgument_Decodes()
     {
         using var image = Open(BuildLocalInt64EnumImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
@@ -394,13 +348,12 @@ public sealed class CustomAttributeValueGuardTests
             BuildAssemblyQualifiedNamedEnumImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -425,12 +378,6 @@ public sealed class CustomAttributeValueGuardTests
                 ? code
                 : PrimitiveTypeCode.Int32;
 
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                Width));
         var decoded = AttributeDecoder.TryDecode(
             image.Reader,
             attribute,
@@ -460,19 +407,13 @@ public sealed class CustomAttributeValueGuardTests
                 : PrimitiveTypeCode.Int32;
 
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
                 Width));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(
-            AttributeDecoder.TryDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                Width));
     }
 
     [Fact]
@@ -480,12 +421,6 @@ public sealed class CustomAttributeValueGuardTests
     {
         using var image = Open(BuildCrossAssemblyInt64NamedEnumImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                ExactSimpleNameInt64));
         var decoded = AttributeDecoder.TryDecode(
             image.Reader,
             attribute,
@@ -502,19 +437,13 @@ public sealed class CustomAttributeValueGuardTests
         using var image = Open(BuildOverlappingInt64NamedEnumHostileImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
                 ExactSimpleNameInt64));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(
-            AttributeDecoder.TryDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                ExactSimpleNameInt64));
     }
 
     [Fact]
@@ -522,12 +451,6 @@ public sealed class CustomAttributeValueGuardTests
     {
         using var image = Open(BuildLocalInt64EnumImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                _ => PrimitiveTypeCode.Int32));
         var decoded = AttributeDecoder.TryDecode(
             image.Reader,
             attribute,
@@ -538,60 +461,42 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void DirectGuard_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount()
+    public void Decode_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount()
     {
         using var image = Open(
             BuildOverlappingInt64NamedEnumHostileImage(localInt64Enum: true));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
                 _ => PrimitiveTypeCode.Int32));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(
-            AttributeDecoder.TryDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                _ => PrimitiveTypeCode.Int32));
     }
 
     [Fact]
-    public void DirectGuard_NormalizesNonFixedWidthResolver_SeesHostileCount()
+    public void Decode_NormalizesNonFixedWidthResolver_SeesHostileCount()
     {
         using var image = Open(BuildNamedEnumInt32ThenHostileArrayImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
                 _ => PrimitiveTypeCode.Double));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(
-            AttributeDecoder.TryDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                _ => PrimitiveTypeCode.Double));
     }
 
     [Fact]
-    public void DirectGuard_MalformedTypeDefIndex_DoesNotBypassHostileCount()
+    public void Decode_MalformedTypeDefIndex_DoesNotBypassHostileCount()
     {
         using var image = Open(
             BuildOverlappingInt64NamedEnumHostileImage(cyclicTypeDef: true));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                ExactSimpleNameInt64));
         Assert.Null(
             AttributeDecoder.TryDecode(
                 image.Reader,
@@ -615,11 +520,9 @@ public sealed class CustomAttributeValueGuardTests
 
     /// <summary>
     /// A serialized enum name whose assembly suffix is malformed or over the
-    /// character budget still has to select one width. SRM projects the blob
-    /// name through <c>GetTypeFromSerializedName</c> before asking for the
-    /// underlying type, so a guard that asks with a differently projected name
-    /// skips four bytes where SRM consumes eight and never sees the following
-    /// declared count.
+    /// character budget still has to select one width. The decoder projects
+    /// the blob name before resolving its underlying type, so the selected
+    /// width consumes the enum value and reaches the following declared count.
     /// </summary>
     static void AssertEscapedNamedEnumSeesHostileCount(string enumName)
     {
@@ -627,19 +530,13 @@ public sealed class CustomAttributeValueGuardTests
             BuildOverlappingInt64NamedEnumHostileImage(enumName: enumName));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
                 EscapedMetadataNameInt64));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(
-            AttributeDecoder.TryDecode(
-                image.Reader,
-                attribute,
-                beforeMaterialize: null,
-                EscapedMetadataNameInt64));
     }
 
     [Fact]
@@ -649,8 +546,8 @@ public sealed class CustomAttributeValueGuardTests
             BuildClassSystemStringImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
@@ -664,13 +561,12 @@ public sealed class CustomAttributeValueGuardTests
             BuildDottedSystemTypeImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -680,22 +576,19 @@ public sealed class CustomAttributeValueGuardTests
             BuildNestedSystemTypeImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void LegalSystemTypeArgument_IsSafe()
+    public void LegalSystemTypeArgument_Decodes()
     {
         using var image = Open(BuildLegalSystemTypeImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         Assert.Single(decoded.Value.FixedArguments);
@@ -727,13 +620,12 @@ public sealed class CustomAttributeValueGuardTests
             BuildStringTypedEnumImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -746,22 +638,19 @@ public sealed class CustomAttributeValueGuardTests
         using var image = Open(BuildTruncatedArrayThenNamedImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
-        Assert.Equal(CustomAttributeValueGuard.DeclaredSlotCharge, charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+        Assert.Equal(CustomAttributeValueDecoder.DeclaredSlotCharge, charged);
     }
 
     [Fact]
-    public void LegalBoxedEnumArray_IsSafe()
+    public void LegalBoxedEnumArray_Decodes()
     {
         using var image = Open(BuildLegalBoxedEnumArrayImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         var values = Assert.IsAssignableFrom<ImmutableArray<CustomAttributeTypedArgument<string>>>(
@@ -772,12 +661,10 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void LegalBoxedInt32Array_IsSafe()
+    public void LegalBoxedInt32Array_Decodes()
     {
         using var image = Open(BuildLegalBoxedInt32ArrayImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         var values = Assert.IsAssignableFrom<ImmutableArray<CustomAttributeTypedArgument<string>>>(
@@ -794,13 +681,12 @@ public sealed class CustomAttributeValueGuardTests
             BuildBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -810,22 +696,19 @@ public sealed class CustomAttributeValueGuardTests
             BuildNamedBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
-    public void GenericAttributeTypeParameterInt32_IsSafe()
+    public void GenericAttributeTypeParameterInt32_Decodes()
     {
         using var image = Open(BuildGenericAttributeInt32Image());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         Assert.Single(decoded.Value.FixedArguments);
@@ -841,13 +724,12 @@ public sealed class CustomAttributeValueGuardTests
                 elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -859,8 +741,8 @@ public sealed class CustomAttributeValueGuardTests
                 elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
@@ -874,13 +756,12 @@ public sealed class CustomAttributeValueGuardTests
             BuildClassTypeDefRow4DesyncImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
         AssertHostileCountWasNotCharged(charged);
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -890,8 +771,8 @@ public sealed class CustomAttributeValueGuardTests
             BuildValueTypeTypeRefRow4DesyncImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
@@ -899,12 +780,10 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void SelfReferentialGenericVar_IsUnsafe()
+    public void SelfReferentialGenericVar_IsRefused()
     {
         using var image = Open(BuildSelfReferentialGenericVarImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
@@ -1049,7 +928,7 @@ public sealed class CustomAttributeValueGuardTests
     // one more level; the deepest pair that still decodes is therefore
     // (MaxSerializedDepth - 4) / 2.
     const int NamedArrayNestingAtLimit =
-        (CustomAttributeValueGuard.MaxSerializedDepth - 4) / 2;
+        (CustomAttributeValueDecoder.MaxSerializedDepth - 4) / 2;
 
     static LoadedImage Open(byte[] image) => new(image);
 
@@ -1705,8 +1584,7 @@ public sealed class CustomAttributeValueGuardTests
 
     /// <summary>
     /// An external width for the exact metadata names the escaped serialized
-    /// spellings below denote, so a guard that projects the blob name
-    /// differently than SRM selects a different skip.
+    /// spellings below denote, so decoding exercises the projected lookup name.
     /// </summary>
     static PrimitiveTypeCode EscapedMetadataNameInt64(string name)
         => name is "Samples.E+Kind" or @"Samples.E\Kind"
@@ -2609,26 +2487,19 @@ public sealed class CustomAttributeValueGuardTests
         // exact spelling, or an Int64 enum silently decodes as Int32.
         using var image = Open(BuildEscapedTypeDefEnumImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
     }
 
     [Fact]
-    public void EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth()
+    public void EscapedTypeDefEnumName_DecodesAndStaysBounded()
     {
-        // The guard resolves a handle-derived enum from its definition while
-        // the decoder looks the same name up in its TypeDef index. If the index
-        // unescapes the name it misses, the decoder reads four bytes where the
-        // guard skipped eight, and the trailing four bytes of the value become
-        // an attacker-chosen array count that the guard already approved.
+        // A handle-derived enum resolves from its definition without unescaping
+        // the metadata name. Its full value is consumed before the following
+        // array count is decoded.
         using var image = Open(BuildEscapedTypeDefEnumDesyncImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
-
         int maxCharge = 0;
         var decoded = AttributeDecoder.TryDecode(
             image.Reader,
@@ -2639,33 +2510,27 @@ public sealed class CustomAttributeValueGuardTests
         Assert.NotNull(decoded);
         Assert.True(
             maxCharge < 1_000,
-            $"Guard approved the blob but decoding charged {maxCharge}; "
-                + "the guard skip and the decode width disagree.");
+            $"Decoding charged {maxCharge}; the enum should resolve to its "
+                + "Int64 width, not read its payload as an array count.");
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void NestedTypeNameCollision_GuardSkipMatchesDecodeWidth(bool viaTypeReference)
+    public void NestedTypeNameCollision_DecodesAndStaysBounded(bool viaTypeReference)
     {
         // A nested type joins its declaring type with '.', the same separator
         // used between a namespace and a type name, so a nested Kind inside
         // Samples.E and a top-level Kind in namespace Samples.E render to one
         // string. Resolving the width by that string takes the first definition
-        // indexed, while the guard resolves the argument structurally from its
-        // own handle. When the decoy is indexed first, a name-keyed decode reads
-        // four bytes where the guard skipped eight, and the trailing four bytes
-        // of the value become an attacker-chosen array count the guard already
-        // approved.
+        // indexed, so the decoder must resolve the argument structurally from
+        // its own handle to consume its full Int64 value.
         //
         // The argument is declared both ways because a reference carries a
         // resolution scope that its flattened spelling discards, so it collides
         // on the same string for the same reason a definition does.
         using var image = Open(BuildNestedNameCollisionDesyncImage(viaTypeReference));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
-
         int maxCharge = 0;
         var decoded = AttributeDecoder.TryDecode(
             image.Reader,
@@ -2676,8 +2541,8 @@ public sealed class CustomAttributeValueGuardTests
         Assert.NotNull(decoded);
         Assert.True(
             maxCharge < 1_000,
-            $"Guard approved the blob but decoding charged {maxCharge}; "
-                + "the guard skip and the decode width disagree.");
+            $"Decoding charged {maxCharge}; the enum should resolve to its "
+                + "Int64 width, not read its payload as an array count.");
     }
 
     [Fact]
@@ -2688,13 +2553,11 @@ public sealed class CustomAttributeValueGuardTests
         // and a nested definition cannot answer a top-level reference. The
         // reference still renders to "Samples.E.Kind", which is exactly how the
         // nested Int64 enum is spelled once assembly qualification is stripped,
-        // so both sides reach that definition through the shared name index and
-        // agree on eight bytes.
+        // so the decoder reaches that definition through the name index and
+        // consumes eight bytes.
         //
-        // Agreement is the whole property. The decode path hands the guard the
-        // same provider it decodes with, so the guard resolves the width the
-        // way the decode will and sees the 100M count hiding behind the wider
-        // enum. The blob is refused rather than approved, and SRM never runs.
+        // The decoder reaches the following count at that width and refuses
+        // it before charging or allocating the array.
         using var image = Open(
             BuildExternalReferenceNestedCollisionImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
@@ -2708,11 +2571,10 @@ public sealed class CustomAttributeValueGuardTests
 
         Assert.Null(decoded);
 
-        // The refusal is the guard's, reached at the width the decode uses, not
-        // an incidental failure further along.
+        // An explicit Int64 resolver reaches the same refusal and charge.
         int charged = 0;
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 image.Reader,
                 attribute,
                 count => charged = Math.Max(charged, count),
@@ -2730,10 +2592,8 @@ public sealed class CustomAttributeValueGuardTests
         // declaring type, paired with two references naming each other as
         // resolution scope, advances both chains forever.
         //
-        // The guard exists to make hostile metadata safe, and it resolves every
-        // handle-typed enum through this path, so unbounded recursion here is a
-        // process kill: a stack overflow cannot be caught. This test fails by
-        // taking the whole test host down, so keep the bound in place.
+        // The decoder resolves handle-typed enums through this path, so the
+        // structural walk must stay bounded.
         using var image = Open(BuildCyclicNestingImage());
         MetadataReader reader = image.Reader;
 
@@ -2824,16 +2684,9 @@ public sealed class CustomAttributeValueGuardTests
         // yields no answer and the decoder falls back to the rendered name. The
         // name index reaches the same definition, so the deep enum resolves to
         // its real Int64 width, the 100M is consumed as the enum's own eight
-        // bytes, and the following array count is the genuine 1. There is one
-        // walk now, so IsSafeToDecode and TryDecode reach that width identically.
+        // bytes, and the following array count is the genuine 1.
         using var image = Open(BuildDeeplyNestedImage(depth: 200, elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
-
-        int guardCharge = 0;
-        bool safe = CustomAttributeValueGuard.IsSafeToDecode(
-            image.Reader,
-            attribute,
-            count => guardCharge = Math.Max(guardCharge, count));
 
         int decodeCharge = 0;
         var decoded = AttributeDecoder.TryDecode(
@@ -2843,11 +2696,6 @@ public sealed class CustomAttributeValueGuardTests
             (Func<string, PrimitiveTypeCode>?)null);
 
         Assert.NotNull(decoded);
-        Assert.True(safe);
-        Assert.True(
-            guardCharge < 1_000,
-            $"IsSafeToDecode charged {guardCharge}; the deep enum should resolve "
-                + "to its Int64 width, not read the 100M as a count.");
         Assert.True(
             decodeCharge < 1_000,
             $"Decoding charged {decodeCharge}; the deep enum should resolve to "
@@ -3130,21 +2978,15 @@ public sealed class CustomAttributeValueGuardTests
     [Fact]
     public void ArrayElementCustomModifiers_AreRefused()
     {
-        // A custom modifier prefixing an array element type is refused, matching
-        // SRM, which has no case for CMOD_REQD/CMOD_OPT in an argument type. The
-        // same array with no modifiers decodes, so the refusal is the modifier's
-        // and not the array's.
+        // A custom modifier prefixing an array element type is refused. The
+        // same array with no modifiers decodes, so the refusal is the
+        // modifier's and not the array's.
         using var plain = Open(BuildCmodArrayImage(elementCount: 3, cmodCount: 0));
         CustomAttribute plainAttribute = FirstAttribute(plain.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(plain.Reader, plainAttribute));
+        Assert.NotNull(AttributeDecoder.TryDecode(plain.Reader, plainAttribute));
 
         using var modified = Open(BuildCmodArrayImage(elementCount: 3, cmodCount: 1));
         CustomAttribute modifiedAttribute = FirstAttribute(modified.Reader);
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
-                modified.Reader,
-                modifiedAttribute));
         Assert.Null(
             AttributeDecoder.TryDecode(modified.Reader, modifiedAttribute));
     }
@@ -3152,24 +2994,20 @@ public sealed class CustomAttributeValueGuardTests
     [Fact]
     public void GenericParameterArrayElements_ResolveTheTypeSpecOnce()
     {
-        // A VAR element type sends every element back through the
-        // constructor's TypeSpec. Re-validating that blob per element is
-        // allocation proportional to an attacker-chosen count, multiplied by
-        // an attacker-chosen generic argument count, on input the guard
-        // accepts. SRM resolves the element type once before it loops over
-        // values, so resolving once is also what matches the decoder.
+        // Resolve a VAR element through the constructor's TypeSpec once,
+        // rather than re-validating that blob for every materialized value.
         static long Measure(int elementCount)
         {
             using var image = Open(
                 BuildGenericParameterArrayImage(elementCount, 20_000));
             CustomAttribute attribute = FirstAttribute(image.Reader);
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(
+            Assert.NotNull(
+                AttributeDecoder.TryDecode(
                     image.Reader,
                     attribute));
             long before = GC.GetAllocatedBytesForCurrentThread();
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(
+            Assert.NotNull(
+                AttributeDecoder.TryDecode(
                     image.Reader,
                     attribute));
             return GC.GetAllocatedBytesForCurrentThread() - before;
@@ -3179,70 +3017,67 @@ public sealed class CustomAttributeValueGuardTests
         long many = Measure(100);
         Assert.True(
             many < one + 100_000,
-            $"Guarding one element allocated {one} bytes and 100 allocated "
+            $"Decoding one element allocated {one} bytes and 100 allocated "
                 + $"{many}; the TypeSpec is being re-validated per element.");
     }
 
     [Fact]
-    public void SignatureTypedArrayElements_RenderTheTypeNameOncePerHandle()
+    public void SignatureTypedArrayElements_TypeNameChargeIsIndependentOfElementCount()
     {
-        // Every element of a signature-typed array of a named type carries the
-        // same handle, and the walk rewinds to re-read the element type per
-        // element. Rendering that handle's name per element is allocation
-        // proportional to an attacker-chosen count -- the amplification this
-        // guard exists to prevent -- and it happens on input the guard
-        // accepts, so no refusal bounds it.
-        static long Measure(int elementCount)
+        // Materialized array slots scale with the element count. After their
+        // declared charge is removed, the name-rendering charge stays constant.
+        static int MeasureNameCharge(int elementCount)
         {
             using var image = Open(
                 BuildSignatureTypedEnumArrayImage(elementCount));
             CustomAttribute attribute = FirstAttribute(image.Reader);
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(
-                    image.Reader,
-                    attribute));
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(
-                    image.Reader,
-                    attribute));
-            return GC.GetAllocatedBytesForCurrentThread() - before;
+            int charged = 0;
+            var decoded = AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count));
+            Assert.NotNull(decoded);
+            var values = Assert.IsType<ImmutableArray<CustomAttributeTypedArgument<string>>>(
+                decoded.Value.FixedArguments[0].Value);
+            Assert.Equal(elementCount, values.Length);
+            return charged
+                - (elementCount + 1) * CustomAttributeValueDecoder.DeclaredSlotCharge;
         }
 
-        long one = Measure(1);
-        long many = Measure(100_000);
-        Assert.True(
-            many < one + 100_000,
-            $"Guarding one element allocated {one} bytes and 100,000 "
-                + $"allocated {many}; the type name is being rendered per "
-                + "element.");
+        int one = MeasureNameCharge(1);
+        int many = MeasureNameCharge(100_000);
+        Assert.True(one > 0);
+        Assert.Equal(one, many);
     }
 
     [Fact]
     public void EnumArrayElements_ResolveTheWidthOncePerName()
     {
         // Every element of a typed enum array carries the same enum name. The
-        // guard must not re-parse and re-project it per element: the element
-        // count is attacker-chosen, so per-element work is the amplification
-        // this guard exists to prevent.
-        static long Measure(int elementCount)
+        // decoder resolves that name once before materializing the values.
+        static void AssertDecoded(int elementCount)
         {
             using var image = Open(BuildNamedEnumArrayImage(elementCount));
             CustomAttribute attribute = FirstAttribute(image.Reader);
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
-            return GC.GetAllocatedBytesForCurrentThread() - before;
+            var callbackNames = new List<string>();
+            var decoded = AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                name =>
+                {
+                    callbackNames.Add(name);
+                    return PrimitiveTypeCode.Int32;
+                });
+            Assert.NotNull(decoded);
+            Assert.Equal("Samples.Colors", Assert.Single(callbackNames));
+            var values = Assert.IsType<ImmutableArray<CustomAttributeTypedArgument<string>>>(
+                decoded.Value.FixedArguments[0].Value);
+            Assert.Equal(elementCount, values.Length);
         }
 
-        long one = Measure(1);
-        long many = Measure(10_000);
-        Assert.True(
-            many < one + 100_000,
-            $"Guarding one element allocated {one} bytes and 10,000 allocated "
-                + $"{many}; the enum name is being resolved per element.");
+        AssertDecoded(1);
+        AssertDecoded(10_000);
     }
 
     static byte[] BuildEscapedTypeDefEnumImage()
@@ -3379,11 +3214,11 @@ public sealed class CustomAttributeValueGuardTests
             MetadataTokens.MethodDefinitionHandle(1));
         var value = new BlobBuilder();
         value.WriteUInt16(1);
-        // 8-byte enum slot. SRM, reading only 4, will take the trailing four
+        // 8-byte enum slot. Reading only 4 would take the trailing four
         // bytes as the following array's declared count.
         value.WriteInt32(0);
         value.WriteInt32(100_000_000);
-        // The count the guard sees after skipping the full 8 bytes.
+        // The count decoded after consuming the full 8 bytes.
         value.WriteInt32(1);
         value.WriteInt32(42);
         value.WriteUInt16(0);
@@ -3397,11 +3232,11 @@ public sealed class CustomAttributeValueGuardTests
     [Fact]
     public void CollidingTypeDefNames_EachResolveTheirOwnWidth()
     {
-        // Guards the premise of the desync gate above: the two definitions
+        // Gates the premise of the decode case above: the two definitions
         // really do render to one string, so a name-keyed index cannot tell
         // them apart and the width must come from the definition instead.
         using var image = Open(BuildNestedNameCollisionDesyncImage());
-        var provider = new CustomAttributeValueGuard.Classifier(
+        var provider = new CustomAttributeValueDecoder.Classifier(
             image.Reader,
             preserveSerializedTypeNames: false,
             beforeMaterialize: null,
@@ -3508,7 +3343,7 @@ public sealed class CustomAttributeValueGuardTests
 
         var value = new BlobBuilder();
         value.WriteUInt16(1);
-        // Four bytes of enum for a guard that resolves nothing, then a benign
+        // Four bytes of enum for an unresolved width, then a benign
         // count of one. A decode that reaches the nested Int64 through the
         // flattened name swallows both as the enum and takes the element below
         // as the count instead.
@@ -3640,7 +3475,7 @@ public sealed class CustomAttributeValueGuardTests
         // bytes as the following array's declared count.
         value.WriteInt32(0);
         value.WriteInt32(100_000_000);
-        // The count the guard sees after skipping the full 8 bytes.
+        // The count decoded after consuming the full 8 bytes.
         value.WriteInt32(1);
         value.WriteInt32(42);
         value.WriteUInt16(0);
@@ -3913,8 +3748,6 @@ public sealed class CustomAttributeValueGuardTests
         // handle-derived names are matched exactly.
         using var image = Open(BuildEscapeCollisionImage());
         CustomAttribute attribute = FirstAttribute(image.Reader);
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
         var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
         Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
@@ -3930,7 +3763,7 @@ public sealed class CustomAttributeValueGuardTests
         // resolve as reflection syntax, so the width a decode consumed
         // depended on where the name appeared in the blob.
         using var image = Open(BuildEscapeCollisionImage());
-        var provider = new CustomAttributeValueGuard.Classifier(
+        var provider = new CustomAttributeValueDecoder.Classifier(
             image.Reader,
             preserveSerializedTypeNames: false,
             beforeMaterialize: null,

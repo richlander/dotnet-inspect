@@ -35,15 +35,19 @@ internal static class PackageInspector
         string packageName = resolution.PackageName ?? fallbackPackageName;
         string version = resolution.Version ?? fallbackVersion;
         string? nupkgPath = resolution.NupkgPath;
-        fetchMetadata = !isLocalFile && (fetchMetadata || verbosity >= Verbosity.Detailed);
-        NuGetSourceOptions? metadataSourceOptions = resolution.ProducerKey is null
-            ? sourceOptions
-            : NuGetSourceResolver.RestrictToSourceKeys(
-                sourceOptions,
-                [resolution.ProducerKey]);
+        fetchMetadata = !isLocalFile
+            && resolution.Authority?.Kind != ConfiguredPackageAuthorityKind.LocalFolder
+            && (fetchMetadata || verbosity >= Verbosity.Detailed);
+        NuGetSourceOptions? metadataSourceOptions = resolution.Authority is { } authority
+            ? NuGetSourceResolver.RestrictToResolvedSources(sourceOptions, [authority.Source])
+            : resolution.ProducerKey is null
+                ? sourceOptions
+                : NuGetSourceResolver.RestrictToSourceKeys(
+                    sourceOptions,
+                    [resolution.ProducerKey]);
 
         // Try package index cache (skips all filesystem scanning)
-        if (!isLocalFile && resolution.ProducerKey is { } producerKey)
+        if (!isLocalFile && resolution.CacheScopeKey is { } cacheScopeKey)
         {
             InspectionResult? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
@@ -51,7 +55,7 @@ internal static class PackageInspector
                 cached = PackageIndexCache.TryGet(
                     packageName,
                     version,
-                    producerKey);
+                    cacheScopeKey);
             }
             if (cached != null)
             {
@@ -191,13 +195,13 @@ internal static class PackageInspector
         }
 
         // Cache the filesystem-derived result (before metadata overlay)
-        if (!isLocalFile && resolution.ProducerKey is { } writeProducerKey)
+        if (!isLocalFile && resolution.CacheScopeKey is { } writeCacheScopeKey)
         {
             using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad);
             PackageIndexCache.Set(
                 packageName,
                 version,
-                writeProducerKey,
+                writeCacheScopeKey,
                 result);
         }
 
