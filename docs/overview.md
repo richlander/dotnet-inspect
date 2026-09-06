@@ -59,8 +59,12 @@ substrates, and inspection producers that will extend that space.
   optimization-opportunity,
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
-  API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content; the
+  API-comparison, progressive call-graph, and group-scoped source queries. Its
+  target [package dependency traversal](design/package-dependency-traversal.md)
+  owner composes normalized declarations, exact source-authorized candidates,
+  and exact manifest results into one depth-bounded graph with root-relative
+  reachability. The source query owns a Decompiler fallback over retained
+  assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The project
@@ -318,6 +322,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [Member signature shape and transport](design/member-signature-shape.md):
+  non-authoritative source/Metadata projection, candidate correspondence,
+  loss-policy rationale, and canonical `mss1` transport.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.
