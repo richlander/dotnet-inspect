@@ -94,7 +94,8 @@ replacement but not owner-issued derivation, so they cannot enable causal
 control attribution by themselves.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
-operation. It may use `CSharpText.MemberSignatureShape` to discriminate
+operation. It may use
+[`CSharpText.MemberSignatureShape`](design/member-signature-shape.md) to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
 or unavailable and may fall back to the recorded ordinal. It cannot turn a
 shape match into fault-attribution identity; attribution still requires the
