@@ -684,6 +684,9 @@ jobs:
       - name: Run source-selection public contract tests
         run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
 
+      - name: Run source-delegation public contract tests
+        run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
+
       - name: Run section-row tests
         run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 

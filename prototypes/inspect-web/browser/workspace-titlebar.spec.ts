@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { callFactsFixture } from "../test/member-facts-fixture.ts";
 
 async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
@@ -514,9 +515,15 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".allocation-empty"))
         .toHaveText("No allocation occurrences were found in this method.");
       await expect(page.locator(".allocation-row")).toHaveCount(0);
+      await expect(page.locator(".call-facts > header > span"))
+        .toHaveText("0 call sites");
+      await expect(page.locator(".call-empty"))
+        .toHaveText("No direct call sites were found in this method.");
+      await expect(page.locator(".call-row")).toHaveCount(0);
     } else {
       await expect(page.locator(".facts-summary")).toHaveCount(0);
       await expect(page.locator(".allocation-facts")).toHaveCount(0);
+      await expect(page.locator(".call-facts")).toHaveCount(0);
       await expect(page.locator(".member-surface-scroll h2"))
         .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
       if (mode === "error") {
@@ -583,7 +590,7 @@ test("Member Facts allocation rows preserve all nine fields in occurrence order"
   }
   await expect(page.locator(".allocation-facts a, .allocation-facts button, .allocation-facts details"))
     .toHaveCount(0);
-  await expect(page.locator(".fact-group h2"))
+  await expect(page.locator(".call-facts h2, .fact-group h2"))
     .toHaveText(["Calls", "Safety facts", "Exception regions"]);
   const section = await box(page, ".allocation-facts");
   const summary = await box(page, ".facts-summary");
@@ -621,6 +628,65 @@ test("Member Facts allocation rows reflow by pane width without hiding long valu
     await expect(page.locator(".allocation-type").last()).toHaveText("Type unavailable");
     await expect(page.locator(".allocation-row").nth(1).locator("dd").last())
       .toHaveText("2147483647 B");
+  }
+});
+
+test("Member Facts call rows preserve all five fields and repeated callees", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&call-facts=populated");
+  const facts = callFactsFixture();
+  await expect(page.locator(".call-facts > header > span")).toHaveText("4 call sites");
+  await expect(page.locator(".facts-summary-value").nth(1)).toHaveText("4");
+  await expect(page.locator(".call-row")).toHaveCount(4);
+  for (const [index, call] of facts.calls.entries()) {
+    const row = page.locator(".call-row").nth(index);
+    await expect(row.locator(".call-location code")).toHaveText([call.offset, call.opcode]);
+    await expect(row.locator(".call-callee")).toHaveText(call.callee);
+    await expect(row.locator("dt")).toHaveText(["Multiplicity", "Loop"]);
+    await expect(row.locator("dd")).toHaveText([call.multiplicity, call.inLoop ? "yes" : "no"]);
+  }
+  await expect(page.locator(".call-facts a, .call-facts button, .call-facts details"))
+    .toHaveCount(0);
+  await expect(page.locator(".fact-group h2")).toHaveText(["Safety facts", "Exception regions"]);
+  const calls = await box(page, ".call-facts");
+  const allocations = await box(page, ".allocation-facts");
+  expect(calls.width).toBeCloseTo(allocations.width, 0);
+  expect(calls.height).toBeLessThanOrEqual(310);
+  expect(calls.y - (allocations.y + allocations.height)).toBeCloseTo(20, 0);
+});
+
+test("Member Facts call rows reflow by pane width without hiding long values", async ({
+  page,
+}) => {
+  const facts = callFactsFixture("long");
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&call-facts=long");
+    const location = await box(page, ".call-row:first-child .call-location");
+    const callee = await box(page, ".call-row:first-child .call-callee");
+    if (width === 900 || width === 360) {
+      expect(callee.y).toBeGreaterThanOrEqual(location.y + location.height);
+      expect(callee.x).toBeCloseTo(location.x, 0);
+    } else {
+      expect(callee.x).toBeGreaterThan(location.x + location.width);
+    }
+    for (const selector of [
+      ".call-facts", ".call-row", ".call-location", ".call-main",
+      ".call-callee", ".call-properties", ".call-properties > div",
+      ".call-properties dd", ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".call-callee")).toHaveText(facts.calls.map(call => call.callee));
+    await expect(page.locator(".call-location code").last()).toHaveText("call");
+    await expect(page.locator(".call-location").last().locator("code").first())
+      .toHaveText("IL_12345678");
+    await expect(page.locator(".call-properties").first().locator("dd"))
+      .toHaveText(["Unknown", "no"]);
   }
 });
 

@@ -119,3 +119,48 @@ export function allocationFactsFixture(
     ],
   };
 }
+
+export function callFactsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const long = mode === "long";
+  return {
+    ...memberFactsFixture(),
+    calls: [
+      {
+        offset: "IL_0014",
+        opcode: "callvirt",
+        kind: "CallVirtual",
+        callee: long
+          ? "Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String, System.Collections.Generic.List<System.Text.Json.JsonElement>>>.Read<System.Collections.Generic.KeyValuePair<System.String, System.Text.Json.JsonElement>>(System.ReadOnlySpan<System.Byte>, System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Text.Json.JsonElement>)"
+          : "System.Text.Json.Serialization.JsonConverter<System.Text.Json.JsonElement>.Read(System.Text.Json.Utf8JsonReader&, System.Type, System.Text.Json.JsonSerializerOptions)",
+        multiplicity: long ? "Unknown" : "Once",
+        inLoop: false,
+      },
+      {
+        offset: "IL_0020",
+        opcode: "newobj",
+        kind: "NewObject",
+        callee: "System.Text.Json.JsonException..ctor(System.String)",
+        multiplicity: "Conditional",
+        inLoop: false,
+      },
+      {
+        offset: "IL_0048",
+        opcode: "call",
+        kind: "Call",
+        callee: "System.Text.Json.Utf8JsonReader.Read()",
+        multiplicity: "Loop",
+        inLoop: true,
+      },
+      {
+        offset: long ? "IL_12345678" : "IL_0074",
+        opcode: "call",
+        kind: "Call",
+        callee: "System.Text.Json.Utf8JsonReader.Read()",
+        multiplicity: "Once",
+        inLoop: false,
+      },
+    ],
+  };
+}
