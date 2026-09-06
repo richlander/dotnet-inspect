@@ -49,6 +49,9 @@ public sealed class ProductionFacadeContextTests
             "AsyncLoweringCanary",
             "BuildIdentity",
             "ConfigureHost",
+            "DrainEpochWorkReporter",
+            "RegisterEpochWorkReporter",
+            "UnregisterEpochWorkReporter",
         ],
         [PackageAssembly] =
         [
@@ -166,10 +169,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 58 operations, and no operation name in two modules: a move that forgot to delete its
+        // 61 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(58, everyExport.Length);
+        Assert.Equal(61, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

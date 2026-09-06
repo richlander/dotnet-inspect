@@ -89,7 +89,7 @@ public static class WorkspaceCommand
             }
 
             WorkspaceScopeSnapshot? committed =
-                await CommitRootsAsync(
+                await AddAcquiredRootsAsync(
                     workspace,
                     snapshot,
                     packageRoots,
@@ -104,30 +104,30 @@ public static class WorkspaceCommand
     }
 
     /// <summary>
-    /// Commits the already-acquired Roots as the Workspace's exact ordered
-    /// Scope, reporting the owner's typed non-commit result. Returns
-    /// <see langword="null"/> after writing that report.
+    /// Appends the already-acquired Roots to the Workspace's Scope as one
+    /// all-or-failure batch, reporting the owner's typed non-commit result.
+    /// Returns <see langword="null"/> after writing that report.
     /// </summary>
-    static async Task<WorkspaceScopeSnapshot?> CommitRootsAsync(
+    static async Task<WorkspaceScopeSnapshot?> AddAcquiredRootsAsync(
         InspectionWorkspace workspace,
         WorkspaceScopeSnapshot snapshot,
         IReadOnlyList<PackageRootBinding> roots,
         CancellationToken cancellationToken)
     {
-        WorkspaceScopeOperationResult replacement =
-            await workspace.ReplaceScopeAsync(
+        WorkspaceScopeOperationResult addition =
+            await workspace.AddRootsAsync(
                 snapshot.Revision,
                 [.. roots],
                 DateTimeOffset.UtcNow.AddMinutes(5),
                 cancellationToken).ConfigureAwait(false);
-        if (replacement is WorkspaceScopeOperationResult.Committed committed)
+        if (addition is WorkspaceScopeOperationResult.Committed committed)
             return committed.Snapshot;
 
         cancellationToken.ThrowIfCancellationRequested();
         CommandError.Write(
             "The Workspace package inventory could not be committed.",
             [
-                replacement switch
+                addition switch
                 {
                     WorkspaceScopeOperationResult.Rejected rejected =>
                         $"Rejected: {rejected.Reason}",
@@ -136,13 +136,13 @@ public static class WorkspaceCommand
                     WorkspaceScopeOperationResult.Cancelled =>
                         "Package preparation was cancelled or reached its deadline.",
                     WorkspaceScopeOperationResult.Superseded =>
-                        "The requested replacement was superseded.",
+                        "The requested addition was superseded.",
                     WorkspaceScopeOperationResult.Unavailable missing =>
                         $"Unavailable: {missing.RuntimeFailure}",
                     WorkspaceScopeOperationResult.NoEffect =>
-                        "The requested replacement did not commit.",
+                        "The requested addition did not commit.",
                     _ => throw new InvalidOperationException(
-                        "Workspace replacement returned an unsupported result."),
+                        "Workspace addition returned an unsupported result."),
                 },
             ]);
         return null;
@@ -215,7 +215,7 @@ public static class WorkspaceCommand
         // one this reopening produced rather than a coordinate reconstructed
         // from archive bytes, a display framework, or a store path.
         WorkspaceScopeSnapshot? committed =
-            await CommitRootsAsync(
+            await AddAcquiredRootsAsync(
                 workspace,
                 snapshot,
                 [binding],

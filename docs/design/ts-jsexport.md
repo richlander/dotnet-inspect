@@ -167,7 +167,7 @@ adds application-facing policy:
 - authenticated JSON parsing and exact wire-result types;
 - readonly producer-owned JSON snapshots;
 - initialization and explicit one-runtime composition; and
-- consumer-facing DTO and enum declarations.
+- consumer-facing DTO, enum, and JSON union declarations.
 
 Generating JavaScript plus JSDoc would express those TypeScript decisions
 indirectly and require the generator to own comment containment, JSDoc import
@@ -234,6 +234,47 @@ Wire DTOs are producer-owned snapshots. Their properties are readonly, arrays
 use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
+
+### JSON union lowering
+
+Slice 3 of [#5892](https://github.com/richlander/dotnet-inspect/issues/5892),
+tracked by [#6106](https://github.com/richlander/dotnet-inspect/issues/6106),
+consumes the union evidence owned by
+[`JsExportSurface`](../../src/ILInspector.JsExportSurface/README.md#json-union-alternatives).
+It does not infer another serializer contract from the union's `Value` member.
+
+A serialize-reached supported union becomes a TypeScript type alias containing
+its mapped case alternatives and the producer's default-null alternative.
+Case types retain their existing JSON mappings, including readonly snapshots,
+byte-array Base64 strings, and local enum/DTO declarations. Aliases and every
+reference participate in the same identity-based module-name allocation as
+other wire declarations. The raw export remains string-valued; the public
+facade parses that JSON and returns the generated alias.
+Case signature trees supply identities rather than nested nullable-reference
+annotations. Reference-valued entries in case arrays and dictionaries therefore
+remain nullable conservatively; null must not disappear from supported JSON.
+
+Generic unions with direct type-parameter cases use generic aliases whose
+arguments are JSON wire types. Closed uses retain their structured argument
+identities. A parameter embedded inside a case signature remains unsupported:
+substituting a wire type into a CLR container is not generally faithful
+(`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
+This boundary does not add general generic DTO support.
+
+Deserialize-reached unions, unavailable case/null evidence, unsupported
+converters, unmapped alternatives, and recursive union-case alias components
+fail visibly before publication. Recursive DTO interfaces are not union-case
+alias components and retain their existing behavior.
+Unused union registrations remain inert. No discriminator, replacement
+transport, or runtime schema validator is introduced.
+
+`JsonUnionWireTests` and the compiler/runtime consumer harness
+`eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
+source-generated serializer results and compiled TypeScript consumers.
+The four-step adoption path remains Metadata evidence, JsExportSurface
+evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
+adoption. The existing TypeScript emitter owns this format lowering; no new
+human-readable rendering path or architecture retirement is needed.
 
 ### Public facade view
 

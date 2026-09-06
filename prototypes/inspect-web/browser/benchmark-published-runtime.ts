@@ -1,7 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { arch, cpus, platform, release, totalmem } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  arch,
+  cpus,
+  loadavg,
+  platform,
+  release,
+  totalmem,
+} from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { firefox, type Page } from "@playwright/test";
@@ -146,6 +153,27 @@ interface SiteSummary {
   readonly warmMethodComparisonMilliseconds: DistributionSummary | null;
 }
 
+interface HostLoadSnapshot {
+  readonly capturedAtUtc: string;
+  readonly oneMinute: number;
+  readonly fiveMinutes: number;
+  readonly fifteenMinutes: number;
+  readonly normalizedPerLogicalProcessor: {
+    readonly oneMinute: number | null;
+    readonly fiveMinutes: number | null;
+    readonly fifteenMinutes: number | null;
+  };
+}
+
+interface AutomationEnvironment {
+  readonly provider: "github-actions";
+  readonly runId: string;
+  readonly runAttempt: string | null;
+  readonly workflow: string | null;
+  readonly runnerName: string | null;
+  readonly runnerEnvironment: string | null;
+}
+
 interface BenchmarkReport {
   readonly schema: 1;
   readonly generatedAtUtc: string;
@@ -162,6 +190,11 @@ interface BenchmarkReport {
     readonly totalMemoryBytes: number;
     readonly node: string;
     readonly browser: string;
+    readonly automation: AutomationEnvironment | null;
+    readonly hostLoad: {
+      readonly before: HostLoadSnapshot;
+      readonly after: HostLoadSnapshot;
+    };
   };
   readonly configuration: {
     readonly samples: number;
@@ -183,8 +216,62 @@ interface BenchmarkReport {
   readonly runs: readonly BenchmarkRun[];
 }
 
+interface BenchmarkTrendPoint {
+  readonly schema: 1;
+  readonly generatedAtUtc: string;
+  readonly sourceReportSha256: string;
+  readonly productCommit: string;
+  readonly harness: BenchmarkReport["harness"];
+  readonly environment: BenchmarkReport["environment"];
+  readonly configuration: BenchmarkReport["configuration"];
+  readonly summaries: readonly SiteSummary[];
+}
+
 function round(value: number): number {
   return Math.round(value * 1_000) / 1_000;
+}
+
+function captureHostLoad(logicalProcessors: number): HostLoadSnapshot {
+  const averages = loadavg();
+  const oneMinute = averages[0];
+  const fiveMinutes = averages[1];
+  const fifteenMinutes = averages[2];
+  if (
+    oneMinute === undefined
+    || fiveMinutes === undefined
+    || fifteenMinutes === undefined
+  ) {
+    throw new Error("Host load averages were not available.");
+  }
+  const normalize = (value: number): number | null =>
+    logicalProcessors === 0 ? null : round(value / logicalProcessors);
+  return {
+    capturedAtUtc: new Date().toISOString(),
+    oneMinute: round(oneMinute),
+    fiveMinutes: round(fiveMinutes),
+    fifteenMinutes: round(fifteenMinutes),
+    normalizedPerLogicalProcessor: {
+      oneMinute: normalize(oneMinute),
+      fiveMinutes: normalize(fiveMinutes),
+      fifteenMinutes: normalize(fifteenMinutes),
+    },
+  };
+}
+
+function automationEnvironment(): AutomationEnvironment | null {
+  const runId = process.env.GITHUB_RUN_ID;
+  if (process.env.GITHUB_ACTIONS !== "true" || !runId) {
+    return null;
+  }
+
+  return {
+    provider: "github-actions",
+    runId,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+    workflow: process.env.GITHUB_WORKFLOW ?? null,
+    runnerName: process.env.RUNNER_NAME ?? null,
+    runnerEnvironment: process.env.RUNNER_ENVIRONMENT ?? null,
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -718,6 +805,22 @@ function printSummaries(summaries: readonly SiteSummary[]): void {
 }
 
 async function runBenchmark(options: BenchmarkOptions): Promise<void> {
+  const processors = cpus();
+  const logicalProcessors = processors.length;
+  const loadBefore = captureHostLoad(logicalProcessors);
+  const output = options.outputPath === null
+    ? null
+    : resolve(options.outputPath);
+  const trendOutput = options.trendOutputPath === null
+    ? null
+    : resolve(options.trendOutputPath);
+  if (output !== null && trendOutput === output) {
+    throw new Error("--output and --trend-output must name different files.");
+  }
+  if (trendOutput !== null) {
+    rmSync(trendOutput, { force: true });
+  }
+
   const browser = await firefox.launch({ headless: true });
   const browserVersion = browser.version();
   const runs: BenchmarkRun[] = [];
@@ -789,6 +892,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<void> {
   );
   const summaries = options.sites.map(site => summarizeSite(site, runs));
   const dirty = gitValue(["status", "--porcelain"]);
+  const loadAfter = captureHostLoad(logicalProcessors);
   const report: BenchmarkReport = {
     schema: 1,
     generatedAtUtc: new Date().toISOString(),
@@ -800,11 +904,16 @@ async function runBenchmark(options: BenchmarkOptions): Promise<void> {
       platform: platform(),
       release: release(),
       architecture: arch(),
-      cpu: cpus()[0]?.model ?? null,
-      logicalProcessors: cpus().length,
+      cpu: processors[0]?.model ?? null,
+      logicalProcessors,
       totalMemoryBytes: totalmem(),
       node: process.version,
       browser: browserVersion,
+      automation: automationEnvironment(),
+      hostLoad: {
+        before: loadBefore,
+        after: loadAfter,
+      },
     },
     configuration: {
       samples: options.samples,
@@ -870,13 +979,49 @@ async function runBenchmark(options: BenchmarkOptions): Promise<void> {
 
   printSummaries(summaries);
   const json = `${JSON.stringify(report, null, 2)}\n`;
-  if (options.outputPath) {
-    const output = resolve(options.outputPath);
+  if (output !== null) {
     mkdirSync(dirname(output), { recursive: true });
     writeFileSync(output, json);
     console.log(`Wrote ${output}`);
   } else {
     process.stdout.write(json);
+  }
+
+  if (trendOutput !== null) {
+    if (comparable) {
+      const productCommits = new Set(
+        Object.values(buildComparison.commitsBySite).flat(),
+      );
+      if (productCommits.size !== 1) {
+        throw new Error(
+          "Comparable report did not resolve to one product commit.",
+        );
+      }
+      const productCommit = [...productCommits][0];
+      if (productCommit === undefined) {
+        throw new Error("Comparable report did not contain a product commit.");
+      }
+      const trendPoint: BenchmarkTrendPoint = {
+        schema: 1,
+        generatedAtUtc: report.generatedAtUtc,
+        sourceReportSha256: createHash("sha256").update(json).digest("hex"),
+        productCommit,
+        harness: report.harness,
+        environment: report.environment,
+        configuration: report.configuration,
+        summaries: report.summaries,
+      };
+      mkdirSync(dirname(trendOutput), { recursive: true });
+      writeFileSync(
+        trendOutput,
+        `${JSON.stringify(trendPoint, null, 2)}\n`,
+      );
+      console.error(`Wrote ${trendOutput}`);
+    } else {
+      console.error(
+        "No trend point written because the report is not comparable.",
+      );
+    }
   }
 
   if (!accepted) {

@@ -361,9 +361,10 @@ boundary can expand.
 real source-generated serialization, ambiguous and nested read boundaries,
 case discovery, direction propagation, closed generic signatures, and
 unsupported converter evidence. Its neighboring ordinary DTO remains an
-object. The same suite checks that TypeScript generation rejects a reached
-union until slice 3 implements lowering, rather than emitting a misleading
-interface.
+object. TypeScript projection and its stricter publication boundaries are
+owned by the consumer's
+[JSON union lowering contract](../../docs/design/ts-jsexport.md#json-union-lowering),
+not by these serializer facts.
 
 The serializer oracle is bounded to SDK `11.0.100-preview.7.26381.103` and
 [its System.Text.Json source](https://github.com/dotnet/dotnet/tree/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json).

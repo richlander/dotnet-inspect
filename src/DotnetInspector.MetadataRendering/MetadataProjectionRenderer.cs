@@ -367,6 +367,33 @@ public static class MetadataProjectionRenderer
         void Add(string property, string value) => rows.Add([property, value]);
     }
 
+    static List<string[]> ImageFactRows(
+        MetadataImageOverview overview,
+        MetadataRootInspection root,
+        UntrustedTextMode mode)
+    {
+        var rows = new List<string[]>
+        {
+            new[] { "Requested root", DisplayRootKind(root.RequestedRoot) },
+            new[] { "Canonical root", DisplayRootKind(root.Identity.Kind) },
+            new[] { "Root RVA", $"0x{root.Identity.RelativeVirtualAddress:X8}" },
+            new[] { "Root size", $"{root.Identity.Size} bytes" },
+        };
+
+        if (root.RequestedRoot == MetadataRootKind.ReadyToRunManifest)
+        {
+            rows.Add([
+                "Manifest relationship",
+                root.Identity.Kind == MetadataRootKind.Cli
+                    ? "aliases CLI metadata"
+                    : "separate root",
+            ]);
+        }
+
+        rows.AddRange(ImageFactRows(overview, mode));
+        return rows;
+    }
+
     /// <summary>
     /// Returns the number of rows <see cref="RenderImageFacts"/> emits, from the same fact-row
     /// builder the renderer consumes.
@@ -375,6 +402,22 @@ public static class MetadataProjectionRenderer
     {
         ArgumentNullException.ThrowIfNull(overview);
         return ImageFactRows(overview, UntrustedTextMode.Contain).Count + overview.Heaps.Length;
+    }
+
+    /// <summary>
+    /// Returns the number of rows emitted for a root-scoped metadata image,
+    /// including its requested and canonical root provenance.
+    /// </summary>
+    public static int CountImageFactRows(
+        MetadataImageOverview overview,
+        MetadataRootInspection root)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        ArgumentNullException.ThrowIfNull(root);
+        return ImageFactRows(
+            overview,
+            root,
+            UntrustedTextMode.Contain).Count + overview.Heaps.Length;
     }
 
     /// <summary>
@@ -403,7 +446,21 @@ public static class MetadataProjectionRenderer
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(output);
 
-        var rows = ImageFactRows(overview, mode);
+        RenderImageFactRows(
+            ImageFactRows(overview, mode),
+            overview,
+            output,
+            columns,
+            format);
+    }
+
+    static void RenderImageFactRows(
+        List<string[]> rows,
+        MetadataImageOverview overview,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns,
+        MetadataTableFormat format)
+    {
         foreach (var heap in overview.Heaps)
         {
             string addressing = heap.Addressing == MetadataHeapAddressing.Index ? "index" : "byte offset";
@@ -442,6 +499,37 @@ public static class MetadataProjectionRenderer
         writer.WriteTable(headers, headerNames, rows);
         writer.Flush();
     }
+
+    /// <summary>
+    /// Renders image facts with the selected root's requested provenance and
+    /// canonical image-relative identity.
+    /// </summary>
+    public static void RenderImageFacts(
+        MetadataImageOverview overview,
+        MetadataRootInspection root,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns = null,
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(output);
+
+        RenderImageFactRows(
+            ImageFactRows(overview, root, mode),
+            overview,
+            output,
+            columns,
+            format);
+    }
+
+    static string DisplayRootKind(MetadataRootKind root) => root switch
+    {
+        MetadataRootKind.Cli => "CLI",
+        MetadataRootKind.ReadyToRunManifest => "ReadyToRun manifest",
+        _ => root.ToString(),
+    };
 
     static string DescribeEntryPoint(MetadataCorHeaderSummary cor)
     {

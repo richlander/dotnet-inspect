@@ -62,9 +62,9 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import {
-  createMainThreadStartupClient,
-  type EngineStartupClient,
-} from "./engine-startup.ts";
+  createMainThreadEngineClient,
+  type EngineClient,
+} from "./engine-client.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -472,7 +472,7 @@ type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
 type EngineCoordinator = typeof import("./engine-facades.ts");
 
 let startEngine: EngineCoordinator["startEngine"];
-let engineStartup: EngineStartupClient;
+let engineClient: EngineClient;
 let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
@@ -528,7 +528,6 @@ let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
 let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
 let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
-let inspectResolveHomeDemo: CatalogFacade["resolveHomeDemo"];
 let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
 let productHomeDemoCatalogError = "";
 
@@ -556,7 +555,7 @@ async function loadEngineModule() {
     import("./engine-facades.ts"),
   ]);
   ({ startEngine } = coordinator);
-  engineStartup = createMainThreadStartupClient({
+  engineClient = createMainThreadEngineClient({
     host: hostFacade,
     package: packageFacade,
     catalog: catalogFacade,
@@ -622,7 +621,6 @@ async function loadEngineModule() {
   ({
     decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
     encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
-    resolveHomeDemo: inspectResolveHomeDemo,
     runHomeDemo: inspectRunHomeDemo,
   } = catalogFacade);
 }
@@ -1468,7 +1466,8 @@ function applyView(view: WorkspaceView) {
       ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
       : []);
   state.lens = view.lens;
-  state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
+  state.selectedTypeId = type?.id ?? defaultVisibleTypeId(pkg);
+  reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = memberHistory.selectedMemberKey;
   state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
   state.memberKindFilter = memberHistory.memberKindFilter;
@@ -4000,6 +3999,7 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     library: selectedLibraryName(),
+    parentSubject: state.atLibraryRoot ? "package" : "library",
     filtersExpanded: state.typeFiltersExpanded,
     filterSummary: typeFilterSummary(),
     escapeHtml,
@@ -6112,14 +6112,18 @@ function bindTypePanelEvents() {
       resetMemberFilters();
       renderPreservingMemberFocus();
     },
-    onLibraryOpen: () => {
+    onTypeNavBack: () => {
+      const focusGeneration = beginSpotlightNavigation();
       state.workspaceSubjectOpen = false;
-      state.atPackageRoot = false;
-      state.atLibraryRoot = true;
+      state.atPackageRoot = state.atLibraryRoot;
+      state.atLibraryRoot = !state.atPackageRoot;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
+      showContentDetailAfterRender();
       render();
+      if (!contentFrameMedia.matches)
+        restoreContentNavigationFocus(focusGeneration);
     },
     onListKeyDown: handleTypeKeys,
     onMemberAccessibilityFilterSelect: value => {
@@ -8957,70 +8961,81 @@ function openDefaultWorkspace(): void {
 }
 
 function runHomeDemo(kind: ProductHomeDemoId) {
+  observeAsync(resolveAndRunHomeDemo(kind), "Loading the demo workspace");
+}
+
+async function resolveAndRunHomeDemo(kind: ProductHomeDemoId): Promise<void> {
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
   const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
-  let resolveResult: BrowserHomeDemoResolveResult;
+  const navigationSeq = beginDemoNavigation(location.href);
   try {
-    resolveResult = inspectResolveHomeDemo(kind);
-  } catch (error) {
-    failDemoWorkspaceOpen(
-      kind,
-      errorMessage(error),
-      snapshot,
-      true);
-    return;
-  }
-  const resolved = resolveResult.found ? resolveResult.demo : null;
-  if (!resolved) {
-    failDemoWorkspaceOpen(
-      kind,
-      `Unknown product home demo '${kind}'.`,
-      snapshot,
-      false);
-    return;
-  }
-  state.home = false;
-  let link: string | null;
-  try {
-    link = productHomeDemoLocationHref(
-      resolved,
-      inspectEncodeWorkspaceShareState);
-  } catch (error) {
-    failDemoWorkspaceOpen(
-      kind,
-      errorMessage(error),
-      snapshot,
-      false);
-    return;
-  }
-  if (!link) {
-    observeAsync(
-      runCallGraphDemo(kind, snapshot),
-      "Loading the call graph demo");
-    return;
-  }
-  let destination: string;
-  let loc: ParsedLocation;
-  try {
-    destination = new URL(link, location.href).toString();
-    loc = parseWorkspaceHref(destination);
-  } catch (error) {
-    failDemoWorkspaceOpen(
-      kind,
-      errorMessage(error),
-      snapshot,
-      false);
-    return;
-  }
-  const navigationSeq = beginDemoNavigation(destination);
-  observeAsync(
-    restoreWorkspaceCatalogEntry(
+    state.loading = true;
+    state.loadingMessage = "Resolving product demo…";
+    state.loadingSubtitle = "Reading the product workspace and view…";
+    render();
+    let resolveResult: BrowserHomeDemoResolveResult;
+    try {
+      resolveResult = await engineClient.catalog.resolveHomeDemo(kind);
+    } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
+      failDemoWorkspaceOpen(
+        kind,
+        errorMessage(error),
+        snapshot,
+        true);
+      return;
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    const resolved = resolveResult.found ? resolveResult.demo : null;
+    if (!resolved) {
+      failDemoWorkspaceOpen(
+        kind,
+        `Unknown product home demo '${kind}'.`,
+        snapshot,
+        false);
+      return;
+    }
+    state.home = false;
+    let link: string | null;
+    try {
+      link = productHomeDemoLocationHref(
+        resolved,
+        inspectEncodeWorkspaceShareState);
+    } catch (error) {
+      failDemoWorkspaceOpen(
+        kind,
+        errorMessage(error),
+        snapshot,
+        false);
+      return;
+    }
+    if (!link) {
+      await runCallGraphDemo(kind, snapshot, navigationSeq);
+      return;
+    }
+    let destination: string;
+    let loc: ParsedLocation;
+    try {
+      destination = new URL(link, location.href).toString();
+      loc = parseWorkspaceHref(destination);
+    } catch (error) {
+      failDemoWorkspaceOpen(
+        kind,
+        errorMessage(error),
+        snapshot,
+        false);
+      return;
+    }
+    stageDemoNavigation(navigationSeq, destination);
+    await restoreWorkspaceCatalogEntry(
       loc,
       navigationSeq,
       snapshot,
-      message => failDemoWorkspaceOpen(kind, message, snapshot, true)),
-    "Loading the demo workspace");
+      message => failDemoWorkspaceOpen(kind, message, snapshot, true));
+  } finally {
+    cancelDemoNavigation(navigationSeq);
+  }
 }
 
 function openWorkspacePackagePicker(): void {
@@ -12219,8 +12234,8 @@ async function loadRuntimePackAssembly(
 async function runCallGraphDemo(
   demoId: ProductHomeDemoId,
   snapshot: CanonicalWorkspaceRestoreSnapshot,
+  navigationSeq: number,
 ) {
-  const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
   state.errorDetail = "";
@@ -12830,10 +12845,10 @@ async function bootstrap() {
     reportEngineStatus("Loading .NET WebAssembly…");
     await startEngine(window.location.origin);
     reportEngineStatus("Reading package assemblies…");
-    state.buildIdentity = await engineStartup.host.buildIdentity();
+    state.buildIdentity = await engineClient.host.buildIdentity();
     const tEngine = performance.now();
     try {
-      const vocabulary = await engineStartup.catalog.listVocabulary();
+      const vocabulary = await engineClient.catalog.listVocabulary();
       const sections = vocabulary?.sections || [];
       state.styleTiers = (
         sections.find(section => section.id === "csharp.style-tiers")?.values
@@ -12854,7 +12869,7 @@ async function bootstrap() {
       state.styleCatalogError = errorMessage(error);
     }
     try {
-      setProductHomeDemoCatalog((await engineStartup.catalog.listHomeDemos()).demos ?? []);
+      setProductHomeDemoCatalog((await engineClient.catalog.listHomeDemos()).demos ?? []);
       productHomeDemoCatalogError = "";
     } catch (error) {
       setProductHomeDemoCatalog([]);
@@ -12863,9 +12878,9 @@ async function bootstrap() {
     }
     try {
       state.packageQueryFacets =
-        packageQueryFacets(await engineStartup.package.listPackageQueryFacets());
+        packageQueryFacets(await engineClient.package.listPackageQueryFacets());
       state.packageQuerySourceCatalog =
-        await engineStartup.package.listGalleryDiscoveryCatalog();
+        await engineClient.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
       state.packageQuerySourceCatalog = null;
@@ -12875,7 +12890,7 @@ async function bootstrap() {
     try {
       state.packageQueryAssemblyPatterns =
         packageQueryAssemblyPatterns(
-          await engineStartup.package.listPackageAssemblyQueryPatterns());
+          await engineClient.package.listPackageAssemblyQueryPatterns());
     } catch (error) {
       state.packageQueryAssemblyPatterns = [];
       console.error("Package-query assembly patterns are unavailable.", error);

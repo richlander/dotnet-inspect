@@ -9,7 +9,7 @@ the demo-content stack in
 
 This document defines the source-level structure by which the product can
 elevate a .NET ecosystem coherently through discovery metadata, an optional
-curated package set, recorded package-prefix queries, and an optional
+curated package set, recorded package-prefix declarations, and an optional
 Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
@@ -23,8 +23,11 @@ active. The optional scanner slot and Aspire binding selection are implemented
 under [#5935](https://github.com/richlander/dotnet-inspect/issues/5935), using
 the Integration-owned compatibility binding. CLI ecosystem narrowing is adopted under
 [#5985](https://github.com/richlander/dotnet-inspect/issues/5985);
-browser scanner selection remains staged. Prefix slots remain absent until their owner issues the
-required currency; existing search and full Integration behavior is unchanged.
+browser scanner selection remains staged. The source-owned
+`PackagePrefixDeclaration` is available from #6094, but catalog prefix slots
+and their CLI/browser discovery remain staged under #5728 and #6012.
+The [website example](#aspire-prefix-discovery-website-mockup) is a mockup,
+not shipped behavior. Existing search and full Integration behavior is unchanged.
 
 [Approved lazy traversal](approved-lazy-traversal.md) records the approved
 target experience for compact namespace hints, core-package starting points,
@@ -55,6 +58,8 @@ Supporting owners:
   currency, failures, completion, and query results.
 - [Search scope resolution](search-scope-resolution.md) owns current CLI search
   defaults and ordered source composition.
+- [Typed source intent](search-scope-domain.md#package-prefix-request) owns
+  `PackagePrefixDeclaration` and its intrinsic validation.
 - [Package source model](package-source-model.md) owns source authorization,
   package discovery, paging, failures, and payload acquisition.
 - [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
@@ -147,7 +152,8 @@ The exact claim is:
 ## Why a pack is the product unit
 
 A package set alone answers which package IDs the product has selected. A
-package prefix answers which live source query a user may run. An Integration
+recorded prefix answers which literal package-ID prefix the product associates
+with an ecosystem, not which packages currently match it. An Integration
 scanner answers how realized package APIs are interpreted. A product demo fixes
 exact package versions and a normal product view that demonstrates the
 ecosystem. Users experience those capabilities as one ecosystem even though
@@ -193,7 +199,7 @@ EcosystemPackDescriptor
 
 EcosystemPackagePrefix
   Id           EcosystemPackagePrefixId
-  Request      PackagePrefixRequest
+  Declaration  PackagePrefixDeclaration
   Title        string
   Summary      string
   Order        int
@@ -222,7 +228,7 @@ scenario ID is the product-demo identity; the ecosystem catalog does not mint
 a parallel demo ID or infer identity from title, order, package coordinate, or
 ecosystem.
 
-The public discovery boundary exposes immutable pack, prefix-action, and demo
+The public discovery boundary exposes immutable pack, prefix-entry, and demo
 descriptor metadata, namespace roots, core-package priorities, tool references, package-set
 identity, and whether a scanner is available.
 `EcosystemPackDescriptor.HasScanner` reports scanner availability without
@@ -403,7 +409,8 @@ The application manifest follows the repository's static-registry pattern:
 - exact lookup does not invoke the selected pack's scanner;
 - selecting a package-set action returns only that referenced package-set
   identity;
-- selecting a prefix action returns only that prefix request to the front end;
+- selecting a prefix entry returns only its recorded `PackagePrefixDeclaration`
+  unchanged to the front end, not a query request or package results;
 - grouped or flattened demo discovery returns only immutable metadata and does
   not invoke a demo source;
 - selecting one demo dispatches only that demo's
@@ -623,7 +630,7 @@ architecture is retired, and no new host rendering strategy is introduced.
 
 | Handoff | Disposition |
 | --- | --- |
-| Validated package-prefix/source intent | #5602 remains the prerequisite for executable prefix slots; a protocol search method does not replace that declaration. |
+| Validated package-prefix declaration | `PackagePrefixDeclaration` is available from #6094 under #5602. Catalog registration and host discovery remain staged; a package-query implementation is not a prerequisite for reading this metadata. |
 | Namespace-guided candidate discovery | Requires focused source/resolution work under #6012. Neither #5602 nor the exact dependency-candidate adapter in #5765 already supplies it. |
 | Source-native Platform discovery/acquisition | Requires a focused producer binding. #3671's context/availability work is relevant, but an advertised index entry is not an acquired candidate or a binding. |
 
@@ -694,31 +701,37 @@ enforce this catalog slice; they do not certify future package versions.
 
 ## Recorded package prefixes
 
-Each prefix entry is an explicit discovery action with product-owned title and
-summary. A pack may have no prefix, one prefix, or several independently
-selectable prefixes. For example, an Aspire pack may distinguish official and
-community package families.
+Catalog definition and package-prefix querying are separate operations.
+A catalog entry records a validated literal prefix with its identity,
+product-owned title, summary, and order. Discovery and exact lookup answer
+"What prefix is recorded for Aspire?", not "Which packages match Aspire?".
+The user can obtain `Aspire.` from the catalog without running a package query.
+
+A pack may have no prefix, one prefix, or several independently selectable
+entries. For example, an Aspire pack may separately record `Aspire.` and
+`CommunityToolkit.Aspire.`. These are authored associations, not publisher
+ownership claims inferred from package names.
 
 The immutable prefix sequence is authored in strictly ascending unique
 `Order`. Complete registration validation rejects an out-of-order sequence
 rather than sorting it. Discovery preserves the validated sequence, so
 declaration order and `Order` cannot disagree across hosts.
 
-The prefix value will be carried by the owner-issued typed package-prefix
-intent tracked under #5602. The pack does not:
+Each entry carries the source owner's
+[`PackagePrefixDeclaration`](search-scope-domain.md#package-prefix-request),
+not `PackagePrefixRequest`. It contains no expected or maximum package count,
+prerelease policy, source selection, or other query options. A consumer may
+later use the selected declaration in a separate query operation under that
+operation's own contract; the catalog does not construct that request.
 
-- expand the prefix during discovery;
-- store a package count;
-- claim exhaustive source coverage;
-- choose the package query's result limit;
-- hide source paging or truncation;
-- combine several prefixes implicitly; or
-- infer a prefix from ecosystem, package-set, or Integration identity.
+Discovery does not expand or combine prefixes, acquire packages, or infer a
+prefix from ecosystem, namespace-root, package-set, or Integration identity.
+It reports recorded metadata, not source availability or exhaustive coverage.
 
-Prefix validation belongs to the typed source-intent or package-query owner.
-The executable pack registration cannot land this slot until that owner issues
-a validated request currency. This design defines the ordered discovery role
-and unchanged handoff but does not establish an interim string grammar.
+Prefix validation stays with the declaration owner; this catalog does not
+establish another string grammar. The declaration prerequisite is implemented.
+Catalog registration and CLI/browser presentation remain the next adoption
+steps, independently of package-prefix query production.
 
 ## Integration scanner binding
 
@@ -873,9 +886,9 @@ currencies and content:
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
 | --- | --- | --- | --- |
 | `ecosystem.platform` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | no prefix or scanner planned by this slice |
-| `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix waits for #5602; no scanner contributed yet |
-| `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix waits for #5602; no scanner contributed yet |
-| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefixes wait for #5602 |
+| `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix catalog/host adoption remains staged; no scanner contributed yet |
+| `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix catalog/host adoption remains staged; no scanner contributed yet |
+| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -943,8 +956,7 @@ An Aspire pack may then expose:
 ecosystem.aspire
   package-set.aspire
   demos     -> AddPostgres call graph, AddRedis call graph
-  official  -> Aspire.
-  community -> CommunityToolkit.Aspire.
+  prefixes  -> Aspire., CommunityToolkit.Aspire.
   scanner   -> AspireIntegrationScanner.Scan
 ```
 
@@ -966,6 +978,40 @@ Entity Framework Core, OpenTelemetry, gRPC, Orleans, and other ecosystems are
 candidate packs, not registrations authorized by this design.
 
 ## Demo
+
+### Aspire prefix discovery (website mockup)
+
+**Planned catalog discovery, not current website output.** This example shows
+the information a user obtains; it does not prescribe website navigation or
+controls. The website owner retains those presentation decisions.
+
+1. The user opens the ecosystem catalog in Inspect Web.
+2. They choose **Aspire**.
+3. The catalog view shows the recorded prefix, which the user can read or copy:
+
+```text
+Inspect Web
+Ecosystem catalog > Aspire
+
+Package prefixes
+  Aspire packages    Aspire.
+```
+
+The host obtains the value from the selected Aspire catalog entry. It does not
+derive it from the ecosystem name or namespace hint, and the user does not
+need to know `Aspire.` before opening the catalog. This flow ends with the
+prefix value, not a package-result table or an inspection workspace.
+Running a package-prefix query would be a separate operation.
+
+For a neighboring pack with no prefix contribution, such as the planned
+Platform row, the view says **No recorded package prefixes**. That describes
+the catalog, not a search that found no packages.
+
+Both catalog prefix registration and this host-facing discovery remain staged.
+The already implemented package-query page is a different surface and is not
+the source of the prefix in this example.
+
+### Shared catalog API examples
 
 Retrieval knowledge is available through the shared catalog, not a new CLI
 command or browser action:
@@ -1135,7 +1181,7 @@ ordinary non-friend consumer.
 | `EcosystemPackRegistryTests.ScannerOnlyPackIsValidAndMissingCapabilityIsDistinctFromUnknownPack` | A scanner-only contribution is valid; exact selection distinguishes a known pack without a scanner from an unknown pack. |
 | `ProductEcosystemPackTests.AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding` | Literal shipped availability identifies only Aspire and selection preserves the Integration-owned compatibility binding by identity. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceHandsSelectedScannerToIntegrationOwner` | A non-friend consumer discovers and selects Aspire, passes only the binding to the public Integration operation, and retains typed missing-capability/unknown results. |
-| `EcosystemPackRegistryTests.PrefixSelectionPreservesExactValidatedIntent` | After the prefix owner issues its currency, selecting a prefix returns that typed request unchanged and does not expand, combine, count, or execute it. |
+| `EcosystemPackRegistryTests.PrefixSelectionPreservesExactValidatedIntent` | Staged until catalog prefix adoption: selecting an entry returns its recorded `PackagePrefixDeclaration` unchanged, without constructing or executing a query request. |
 | `EcosystemPackRegistryTests.PackageSetSelectionPreservesExactTypedIdentity` | Selecting a curated set returns only its `PackageSetId` and does not copy membership or activate another pack capability. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
@@ -1194,7 +1240,7 @@ The owner tracks may advance independently:
 | --- | --- |
 | Curated package set | #5720 places source-authored membership in the separate private application Package Set Registry, followed by registry implementation. |
 | Product demo | Workspace Definitions issues the lazy source binding; #5772 transfers application-authored sources and host discovery to the ecosystem catalog. |
-| Recorded prefix | #5602 issues the typed package-prefix request currency. |
+| Recorded prefix | #6094 supplies `PackagePrefixDeclaration` under #5602; catalog registration and host discovery adopt it separately from query execution. |
 | Semantic scanner | #5719 issues the opaque binding and decoded observation-context contract. |
 
 1. Lock this focused pack pattern.
@@ -1206,13 +1252,14 @@ The owner tracks may advance independently:
    grouped and flattened discovery, exact lookup and selection; and publish the
    four-pack, ten-demo manifest with its focused gates. Do not change current
    package membership, existing demo execution, or search behavior.
-4. Add each remaining action slot independently when its owner track lands; no
-   later slot reopens already implemented action semantics.
+4. Add each remaining contribution slot independently when its owner track lands;
+   no later slot reopens already implemented selection/materialization semantics.
 5. Adopt CLI and browser actions through the same implementation slice's
    application-catalog handoff; Integration remains independently adoptable.
 
 The four owner tracks remain separately owned; #5720 records the package-set
-composition decision, while prefix and scanner contracts remain residual. No
+composition decision, while prefix catalog/host adoption and remaining scanner
+adoption stay staged. No
 implementation slice waits for every optional slot: each lands only when its
 owner-issued currency exists and one real application scenario makes that slice
 coherent.

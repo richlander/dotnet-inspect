@@ -46,6 +46,27 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+## Runtime identity
+
+`--flavor` identifies the executing CLI runtime as `CoreCLR` or `NativeAOT`,
+followed by `.NET <major>.<minor>`. A CoreCLR single-file bundle remains
+`CoreCLR`; disabling its dynamic-code capability does not change its identity.
+The distinction covers the CLI's CoreCLR and NativeAOT hosts, not arbitrary
+runtime families.
+
+Assembly file location describes deployment layout, not runtime identity.
+Dynamic-code feature flags describe capabilities and can be disabled on CoreCLR.
+The runtime's
+[`TryGetRawMetadata`](https://learn.microsoft.com/dotnet/api/system.reflection.metadata.assemblyextensions.trygetrawmetadata)
+API distinguishes CoreLib's metadata-backed CoreCLR assembly from its NativeAOT
+image. The CLI consumes the success flag and discards the pointer and length.
+
+`eng/test-runtime-flavor.sh <rid>` gates the product-owned `VersionInfo` source
+in Release CoreCLR, single-file CoreCLR, and NativeAOT executables. Both CoreCLR
+forms also run with dynamic-code support disabled. The small linked-source
+probe keeps this publication boundary in PR CI without republishing the full
+inspection product.
+
 ## Request path
 
 ```text

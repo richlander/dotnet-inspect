@@ -8,6 +8,7 @@ export interface BenchmarkOptions {
   readonly samples: number;
   readonly memberCount: number;
   readonly outputPath: string | null;
+  readonly trendOutputPath: string | null;
   readonly allowMismatchedCommits: boolean;
   readonly help: boolean;
 }
@@ -93,6 +94,7 @@ export function benchmarkUsage(): string {
     "    --site mono=https://dotnet-inspect.ca \\",
     "    --site coreclr=https://coreclr.dotnet-inspect.ca \\",
     "    [--samples 3] [--member-count 10] [--output <report.json>] \\",
+    "    [--trend-output <trend-point.json>] \\",
     "    [--allow-mismatched-commits]",
   ].join("\n");
 }
@@ -104,6 +106,7 @@ export function parseBenchmarkArguments(
   let samples = defaultSamples;
   let memberCount = defaultMemberCount;
   let outputPath: string | null = null;
+  let trendOutputPath: string | null = null;
   let allowMismatchedCommits = false;
   let help = false;
 
@@ -130,6 +133,10 @@ export function parseBenchmarkArguments(
         break;
       case "--output":
         outputPath = valueAfter(arguments_, index, argument);
+        index++;
+        break;
+      case "--trend-output":
+        trendOutputPath = valueAfter(arguments_, index, argument);
         index++;
         break;
       case "--allow-mismatched-commits":
@@ -160,6 +167,7 @@ export function parseBenchmarkArguments(
     samples,
     memberCount,
     outputPath,
+    trendOutputPath,
     allowMismatchedCommits,
     help,
   };
