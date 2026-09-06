@@ -402,6 +402,7 @@ import {
   toggleFacet,
   withScopeQuery,
   type PackageQueryState,
+  type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
   type QueryRequest,
   type QuerySourceCatalog,
@@ -413,6 +414,7 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
+  packageQueryAssemblyPatterns,
   packageQueryFacets,
 } from "./package-query-source.ts";
 import {
@@ -485,6 +487,9 @@ let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
 let inspectRequestPackageQueryMatches:
   PackageFacade["requestPackageQueryMatches"];
 let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
+let inspectRunPackageAssemblyQuery: PackageFacade["runPackageAssemblyQuery"];
+let inspectOpenPackageAssemblyQueryResult:
+  PackageFacade["openPackageAssemblyQueryResult"];
 let inspectSearchTypes: PackageFacade["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   PackageFacade["queryWorkspacePackageOccurrences"];
@@ -569,6 +574,8 @@ async function loadEngineModule() {
     requestPackageQueryMatches: inspectRequestPackageQueryMatches,
     resolvePackageDependencyVersion: resolveDependencyVersion,
     runPackageQuery: inspectRunPackageQuery,
+    runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
+    openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
     searchTypes: inspectSearchTypes,
     queryWorkspacePackageOccurrences:
       inspectQueryWorkspacePackageOccurrences,
@@ -798,6 +805,7 @@ const initialState = {
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
+  packageQueryAssemblyPatterns: [],
   packageQuerySourceCatalog: null,
   platformIndex: null,
   queryNotice: "",
@@ -1011,6 +1019,7 @@ interface StateOverrides {
   packageCacheStats: BrowserPackageCacheStats | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
+  packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQuerySourceCatalog: QuerySourceCatalog | null;
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
@@ -1188,6 +1197,20 @@ const packageQueryController = createPackageQueryController(
     cancel: () => cancelPackageQuery(),
     requestMatches: additionalMatchCredit =>
       inspectRequestPackageQueryMatches(additionalMatchCredit),
+    runAssembly: (
+      patternId,
+      operand,
+      packageCoordinatesJson,
+      targetFramework,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunPackageAssemblyQuery(
+      patternId,
+      operand,
+      packageCoordinatesJson,
+      targetFramework,
+      initialMatchCredit,
+      eventSink),
     run: (
       prefix,
       facetIdsJson,
@@ -9498,6 +9521,7 @@ function togglePackageQueryFacet(facetKey: string, text: string) {
 async function openPackageQueryRow(
   packageId: string,
   version: string,
+  rootRequest?: string,
 ) {
   packageQueryController.cancel();
   state.packageQueryOpen = false;
@@ -9509,7 +9533,7 @@ async function openPackageQueryRow(
     packageId,
     version,
     "",
-    { navigationSeq });
+    { navigationSeq, ...(rootRequest === undefined ? {} : { rootRequest }) });
   if (!navigationSequence.isCurrent(navigationSeq)) {
     if (packageQueryHandoffNavigationSeq === navigationSeq)
       packageQueryHandoffNavigationSeq = null;
@@ -9545,6 +9569,11 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
+  onAssemblyRun: request => {
+    state.packageQueryNavigationError = "";
+    packageQueryLiveAnnouncer.reset();
+    void packageQueryController.run(request);
+  },
   onFacetToggle: togglePackageQueryFacet,
   onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
@@ -9556,9 +9585,9 @@ const packageQueryActions: PackageQueryBindingActions = {
     }
   },
   onResultPressure: () => packageQueryController.requestMore(),
-  onRowOpen: (packageId, version) => {
+  onRowOpen: (packageId, version, rootRequest) => {
     observeAsync(
-      openPackageQueryRow(packageId, version),
+      openPackageQueryRow(packageId, version, rootRequest),
       "Opening a queried package");
   },
   onRun: runPackageQuery,
@@ -9612,6 +9641,7 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
+    availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
     sourceCatalog: state.packageQuerySourceCatalog,
     navigationError: [
       state.packageQueryCatalogError,
@@ -11855,6 +11885,7 @@ async function loadSelectedMemberFacts() {
 }
 
 interface LoadPackageOptions {
+  rootRequest?: string;
   background?: boolean;
   navigationSeq?: number;
   queryNotice?: string;
@@ -11907,6 +11938,9 @@ async function loadPackage(
       packageId,
       version,
       framework,
+      ...(options.rootRequest === undefined
+        ? {}
+        : { rootRequest: options.rootRequest }),
       ...(options.replacePackage !== undefined
         ? { replacePackage: options.replacePackage }
         : {}),
@@ -12098,6 +12132,8 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
+  queryPackageRoot: rootRequest =>
+    inspectOpenPackageAssemblyQueryResult(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
   loadRuntimePackAssembly: (
@@ -12821,6 +12857,14 @@ async function bootstrap() {
       state.packageQuerySourceCatalog = null;
       state.packageQueryCatalogError =
         `Package-query catalogs are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+    try {
+      state.packageQueryAssemblyPatterns =
+        packageQueryAssemblyPatterns(
+          await engineStartup.package.listPackageAssemblyQueryPatterns());
+    } catch (error) {
+      state.packageQueryAssemblyPatterns = [];
+      console.error("Package-query assembly patterns are unavailable.", error);
     }
     state.engineReady = true;
     state.engineStatus = "";

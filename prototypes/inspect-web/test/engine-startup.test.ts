@@ -8,6 +8,7 @@ import type {
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
   BrowserGalleryDiscoveryCatalog,
+  BrowserPackageAssemblyQueryPattern,
   BrowserPackageQueryFacetCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 
@@ -25,6 +26,7 @@ const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "example", title: "Example", summary: "A startup catalog entry." }],
 };
 const facets: BrowserPackageQueryFacetCatalog = { facets: [] };
+const assemblyPatterns: BrowserPackageAssemblyQueryPattern[] = [];
 const gallery: BrowserGalleryDiscoveryCatalog = {
   packageType: {
     id: "package-type",
@@ -62,6 +64,10 @@ function createFacades(calls: string[] = []) {
         calls.push("listGalleryDiscoveryCatalog");
         return gallery;
       },
+      listPackageAssemblyQueryPatterns() {
+        calls.push("listPackageAssemblyQueryPatterns");
+        return assemblyPatterns;
+      },
     },
   };
 }
@@ -77,6 +83,7 @@ test("startup bindings defer reads until called and preserve generated results i
     { invoke: () => client.catalog.listHomeDemos(), expected: demos },
     { invoke: () => client.package.listPackageQueryFacets(), expected: facets },
     { invoke: () => client.package.listGalleryDiscoveryCatalog(), expected: gallery },
+    { invoke: () => client.package.listPackageAssemblyQueryPatterns(), expected: assemblyPatterns },
   ];
   for (const read of reads) {
     const result = read.invoke();
@@ -89,6 +96,7 @@ test("startup bindings defer reads until called and preserve generated results i
     "listHomeDemos",
     "listPackageQueryFacets",
     "listGalleryDiscoveryCatalog",
+    "listPackageAssemblyQueryPatterns",
   ]);
 });
 
@@ -98,7 +106,11 @@ test("each startup binding turns a thrown failure into the same Promise rejectio
     const client = createMainThreadStartupClient({
       host: { buildIdentity: fail },
       catalog: { listVocabulary: fail, listHomeDemos: fail },
-      package: { listPackageQueryFacets: fail, listGalleryDiscoveryCatalog: fail },
+      package: {
+        listPackageQueryFacets: fail,
+        listGalleryDiscoveryCatalog: fail,
+        listPackageAssemblyQueryPatterns: fail,
+      },
     });
     const reads = [
       () => client.host.buildIdentity(),
@@ -106,6 +118,7 @@ test("each startup binding turns a thrown failure into the same Promise rejectio
       () => client.catalog.listHomeDemos(),
       () => client.package.listPackageQueryFacets(),
       () => client.package.listGalleryDiscoveryCatalog(),
+      () => client.package.listPackageAssemblyQueryPatterns(),
     ];
     for (const read of reads) {
       const result = read();
@@ -125,4 +138,5 @@ test("a rejected startup read does not poison neighboring catalog bindings", asy
   assert.equal(await client.catalog.listHomeDemos(), demos);
   assert.equal(await client.package.listPackageQueryFacets(), facets);
   assert.equal(await client.package.listGalleryDiscoveryCatalog(), gallery);
+  assert.equal(await client.package.listPackageAssemblyQueryPatterns(), assemblyPatterns);
 });

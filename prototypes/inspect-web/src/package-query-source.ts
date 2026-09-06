@@ -1,20 +1,27 @@
 import type {
-  BrowserPackageQueryEvent,
   BrowserPackageQueryFacetCatalog,
   BrowserPackageQueryFacetDescriptor,
-  BrowserPackageQueryCompletion,
-  BrowserPackageQueryFailure,
-  BrowserPackageQueryProgress,
-  BrowserPackageQueryRow,
+  BrowserPackageAssemblyQueryPattern,
+  BrowserPackageAssemblyAssessment,
+  BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
+  BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
+  BrowserPackageQueryProgress as BrowserPackageQueryProgressPayload,
+  BrowserPackageQueryRow as BrowserPackageQueryRowPayload,
+  BrowserPackageQueryEvent as BrowserPackageQueryEventPayload,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
+  QueryAssemblyAssessment,
+  QueryAssemblyPatternDescriptor,
+  QueryAssemblyPatternRequest,
   QueryFacetTerm,
   QueryProgress,
   QueryResultRow,
   TerminalQueryCompletion,
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
+
+export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
 
 export interface BrowserPackageQueryEngine {
   cancel(): void;
@@ -29,13 +36,33 @@ export interface BrowserPackageQueryEngine {
     eventSink: unknown,
     packageType: string | null,
     sourceOrderId: string | null,
-  ): Promise<BrowserPackageQueryEvent>;
+  ): Promise<BrowserPackageQueryEventPayload>;
+  runAssembly?(
+    patternId: string,
+    operand: string,
+    packageCoordinatesJson: string,
+    targetFramework: string,
+    initialMatchCredit: number,
+    eventSink: unknown,
+  ): Promise<BrowserPackageQueryEventPayload>;
 }
 
 export function packageQueryFacets(
   catalog: BrowserPackageQueryFacetCatalog,
 ): QueryFacetTerm[] {
   return catalog.facets.map(toQueryFacet);
+}
+
+export function packageQueryAssemblyPatterns(
+  patterns: readonly BrowserPackageAssemblyQueryPattern[],
+): QueryAssemblyPatternDescriptor[] {
+  return patterns.map(pattern => ({
+    id: pattern.id,
+    label: pattern.label,
+    summary: pattern.summary,
+    maximumOperandLength: pattern.maximumOperandLength,
+    maximumPackages: pattern.maximumPackages,
+  }));
 }
 
 function toQueryFacet(
@@ -61,7 +88,14 @@ export function createBrowserPackageQueryDataSource(
     initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
     requestMore: additionalMatchCredit =>
       engine.requestMatches(additionalMatchCredit),
-    async run(request, onPage, onFailure, onProgress, abortSignal) {
+    async run(
+      request,
+      onPage,
+      onFailure,
+      onProgress,
+      abortSignal,
+      onAssessment,
+    ) {
       if (abortSignal.aborted) return { kind: "cancelled" };
 
       let completion: TerminalQueryCompletion | null = null;
@@ -73,7 +107,7 @@ export function createBrowserPackageQueryDataSource(
         error: undefined,
       };
       let flushScheduled = false;
-      const pendingEvents: BrowserPackageQueryEvent[] = [];
+      const pendingEvents: BrowserPackageQueryEventPayload[] = [];
       const flushEvents = () => {
         flushScheduled = false;
         const batch = pendingEvents.splice(0);
@@ -100,6 +134,7 @@ export function createBrowserPackageQueryDataSource(
               onPage,
               onFailure,
               onProgress,
+              onAssessment,
               terminal => { completion = terminal; });
           }
           flushRows();
@@ -135,16 +170,18 @@ export function createBrowserPackageQueryDataSource(
       const cancel = () => engine.cancel();
       abortSignal.addEventListener("abort", cancel, { once: true });
       try {
-        const finalEvent = await engine.run(
-          request.scopeQuery,
-          JSON.stringify(request.facets.map(facet => facet.key)),
-          request.requestedLimit,
-          request.requestedMatchLimit,
-          request.includePrerelease,
-          PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-          eventSink,
-          request.packageType,
-          request.sourceOrderId);
+        const finalEvent = request.assemblyPattern
+          ? await runAssemblyQuery(engine, request.assemblyPattern, eventSink)
+          : await engine.run(
+              request.scopeQuery,
+              JSON.stringify(request.facets.map(facet => facet.key)),
+              request.requestedLimit,
+              request.requestedMatchLimit,
+              request.includePrerelease,
+              PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+              eventSink,
+              request.packageType,
+              request.sourceOrderId);
         flushEvents();
         if (flushState.failed) throw flushState.error;
         if (abortSignal.aborted) return { kind: "cancelled" };
@@ -157,6 +194,7 @@ export function createBrowserPackageQueryDataSource(
           onPage,
           onFailure,
           onProgress,
+          onAssessment,
           terminal => { completion = terminal; });
         return completion
           ?? {
@@ -176,7 +214,25 @@ export function createBrowserPackageQueryDataSource(
   };
 }
 
-function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
+async function runAssemblyQuery(
+  engine: BrowserPackageQueryEngine,
+  request: QueryAssemblyPatternRequest,
+  eventSink: unknown,
+): Promise<BrowserPackageQueryEventPayload> {
+  if (!engine.runAssembly) {
+    throw new Error(
+      "Assembly-pattern package queries are unavailable in this Browser engine.");
+  }
+  return await engine.runAssembly(
+    request.patternId,
+    request.operand,
+    JSON.stringify(request.packageCoordinates),
+    request.targetFramework,
+    PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    eventSink);
+}
+
+function parseBrowserEvent(json: string): BrowserPackageQueryEventPayload {
   const parsed: unknown = JSON.parse(json);
   const event = objectValue(parsed, "package-query event");
   switch (event.kind) {
@@ -187,6 +243,7 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
         failure: null,
         completion: null,
         progress: parseProgress(event.progress),
+        assessment: null,
       };
     case "Match":
       return {
@@ -195,6 +252,7 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
         failure: null,
         completion: null,
         progress: null,
+        assessment: null,
       };
     case "Failure":
       return {
@@ -203,6 +261,16 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
         failure: parseFailure(event.failure),
         completion: null,
         progress: null,
+        assessment: null,
+      };
+    case "Assessment":
+      return {
+        kind: "Assessment",
+        row: null,
+        failure: null,
+        completion: null,
+        progress: null,
+        assessment: parseAssessment(event.assessment),
       };
     case "Completed":
       return {
@@ -211,6 +279,7 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
         failure: null,
         completion: parseCompletion(event.completion),
         progress: null,
+        assessment: null,
       };
     default:
       throw new TypeError(
@@ -235,11 +304,28 @@ function stringValue(value: unknown, description: string): string {
   return value;
 }
 
+function nonBlankStringValue(value: unknown, description: string): string {
+  const text = stringValue(value, description);
+  if (!text.trim()) {
+    throw new TypeError(`The Browser ${description} was empty.`);
+  }
+  return text;
+}
+
 function nullableStringValue(
   value: unknown,
   description: string,
 ): string | null {
   return value === null ? null : stringValue(value, description);
+}
+
+function optionalNullableStringValue(
+  value: unknown,
+  description: string,
+): string | null {
+  return value === undefined
+    ? null
+    : nullableStringValue(value, description);
 }
 
 function numberValue(value: unknown, description: string): number {
@@ -256,6 +342,15 @@ function nullableNumberValue(
   return value === null ? null : numberValue(value, description);
 }
 
+function optionalNullableNumberValue(
+  value: unknown,
+  description: string,
+): number | null {
+  return value === undefined
+    ? null
+    : nullableNumberValue(value, description);
+}
+
 function booleanValue(value: unknown, description: string): boolean {
   if (typeof value !== "boolean") {
     throw new TypeError(`The Browser ${description} was not a boolean.`);
@@ -263,7 +358,7 @@ function booleanValue(value: unknown, description: string): boolean {
   return value;
 }
 
-function parseRow(value: unknown): BrowserPackageQueryRow {
+function parseRow(value: unknown): BrowserPackageQueryRowPayload {
   const row = objectValue(value, "package-query row");
   if (!Array.isArray(row.evidence)) {
     throw new TypeError(
@@ -290,10 +385,35 @@ function parseRow(value: unknown): BrowserPackageQueryRow {
       ? null
       : booleanValue(row.verified, "package-query verification flag"),
     producer: stringValue(row.producer, "package-query producer"),
+    rootRequest: optionalNullableStringValue(
+      row.rootRequest,
+      "package-query Root request"),
   };
 }
 
-function parseFailure(value: unknown): BrowserPackageQueryFailure {
+function parseAssessment(value: unknown): BrowserPackageAssemblyAssessment {
+  const assessment = objectValue(value, "package-query assessment");
+  return {
+    packageId: stringValue(
+      assessment.packageId,
+      "package-query assessment package ID"),
+    version: stringValue(
+      assessment.version,
+      "package-query assessment version"),
+    disposition: assessmentDispositionValue(assessment.disposition),
+    message: stringValue(
+      assessment.message,
+      "package-query assessment message"),
+    assetPath: nullableStringValue(
+      assessment.assetPath,
+      "package-query assessment asset path"),
+    rootRequest: nonBlankStringValue(
+      assessment.rootRequest,
+      "package-query assessment Root request"),
+  };
+}
+
+function parseFailure(value: unknown): BrowserPackageQueryFailurePayload {
   const failure = objectValue(value, "package-query failure");
   return {
     packageId: nullableStringValue(
@@ -308,7 +428,7 @@ function parseFailure(value: unknown): BrowserPackageQueryFailure {
   };
 }
 
-function parseProgress(value: unknown): BrowserPackageQueryProgress {
+function parseProgress(value: unknown): BrowserPackageQueryProgressPayload {
   const progress = objectValue(value, "package-query progress");
   return {
     phase: progressPhaseValue(progress.phase),
@@ -319,7 +439,7 @@ function parseProgress(value: unknown): BrowserPackageQueryProgress {
   };
 }
 
-function parseCompletion(value: unknown): BrowserPackageQueryCompletion {
+function parseCompletion(value: unknown): BrowserPackageQueryCompletionPayload {
   const completion = objectValue(value, "package-query completion");
   return {
     prefix: stringValue(completion.prefix, "package-query completion prefix"),
@@ -343,23 +463,33 @@ function parseCompletion(value: unknown): BrowserPackageQueryCompletion {
     estimatedTotalHits: nullableNumberValue(
       completion.estimatedTotalHits,
       "package-query estimated total hits"),
+    semanticMisses: optionalNullableNumberValue(
+      completion.semanticMisses,
+      "package-query semantic miss count"),
+    notApplicable: optionalNullableNumberValue(
+      completion.notApplicable,
+      "package-query not-applicable count"),
+    scope: optionalNullableStringValue(
+      completion.scope,
+      "package-query completion scope"),
     kind: completionKindValue(completion.kind),
   };
 }
 
 function rowTierValue(
   value: unknown,
-): BrowserPackageQueryRow["tier"] {
+): BrowserPackageQueryRowPayload["tier"] {
   if (value === "SearchMetadata"
     || value === "Nuspec"
-    || value === "PackageContent") return value;
+    || value === "PackageContent"
+    || value === "Assembly") return value;
   throw new TypeError(
     `Unsupported package-query row tier '${String(value)}'.`);
 }
 
 function failureKindValue(
   value: unknown,
-): BrowserPackageQueryFailure["kind"] {
+): BrowserPackageQueryFailurePayload["kind"] {
   switch (value) {
     case "Search":
     case "SearchContract":
@@ -368,6 +498,8 @@ function failureKindValue(
     case "InvalidManifest":
     case "PackageContentAcquisition":
     case "PackageContentEvaluation":
+    case "AssemblyAcquisition":
+    case "AssemblyEvaluation":
       return value;
     default:
       throw new TypeError(
@@ -377,7 +509,7 @@ function failureKindValue(
 
 function completionKindValue(
   value: unknown,
-): BrowserPackageQueryCompletion["kind"] {
+): BrowserPackageQueryCompletionPayload["kind"] {
   switch (value) {
     case "Exhausted":
     case "MatchLimitReached":
@@ -385,6 +517,7 @@ function completionKindValue(
     case "SourcePageLimitReached":
     case "ClientPageLimitReached":
     case "GalleryResponseComplete":
+    case "ExplicitCandidatesComplete":
     case "Failed":
       return value;
     default:
@@ -395,11 +528,12 @@ function completionKindValue(
 
 function progressPhaseValue(
   value: unknown,
-): BrowserPackageQueryProgress["phase"] {
+): BrowserPackageQueryProgressPayload["phase"] {
   switch (value) {
     case "Search":
     case "Manifest":
     case "PackageContent":
+    case "Assembly":
       return value;
     default:
       throw new TypeError(
@@ -408,10 +542,11 @@ function progressPhaseValue(
 }
 
 function dispatchEvent(
-  queryEvent: BrowserPackageQueryEvent,
+  queryEvent: BrowserPackageQueryEventPayload,
   onPage: (rows: readonly QueryResultRow[]) => void,
   onFailure: (failure: string) => void,
   onProgress: (progress: QueryProgress) => void,
+  onAssessment: ((assessment: QueryAssemblyAssessment) => void) | undefined,
   onCompleted: (completion: TerminalQueryCompletion) => void,
 ): void {
   switch (queryEvent.kind) {
@@ -435,6 +570,13 @@ function dispatchEvent(
       }
       onFailure(formatFailure(queryEvent.failure));
       return;
+    case "Assessment":
+      if (!queryEvent.assessment) {
+        throw new TypeError(
+          "A package-query assessment event contained no assessment.");
+      }
+      onAssessment?.(toQueryAssessment(queryEvent.assessment));
+      return;
     case "Completed":
       if (!queryEvent.completion) {
         throw new TypeError(
@@ -449,7 +591,7 @@ function dispatchEvent(
 }
 
 function toQueryProgress(
-  progress: BrowserPackageQueryProgress,
+  progress: BrowserPackageQueryProgressPayload,
 ): QueryProgress {
   let phase: QueryProgress["phase"];
   switch (progress.phase) {
@@ -461,6 +603,9 @@ function toQueryProgress(
       break;
     case "PackageContent":
       phase = "package-content";
+      break;
+    case "Assembly":
+      phase = "assembly";
       break;
     default:
       throw new TypeError(
@@ -474,13 +619,22 @@ function toQueryProgress(
 }
 
 function toQueryRow(
-  row: NonNullable<BrowserPackageQueryEvent["row"]>,
+  row: BrowserPackageQueryRowPayload,
 ): QueryResultRow {
   const evidence = row.evidence.map(item => item.text);
   if (!evidence.length || evidence.some(item => item.trim().length === 0)) {
     throw new TypeError("A package-query row contained no evidence.");
   }
-  return {
+  const assemblyRootRequest = row.tier === "Assembly"
+    ? row.rootRequest
+    : null;
+  if (row.tier === "Assembly") {
+    if (!assemblyRootRequest?.trim()) {
+      throw new TypeError(
+        "An assembly package-query row contained no Root request.");
+    }
+  }
+  const result: QueryResultRow = {
     packageId: row.packageId,
     version: row.version,
     tier: toQueryTier(row.tier),
@@ -489,12 +643,17 @@ function toQueryRow(
     description: row.description,
     producer: row.producer,
   };
+  if (assemblyRootRequest !== null && assemblyRootRequest !== undefined)
+    result.rootRequest = assemblyRootRequest;
+  return result;
 }
 
 function toQueryTier(
-  tier: BrowserPackageQueryRow["tier"],
+  tier: BrowserPackageQueryRowPayload["tier"],
 ): QueryResultRow["tier"] {
-  return tier === "SearchMetadata" ? "search-metadata" : toInspectionTier(tier);
+  if (tier === "SearchMetadata") return "search-metadata";
+  if (tier === "Assembly") return "assembly";
+  return toInspectionTier(tier);
 }
 
 function toInspectionTier(
@@ -511,7 +670,28 @@ function toInspectionTier(
   }
 }
 
-function formatFailure(failure: BrowserPackageQueryFailure): string {
+function assessmentDispositionValue(
+  value: unknown,
+): QueryAssemblyAssessment["disposition"] {
+  if (value === "NoMatch" || value === "NotApplicable") return value;
+  throw new TypeError(
+    `Unknown package-query assessment disposition '${String(value)}'.`);
+}
+
+function toQueryAssessment(
+  assessment: BrowserPackageAssemblyAssessment,
+): QueryAssemblyAssessment {
+  return {
+    packageId: assessment.packageId,
+    version: assessment.version,
+    disposition: assessmentDispositionValue(assessment.disposition),
+    message: assessment.message,
+    assetPath: assessment.assetPath,
+    rootRequest: assessment.rootRequest,
+  };
+}
+
+function formatFailure(failure: BrowserPackageQueryFailurePayload): string {
   const coordinate = failure.packageId
     ? `${failure.packageId}${failure.version ? `@${failure.version}` : ""}`
     : failure.producer;
@@ -519,7 +699,7 @@ function formatFailure(failure: BrowserPackageQueryFailure): string {
 }
 
 function toTerminalCompletion(
-  completion: NonNullable<BrowserPackageQueryEvent["completion"]>,
+  completion: BrowserPackageQueryCompletionPayload,
 ): TerminalQueryCompletion {
   switch (completion.kind) {
     case "Exhausted":
@@ -556,10 +736,17 @@ function toTerminalCompletion(
         kind: "bounded",
         reason: galleryCompletionReason(completion),
       };
+    case "ExplicitCandidatesComplete":
+      return {
+        kind: "bounded",
+        reason: explicitCandidatesCompletionReason(completion),
+      };
     case "Failed":
       return {
         kind: "failed",
-        reason: "The package source failed before returning usable package input.",
+        reason: completion.scope?.trim()
+          ? completion.scope
+          : "The package source failed before returning usable package input.",
       };
     default:
       throw new TypeError(
@@ -567,8 +754,57 @@ function toTerminalCompletion(
   }
 }
 
+function explicitCandidatesCompletionReason(
+  completion: BrowserPackageQueryCompletionPayload,
+): string {
+  const semanticMisses = completion.semanticMisses;
+  const notApplicable = completion.notApplicable;
+  const scope = completion.scope;
+  if (semanticMisses == null
+    || notApplicable == null
+    || !scope?.trim()) {
+    throw new TypeError(
+      "An explicit-candidate package-query completion omitted its accounting or scope.");
+  }
+  const counts = [
+    completion.candidates,
+    completion.matches,
+    semanticMisses,
+    notApplicable,
+    completion.failures,
+  ];
+  if (counts.some(count => !Number.isInteger(count) || count < 0)) {
+    throw new TypeError(
+      "An explicit-candidate package-query completion contained invalid accounting.");
+  }
+  if (completion.candidates
+    !== completion.matches
+      + semanticMisses
+      + notApplicable
+      + completion.failures) {
+    throw new TypeError(
+      "An explicit-candidate package-query completion did not account for every candidate.");
+  }
+  return [
+    countWithLabel(completion.candidates, "explicit candidate"),
+    countWithLabel(completion.matches, "match"),
+    countWithLabel(semanticMisses, "semantic no-match", "semantic no-matches"),
+    `${notApplicable.toLocaleString()} not applicable`,
+    countWithLabel(completion.failures, "failure"),
+    `scope: ${scope}`,
+  ].join("; ");
+}
+
+function countWithLabel(
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+): string {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}
+
 function galleryCompletionReason(
-  completion: BrowserPackageQueryCompletion,
+  completion: BrowserPackageQueryCompletionPayload,
 ): string {
   if (completion.sourceCandidates === null) {
     throw new TypeError(

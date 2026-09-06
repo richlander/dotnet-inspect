@@ -43,10 +43,26 @@ export interface QuerySourceCatalog {
   orders: readonly { id: string; label: string; summary: string }[];
 }
 
+export interface QueryAssemblyPatternDescriptor {
+  id: string;
+  label: string;
+  summary: string;
+  maximumOperandLength: number;
+  maximumPackages: number;
+}
+
+export interface QueryAssemblyPatternRequest {
+  patternId: string;
+  operand: string;
+  packageCoordinates: readonly string[];
+  targetFramework: string;
+}
+
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
+  assemblyPattern?: QueryAssemblyPatternRequest;
   /** Declared cap communicated to the source. The bounded-complete footer
    * renders the source's own free-text `completion.reason` (see design doc
    * "States"), not this field directly — a real source is expected to keep
@@ -70,21 +86,37 @@ export function createQueryRequest(
   };
 }
 
+export function createAssemblyQueryRequest(
+  patternId: string,
+  operand: string,
+  packageCoordinates: readonly string[],
+  targetFramework: string,
+): QueryRequest {
+  return {
+    ...createQueryRequest(""),
+    assemblyPattern: {
+      patternId,
+      operand,
+      packageCoordinates: [...packageCoordinates],
+      targetFramework,
+    },
+  };
+}
+
 export function withScopeQuery(
   request: QueryRequest,
   scopeQuery: string,
 ): QueryRequest {
-  return {
-    ...request,
-    scopeQuery,
-  };
+  return galleryRequest(request, { scopeQuery });
 }
 
 export function withFacet(
   request: QueryRequest,
   facet: QueryFacetTerm,
 ): QueryRequest {
-  if (request.facets.some(existing => existing.key === facet.key)) return request;
+  if (request.facets.some(existing => existing.key === facet.key)) {
+    return galleryRequest(request, {});
+  }
   return withFacets(request, [...request.facets, facet]);
 }
 
@@ -101,12 +133,27 @@ function withFacets(
   request: QueryRequest,
   facets: readonly QueryFacetTerm[],
 ): QueryRequest {
-  return {
-    ...request,
+  return galleryRequest(request, {
     facets,
     requestedLimit: facets.some(facet => facet.tier === "package-content")
       ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
       : DEFAULT_QUERY_CANDIDATE_LIMIT,
+  });
+}
+
+function galleryRequest(
+  request: QueryRequest,
+  changes: Partial<QueryRequest>,
+): QueryRequest {
+  return {
+    scopeQuery: request.scopeQuery,
+    packageType: request.packageType,
+    sourceOrderId: request.sourceOrderId,
+    includePrerelease: request.includePrerelease,
+    facets: request.facets,
+    requestedLimit: request.requestedLimit,
+    requestedMatchLimit: request.requestedMatchLimit,
+    ...changes,
   };
 }
 
@@ -136,11 +183,21 @@ export function toggleFacet(
 export interface QueryResultRow {
   packageId: string;
   version: string;
-  tier: "search-metadata" | "nuspec" | "package-content";
+  tier: "search-metadata" | "nuspec" | "package-content" | "assembly";
   evidence: readonly [string, ...string[]];
   totalDownloads: number | null;
   description?: string | null;
   producer?: string;
+  rootRequest?: string;
+}
+
+export interface QueryAssemblyAssessment {
+  packageId: string;
+  version: string;
+  disposition: "NoMatch" | "NotApplicable";
+  message: string;
+  assetPath: string | null;
+  rootRequest: string;
 }
 
 export type QueryCompletion =
@@ -161,7 +218,7 @@ export type TerminalQueryCompletion =
   | { kind: "failed"; reason: string };
 
 export interface QueryProgress {
-  phase: "search" | "manifest" | "package-content";
+  phase: "search" | "manifest" | "package-content" | "assembly";
   completed: number;
   limit: number;
 }
@@ -172,6 +229,7 @@ export interface QueryProgress {
  * here to "never silently narrow a claim"). */
 export interface QueryOutcome {
   rows: readonly QueryResultRow[];
+  assessments: readonly QueryAssemblyAssessment[];
   failures: readonly string[];
   progress: readonly QueryProgress[];
   completion: QueryCompletion;
@@ -180,6 +238,7 @@ export interface QueryOutcome {
 export function emptyOutcome(): QueryOutcome {
   return {
     rows: [],
+    assessments: [],
     failures: [],
     progress: [],
     completion: { kind: "streaming" },
@@ -191,6 +250,16 @@ export function appendRows(
   rows: readonly QueryResultRow[],
 ): QueryOutcome {
   return { ...outcome, rows: [...outcome.rows, ...rows] };
+}
+
+export function appendAssessment(
+  outcome: QueryOutcome,
+  assessment: QueryAssemblyAssessment,
+): QueryOutcome {
+  return {
+    ...outcome,
+    assessments: [...outcome.assessments, assessment],
+  };
 }
 
 export function appendFailure(
@@ -239,6 +308,7 @@ export interface PackageQueryDataSource {
      * so the source can stop in-flight network/manifest work instead of
      * running it to completion unobserved. */
     abortSignal: AbortSignal,
+    onAssessment?: (assessment: QueryAssemblyAssessment) => void,
   ): Promise<TerminalQueryCompletion>;
 }
 
@@ -310,6 +380,11 @@ export function createPackageQueryController(
             onUpdate("stream");
           },
           signal,
+          assessment => {
+            if (requestGeneration !== generation) return;
+            state.outcome = appendAssessment(state.outcome, assessment);
+            onUpdate("stream");
+          },
         );
       } catch (error) {
         // An unhandled rejection here (as opposed to a page-level onFailure

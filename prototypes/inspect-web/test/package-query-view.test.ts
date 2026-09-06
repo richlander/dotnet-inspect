@@ -6,6 +6,7 @@ import {
   capturePackageQueryFocus,
   capturePackageQueryScroll,
   packageQueryNeedsMoreMatches,
+  parseExactPackageCoordinates,
   patchPackageQueryStream,
   renderPackageQueryView,
   restorePackageQueryFocus,
@@ -13,16 +14,20 @@ import {
   type PackageQueryBindingActions,
 } from "../src/package-query-view.ts";
 import {
+  appendAssessment,
   appendFailure,
   appendProgress,
   appendRows,
+  createAssemblyQueryRequest,
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
   withCompletion,
   withFacet,
   type PackageQueryState,
+  type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
+  type QueryRequest,
   type QueryResultRow,
   type QuerySourceCatalog,
   type QuerySourceSelection,
@@ -99,6 +104,14 @@ const SOURCE_CATALOG: QuerySourceCatalog = {
   ],
 };
 
+const ASSEMBLY_PATTERNS: readonly QueryAssemblyPatternDescriptor[] = [{
+  id: "package.query.assembly.ldstr-contains",
+  label: "Decoded string literal contains",
+  summary: "Ordinal substring over decoded IL ldstr occurrences.",
+  maximumOperandLength: 256,
+  maximumPackages: 5,
+}];
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -151,6 +164,73 @@ test("source controls render only from an available catalog, separate from inspe
   assert.match(html, /basic search metadata/);
   assert.match(html, /Manifests and package content are acquired only with explicit inspection facets/);
   assert.ok(html.indexOf('aria-label="Gallery filters"') < html.indexOf("<h2>Inspection facets</h2>"));
+});
+
+test("assembly controls render only from engine-issued descriptors", () => {
+  const withoutPatterns = renderPackageQueryView({
+    state: initialQueryState(),
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+  const withPatterns = renderPackageQueryView({
+    state: initialQueryState(),
+    availableFacets: FACETS,
+    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(withoutPatterns, /Assembly patterns/);
+  assert.match(withPatterns, /<details class="query-source-controls query-assembly-controls">/);
+  assert.match(withPatterns, /<summary>Assembly patterns<\/summary>/);
+  assert.match(withPatterns, /Decoded string literal contains/);
+  assert.match(withPatterns, /Ordinal substring over decoded IL ldstr occurrences/);
+  assert.match(withPatterns, /One exact ID@VERSION per line, up to 5/);
+  assert.match(withPatterns, /value="net10\.0"/);
+  assert.match(withPatterns, /maxlength="256"/);
+  assert.doesNotMatch(withPatterns, /regex|regular expression|byte pattern/i);
+});
+
+test("active assembly request opens controls and preserves its literal operand", () => {
+  const operand = "  literal * [value]  ";
+  const state: PackageQueryState = {
+    request: createAssemblyQueryRequest(
+      ASSEMBLY_PATTERNS[0]!.id,
+      operand,
+      ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"],
+      "net10.0"),
+    outcome: emptyOutcome(),
+  };
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    escapeHtml,
+  });
+
+  assert.match(html, /query-assembly-controls" open/);
+  assert.match(html, /Contoso\.One@1\.2\.3\nContoso\.Two@4\.5\.6/);
+  assert.ok(html.includes(`value="${operand}"`));
+  assert.doesNotMatch(html, /package-query-assembly-rid/);
+  assert.doesNotMatch(
+    html,
+    /data-query-facet="[^"]+"[\s\S]*aria-pressed="true"/);
+});
+
+test("exact package input accepts bounded ID@VERSION lines without normalizing coordinates", () => {
+  assert.deepEqual(
+    parseExactPackageCoordinates(
+      "  Contoso.MixedCase@1.2.3-preview.1  \nOther.Package@4.5.6",
+      5),
+    ["Contoso.MixedCase@1.2.3-preview.1", "Other.Package@4.5.6"]);
+  assert.equal(
+    parseExactPackageCoordinates("", 5),
+    "Enter at least one exact package as ID@VERSION.");
+  assert.equal(
+    parseExactPackageCoordinates("Contoso@1\nA@1\nB@1\nC@1\nD@1\nE@1", 5),
+    "Enter no more than 5 packages.");
+  assert.equal(
+    parseExactPackageCoordinates("Contoso.Latest", 5),
+    "Enter one exact ID@VERSION package per line.");
 });
 
 test("source selections render from request identity without changing inspection facets", () => {
@@ -372,6 +452,128 @@ test("streaming progress renders with and without matching rows", () => {
   assert.match(withoutRows, /<progress value="14" max="20">/);
   assert.match(withRows, /System\.Text\.Json/);
   assert.match(withRows, /14 of up to 20/);
+});
+
+test("assembly progress and scoped assessments render separately from matches and failures", () => {
+  const request = createAssemblyQueryRequest(
+    ASSEMBLY_PATTERNS[0]!.id,
+    "literal",
+    ["Contoso.Match@1.2.3", "Contoso.NoMatch@4.5.6"],
+    "net10.0");
+  const outcome = appendAssessment(
+    appendProgress(emptyOutcome(), {
+      phase: "assembly",
+      completed: 1,
+      limit: 2,
+    }),
+    {
+      packageId: "Contoso.NoMatch",
+      version: "4.5.6",
+      disposition: "NoMatch",
+      message:
+        "No decoded string literal contained the operand in the selected assembly.",
+      assetPath: "lib/net10.0/Contoso.NoMatch.dll",
+      rootRequest: "{\"kind\":\"package\"}",
+    });
+  const html = renderPackageQueryView({
+    state: { request, outcome },
+    availableFacets: FACETS,
+    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    escapeHtml,
+  });
+
+  assert.match(html, /Evaluating selected assemblies/);
+  assert.match(html, /Selected assemblies/);
+  assert.match(html, /1 of 2/);
+  assert.match(html, /Selected assembly outcomes/);
+  assert.match(html, /Contoso\.NoMatch@4\.5\.6 · No match/);
+  assert.match(html, /Selected assembly: lib\/net10\.0\/Contoso\.NoMatch\.dll/);
+  assert.match(html, /not the whole package/);
+  assert.doesNotMatch(html, /Some package source work failed/);
+});
+
+test("empty completed assembly query explains selected-assembly scope without Gallery guidance", () => {
+  const request = createAssemblyQueryRequest(
+    ASSEMBLY_PATTERNS[0]!.id,
+    "literal",
+    ["Contoso.ReferenceOnly@1.2.3"],
+    "net10.0");
+  const outcome = withCompletion(
+    appendAssessment(emptyOutcome(), {
+      packageId: "Contoso.ReferenceOnly",
+      version: "1.2.3",
+      disposition: "NotApplicable",
+      message: "The selector issued no implementation counterpart.",
+      assetPath: null,
+      rootRequest: "{\"kind\":\"package\"}",
+    }),
+    {
+      kind: "bounded",
+      reason:
+        "1 explicitly selected package; selector-issued primary implementation assembly",
+    });
+  const html = renderPackageQueryView({
+    state: { request, outcome },
+    availableFacets: FACETS,
+    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    escapeHtml,
+  });
+
+  assert.match(html, /No selected assembly matches/);
+  assert.match(html, /Not applicable/);
+  assert.match(html, /not a package-wide absence claim/);
+  assert.doesNotMatch(
+    html,
+    /Try a broader search|browse without search text|select fewer inspection facets/);
+});
+
+test("assembly rows carry the opaque Root request on workspace opening", () => {
+  const rootRequest =
+    "{\"kind\":\"package\",\"selection\":{\"framework\":\"net10.0\"}}";
+  const html = renderPackageQueryView({
+    state: {
+      request: createAssemblyQueryRequest(
+        ASSEMBLY_PATTERNS[0]!.id,
+        "literal",
+        ["Contoso.Match@1.2.3"],
+        "net10.0"),
+      outcome: appendRows(emptyOutcome(), [{
+        ...row("Contoso.Match"),
+        tier: "assembly",
+        rootRequest,
+      }]),
+    },
+    availableFacets: FACETS,
+    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    escapeHtml,
+  });
+
+  assert.match(html, /query-tier-assembly">assembly</);
+  assert.ok(html.includes(
+    `data-query-root-request="${escapeHtml(rootRequest)}"`));
+  assert.match(html, /Selector-issued primary implementation assembly/);
+  assert.doesNotMatch(html, /Lifetime downloads unavailable/);
+  assert.match(html, /1 assembly match · streaming…/);
+});
+
+test("Gallery rows ignore Root requests and keep coordinate opening", () => {
+  const html = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("Contoso"),
+      outcome: appendRows(emptyOutcome(), [{
+        ...row("Contoso.Gallery"),
+        rootRequest: "assembly-only-root",
+      }]),
+    },
+    availableFacets: FACETS,
+    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-query-row-open="Contoso\.Gallery" data-query-row-version="1\.0\.0"/);
+  assert.doesNotMatch(html, /data-query-root-request/);
 });
 
 test("result rows render typed producer identity instead of a source literal", () => {
@@ -661,6 +863,11 @@ class FakeElement {
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
   selectionRange: readonly [number, number] | null = null;
+  customValidity = "";
+  validityReports = 0;
+  selectedOptions: { item(index: number): FakeElement | null } = {
+    item: () => null,
+  };
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(
@@ -698,6 +905,15 @@ class FakeElement {
 
   setSelectionRange(start: number, end: number) {
     this.selectionRange = [start, end];
+  }
+
+  setCustomValidity(message: string) {
+    this.customValidity = message;
+  }
+
+  reportValidity() {
+    this.validityReports++;
+    return this.customValidity.length === 0;
   }
 }
 
@@ -756,6 +972,11 @@ test("query focus snapshots restore semantic controls after a full render", () =
       selector: `#package-query-${control}`,
       replacement: new FakeElement({}, `package-query-${control}`),
     })),
+    {
+      active: new FakeElement({}, "package-query-assembly-operand"),
+      selector: "#package-query-assembly-operand",
+      replacement: new FakeElement({}, "package-query-assembly-operand"),
+    },
     {
       active: new FakeElement({ queryFacet: "downloads-1m" }),
       selector: "[data-query-facet]",
@@ -936,6 +1157,84 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     "facet:tfm-out-of-support",
     "cancel",
   ]);
+});
+
+test("bindPackageQueryView constructs an explicit assembly request without trimming the operand", () => {
+  const root = new FakeRoot();
+  const form = new FakeElement({}, "package-query-assembly-form");
+  const pattern = new FakeElement({}, "package-query-assembly-pattern");
+  const selectedPattern = new FakeElement({
+    maximumPackages: "5",
+    maximumOperandLength: "256",
+  });
+  pattern.selectedOptions = { item: () => selectedPattern };
+  pattern.value = ASSEMBLY_PATTERNS[0]!.id;
+  const packages = new FakeElement({}, "package-query-assembly-packages");
+  packages.value = " Contoso.One@1.2.3 \nContoso.Two@4.5.6";
+  const operand = new FakeElement({}, "package-query-assembly-operand");
+  operand.value = "  literal * [value]  ";
+  const framework = new FakeElement({}, "package-query-assembly-tfm");
+  framework.value = " net10.0 ";
+  root.add("#package-query-assembly-form", form);
+  root.add("#package-query-assembly-pattern", pattern);
+  root.add("#package-query-assembly-packages", packages);
+  root.add("#package-query-assembly-operand", operand);
+  root.add("#package-query-assembly-tfm", framework);
+  const requests: QueryRequest[] = [];
+  let prevented = 0;
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onAssemblyRun: request => requests.push(request),
+    onFacetToggle: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+  });
+  form.dispatch("submit", fakeDom.event({
+    preventDefault() { prevented++; },
+  }));
+
+  assert.equal(prevented, 1);
+  assert.deepEqual(requests[0]?.assemblyPattern, {
+    patternId: ASSEMBLY_PATTERNS[0]!.id,
+    operand: "  literal * [value]  ",
+    packageCoordinates: ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"],
+    targetFramework: "net10.0",
+  });
+});
+
+test("assembly row binding forwards the exact opaque Root request", () => {
+  const root = new FakeRoot();
+  const rootRequest =
+    "{\"kind\":\"package\",\"selection\":{\"framework\":\"net10.0\"}}";
+  const [open] = root.add("[data-query-row-open]", new FakeElement({
+    queryRowOpen: "Contoso.Match",
+    queryRowVersion: "1.2.3",
+    queryRootRequest: rootRequest,
+  }));
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onRowOpen: (...args) => calls.push(args),
+    onRun: () => {},
+    onSourceChange: () => {},
+  });
+  open?.dispatch("click");
+
+  assert.deepEqual(calls, [[
+    "Contoso.Match",
+    "1.2.3",
+    rootRequest,
+  ]]);
 });
 
 test("source control changes forward the complete selection and current unmodified search text", () => {

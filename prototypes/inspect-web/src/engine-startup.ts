@@ -7,6 +7,7 @@ interface StartupFacades {
   readonly package: Pick<
     PackageFacade,
     "listPackageQueryFacets" | "listGalleryDiscoveryCatalog"
+    | "listPackageAssemblyQueryPatterns"
   >;
   readonly catalog: Pick<CatalogFacade, "listVocabulary" | "listHomeDemos">;
 }
@@ -26,6 +27,9 @@ export function createMainThreadStartupClient(facades: StartupFacades) {
       },
       async listGalleryDiscoveryCatalog() {
         return facades.package.listGalleryDiscoveryCatalog();
+      },
+      async listPackageAssemblyQueryPatterns() {
+        return facades.package.listPackageAssemblyQueryPatterns();
       },
     },
     catalog: {

@@ -14,8 +14,19 @@ package-neutral Metadata or Analysis results. It does not choose a renderer,
 parse a host gesture, acquire a package, schedule a corpus, or expose an
 inspection reader.
 
-The contract and all target gates below are design-only and unverified until
-their named Release gates land.
+`PackageAssemblyEvaluator` implements the first registered adoption:
+Analysis-owned ordinal substring matching over decoded `ldstr` occurrences,
+without a byte prefilter. `PackageAssemblyEvaluationTests` exercises real
+fixture selection, sparse projection, image admission, semantic match and
+non-match, byte and work limits, cancellation before acquisition, exact
+unexpected-exception preservation, and the public resource-free result closure.
+Its close-report and cleanup-accessor cases exercise the production mapping
+helpers; they do not establish the still-unverified pending-close cancellation
+and combined producer/cleanup-failure scenarios below.
+
+`PackageAssemblyQueryPlanningTests` covers the finite explicit host request.
+The required-gate table remains the full target contract, not a claim that
+every listed pathological case is covered by those suites.
 
 ## Claim
 
@@ -90,9 +101,12 @@ execution cannot land until all of these owner contracts are available:
 - the Metadata-owned admission and query-validation seam designed by
   [#5143](https://github.com/richlander/dotnet-inspect/issues/5143) and tracked
   for implementation by
-  [#4857](https://github.com/richlander/dotnet-inspect/issues/4857), including
-  the named gates that reject both Windows Metadata kinds before producer
-  execution;
+  [#4857](https://github.com/richlander/dotnet-inspect/issues/4857), implemented
+  by [#5946](https://github.com/richlander/dotnet-inspect/pull/5946).
+  `ArtifactAssemblyInspectionTests` owns
+  `AdmissionProjection_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
+  and `QueryValidation_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`,
+  which cover both Windows Metadata version families before producer execution;
 - the sparse projection's composition with that Metadata admission result,
   tracked by
   [#5843](https://github.com/richlander/dotnet-inspect/issues/5843), so a
@@ -102,12 +116,15 @@ execution cannot land until all of these owner contracts are available:
   tracked by
   [#5837](https://github.com/richlander/dotnet-inspect/issues/5837).
 
-The current compatibility snapshot path does not invoke
-`MetadataImageFormatClassifier`, and `RealizedMemberCoordinate.Package`
-preserves the acquisition framework rather than every selection target.
-Neither current path is a substitute for these prerequisites. The dependent
-format-admission, exact-opening, and pre-transfer-cleanup claims below remain
-explicitly **unverified** until their named owner gates land.
+Compatibility identity decoding alone is not query authorization, and
+`RealizedMemberCoordinate.Package` preserves the acquisition framework rather
+than every selection target. Neither is a substitute for these prerequisites.
+The Metadata seam is available. The Artifact Acquisition implementation in
+[#6149](https://github.com/richlander/dotnet-inspect/pull/6149) supplies sparse
+projection, admission composition, pre-transfer cleanup receipts, and exact
+Root acquisition. Its owner gates are `SparsePackageAssemblyProjectionTests`
+and `PackageRootAcquisitionTests`; the evaluator consumes those contracts
+rather than duplicating their internal mechanics.
 
 ## Consumers and host plan
 
@@ -123,15 +140,19 @@ explicit cost gesture, operation deadline, cancellation source, and
 presentation. The evaluator contains no CLI, Markout, DOM, JavaScript, worker,
 or callback types.
 
-The later streaming pipeline places this evaluator inside the shared
+The first production delivery composes this evaluator through the host-neutral
+`PackageAssemblyQuery` serial event sequence. The CLI enumerates that sequence;
+Browser adapts it through the existing
 [Engine-to-browser async event stream](engine-browser-async-event-stream.md).
-That composition will own candidate scheduling, progress, item-failure
-publication, completion accounting, and bounded concurrency. This document
-does not pre-empt those decisions.
+That composition includes progress, item-failure publication, completion
+accounting, cancellation, and release before delivery. Candidate scheduling
+and later bounded concurrency remain outside this one-candidate owner.
 
-The end-to-end tracker #5766 carries the production-host adoption path. Its 13
-steps are enumerated under [Delivery sequence](#delivery-sequence), ending in
-the separate CLI and Browser gestures and exact result-opening adoptions.
+The end-to-end tracker #5766 carries the production-host adoption path. Its 12
+milestones are enumerated under [Delivery sequence](#delivery-sequence).
+[#6030](https://github.com/richlander/dotnet-inspect/issues/6030) delivers the
+first evaluator through both hosts before optional prefiltering and performance
+tuning; a library API or test-only adapter does not complete that milestone.
 
 ## Adjacent owners
 
@@ -238,8 +259,8 @@ The semantic binding returns one closed producer-owned verdict:
 
 - `Match`, with non-empty typed evidence;
 - `NoMatch`;
-- `Rejected`, with a producer-owned bounded-decode or unsupported-input
-  failure; or
+- `Rejected`, with a producer-owned incomplete-access, bounded-decode, or
+  unsupported-input failure; or
 - `WorkLimitExceeded`.
 
 The binding neither opens package content nor retains its input. It cannot
@@ -253,6 +274,7 @@ reinterpreting its evidence:
 | `Match` with non-empty evidence | `Matched` with that exact typed evidence. |
 | `Match` with empty or structurally invalid evidence | `Failure(SemanticProducerContractViolation)`. |
 | `NoMatch` | `NoMatch(SemanticallyConfirmed)`. |
+| `Rejected(Incomplete)` | `Failure(SemanticIncomplete)`. |
 | `Rejected(BoundedDecode)` | `Failure(SemanticDecode)`. |
 | `Rejected(UnsupportedInput)` | `Failure(UnsupportedProducerInput)`. |
 | `WorkLimitExceeded` | `Failure(SemanticWorkLimit)`. |
@@ -552,8 +574,9 @@ content, managed modules, unsupported Windows Metadata, and malformed PE/CLR
 headers cannot become byte-level `NoMatch` outcomes. In particular, both
 Windows Metadata kinds must reach the owner-issued
 `Rejected(UnsupportedWindowsMetadata)` arm before either executable binding.
-This property is **unverified** and evaluator implementation is blocked until
-the #5143/#4857 validation path and its named unsupported-format gates land.
+The Metadata validation path and its unsupported-format gates landed in #5946.
+This evaluator's composition gate remains **unverified** until it exercises
+that owner-issued refusal through the sparse projection and query path.
 Deeper malformed structures are visible when the selected semantic traversal
 encounters them; the evaluator does not claim to exhaustively validate
 unrelated metadata that a proven prefilter skips.
@@ -581,9 +604,10 @@ Every request has finite, positive bounds for:
   working-set budget; and
 - the enclosing operation deadline.
 
-The design does not set product defaults before measurement. The
-implementation issue must record a pinned package corpus, commands, baseline,
-peak live bytes, and elapsed time before choosing defaults and maxima.
+The first production delivery under #6030 uses conservative, enforced finite
+defaults so consumption does not wait for corpus tuning. A pinned package
+corpus, commands, baseline, peak live bytes, and elapsed time are required
+before claiming throughput or tuned memory targets or expanding those defaults.
 The caller-visible peak bound covers the combined live copies retained by the
 package artifact and Metadata workspace owners; it is not merely a selected
 entry-size limit. The merged sparse-projection owner defines the concrete
@@ -767,8 +791,8 @@ context plus one stage-specific resource-free payload:
   `ArtifactNonAssemblyKind`, `ArtifactAssemblyProjectionFailure`, or
   `ArtifactAssemblyQueryFailure`, retaining whether the reason came from
   sparse admission or later query validation;
-- semantic decode and unsupported-input failures carry the producer-owned
-  typed failure;
+- incomplete semantic access, semantic decode, and unsupported-input failures
+  carry the producer-owned typed failure;
 - semantic work limit carries the producer-owned budget kind, admitted limit,
   and charged work when available; and
 - candidate cleanup carries the bounded sequence of close stages and reported
@@ -798,6 +822,7 @@ Failure stages distinguish:
 - selected-entry byte limit;
 - artifact publication;
 - Metadata-owned image admission;
+- incomplete semantic access;
 - semantic decode;
 - unsupported producer input;
 - semantic work limit;
@@ -864,10 +889,11 @@ typed outcome's `PackageAssemblyEvaluationCleanupEvidence` or, when cancellation
 or an unexpected exception is primary, through
 `PackageAssemblyEvaluationExceptionEvidence.TryGetCleanup`.
 
-Unsupported Windows Metadata visibility depends on the unimplemented
-Metadata artifact query-validation seam in #5143/#4857 and remains
-**unverified**. The evaluator must not ship a compatibility fallback that lets
-either Windows Metadata kind reach a prefilter or semantic producer.
+Unsupported Windows Metadata visibility consumes the Metadata artifact
+query-validation seam implemented in #5946. Its evaluator composition remains
+**unverified** until the named sparse-admission and query-validation gates run.
+The evaluator must not ship a compatibility fallback that lets either Windows
+Metadata kind reach a prefilter or semantic producer.
 
 The tool never loads or executes the inspected assembly.
 
@@ -938,7 +964,7 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_MetadataValidationPrecedesSemanticBinding` | A projected participant defensively maps exact query-time `NotAssembly` or `ArtifactAssemblyQueryFailure` evidence rather than assuming admission makes those owner-issued outcomes impossible. Both Windows Metadata kinds produce `Rejected(UnsupportedWindowsMetadata)` during #5843 admission before the prefilter or producer; no compatibility fallback can return semantic no-match. This gate remains unverified until #5143/#4857 and #5843 land. |
 | `PackageAssemblyEvaluation_SuppliesSparseProjectionBounds` | The evaluator passes the admitted entry and aggregate retained-image bounds unchanged and maps the package owner's typed limit outcome without restating its partition mechanics. |
 | Conditional producer prefilter gate | Each prefilter-bearing adoption derives fixtures from its complete declared representation set, obtains byte and semantic views inside one Metadata-validated callback over the same retained image, admits every semantic match, and requires semantic confirmation for false byte positives. A prefilter-free adoption needs no such gate. |
-| `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
+| `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, incomplete access, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
 | `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves #5837's owner-issued Root reacquisition request and both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
 | `PackageAssemblyEvaluation_PreservesExactRootReacquisitionRequest` | Framework-neutral acquisition with a non-null selection target and differing acquisition/selection frameworks both retain #5837's exact owner-issued request; later Workspace opening repeats that selection intent without parsing display text. This gate remains unverified until #5837 lands. |
 | `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries the owner-issued Root reacquisition request and exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
@@ -1033,7 +1059,10 @@ implementation.
 
 ## Delivery sequence
 
-The production-host adoption path has 13 steps:
+The production-host adoption path has 12 milestones, not a promise of 12 PRs.
+The first production consumer is part of milestone 9 rather than a final
+integration phase. Owner-sized implementation slices retain their own claims
+and gates; independent prerequisites need not run serially.
 
 1. Lock this focused design and transfer the promoted-tier responsibility from
    the Package Query CLI proposal.
@@ -1050,16 +1079,19 @@ The production-host adoption path has 13 steps:
 7. Implement the merged #5798 sparse-projection contract and its named gates,
    preserving the exact Root binding, issuing #5842 receipts when applicable,
    composing #5843's Metadata result, and avoiding full role realization.
-8. Define the first concrete producer under #5795, including its exact
-   semantic occurrence, bounded operand, and optional UTF-16LE prefilter proof.
-9. Implement the one-candidate evaluator and its structural gates in
-   `DotnetInspector.PackageQueries`.
-10. Adopt the first producer, adding its semantic gate and a prefilter gate only
-   when that producer declares a complete representation set.
-11. Measure a pinned package corpus and choose explicit selected-entry,
-   retained-image, producer-working-set, and semantic-work bounds.
-12. Compose the evaluator into the bounded Package Query event stream, with
-   candidate scheduling and disposal owned by a separate focused pipeline
-   slice.
-13. Add CLI and Browser gestures and exact result opening in their respective
-    owners.
+8. Define, implement, and gate the first concrete producer under #5795:
+   bounded ordinal substring matching over decoded `ldstr` occurrences.
+   No byte prefilter is needed for the first consumer.
+9. Deliver the one-candidate evaluator and its structural gates in
+   `DotnetInspector.PackageQueries` through both production hosts under #6030.
+   Include minimum bounded event composition, CLI and Browser gestures, and
+   exact Workspace opening. Start with serial evaluation of a small explicit
+   package selection and conservative enforced resource and deadline bounds.
+10. Optionally enable a semantic-owner byte prefilter only after its complete-
+    representation implication and semantic-confirmation gates exist.
+11. Measure the working implementation with a pinned package corpus, then
+    justify throughput, peak-memory targets, and tuning. Initial correctness
+    bounds do not wait for corpus tuning.
+12. Expand ecosystem reach, bounded concurrency, or acquisition efficiency
+    where evidence warrants it, reusing the existing discovery and Browser
+    demand work rather than replacing the first consumer.

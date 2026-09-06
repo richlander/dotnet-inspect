@@ -501,6 +501,57 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public async Task PumpAsync_AssemblyAssessmentDoesNotSpendMatchCredit()
+    {
+        var match = new BrowserPackageQueryEvent(
+            BrowserPackageQueryEventKind.Match,
+            Row: new BrowserPackageQueryRow(
+                "Contoso.Match", "1.0.0",
+                BrowserPackageQueryFacetTier.Assembly,
+                [new BrowserPackageQueryEvidence("il-string-literal-contains", "Matched.")],
+                TotalDownloads: null,
+                Verified: null,
+                Producer: "nuget.org",
+                RootRequest: "opaque-match-root"),
+            Failure: null,
+            Completion: null);
+        var assessment = new BrowserPackageQueryEvent(
+            BrowserPackageQueryEventKind.Assessment,
+            Row: null,
+            Failure: null,
+            Completion: null,
+            Assessment: new BrowserPackageAssemblyAssessment(
+                "Contoso.Other", "1.0.0",
+                BrowserPackageAssemblyAssessmentKind.NoMatch,
+                "No decoded literal matched in the selected assembly.",
+                "lib/net10.0/Contoso.Other.dll",
+                "opaque-assessment-root"));
+        var completion = new BrowserPackageQueryEvent(
+            BrowserPackageQueryEventKind.Completed,
+            Row: null,
+            Failure: null,
+            Completion: new BrowserPackageQueryCompletion(
+                "", "nuget.org", CandidateLimit: 2, MatchLimit: 2,
+                Candidates: 2, Matches: 1, Failures: 0,
+                BrowserPackageQueryCompletionKind.ExplicitCandidatesComplete,
+                SemanticMisses: 1, NotApplicable: 0,
+                Scope: "Selector-issued primary implementation assemblies"));
+        using var credit = new BrowserPackageQueryMatchCredit(initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+
+        BrowserPackageQueryEvent returned =
+            await BrowserPackageQueryOperations.PumpAsync(
+                BrowserEvents(match, assessment, completion),
+                static item => item,
+                credit,
+                emitted.Add,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal([match, assessment], emitted);
+        Assert.Same(completion, returned);
+    }
+
+    [Fact]
     public async Task PumpAsync_CancellationReleasesAWaitingMatch()
     {
         using var cancellation = new CancellationTokenSource();
@@ -658,6 +709,14 @@ public sealed class BrowserPackageQueryOperationsTests
     {
         await Task.CompletedTask;
         foreach (PackageQueryEvent queryEvent in events)
+            yield return queryEvent;
+    }
+
+    static async IAsyncEnumerable<BrowserPackageQueryEvent> BrowserEvents(
+        params BrowserPackageQueryEvent[] events)
+    {
+        await Task.CompletedTask;
+        foreach (BrowserPackageQueryEvent queryEvent in events)
             yield return queryEvent;
     }
 
