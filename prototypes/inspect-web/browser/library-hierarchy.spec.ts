@@ -209,6 +209,47 @@ async function installFacades(
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 
+for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"]] as const) {
+  test(`narrow Library navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {
+    await page.setViewportSize({ width: 480, height: 900 });
+    await installFacades(page);
+    await page.goto(root);
+    await expect(page.locator(".library-list")).toBeVisible();
+
+    const libraries = page.getByRole("button", { name: "Libraries", exact: true });
+    await libraries.click();
+    await expect(page.locator(".library-subject-list")).toBeFocused();
+    const location = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    await page.getByRole("button", { name: "Show details", exact: true }).click();
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(libraries).toBeFocused();
+    expect(page.url()).toBe(location);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+    await libraries.click();
+    const row = page.locator(`.library-subject-list [data-lib-scope="${selectedLibrary.id}"]`);
+    if (activation === "click") {
+      await row.click();
+    } else {
+      await row.focus();
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".content-frame")).toHaveAttribute("data-content-pane", "detail");
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(page.locator("#inspector-panel h1")).toHaveText(selectedLibrary.name);
+    await expect(page.locator("#content-navigation-toggle")).toBeFocused();
+
+    await page.getByRole("button", { name: "Types", exact: true }).click();
+    await expect(page.locator("#type-list")).toBeFocused();
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(selectedLibrary.publicTypes);
+    await page.getByRole("button", { name: "Show details", exact: true }).click();
+    await expect(page.locator("#inspector-panel")).toBeVisible();
+    await expect(page.locator("#content-navigation-toggle")).toBeFocused();
+  });
+}
+
 test("production navigation separates Package, Library, Type and Member", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

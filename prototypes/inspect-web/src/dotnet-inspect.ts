@@ -5850,6 +5850,7 @@ const packageViewActions: PackageViewBindingActions = {
       state.atLibraryRoot = false;
       state.kindFilter = kind;
     }
+    showContentDetailAfterRender();
     render();
   },
   onNamespaceJump: namespace => {

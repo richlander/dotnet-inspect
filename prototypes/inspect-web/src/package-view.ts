@@ -1,3 +1,5 @@
+import { renderContentNavigationCloseButton } from "./content-frame.ts";
+
 // DOM bindings for package-level navigation surfaces. The application root owns
 // package, filter, graph, and inspection state transitions behind these callbacks.
 
@@ -47,6 +49,7 @@ export function renderPackageNav(options: PackageNavOptions): string {
           <span class="pane-label">LIBRARIES</span>
           <span class="result-count">${libraries.length}</span>
         </div>
+        ${renderContentNavigationCloseButton()}
       </div>
       <div class="type-list library-subject-list" role="group" aria-label="Library navigation" tabindex="-1" data-nav-scope="libraries" data-nav-selection="${selectedLibrary ? `library:${escapeHtml(selectedLibrary)}` : ""}">
         ${libraries.map(library => {

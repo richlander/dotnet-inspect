@@ -195,8 +195,20 @@ test("package navigation exposes every admitted library", () => {
   });
 
   assert.match(html, /aria-label="Libraries"/);
+  assert.match(html, /id="content-navigation-close"/);
   assert.match(html, /data-lib-scope="asset:core"/);
   assert.match(html, /data-lib-scope="asset:empty"/);
   assert.match(html, /12 types · 240 members/);
   assert.match(html, /0 types · 0 members/);
+});
+
+test("empty package navigation retains its detail-return action", () => {
+  const html = renderPackageNav({
+    libraries: [],
+    selectedLibrary: "",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(html, /No managed libraries were selected/);
+  assert.match(html, /id="content-navigation-close"/);
 });
