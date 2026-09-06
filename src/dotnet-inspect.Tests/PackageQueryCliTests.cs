@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Tests;
@@ -13,6 +14,15 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class PackageQueryCliTests
 {
+    internal static PackageQueryMatch ContainmentMatch(string text)
+    {
+        using var source = Source(out _);
+        return new(
+            new PackageQueryPackage(text, text, [], null, null, source.Source),
+            PackageQueryFacetTier.Nuspec,
+            [new(PackageQuery.VerifiedFacetId, new InertString(TextPolicy.Field, text))]);
+    }
+
     [Fact]
     public void DiscoveryValues_LowerToExactlyTheProductFacets()
     {
