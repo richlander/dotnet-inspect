@@ -759,6 +759,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task PackageVersionQuery_DoesNotChooseLatestAfterA401()
     {
         string packageName = $"PartialVersion{Guid.NewGuid():N}";

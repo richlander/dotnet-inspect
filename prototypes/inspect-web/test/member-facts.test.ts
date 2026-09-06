@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import type { MemberFacts } from "../src/member-detail-inspection.ts";
-import { allocationFactsFixture, memberFactsFixture } from "./member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, memberFactsFixture } from "./member-facts-fixture.ts";
 
 function render(facts: MemberFacts = memberFactsFixture()) {
   return renderMemberFacts({
@@ -67,6 +67,8 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   assert.match(summaryRow(html, "Unsafe"), />no<\/code>/);
   assert.doesNotMatch(html, /class="fact-evidence"/);
   assert.match(html, /No direct call sites were found/);
+  assert.match(html, /<h2 id="call-facts-title">Calls<\/h2><span>0 call sites<\/span>/);
+  assert.doesNotMatch(html, /<ol class="call-rows">/);
   assert.match(html, /0 occurrences/);
   assert.match(html, /No allocation occurrences were found in this method\./);
   assert.doesNotMatch(html, /<ol class="allocation-rows">/);
@@ -77,7 +79,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFactsError: "",
   });
   assert.match(loading, /Analyzing method/);
-  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts/);
+  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts/);
 
   const failure = renderMemberFacts({
     memberFacts: null,
@@ -86,7 +88,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
-  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts/);
+  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts/);
   assert.match(renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
@@ -98,7 +100,10 @@ test("member Facts escapes summary evidence and all relocated detail sections", 
   const facts = memberFactsFixture();
   const html = render({
     ...facts,
-    calls: [{ ...facts.calls[0]!, offset: "<offset>\"", callee: "<callee>" }],
+    calls: [{
+      ...facts.calls[0]!, offset: "<offset>\"", callee: "<callee>",
+      opcode: "<opcode>", multiplicity: "<call-multiplicity>",
+    }],
     allocations: [{
       ...facts.allocations[0]!, type: "<type>", offset: "<allocation-offset>",
       kind: "<allocation-kind>", multiplicity: "<multiplicity>",
@@ -114,6 +119,7 @@ test("member Facts escapes summary evidence and all relocated detail sections", 
     "clause", "try", "handler", "filter", "caught", "shape", "fix",
     "confidence", "caveat", "finding", "provenance", "diagnostic",
     "allocation-offset", "allocation-kind", "multiplicity", "path", "escape",
+    "opcode", "call-multiplicity",
   ]) {
     assert.ok(html.includes(`&lt;${value}&gt;`));
     assert.ok(!html.includes(`<${value}>`));
@@ -160,4 +166,38 @@ test("allocation facts distinguish unavailable type and size from an estimated z
   assert.match(html, /class="allocation-unavailable">Type unavailable<\/span>/);
   assert.match(html, /<dt>Est. size<\/dt><dd><span class="allocation-unavailable">not available<\/span>/);
   assert.match(html, /<dt>Est. size<\/dt><dd><code>0 B<\/code>/);
+});
+
+test("call facts preserve every site and distinguish repeated callees", () => {
+  const facts = callFactsFixture();
+  const html = render(facts);
+  assert.match(summaryRow(html, "Calls"), />4<\/code>/);
+  assert.match(html, /<h2 id="call-facts-title">Calls<\/h2><span>4 call sites<\/span>/);
+  const rows = [...html.matchAll(/<li class="call-row">([\s\S]*?)<\/li>/g)]
+    .map(match => match[1]!);
+  assert.equal(rows.length, 4);
+  for (const [index, call] of facts.calls.entries()) {
+    const row = rows[index]!;
+    assert.ok(row.includes(`<code>${call.offset}</code><code>${call.opcode}</code>`));
+    assert.ok(summaryRow(row, "Multiplicity").includes(`>${call.multiplicity}</code>`));
+    assert.ok(summaryRow(row, "Loop").includes(`>${call.inLoop ? "yes" : "no"}</code>`));
+  }
+  assert.match(rows[0]!, /JsonConverter&lt;System.Text.Json.JsonElement&gt;.Read\(System.Text.Json.Utf8JsonReader&amp;/);
+  assert.match(rows[1]!, /System.Text.Json.JsonException\.\.ctor\(System.String\)/);
+  for (const row of rows.slice(2)) {
+    assert.match(row, /<code>System.Text.Json.Utf8JsonReader.Read\(\)<\/code>/);
+  }
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render({ ...facts, calls: [facts.calls[0]!] }), /<span>1 call site<\/span>/);
+});
+
+test("call facts retain the returned order instead of sorting by offset", () => {
+  const facts = callFactsFixture();
+  const calls = [...facts.calls.slice(2), ...facts.calls.slice(0, 2)];
+  const html = render({ ...facts, calls });
+  assert.deepEqual(
+    [...html.matchAll(/class="call-location"><code>([^<]+)<\/code>/g)]
+      .map(match => match[1]),
+    calls.map(call => call.offset),
+  );
 });

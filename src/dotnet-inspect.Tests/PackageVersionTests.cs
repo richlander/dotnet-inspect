@@ -594,6 +594,7 @@ public class PackageVersionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Type_WithRangeAddress_InspectsOnlyTheSelectedVersion()
     {
         var root = CommandLineBuilder.CreateRootCommand();

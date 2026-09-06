@@ -173,6 +173,18 @@ Integration support is exposed through `@Integrations` or focused
 `Integration: ...` sections such as `Integration: Logging` or
 `Integration: OpenTelemetry`.
 
+All integrations are enabled by default. Discover the supported ecosystem
+predicate with `library -Q Integrations`, then narrow the ordinary result:
+
+```bash
+dotnet-inspect library -Q Integrations
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dotnet-inspect library ./MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+```
+
+This filters Integration evidence and opportunities, not assembly-wide presence
+or Census. Other query families cannot be combined with the ecosystem predicate.
+
 For deeper how-to guidance, use the embedded skills instead of relying on a very
 long README:
 

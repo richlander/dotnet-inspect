@@ -508,19 +508,22 @@ The adjacent-owner prerequisites are explicit:
   not identify counterpart definitions.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
   the bounded single-signature occurrence decode owned by
-  [`metadata-signature-decoding.md`](metadata-signature-decoding.md). That
-  surface remains planned; the current `SignatureSpellabilityResult` collapses
-  the result to `CanSpell` plus decode status and cannot supply the
-  per-occurrence evidence consumed here.
+  [`metadata-signature-decoding.md`](metadata-signature-decoding.md), landed in
+  [#5927](https://github.com/richlander/dotnet-inspect/pull/5927). Tools adoption
+  remains tracked by [#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
+  The legacy `SignatureSpellabilityResult` collapses the result to `CanSpell`
+  plus decode status and is not a substitute for that per-occurrence evidence.
 - [#5302](https://github.com/richlander/dotnet-inspect/issues/5302) owns terminal
   accessibility independently of resolution. Until its owner-issued result is
   available, tools cannot complete a signature requirement that needs external
   accessibility evidence. Source-local declaration inclusion and nameability
   are tools-owned obligations, not external-accessibility questions.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
-  the artifact owner's on-demand digest over retained immutable content.
-  Current artifact sessions expose `OpenRead`, while the owning design reserves
-  digest authority to the session and marks this API unverified.
+  the artifact owner's on-demand digest over retained immutable content,
+  landed in [#5968](https://github.com/richlander/dotnet-inspect/pull/5968).
+  `ArtifactSetSession.GetContentDigest` and its lease-bound
+  `ArtifactContentReference` forwarding operation supply owner-issued results;
+  tools consume those results rather than compute replacement content digests.
 - [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) is the
   `MemberBodyProducer` design for a complete typed occurrence manifest over each
   receipt-bearing product `CSharpBlockBody`. Original or rebuilt IL cannot prove
@@ -608,6 +611,59 @@ every compiler-relevant role. Reordering discovery input without changing
 policy or candidates cannot change the selected order, identity, or outcome.
 The digest authenticates the retained snapshot; it is not a substitute for
 retention, and bracketing hashes of a mutable path are insufficient.
+
+#### Initial selection policy
+
+The initial tools API accepts exact Metadata assembly identities with a required
+version. Neutral culture and an absent public-key token mean neutral and
+unsigned, not wildcard requests. An optional owner-issued artifact identity
+pins one inventory candidate; a mismatching pin does not weaken identity
+matching. Different registrations with equivalent full identities cannot both
+enter a selected set, even through separate pins or aliases, because Metadata
+resolution must remain unique.
+
+Aliases are sorted and deduplicated; an omitted or empty alias list means
+`global`. Repeated selection of one registration coalesces only when compiler
+roles agree. This initial policy grants no platform authorization or preference
+and performs no version roll-forward.
+
+Inventory IDs are owner-issued artifact identities, not durable or displayed
+addresses. Canonical order follows their deterministic generation-local order.
+The set key is the artifact generation together with the set digest; its hex
+value alone is not a cross-generation identity. The digest binds the separate
+source association and ordered selected registrations, content digests, full
+assembly identities, MVIDs, and compiler roles.
+
+The caller owns the original session and query lease through discovery,
+selection, and scoped `Use` operations. Each operation requires current
+authority; a scoped context is not a replacement for that authority. Metadata
+uses the selected guarded openers and Roslyn uses the matching retained
+immutable images. Source locations remain inert provenance, not reopen paths.
+
+`CompileReferenceSetTests` gates this initial policy through exact-identity and
+ambiguity cases, generation-scoped keys, role-sensitive selection and compiler
+binding, digest-before-descriptor ordering, source exclusion, stale authority,
+and retained-snapshot consumption by both Metadata and Roslyn. These gates do
+not establish the later closure, admission, or rebuilt-binding receipts.
+
+#### Tools adoption
+
+[#6005](https://github.com/richlander/dotnet-inspect/issues/6005) tracks the
+frozen-reference implementation within the overall decoder-adoption tracker
+[#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
+The frozen-reference adoption path has two steps:
+
+1. Implement the inventory, selected set, and scoped context API. The immediate
+   production host for this test infrastructure is the decompiler harness
+   contract suite, which exercises Metadata and Roslyn with the selected images.
+2. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
+   and retire its simple-name-first-wins reference enumeration on that path.
+
+The user-approved tools-first scope defers CLI/browser production adoption.
+The first step does not relabel the legacy ReturnToSender path as conforming,
+adopt the signature decoder there, or complete closure and admission. These
+steps are prerequisites within #5890's second decoder-adoption step, not a
+claim that the entire compile-back architecture takes two slices.
 
 ### Compile-context definition identity
 
@@ -1360,9 +1416,10 @@ required preservation boundary.
 
 Issue #4810 adds these named gates:
 
-1. `CompileReferenceSelectionDoesNotUseSimpleNameFirstWins` supplies two
-   non-corresponding candidates with one simple name and proves that reversing
-   discovery order produces the same typed ambiguity.
+1. `CompileReferenceSelectionDoesNotUseSimpleNameFirstWins` supplies
+   non-corresponding candidates with one simple name and proves that exact
+   identity selection is independent of discovery order. Requests admitting
+   multiple candidates produce the same typed ambiguity in either order.
 2. `CompileReferenceSelectionRejectsSameIdentityDifferentContent` proves equal
    assembly identity with a different digest or MVID is not coalesced.
 3. `CompileReferenceSetBindsMetadataAndCompilerToSameSnapshot` replaces a
@@ -1517,7 +1574,7 @@ Issue #4810 adds these named gates:
     after disposal but cannot make this gate pass without the captured owner
     outcome.
 28. `CompileReferenceDigestComesFromRetainedArtifactOwner` declines before
-    descriptor construction or selection while #4916's capability is
+    descriptor construction or selection if any required owner digest is
     unavailable. With every required owner result, descriptor construction may
     begin and each digest matches the retained bytes opened under the same query
     lease. Hashing a mutable path, hashing an independently reopened stream, or

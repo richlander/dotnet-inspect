@@ -454,6 +454,7 @@ public class DemoCommandTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Cli_EveryCallGraphDemo_Mermaid_EmitsNonEmptyGraph()
     {
         foreach (var entry in ProductDemos)

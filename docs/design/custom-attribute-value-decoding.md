@@ -958,6 +958,35 @@ I1 offset seam and generated guard-approval assertions are retired, not carried
 as additional D3 requirements. Exhaustive grammar coverage, D1/D2 enumeration,
 and real-package certification are not established by this fixture gate.
 
+### Generic-context lookup gate
+
+Within one attribute decode, locating repeated, alternating, or increasing
+`VAR` indices must reuse the generic prefix already traversed (#5098). This is
+an operation-local lookup claim, not a bound on selected-type decoding, enum
+resolution, output materialization, or work across attribute rows. Existing CLI
+and browser/Wasm consumers receive the repair through the shared decoder.
+
+Reuse preserves the existing structural skipper's cursor semantics and does not
+inspect unused trailing arguments. Storage grows from traversed argument starts,
+not declared generic arity. Substitution still has an empty generic context;
+selected types, resolver calls, charges, and per-argument defaulted-width flags
+retain their existing behavior rather than being cached as decoded values.
+
+`CustomAttributeGenericContextTests` is the focused Release gate. Its
+compiler-produced samples vary constructor parameter count, generic arity, and
+index order, with mixed scalar/array values and unused-context neighbors. An
+optional internal counter records bytes advanced by the actual prefix skipper;
+the assertions measure traversal, not elapsed time or allocation. The public
+facade remains unchanged, and the counter is absent from ordinary calls.
+
+At pre-repair head `b830af9b4901912f6e17a1e7e346822d0e1b6342` (the unchanged
+lookup loop plus the counter and initial samples), eight of nine cases failed
+only their skipped-byte assertions. For example, four/eight repetitions of the
+last argument in a four-argument context skipped 12/24 bytes; both now skip
+three. Values and charges already matched, and the unused-tail case passed.
+This gate establishes the local reuse regression, **not full D1**; #5733 still
+owns the generative joint-dimension cost gate.
+
 ## Known gaps
 
 Each row is a **verified** divergence between the contract above and the
@@ -971,7 +1000,6 @@ component.
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 | #5132 |
 | 7 | Building the type-definition index costs `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 | #5757 |
 | 8 | A definition scan performs `O(L)` work per row on a loop-invariant name, costing `Θ(T × L)`. | D1 | #5758 |
-| I2 → D1 | Each `VAR` fixed argument re-skips its generic context, so `P` arguments over a `G`-node context cost `Θ(P × G)`. | D1 | #5098 |
 
 Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-walk
 memo can address it.
@@ -988,9 +1016,9 @@ place it.
 
 | Former gap | Was | Disposition |
 | --- | --- | --- |
-| SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the guard memoized the offset and never experienced it. | I2 (#5098) | **Transferred to D1.** SRM no longer runs, but the owned decoder currently re-skips the generic context per `VAR` argument and retains the same cost shape. |
+| SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the owned decoder initially retained that prefix-rescan cost. | I2 → D1 (#5098) | **Repaired.** Operation-local lazy prefix reuse is covered by the [generic-context lookup gate](#generic-context-lookup-gate), including alternating and increasing indices. |
 | `SZARRAY` replay re-parsed one element type per value. | D1 gap 2 (#5047) | **Repaired.** The owned decoder resolves one `ArgumentType` before the array value loop and reuses it for every element. |
-| Four single-slot memos admitted alternating-input amplification. | D1 gap 3 (#5130) | **Repaired.** Those memos were deleted with the paired walker. The remaining generic-context re-skip is #5098 above. |
+| Four single-slot memos admitted alternating-input amplification. | D1 gap 3 (#5130) | **Repaired.** Those memos were deleted with the paired walker. The generic-context cost transferred to #5098 is also repaired. |
 | The resolver-less `IsSafeToDecode` overload resolves widths in a different order, so its `true` does not carry I1. | I1 scope (#5120) | **Moot.** There is no alignment claim to carry. |
 | The guard and `ArgTypeProvider` each apply their own `"System.Type"` comparison, so the predicate can diverge. | I1 (#5393) | **Moot.** One decoder, one predicate. Recorded as a fidelity caution under [Classification](#classification-is-a-display-name-comparison-not-an-identity-test). |
 | Whether the #4914 width-alignment collapse remains reachable on the blob-authored name path. | I1 (#4992) | **Moot as an alignment question.** The name path's own collapse risk is retained as a D3 concern under [The two resolution paths are not symmetric](#the-two-resolution-paths-are-not-symmetric). |
@@ -1032,11 +1060,11 @@ slice 2. Both are now settled.
 | --- | --- |
 | #5288 | This inversion. Slice 2 landed in #5815 and the fixtures-first slice 3 gate in #5148. Slice 4 retires the legacy bridge; broader package certification remains outstanding. |
 | #5047 | Repaired in #5815: each array element type is resolved once. |
-| #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
+| #5098 | Repaired: operation-local generic-prefix reuse; the focused Release gate measures skipped bytes, not full D1. |
 | #5065 | D3 fidelity and producer certification; the fixture subset landed in #5148. It is not D1's gate. |
 | #5085 | Repaired in #5815: observer-exception provenance is preserved. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
-| #5130 | #5815 retired the paired walk's single-slot memos; the remaining generic-context cost is tracked by #5098. |
+| #5130 | #5815 retired the paired walk's single-slot memos; #5098 repairs the transferred generic-context cost. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | Merged: fixtures-first D3 value equality and retained-image producer truth. Broader package certification remains outstanding in #5065. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |

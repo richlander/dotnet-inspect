@@ -2429,7 +2429,7 @@ test("dependency graph render identity includes truncation and navigation", () =
 });
 
 test("ready status shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = inspectBuildIdentity\(\)/);
+  assert.match(appSource, /state\.buildIdentity = await engineStartup\.host\.buildIdentity\(\)/);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
