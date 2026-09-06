@@ -149,6 +149,16 @@ substrates, and inspection producers that will extend that space.
   navigation-result consumer, shell interaction, and page-level composition
   across six focused owners while individual components retain rendering,
   binding, and state-transition responsibilities.
+- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
+  operator-approved cross-owner target experience for subjects, traversal
+  permissions, operation demand, Browser defaults, and ecosystem-assisted
+  retrieval. It is not a new runtime owner; component contracts and their
+  focused adoption remain with the participating owners.
+- [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
+  owns the proposed Browser editor execution-eligibility and leave-decision
+  contract. It consumes owner-backed edit-save completion and existing
+  navigation outcomes; it does not own admission, persistence, history,
+  focus, or layout.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,

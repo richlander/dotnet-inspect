@@ -19,10 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\runfaster\runfaster.csproj" />
-    <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
+    <ProjectReference Include="..\..\src\runfaster\runfaster.csproj" />
+    <ProjectReference Include="..\..\src\dotnet-inspect\dotnet-inspect.csproj" />
     <ProjectReference Include="..\..\fixtures\runfaster\RunFaster.AllocationFixture\RunFaster.AllocationFixture.csproj" ReferenceOutputAssembly="true" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

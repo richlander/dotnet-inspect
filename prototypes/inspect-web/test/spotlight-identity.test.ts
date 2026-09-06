@@ -3200,7 +3200,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
 
   assert.match(
     results,
-    /kind: "package-query",[\s\S]*prefix: validPackageQueryPrefix\(query\),/);
+    /kind: "package-query",[\s\S]*prefix: validPackageQuerySearchText\(query\) \?\? "",/);
   assert.match(
     appSource,
     /case "package-query":\s*openPackageQueryRoute\(result\.prefix\);\s*break;/);
@@ -3300,17 +3300,17 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /workspaceLocation\.sync\(snapshot, history\.state\)/);
   assert.equal(
     appSource.match(
-      /\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)/g)
+      /\? withScopeQuery\(state\.packageQueryState\.request, validText\)/g)
       ?.length,
-    2);
+    1);
   assert.equal(
     appSource.match(
       /packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run/g)
       ?.length,
-    2);
+    3);
   assert.match(
     appSource,
-    /state\.packageQueryCatalogError =\s*`Package-query facets are unavailable/);
+    /state\.packageQueryCatalogError =\s*`Package-query catalogs are unavailable/);
   assert.match(
     appSource,
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);

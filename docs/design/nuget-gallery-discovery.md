@@ -7,15 +7,29 @@ NuGet Gallery discovery in `NuGetFetch` is the sole normative owner.
 [Delivery tracker #5919](https://github.com/richlander/dotnet-inspect/issues/5919)
 records eight milestones from this design through both CLI and browser adoption.
 
-**Typed request/catalog implemented; transport and delegation remain unverified.**
+**Shared transport, local selection, and the website consumer are implemented;
+Source Delegation and CLI execution adoption remain future work.**
 [Milestone 2, #5934](https://github.com/richlander/dotnet-inspect/issues/5934),
 adds `NuGetGalleryDiscoveryRequest`, `NuGetGalleryPackageType`, and
-`NuGetGalleryDiscoveryCatalog` in NuGetFetch. These express inert source intent;
-they do not authorize access or advertise executable Gallery discovery.
+`NuGetGalleryDiscoveryCatalog` in NuGetFetch. These express inert source intent
+without authorizing access. `INuGetGalleryPackageSourceClient.DiscoverAsync`
+executes that intent through the existing authorized Gallery source.
 Existing Gallery keyword/prefix search, typed source results, deadlines, and
-the semantic row-selection language remain unchanged. The discovery transport,
-general Source Delegation protocol, and product-row/host adoption are still
-future work. Closed design issues are not implementation evidence.
+the semantic row-selection language remain supported. The website consumes
+`PackageQuery.PlanGallery` over the admitted response; it does not implement
+provider behavior in TypeScript. Closed design issues are not implementation
+evidence.
+
+For [website-first adoption #6019](https://github.com/richlander/dotnet-inspect/issues/6019),
+the user explicitly approved ordinary shared acquisition before implementation
+of Source Delegation. That consumer acquires the complete bounded metadata
+response and applies its own local selection; it does not accept delegation
+candidates, advertise delegated operations, or claim the protocol's guarantees.
+The capacity, admission, provenance, and finite-input requirements below still
+apply. Source Delegation and its L2 adapter remain separately tracked follow-ups
+in #5919. CLI query discovery is owned by
+[PR #6004](https://github.com/richlander/dotnet-inspect/pull/6004), not this
+website slice.
 
 The user goal is inexpensive discovery: find popular packages, tools, or
 templates without already knowing a package name. Gallery capabilities should
@@ -208,13 +222,13 @@ V3 search DTO; its count interpretation does not change generic feed parsing,
 which deliberately tolerates sources without useful `totalHits`.
 
 Basic discovery acquires search metadata only. Manifest, registration, archive,
-and assembly enrichment are separate capability-bearing work. The enforcing
-future gate is `GalleryDiscoveryUsesSearchMetadataOnly`; the property is
-unverified until that gate runs against the product adapter.
+and assembly enrichment are separate capability-bearing work.
+`GalleryDiscoveryClientTests.GalleryDiscoveryUsesSearchMetadataOnly` exercises
+that boundary against the product adapter.
 
 ## Source delegation and semantic limits
 
-The initial adoption supports **acquisition-only row handoff** for one declared
+The initial Source Delegation adoption supports **acquisition-only row handoff** for one declared
 bounded Gallery response input. The delegated operation prefix is empty;
 semantic `Head`, predicates, ordering, and other stages stay in the caller's
 exact residual. NuGetFetch consumes the owner-formed candidate and does not
@@ -310,7 +324,9 @@ CLI gestures / browser controls
 The CLI should consume its existing semantic `-n` lowering, not forward the
 token to HTTP. The browser should express the equivalent typed selection.
 Both should disclose the bounded Gallery input independently of the selected
-row count. The shared product binding owns its default capacity; the example
+row count. The approved first website consumer uses ordinary shared acquisition
+and local Package Query evaluation before the delegation/L2 stages in this
+eventual composition. The shared product binding owns its default capacity; the example
 below uses 200, not a new CLI flag or a mandatory source default.
 CLI text/Markdown/JSON lowering uses the existing Markout/Sections path.
 Browser interactive controls and cards remain host-specific rendering over
@@ -345,7 +361,7 @@ its acquisition cost and semantic-selection boundary.
 [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) owns the
 eight-milestone sequence and retirement of the Gallery page's required-prefix
 assumption. Exact package lookup, literal prefix profiling, generic feeds, and
-existing content facets stay supported. No host behavior changes in this PR.
+existing content facets stay supported.
 
 Demand-windowed streaming is separately tracked by
 [#5816](https://github.com/richlander/dotnet-inspect/issues/5816).
@@ -402,31 +418,37 @@ curl --compressed --get \
 ```
 
 A subsequent GET with `Origin: https://dotnet-inspect.net` returned
-`Access-Control-Allow-Origin: *` on 2026-09-05 UTC. Browser adoption still
-requires a real browser run against the product path.
+`Access-Control-Allow-Origin: *` on 2026-09-05 UTC. The opt-in live
+`Gallery Package Query website over real Wasm` scenario also exercises the
+published production page through Firefox and the actual Gallery CORS path.
+This observation is reproducible with `INSPECT_WEB_GALLERY_LIVE=1`; it is not
+a permanent provider-availability claim.
 
 ### Release gates
 
-These gates are required before their respective implementation claims ship.
-Except for the request/catalog gate, they remain unimplemented and unverified.
+These Release gates cover the implemented ordinary-acquisition path.
+Delegation and L2 binding retain their separately owned, future gates.
 
 | Gate | Outcome established |
 | --- | --- |
-| `GalleryDiscoveryRequestAndCatalogTests` | Implemented in `src/NuGetFetch.Tests`: termless/type-filtered intent, explicit/default orders, prerelease intent, custom valid package types, invalid/unknown selections, bounded-input identity, and immutable descriptor discovery retain their declared meaning. Provider execution remains a later gate. |
-| `GalleryDiscoveryUsesSearchMetadataOnly` | The product adapter returns basic browse rows with only search transport; no per-package enrichment is requested. |
-| `GalleryDiscoveryProviderProjection` | Lifetime versus version downloads, optional missing fields, required-field failures, source association, provider ordering, and selector evidence are preserved. |
-| `GalleryDiscoveryFiniteInputSelection` | Product acquisition preserves K and the whole provider response; the shared adopter's residual matches `RowSelectionExecutor` over that exact finite input, including ties and zero/fewer/exactly/more-than-N rows. The fixed index/auxiliary divergence detects replacing K with N. |
-| `GalleryDiscoveryCompletionEvidence` | Evidence binds complete acquisition to the predeclared finite input, never to population exhaustion. Short/empty responses and approximate totals retain that distinction; malformed/duplicate rows, truncated transport, cancellation, and resource failures do not become complete inputs. |
-| `GalleryDiscoveryDelegationBoundaries` | Nonempty delegated prefixes, whole-population completion, out-of-range capacity, and upstream Count decline before source work; accepted failures do not fall back. Local predicate/Head composition retains the declared candidate scope. |
+| `GalleryDiscoveryRequestAndCatalogTests` | Termless/type-filtered intent, explicit/default orders, prerelease intent, custom valid package types, invalid/unknown selections, bounded-input identity, and immutable descriptor discovery retain their declared meaning. |
+| `GalleryDiscoveryClientTests.GalleryDiscoveryUsesSearchMetadataOnly` | The product adapter returns basic browse rows with only search transport; no per-package enrichment is requested. |
+| `GalleryDiscoveryClientTests` | Lifetime versus version downloads, optional missing fields, required-field failures, source association, and provider ordering are preserved. Short/empty responses and approximate totals remain finite inputs; malformed/duplicate rows, truncated transport, cancellation, deadlines, and resource failures do not become successful inputs. |
+| `PackageQueryGalleryTests.MetadataSelectionEqualsHeadOverTheFullResponseIncludingTies` and `CapacityDependentRankingDoesNotReplaceHeadWithSmallerAcquisition` | Acquisition preserves K and the whole provider response; local selection matches `RowSelectionExecutor` over that exact finite input, including ties and zero/fewer/exactly/more-than-N rows. The fixed index/auxiliary divergence detects replacing K with N. |
+| Remaining `PackageQueryGalleryTests` | Explicit manifest/content predicates retain the same finite input and real manifest evidence; local Head stops additional enrichment, while failures and cancellation remain visible. |
+| `BrowserPackageQueryOperationsTests` and `package-query*.test.ts` | Catalog/request/row projection, finite completion, source controls, stale-generation rejection, and demand credit preserve the shared input and result meaning. |
+| `Gallery Package Query website over real Wasm` | The actual published page performs termless type-filtered browse and neighboring text search with K=200, nullable metadata, and honest finite completion. The live-provider case is opt-in. |
+| `GalleryDiscoveryDelegationBoundaries` (**unimplemented/unverified**) | Future protocol adoption must decline nonempty delegated prefixes, whole-population completion, and upstream Count before source work; accepted failures must not fall back. |
 
-The adoption consumes the Source Delegation and RowSelection owners' own gates;
-these tests do not replace their effect-protocol or reference-semantics evidence.
-The L2 and host milestones separately gate binding and CLI/browser equivalence.
+The ordinary-acquisition path consumes RowSelection's reference semantics.
+Future protocol adoption must also consume the Source Delegation owner's gates;
+these tests do not replace effect-protocol evidence. The L2 and CLI milestones
+separately gate their binding and host equivalence.
 A live provider probe detects observed provider drift but does not prove future
 provider honesty; deterministic fixtures enforce adapter behavior in CI.
 
-No new scheduling protocol is defined here. Atomic one-response adoption uses
-the existing delegation contract; concurrent execution or incremental
+No new scheduling protocol is defined here. Future delegated one-response
+adoption uses the existing delegation contract; concurrent execution or incremental
 publication would require separate owner work and corresponding model evidence.
 
 [v3-search]: https://learn.microsoft.com/en-us/nuget/api/search-query-service-resource

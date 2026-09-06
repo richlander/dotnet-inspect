@@ -8,7 +8,7 @@ import {
   packageQueryHistoryState,
   readPackageQueryHistory,
   resolvePackageQueryWorkspaceSuccessor,
-  validPackageQueryPrefix,
+  validPackageQuerySearchText,
   withHistoryEntryId,
 } from "../src/package-query-route.ts";
 
@@ -18,13 +18,37 @@ test("package query route recognizes only its canonical path", () => {
   assert.equal(isPackageQueryPath("/packages/query"), false);
 });
 
-test("package query prefix validation trims useful input and rejects invalid shapes", () => {
-  assert.equal(validPackageQueryPrefix(" Microsoft.Extensions. "), "Microsoft.Extensions.");
-  assert.equal(validPackageQueryPrefix("Microsoft-*"), "Microsoft-*");
-  assert.equal(validPackageQueryPrefix(""), "");
-  assert.equal(validPackageQueryPrefix("contains space"), "contains space");
-  assert.equal(validPackageQueryPrefix("../escape"), "../escape");
-  assert.equal(validPackageQueryPrefix("a".repeat(101)), "");
+test("package query search validation preserves nonempty Gallery text exactly", () => {
+  for (const text of [
+    " Microsoft.Extensions. ",
+    "Microsoft-*",
+    "hosting dependency injection",
+    ' tags:"web api" ',
+    "a".repeat(100),
+  ]) {
+    assert.equal(validPackageQuerySearchText(text), text);
+  }
+});
+
+test("package query blank search normalizes to browse without fabricating a wildcard", () => {
+  for (const text of ["", " ", " ".repeat(100), "\u00a0\u2003"]) {
+    assert.equal(validPackageQuerySearchText(text), "");
+  }
+});
+
+test("package query invalid search is distinct from blank browse", () => {
+  for (const text of [
+    "a".repeat(101),
+    " ".repeat(101),
+    "contains\nnewline",
+    "\t",
+    "\rtext",
+    "text\u0000",
+    "text\u007f",
+    "text\u0085",
+  ]) {
+    assert.equal(validPackageQuerySearchText(text), null);
+  }
 });
 
 test("package query history scopes predecessor identity to one entry", () => {

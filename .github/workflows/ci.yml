@@ -812,7 +812,7 @@ jobs:
         run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
 
       - name: Run runfaster tests
-        run: dotnet run --project src/runfaster.Tests -c Release
+        run: dotnet run --project tests/runfaster.Tests -c Release
 
       # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
       # in PR CI when the round-trip tests or source dependencies change. The

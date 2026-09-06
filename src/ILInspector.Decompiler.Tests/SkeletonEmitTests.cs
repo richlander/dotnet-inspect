@@ -34,11 +34,11 @@ public class SkeletonEmitTests
             $"Skeleton failed to compile for {FixtureType}.Sum: {sum.Status} / {sum.Detail}");
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, sum.Status);
 
-        string path = CreateAssemblyWithDuplicateUnrelatedType();
+        var duplicateAssembly = CreateAssemblyWithDuplicateUnrelatedType();
         try
         {
             var duplicateType = Assert.Single(FidelityCheck.Evaluate(
-                path,
+                duplicateAssembly.Path,
                 type => type == FixtureType,
                 method => method.Method == "Sum"));
 
@@ -47,7 +47,7 @@ public class SkeletonEmitTests
         }
         finally
         {
-            File.Delete(path);
+            Directory.Delete(duplicateAssembly.Directory, recursive: true);
         }
     }
 
@@ -137,9 +137,12 @@ public class SkeletonEmitTests
             $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
     }
 
-    static string CreateAssemblyWithDuplicateUnrelatedType()
+    static (string Directory, string Path) CreateAssemblyWithDuplicateUnrelatedType()
     {
-        byte[] bytes = File.ReadAllBytes(typeof(SkeletonEmitFixture).Assembly.Location);
+        string sourcePath = typeof(SkeletonEmitFixture).Assembly.Location;
+        string sourceDirectory = Path.GetDirectoryName(sourcePath)
+            ?? throw new InvalidOperationException("The fixture assembly has no containing directory.");
+        byte[] bytes = File.ReadAllBytes(sourcePath);
         byte[] original = "WholeModuleHazardBravo\0"u8.ToArray();
         byte[] replacement = "WholeModuleHazardAlpha\0"u8.ToArray();
         Assert.Equal(original.Length, replacement.Length);
@@ -155,11 +158,33 @@ public class SkeletonEmitTests
         }
         Assert.True(replacements > 0, "Expected the unrelated hazard type name in the assembly metadata.");
 
-        string path = Path.Combine(
+        string directory = Path.Combine(
             Path.GetTempPath(),
-            $"fidelity-check-whole-module-{Guid.NewGuid():N}.dll");
+            $"fidelity-check-whole-module-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string targetFileName = Path.GetFileName(sourcePath);
+        string path = Path.Combine(directory, targetFileName);
         File.WriteAllBytes(path, bytes);
-        return path;
+
+        // FidelityCheck resolves sibling DLLs from the target directory. Mirror
+        // the fixture's real output closure inside a private temp directory so
+        // unrelated /tmp DLLs cannot poison this duplicate-type canary.
+        foreach (string sibling in Directory.EnumerateFiles(sourceDirectory, "*.dll"))
+        {
+            if (Path.GetFileName(sibling).Equals(targetFileName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            File.Copy(sibling, Path.Combine(directory, Path.GetFileName(sibling)));
+        }
+
+        string sourceDeps = Path.ChangeExtension(sourcePath, ".deps.json");
+        if (File.Exists(sourceDeps))
+        {
+            File.Copy(
+                sourceDeps,
+                Path.Combine(directory, Path.GetFileName(sourceDeps)));
+        }
+
+        return (directory, path);
     }
 }
 

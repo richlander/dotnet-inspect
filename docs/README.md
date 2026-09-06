@@ -93,6 +93,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
 | [Integration Scanner Binding](design/integration-scanner-binding.md) | Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution; catalog and host adoption remain staged. |
 | [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
+| [Approved Lazy Traversal](design/approved-lazy-traversal.md) | Proposed, operator-approved cross-owner experience: distinct subjects and traversal permissions, prefix/ecosystem knowledge, lazy demand, Browser defaults, and bounded prefix-only operations. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -141,6 +142,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Inspect Web SlideStrip](design/inspect-web-slide-strip.md) | Reusable single-region ordered-item control with Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](design/inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
 | [Inspect Web Saved Workspaces](design/inspect-web-saved-workspaces.md) | Named browser-local Save/Open/Forget using canonical packets and the existing one-live-Workspace restoration path. |
+| [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md) | Proposed Browser editor eligibility, explicit Save/Cancel, Inspect terminology, and dirty in-app navigation decisions; owner-backed save completion remains prerequisite work. |
 | [Inspect Web Workspace Add package](design/inspect-web-workspace-add-package.md) | Focused package-search picker appending a resolved coordinate without replacing or evicting current members. |
 | [Inspect Web Navigation Consumer](design/inspect-web-navigation-consumer.md) | Browser-side navigation-result consumer model: canonical location, browser history, transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](design/inspect-web-shell-interaction.md) | Persistent shell and shared transient/routed surface interaction: shell actions, menu/modal semantics, Spotlight Search, Open, Settings entry, and the command palette. |

@@ -6,8 +6,9 @@ This is the Queries-owned target design for
 [#5878](https://github.com/richlander/dotnet-inspect/issues/5878), historical
 rank 5 and delivery step 6 of
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706).
-It is **unimplemented and unverified**. Landing this document completes neither
-the adapter's runtime delivery nor any production adoption or retirement.
+The physical-pair adapter is implemented by `DirectMemberComparisonQuery` and
+consumed by CLI `match --body`. Workspace forwarding selection, Browser and
+comparison-tool adoption, and broader retirement remain separate work.
 
 `DotnetInspector.Queries` is the single architectural owner. Its optional
 `DotnetInspector.ResearchQueries` companion is the physical dependency boundary
@@ -21,7 +22,7 @@ The claim is:
 > evidence or claiming identity correspondence between different members.
 
 The consumer is a caller that already knows which two methods it wants to
-compare: CLI `match --implementation`, round-trip member/scope comparison,
+compare: CLI `match --body`, round-trip member/scope comparison,
 authored rebuild, or the planned browser workspace comparison surface.
 Matching candidates, proving runtime equivalence, and finding corresponding
 members in a rebuilt artifact remain the caller's existing responsibilities.
@@ -46,8 +47,8 @@ The following contracts supply those responsibilities:
 | --- | --- | --- |
 | [Population boundary](inspection-layers.md#queries-to-research-population-boundary) | Sealed query occurrences and their bijective Research receipt | Landed in #5874 for #5860, tracker step 1 |
 | [Workspace target composition](research-workspace-target-composition.md) | Exact root-to-terminal association when selection traverses a workspace facade | #5676 / #5699, step 4; required for that selection route, not an already-selected physical pair |
-| [Research target and session contracts](implementation-diff.md#research-local-producer-session-and-completion) | Owner-issued target evidence, native producer results, and local session completion | Local session landed in #5827; designated pairing remains #5877, step 18 |
-| [Local comparison publication](local-comparison-publication.md) | Association of the query receipt with terminal evidence for the borrowed-input profile | #5925, the first profile of step 5; runtime is not yet implemented |
+| [Research target and session contracts](implementation-diff.md#research-local-producer-session-and-completion) | Owner-issued target evidence, native producer results, and local session completion | Local session landed in #5827; designated pairing landed in #5908 for #5877, step 18 |
+| [Local comparison publication](local-comparison-publication.md) | Association of the query receipt with terminal evidence for the borrowed-input profile | Implemented with the adapter and CLI cutover for #5925, the first profile of step 5 |
 
 The publication dependency is intentional: this adapter must not invent a
 temporary public result union that step 5 immediately replaces.
@@ -65,13 +66,14 @@ different keys or roles. `ResearchProducerSession.Run` requires validated
 Research resolution; changing labels or constructing a fake `Paired` outcome
 does not bridge the two contracts.
 
-[#5877](https://github.com/richlander/dotnet-inspect/issues/5877) therefore owns
-the missing Research designated-pair contract and runtime handoff. It must
-settle the owner-issued association consumed here. This document does not
+[#5877](https://github.com/richlander/dotnet-inspect/issues/5877) owns
+the Research designated-pair contract and runtime handoff, landed in #5908.
+This document does not
 choose its representation, constructors, validation, or session extension.
 Queries must not implement around that missing dependency by minting Research
 correspondence, relabeling different keys, or calling the legacy path as a
-fallback. Adapter implementation waits for this prerequisite and step 5.
+fallback. The physical-pair implementation consumes that handoff and the
+shared publication directly.
 
 Ordinary strict correspondence remains unchanged. A direct designation says
 "compare these two methods"; it does not say they share an API identity or
@@ -160,8 +162,9 @@ own host design rather than parsing the CLI's rendered output.
 ### First production punch-through
 
 The first bounded scenario is two explicitly selected physical methods in one
-already-open implementation assembly. CLI `match --implementation` is the
-existing production caller. Browser adoption adds an explicit comparison
+already-open implementation assembly. CLI `match --body` (formerly
+`--implementation`) is the existing production caller. Browser adoption adds an
+explicit comparison
 action over its member selection and retained implementation participant;
 ordinary selection does not silently become pair selection.
 
@@ -170,23 +173,27 @@ for unrelated package-role, whole-assembly, body-signal, or Source migrations.
 It does not invoke root-to-terminal forwarding composition. Those scenarios
 remain separate; a physical `ExactAddress` is not retargeted.
 
-The selected route has **8 delivery milestones: 1 complete, 7 remaining** at
+The selected route has **8 delivery milestones: 2 complete, 6 remaining** at
 this update. These are outcomes, not a promise of eight PRs:
 
 | Tracker step | Selected outcome | Status |
 | --- | --- | --- |
 | 1 | Population sealing and exact projection receipt | Complete: #5874 |
-| 18 | Research designated-pair local session | In progress: #5908 |
-| 5 | Lock and implement borrowed-input local publication | #5925 |
-| 6 | Implement the physical-pair Queries adapter | Planned |
-| 8 | Cut over CLI `match --implementation`, including presentation and removal of its replaced dispatch/wrapper | Planned |
+| 18 | Research designated-pair local session | Complete: #5908 |
+| 5 | Lock and implement borrowed-input local publication | Implemented in the combined #5925 cutover; landing pending |
+| 6 | Implement the physical-pair Queries adapter | Implemented in the combined #5925 cutover; landing pending |
+| 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Implemented in the combined #5925 cutover; landing pending |
 | 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Planned |
 | 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | After both hosts |
 | 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | After both hosts |
 
-Each host path contains **5 milestones, 1 complete and 4 remaining**:
+Each host path contains **5 milestones, 2 complete and 3 remaining**:
 1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
 not all global retirement in #4706.
+
+Landing the combined cutover completes steps 5, 6, and 8 together: **5 of the
+8 route milestones complete, 3 remaining**. The CLI path then has all five
+milestones; the Browser path has four, with its actual host adoption remaining.
 
 Keep the first publication and adapter runtime together with the CLI
 adopting change; the bounded first-adopter exception permits that focused
@@ -195,11 +202,13 @@ its own owner effort. Do not introduce another standalone substrate PR between
 that query and its production caller.
 
 The Browser currently has no direct member-comparison path to delete.
-The CLI cutover removes `MatchCommand.BuildImplementationDiffView`'s direct
-`CompareMembers` call and synthetic result wrapper. Final owner cleanups use
+The CLI cutover replaces `MatchCommand.BuildImplementationDiffView`'s direct
+`CompareMembers` call and synthetic result wrapper with the public query.
+Final owner cleanups use
 an actual caller inventory: preserve Source-dependent and assembly-comparison
 behavior, but do not retain unused substrate merely for a future proposal.
-No deletion or production adoption is claimed by this design.
+This implementation claims the CLI adoption and that replaced host dispatch
+only, not Browser adoption or global Queries/Research retirement.
 
 ### Broader migration snapshot
 
@@ -243,12 +252,12 @@ does not claim that unused legacy APIs have already been removed.
 
 ## Demo and outcome gates
 
-This is a **design mockup**, not output from an implemented adapter.
-Use a fixture assembly containing `Left.Compute` and `Right.Compute`, each
+The CLI now exercises the adapter. A minimal demonstration uses a fixture
+assembly containing `Left.Compute` and `Right.Compute`, each
 returning the same constant but having different declared identities:
 
 ```text
-dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --implementation
+dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --body
 
 Before adoption: host -> direct Research comparison -> host-built result wrapper
 After adoption:  host -> direct-member query -> designated Research pair
@@ -265,9 +274,10 @@ native `NoApplicableInput`; a token taken from the wrong image cannot yield
 an exact comparison. Ordinary Research strict correspondence of the
 differently named pair remains `SelectionDrift`, covered by prerequisite #5877.
 
-The following are planned outcome gates, all **unimplemented and unverified**.
-Run correctness gates in Release; these names describe obligations, not new
-test seams or a source-scanning policy.
+The Queries gates below run in `DirectMemberComparisonQueryTests` in Release.
+CLI adoption is covered by `MatchCommandTests` and `MatchDiscoveryTests`.
+Browser and comparison-tool gates remain **unimplemented and unverified**.
+These names describe outcomes, not test seams or a source-scanning policy.
 
 | Gate owner | Required observable outcome |
 | --- | --- |
