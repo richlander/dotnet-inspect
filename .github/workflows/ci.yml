@@ -704,6 +704,9 @@ jobs:
       - name: Run inspection query tests
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
+      - name: Run presentation tests
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
       # depend on a third-party service, and the Azure DevOps ones need a private feed and a

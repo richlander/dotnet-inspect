@@ -273,6 +273,10 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
+      - name: Run presentation tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/ILInspector.Research.Tests -c Release -- --fail-skips on
