@@ -422,7 +422,7 @@ for (const [subject, width] of [
     expect(surface.width).toBeCloseTo(panel.width, 0);
     expect(surface.height).toBeCloseTo(panel.height, 0);
     await expect(page.locator(".type-heading, .package-coordinate-editor")).toHaveCount(0);
-    const name = `Example.${"VeryLongNamespaceSegment".repeat(7)}.Library`;
+    const name = `Example.${"LongNamespace.".repeat(12)}Library`;
     await expect(page.locator("#inspector-panel h1")).toHaveText(name);
     expect((await box(page, ".overview-identity h1")).width).toBeGreaterThan(100);
     expect((await box(page, ".overview-identity .subject-icon")).width).toBe(40);
