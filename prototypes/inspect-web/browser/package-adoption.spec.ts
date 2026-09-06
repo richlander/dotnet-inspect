@@ -819,12 +819,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.locator('[data-library-lens="references"]').click();
 
     const panel = page.locator("#inspector-panel");
-    await expect(panel).toContainText("Assembly references", { timeout: 60_000 });
+    await expect(panel.getByRole("heading", { name: "References", exact: true }))
+      .toBeVisible({ timeout: 60_000 });
     await expect(panel).toContainText(expectedReferenceName);
     // Only the available case renders a reference count; a failure renders
     // "Inspection failed" instead.
-    await expect(panel)
-      .toContainText(`${healthyAssemblyFileName} · 1 direct reference`);
+    await expect(panel.locator(".api-surface-head"))
+      .toContainText("1 direct reference");
+    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
     await expect(panel).not.toContainText("Inspection failed");
   });
 });

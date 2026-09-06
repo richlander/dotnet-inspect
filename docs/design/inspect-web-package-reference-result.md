@@ -69,7 +69,7 @@ no new rendering format or replacement transport.
 nonempty list, empty list, failure text including an empty message, and default
 null. `BrowserEngineBoundaryTests` gates the real package query's reference
 projection and preservation of manifest dependencies without compile assets.
-`test/package-view.test.ts` gates the corresponding rendered outcomes;
+`test/library-references.test.ts` gates the corresponding rendered outcomes;
 generated facade drift and frontend type checking gate the typed handoff.
 The existing real-Wasm `eng/test-inspect-web-package-adoption-gate.sh` exercises
 the published facade's available and unavailable package cases in Firefox.
