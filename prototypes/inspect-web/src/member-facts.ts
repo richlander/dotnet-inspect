@@ -1,4 +1,4 @@
-import type { MemberDetailInspectionState } from "./member-detail-inspection.ts";
+import type { MemberDetailInspectionState, MemberFacts } from "./member-detail-inspection.ts";
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -52,14 +52,7 @@ export function renderMemberFacts(
       </dl>
       <p class="facts-metadata-identity"><span>Metadata token</span><code>${escapeHtml(`0x${facts.metadataToken.toString(16).padStart(8, "0")}`)}</code></p>
     </section>
-    ${renderFactTable("Allocation facts", facts.allocations, [
-      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"],
-      ["Heap", row => row.countedAsHeap ? "yes" : "no"], ["Multiplicity", "multiplicity"],
-      ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Size", row => typeof row.estimatedSizeBytes === "number"
-        ? `${row.estimatedSizeBytes} B`
-        : ""]
-    ], "No allocation occurrences were found in this method.")}
+    ${renderAllocationFacts(facts.allocations)}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
       ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
@@ -89,6 +82,33 @@ export function renderMemberFacts(
       : ""}`;
 }
 
+function renderAllocationFacts(allocations: MemberFacts["allocations"]) {
+  return `<section class="allocation-facts" aria-labelledby="allocation-facts-title">
+    <header><h2 id="allocation-facts-title">Allocation facts</h2><span>${allocations.length} ${allocations.length === 1 ? "occurrence" : "occurrences"}</span></header>
+    ${allocations.length
+      ? `<ol class="allocation-rows">${allocations.map(allocation => `
+        <li class="allocation-row">
+          <div class="allocation-location"><code>${escapeHtml(allocation.offset)}</code><span>${escapeHtml(allocation.kind)}</span></div>
+          <div class="allocation-main">
+            <div class="allocation-type">${allocation.type == null
+              ? '<span class="allocation-unavailable">Type unavailable</span>'
+              : `<code>${escapeHtml(allocation.type)}</code>`}</div>
+            <dl class="allocation-properties">${[
+              ["Counted as heap", allocation.countedAsHeap ? "yes" : "no"],
+              ["Multiplicity", allocation.multiplicity],
+              ["Path", allocation.path],
+              ["Escape", allocation.escape],
+              ["Loop", allocation.inLoop ? "yes" : "no"],
+              ["Est. size", allocation.estimatedSizeBytes == null ? null : `${allocation.estimatedSizeBytes} B`],
+            ].map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value == null
+              ? '<span class="allocation-unavailable">not available</span>'
+              : `<code>${escapeHtml(value)}</code>`}</dd></div>`).join("")}</dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="allocation-empty">No allocation occurrences were found in this method.</p>'}
+  </section>`;
+}
+
 type FactTableColumn<T> =
   readonly [label: string, field: keyof T | ((row: T) => unknown)];
 
@@ -109,7 +129,7 @@ function renderFactTable<T extends object>(
   </section>`;
 }
 
-// The summary shows two distinct offsets; the tooltip and detail tables retain the rest.
+// The summary shows two distinct offsets; the tooltip and detail sections retain the rest.
 function factEvidence(offsets?: readonly string[]) {
   const unique = [...new Set((offsets ?? []).filter(Boolean))];
   if (!unique.length) return "";
