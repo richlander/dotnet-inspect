@@ -14,9 +14,9 @@ normative owner. This model addresses
 
 The immediate implementation consumer is
 [#5821](https://github.com/richlander/dotnet-inspect/issues/5821): initial
-`WorkspaceScopeSnapshot` and exact Replace/Clear, followed immediately by
-Browser Open/Clear and CLI snapshot adoption. Add/Remove and expansion follow
-later. The model deliberately retains the broader #5796 race acceptance rather
+`WorkspaceScopeSnapshot` and exact Replace/Clear with CLI snapshot adoption.
+Browser adoption follows its Add/Remove and complete-restoration prerequisites;
+expansion also follows later. The model deliberately retains the broader #5796 race acceptance rather
 than making that first implementation slice implement every modeled operation.
 [#5697](https://github.com/richlander/dotnet-inspect/issues/5697) owns the
 end-to-end adoption path and
@@ -48,7 +48,9 @@ Scope operations use `ActivatePublication`, `BeginStaging`, `PrepareCommit`,
 `CommitPublication`, and the owner's refusal/release actions. There is no copy
 of Artifact publication assignments in Scope, including in negative controls.
 Scope-only pointer swaps call `ScopeOnlyAdvance`; corresponding physical
-movement calls `RefreshPhysical`.
+movement calls `RefreshPhysical`. `RefreshScope` observes that already-current
+physical epoch using only `ScopeOnlyAdvance`: it does not activate a receipt,
+stage a Retain plan, or issue another physical epoch.
 
 The existing Artifact model previously exposed only a closed, single-operation
 behavior. Its supportive open-world boundary preserves the original
@@ -106,9 +108,11 @@ is not exhaustive coverage of arbitrary combinations of failures.
 
 The refresh profile first publishes a selectively open `a,b` revision, then
 complete closure coverage. Artifact re-realization changes the physical epoch
-and generation while retaining correspondence. A receipt-free refresh
-publishes all projections together, keeps logical occurrences and revision,
-and clears old coverage. The physical-race profile changes the epoch while a
+and generation while retaining correspondence. Root `a` may instead become
+Pending or Failed, with no generation reference; Root `b` remains Ready.
+A Scope-only refresh publishes all projections together, keeps logical
+occurrences and revision, and clears old coverage without changing the physical
+epoch. The physical-race profile changes the epoch while a
 second mutation waits: its stale plan releases, and a third receipt-free
 refresh completes before the failed operation receives its current snapshot.
 A stale retained snapshot is not returned as current between those steps.
@@ -147,7 +151,7 @@ All configurations are registered with their exact semantic verdict in
 | Failure, cancellation, deadline release authority | `ReachabilityFailure`, `ReachabilityCancellation`, `ReachabilityDeadline` | `BrokenCleanup` |
 | Parent final atomic commit wins; terminal replay cannot republish | `ReachabilityReplayAndFinalCommit` | `BrokenFinalCommit` |
 | Occurrence identity requires exact correspondence; re-add is fresh | `Safety`, `ReachabilityReadd` | `BrokenCorrespondence` |
-| Complete physical refresh invalidates old closure coverage | `CompositionSafety`, `ReachabilityRefresh`, `ReachabilityPhysicalRace` | `BrokenRefresh` |
+| Complete physical refresh preserves Ready/Pending/Failed projections and invalidates old coverage | `CompositionSafety`, `ReachabilityRefresh`, `ReachabilityPhysicalRace` | `BrokenRefresh` |
 | Foreign Workspace/receipt completion cannot publish | `ReachabilityForeignWorkspace`, `ReachabilityForeignReceipt` | inherited commit association invariants |
 | Previously issued candidate identities cannot be reused | `ReachabilityScopeCandidate`, `ReachabilityPhysicalCandidate` | inherited freshness invariants |
 | No new operation after runtime close | `CompositionSafety`, `ReachabilityClosed`, `NoAdmissionAfterClose` | inherited runtime commit invariant |
@@ -196,8 +200,9 @@ Neighboring `ReachabilityRefresh` witness:
 
 ```text
 Replace(a,b) -> closure evaluates exact generation 0
-  -> Artifact re-realizes corresponding Roots at generation 1
-  -> one receipt-free refresh publishes every generation-1 projection
+  -> Artifact changes epoch: a is Ready, Pending, or Failed; b remains Ready
+  -> one Scope-only refresh publishes every observed projection
+  -> Artifact epoch stays unchanged; Scope publication base is fresh
   -> same logical occurrences and revision, empty evaluated coverage
 ```
 

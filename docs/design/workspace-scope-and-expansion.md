@@ -323,10 +323,12 @@ exact Scope pointer issuance. It is not a revision, closure observation,
 physical-composition identity, operation authority, portable value, or access
 grant.
 
-Scope-only preparation progress, cancellation, supersession, and failure
-pointer swaps observe the shared runtime composition gate but need no Artifact
-publication plan when physical composition is unchanged. Each issues a fresh
-Scope publication base. After the final parent participant is constructed, no
+Scope-only preparation progress, cancellation, supersession, failure, and
+observation of an already-published physical epoch observe the shared runtime
+composition gate but need no Artifact publication plan when they leave physical
+composition unchanged. Each issues a fresh Scope publication base. A physical
+observation refresh preserves the logical revision and every occurrence,
+including those currently Pending or Failed. After the final parent participant is constructed, no
 ordinary progress publication may invalidate it; cancellation or supersession
 that enters the same gate first replaces its expected base before
 `PrepareCommit`. After `PrepareCommit`, independently signaled cancellation or
@@ -405,9 +407,15 @@ A current snapshot read observes the shared runtime composition gate and
 compares the snapshot's physical-composition identity with
 `GetCurrentArtifactRootCompositionGeneration`. Equal identity permits the
 already complete snapshot. Different identity requires one complete projection
-refresh and closure invalidation publication through the parent transition
-before a current snapshot returns; individual per-Root reads are never exposed
-as a mixed-epoch snapshot.
+refresh and closure invalidation before a current snapshot returns. Scope reads
+the complete projection set from one Artifact composition read lease and swaps
+only its preconstructed snapshot while that lease holds the shared gate. This
+issues a fresh Scope publication base and closure observation, preserves the
+logical revision, occurrence identities, and preparing descriptor, and leaves
+the already-current Artifact composition identity unchanged. It does not submit
+an Artifact publication plan: Pending and Failed projections have no Ready
+generation to Retain. Individual per-Root reads are never exposed as a mixed-epoch
+snapshot. Membership-changing publication still uses the parent transition.
 
 An absent correspondence projection for a committed current occurrence is a
 typed invariant or stale-composition failure. A closing or closed runtime
