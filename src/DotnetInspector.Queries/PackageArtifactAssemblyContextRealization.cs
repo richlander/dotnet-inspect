@@ -37,6 +37,36 @@ public sealed partial class InspectionWorkspace
             PackageAssemblyContextRealizationOptions? options = null,
             CancellationToken cancellationToken = default)
     {
+        ArtifactPackageRootResources resources =
+            await ConstructPackageArtifactRootAsync(
+                package, options, provisional: false, cancellationToken)
+                .ConfigureAwait(false);
+        try
+        {
+            if (resources.Session is not null)
+            {
+                RegisterArtifactSession(
+                    resources.Session,
+                    resources.QueryLease!,
+                    DependentGroups(resources.Realization));
+            }
+            return resources.Realization;
+        }
+        catch (Exception failure)
+        {
+            await resources.ReleaseAfterFailureAsync(failure)
+                .ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    async ValueTask<ArtifactPackageRootResources>
+        ConstructPackageArtifactRootAsync(
+            PackageRootBinding package,
+            PackageAssemblyContextRealizationOptions? options,
+            bool provisional,
+            CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(package);
         if (_lifetimeMode
             != InspectionWorkspaceLifetimeMode.Asynchronous)
@@ -52,10 +82,10 @@ public sealed partial class InspectionWorkspace
                 cancellationToken);
         if (preparation.SurfaceAssets.IsEmpty)
         {
-            return new PackageAssemblyContextRealization(
-                roles: null,
-                [],
-                []);
+            return new ArtifactPackageRootResources(
+                new PackageAssemblyContextRealization(null, [], []),
+                session: null,
+                queryLease: null);
         }
 
         ArtifactBackedBudgets budgets =
@@ -74,7 +104,6 @@ public sealed partial class InspectionWorkspace
         var session = new ArtifactSetSession(limits);
         ArtifactQueryLease? queryLease = null;
         PackageAssemblyContextRealization? realization = null;
-        bool transferred = false;
         try
         {
             ImmutableArray<AcquiredRoleArtifact> acquired =
@@ -131,26 +160,19 @@ public sealed partial class InspectionWorkspace
                 preparation,
                 surfaceRole,
                 implementationRole,
-                cancellationToken);
-            RegisterArtifactSession(
-                session,
-                queryLease,
-                DependentGroups(realization));
-            transferred = true;
-            return realization;
+                cancellationToken,
+                provisional);
+            return new ArtifactPackageRootResources(
+                realization, session, queryLease, authorization);
         }
         catch (Exception failure)
         {
-            if (!transferred)
-            {
-                await CleanupFailedArtifactRealizationAsync(
-                        realization,
-                        queryLease,
-                        session,
-                        failure)
-                    .ConfigureAwait(false);
-            }
-
+            await CleanupFailedArtifactRealizationAsync(
+                    realization,
+                    queryLease,
+                    session,
+                    failure)
+                .ConfigureAwait(false);
             throw;
         }
     }
@@ -372,6 +394,8 @@ public sealed partial class InspectionWorkspace
     static ImmutableArray<AssemblyContextGroup> DependentGroups(
         PackageAssemblyContextRealization realization)
     {
+        if (!realization.HasAssemblyContexts)
+            return [];
         AssemblyContextGroup surface = realization.SurfaceGroup;
         AssemblyContextGroup? implementation =
             realization.ImplementationGroup;
@@ -446,4 +470,76 @@ public sealed partial class InspectionWorkspace
     readonly record struct ArtifactBackedBudgets(
         long ArtifactBudget,
         long GroupBudget);
+
+    internal sealed class ArtifactPackageRootResources(
+        PackageAssemblyContextRealization realization,
+        ArtifactSetSession? session,
+        ArtifactQueryLease? queryLease,
+        ArtifactQueryAuthorization? queryAuthorization = null)
+    {
+        internal PackageAssemblyContextRealization Realization { get; } =
+            realization;
+        internal ArtifactSetSession? Session { get; } = session;
+        internal ArtifactQueryLease? QueryLease { get; } = queryLease;
+        internal ArtifactQueryLease? IssueQueryLease() =>
+            Session?.IssueLease(queryAuthorization!);
+
+        internal long CountRetainedImageBytes()
+        {
+            long bytes = 0;
+            foreach (AssemblyContextGroup group in DependentGroups(Realization))
+                bytes = checked(bytes + group.RetainedImageBytes);
+            if (Session is not null)
+            {
+                foreach (ArtifactDescriptor artifact in Session.GetCatalog(QueryLease!))
+                {
+                    using Stream content = Session.GetContentReference(
+                        artifact.Identity, QueryLease!).OpenRead();
+                    bytes = checked(bytes + content.Length);
+                }
+            }
+            return bytes;
+        }
+
+        internal async ValueTask<ImmutableArray<Exception>> ReleaseAsync()
+        {
+            var failures = ImmutableArray.CreateBuilder<Exception>();
+            foreach (AssemblyContextGroup group in DependentGroups(Realization))
+            {
+                AssemblyContextGroupReleaseResult result =
+                    await group.RequestReleaseAsync().ConfigureAwait(false);
+                if (result.Failure is not null)
+                    failures.Add(result.Failure);
+            }
+            try
+            {
+                QueryLease?.Dispose();
+            }
+            catch (Exception failure)
+            {
+                failures.Add(failure);
+            }
+            if (Session is not null)
+            {
+                try
+                {
+                    await Session.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception failure)
+                {
+                    failures.Add(failure);
+                }
+                failures.AddRange(Session.CleanupFailures);
+            }
+            return failures.ToImmutable();
+        }
+
+        internal async ValueTask ReleaseAfterFailureAsync(Exception failure)
+        {
+            ImmutableArray<Exception> cleanup =
+                await ReleaseAsync().ConfigureAwait(false);
+            if (!cleanup.IsEmpty)
+                failure.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"] = cleanup;
+        }
+    }
 }
