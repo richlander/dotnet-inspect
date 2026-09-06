@@ -429,24 +429,22 @@ public static class ImplementationDiff
         MetadataSource source,
         LibraryBodyIndex bodyIndex)
     {
-        MethodIdentity? indexedMethod =
-            bodyIndex.DeclaredMethods.FirstOrDefault()
-            ?? bodyIndex.Methods.FirstOrDefault();
-        if (indexedMethod is null)
-            return;
-
+        LibraryBodyModuleIdentity indexedModule = bodyIndex.ModuleIdentity;
+        AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
+            : null;
         Guid sourceMvid = source.Reader.GetGuid(
             source.Reader.GetModuleDefinition().Mvid);
-        if (StringComparer.OrdinalIgnoreCase.Equals(
-                source.AssemblyName,
-                indexedMethod.AssemblyName)
-            && sourceMvid == indexedMethod.ModuleVersionId)
+        if (AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                sourceIdentity,
+                indexedModule.AssemblyIdentity)
+            && sourceMvid == indexedModule.ModuleVersionId)
         {
             return;
         }
 
         throw new ArgumentException(
-            $"The body index for '{indexedMethod.AssemblyName}' does not match "
+            $"The body index for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
             nameof(bodyIndex));
     }
