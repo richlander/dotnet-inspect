@@ -224,6 +224,7 @@ import {
 } from "./call-graph-inspection.ts";
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import { renderOverviewSurface } from "./overview-surface.ts";
+import { renderLibraryReferencesSurface } from "./library-references.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -3517,6 +3518,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "package" && state.packageLens === "dependencies";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
+  const libraryReferencesWorkingSurface =
+    activeScope === "library" && state.libraryLens === "references";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3554,6 +3557,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
     || libraryMetadataWorkingSurface
+    || libraryReferencesWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3639,7 +3643,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4223,6 +4227,7 @@ function libraryHeading() {
 function renderLibraryView() {
   const body = libraryLensBody();
   if (state.libraryLens === "overview"
+    || state.libraryLens === "references"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4366,37 +4371,17 @@ function renderPackageDependencies() {
 function renderLibraryReferences() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
-  if (state.packageDependenciesLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading references…</h2><p>Reading direct AssemblyRef rows.</p></section>`;
-  }
-  if (fresh && state.packageDependenciesError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Reference query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`;
-  }
-  const data = fresh ? state.packageDependencies : null;
-  return data
-    ? assemblyReferencesSectionHtml(data)
-    : `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-}
-
-function assemblyReferencesSectionHtml(data: BrowserPackageDependencies) {
-  const references = data.assemblyReferences || [];
-  const assembly = data.assembly || "selected assembly";
-  if (data.assemblyReferenceError) {
-    return `
-      <section class="document-section">
-        <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)}</span></div>
-        <div class="empty-list">Inspection failed: ${escapeHtml(data.assemblyReferenceError)}</div>
-      </section>`;
-  }
-
-  return `
-    <section class="document-section">
-      <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)} · ${references.length} direct reference${references.length === 1 ? "" : "s"}</span></div>
-      ${references.length
-        ? `<ul class="dep-list">${references.map(reference =>
-            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(`${reference.version} · ${reference.culture || "neutral"} · ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`).join("")}</ul>`
-        : `<div class="empty-list">This assembly declares no direct AssemblyRef rows.</div>`}
-    </section>`;
+  const library = selectedLibrary();
+  const pkg = currentPackage();
+  return renderLibraryReferencesSurface({
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    loading: state.packageDependenciesLoading && fresh,
+    error: fresh ? state.packageDependenciesError : "",
+    data: fresh ? state.packageDependencies : null,
+    escapeHtml,
+  });
 }
 
 function uniqueCompatiblePackage(
