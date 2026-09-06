@@ -43,10 +43,20 @@ until both participant groups settle. Ordinary presentation retains the
 selected extraction file's timestamp rather than manufacturing a timestamp
 from the artifact stream. The artifact-backed path requires the
 binding's frozen surface role to exactly cover the command's visible selection
-and to form exact assembly-identity correspondence; other package shapes
-retain the legacy grouped workspace. Local archives and explicit `--tfm` modes
-also keep that path because their visible selection can span tools or multiple
-package layout roles. Progressive member call
+and to form exact assembly-identity correspondence. Other package shapes use
+the Package adapter's distinct explicit inspection selection over retained
+content, sharing artifact materialization and Metadata projection without
+claiming compile-role authority. This includes local archives without nuspec
+identity, tools and nested entries, multiple frameworks, and legacy framework
+spellings. Per-entry publication failures remain visible while successful
+neighbors retain their asset-directory binding groups. Neither path reopens a
+selected source as a substitute for rejected artifact evidence. The focused
+contract lives in [explicit package inspection
+selection](design/artifact-acquisition-and-workspaces.md#explicit-package-inspection-selection).
+Descriptor-less images remain outside grouped Integration realization and
+continue through existing ordinary file inspection; this cutover does not
+replace that broader extraction consumer.
+Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization
