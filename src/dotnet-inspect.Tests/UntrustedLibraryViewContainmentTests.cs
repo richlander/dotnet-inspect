@@ -1476,6 +1476,8 @@ public class LibraryViewShapeDerivedContainmentTests
     /// <c>TypeRef</c>, <c>ApiTypeShape</c>, and
     /// <c>MetadataTypeDefinitionName</c> have no public constructors; they
     /// are factory-built from metadata relationships.
+    /// <c>MetadataRootInspection</c> likewise captures an admitted image through
+    /// its factory; the reflection walk does not manufacture captured metadata.
     /// </description></item>
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
@@ -1517,6 +1519,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Integrations (List`1): computed projection still null after the walk",
         "LibraryInspection.Logging (List`1): computed projection still null after the walk",
         "LibraryInspection.MetadataOverview (MetadataImageOverview): computed projection still null after the walk",
+        "LibraryInspection.MetadataRoot (MetadataRootInspection): no public constructor",
         "LibraryInspection.OpenApi (List`1): computed projection still null after the walk",
         "LibraryInspection.OpenTelemetry (List`1): computed projection still null after the walk",
         "LibraryInspection.Options (List`1): computed projection still null after the walk",
