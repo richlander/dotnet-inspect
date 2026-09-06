@@ -1,15 +1,11 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export interface BrowserAssemblyMetadata {
     readonly assembly: string;
-    readonly metadataVersion: string;
-    readonly metadataVersionTruncated: boolean;
-    readonly kind: string;
-    readonly isAssembly: boolean;
-    readonly metadataSize: number;
-    readonly projectedTableTotal: number;
-    readonly heaps: ReadonlyArray<BrowserMetadataHeap>;
-    readonly tables: ReadonlyArray<BrowserMetadataTable>;
-    readonly headers: BrowserMetadataHeaders;
+    readonly metadataRoots: ReadonlyArray<BrowserMetadataImage>;
+    readonly cliMetadataError: string | null;
+    readonly manifestMetadataError: string | null;
+    readonly readyToRun: BrowserReadyToRunImage | null;
+    readonly readyToRunError: string | null;
 }
 export interface BrowserCompileLibraryAvailability {
     readonly status: BrowserCompileLibraryStatus;
@@ -111,6 +107,22 @@ export interface BrowserMetadataHeap {
     readonly maxAddress: number;
     readonly addressing: string;
 }
+export interface BrowserMetadataImage {
+    readonly requestedRoot: string;
+    readonly canonicalRoot: string | null;
+    readonly rootRelativeVirtualAddress: number | null;
+    readonly rootSize: number | null;
+    readonly aliasesCliMetadata: boolean;
+    readonly metadataVersion: string;
+    readonly metadataVersionTruncated: boolean;
+    readonly kind: string;
+    readonly isAssembly: boolean;
+    readonly metadataSize: number;
+    readonly projectedTableTotal: number;
+    readonly heaps: ReadonlyArray<BrowserMetadataHeap>;
+    readonly tables: ReadonlyArray<BrowserMetadataTable>;
+    readonly headers: BrowserMetadataHeaders;
+}
 export interface BrowserMetadataRow {
     readonly rowId: number;
     readonly token: number;
@@ -145,6 +157,33 @@ export interface BrowserParameterSurface {
     readonly hasDefault: boolean;
     readonly defaultValue: string | null;
     readonly description: string | null;
+}
+export interface BrowserReadyToRunImage {
+    readonly role: string;
+    readonly advertisements: string;
+    readonly majorVersion: number;
+    readonly minorVersion: number;
+    readonly flagsValue: number;
+    readonly flags: string;
+    readonly headerRelativeVirtualAddress: number;
+    readonly headerSize: number;
+    readonly managedNativeHeaderRelativeVirtualAddress: number | null;
+    readonly managedNativeHeaderSize: number | null;
+    readonly exportHeaderRelativeVirtualAddress: number | null;
+    readonly manifestMetadata: BrowserReadyToRunManifest | null;
+    readonly sections: ReadonlyArray<BrowserReadyToRunSection>;
+}
+export interface BrowserReadyToRunManifest {
+    readonly relativeVirtualAddress: number;
+    readonly size: number;
+    readonly aliasesCliMetadata: boolean;
+}
+export interface BrowserReadyToRunSection {
+    readonly type: string;
+    readonly typeValue: number;
+    readonly relativeVirtualAddress: number;
+    readonly size: number;
+    readonly aliasesCliMetadata: boolean;
 }
 export interface BrowserTypeComposition {
     readonly methods: number;
@@ -226,10 +265,10 @@ export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface>;
-export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<BrowserHeapListing>;
+export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string, assemblyFileName: string): Promise<BrowserPackageMetadata>;
-export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
-export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string): Promise<BrowserHeapListing>;
+export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
+export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
-export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
+export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;

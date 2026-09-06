@@ -56,17 +56,62 @@ export interface MetadataHeaders {
   managedNativeHeaderSize?: number;
 }
 
-export interface MetadataAssembly {
-  assembly: string;
+export type MetadataRootSelection = "cli" | "r2r-manifest";
+
+export interface MetadataImage {
+  requestedRoot: string;
+  canonicalRoot?: string | null;
+  rootRelativeVirtualAddress?: number | null;
+  rootSize?: number | null;
+  aliasesCliMetadata: boolean;
+  metadataVersion: string;
+  metadataVersionTruncated: boolean;
   kind: string;
   isAssembly: boolean;
   metadataSize: number;
-  metadataVersion: string;
-  metadataVersionTruncated: boolean;
   projectedTableTotal: number;
   heaps?: readonly MetadataHeapSummary[];
   tables?: readonly MetadataTableSummary[];
   headers?: MetadataHeaders;
+}
+
+export interface ReadyToRunManifest {
+  relativeVirtualAddress: number;
+  size: number;
+  aliasesCliMetadata: boolean;
+}
+
+export interface ReadyToRunSection {
+  type: string;
+  typeValue: number;
+  relativeVirtualAddress: number;
+  size: number;
+  aliasesCliMetadata: boolean;
+}
+
+export interface ReadyToRunImage {
+  role: string;
+  advertisements: string;
+  majorVersion: number;
+  minorVersion: number;
+  flagsValue: number;
+  flags: string;
+  headerRelativeVirtualAddress: number;
+  headerSize: number;
+  managedNativeHeaderRelativeVirtualAddress?: number | null;
+  managedNativeHeaderSize?: number | null;
+  exportHeaderRelativeVirtualAddress?: number | null;
+  manifestMetadata?: ReadyToRunManifest | null;
+  sections?: readonly ReadyToRunSection[];
+}
+
+export interface MetadataAssembly {
+  assembly: string;
+  metadataRoots?: readonly MetadataImage[];
+  cliMetadataError?: string | null;
+  manifestMetadataError?: string | null;
+  readyToRun?: ReadyToRunImage | null;
+  readyToRunError?: string | null;
 }
 
 export interface PackageMetadata {
@@ -187,6 +232,9 @@ export interface ExplorerDetailRef {
 export interface ExplorerState {
   open: boolean;
   assemblyFileName: string;
+  metadataRoot: MetadataRootSelection;
+  canonicalRoot?: string | null;
+  aliasesCliMetadata?: boolean;
   directory: readonly ExplorerDirectoryEntry[];
   heaps?: readonly ExplorerHeapEntry[];
   windows: Record<number, ExplorerWindow | undefined>;
@@ -207,9 +255,21 @@ export interface MetadataExplorerBindingActions {
   onHistoryForward: () => void;
   onHeapFocus: (heap: string) => void;
   onJump: (index: number, rowId: number) => void;
-  onOpenHeap: (assembly: string, heap: string) => void;
-  onOpenOverview: (assembly: string) => void;
-  onOpenTable: (assembly: string, index: number) => void;
+  onMetadataRootSelect: (root: MetadataRootSelection) => void;
+  onOpenHeap: (
+    assembly: string,
+    root: MetadataRootSelection,
+    heap: string,
+  ) => void;
+  onOpenOverview: (
+    assembly: string,
+    root: MetadataRootSelection,
+  ) => void;
+  onOpenTable: (
+    assembly: string,
+    root: MetadataRootSelection,
+    index: number,
+  ) => void;
   onPage: (index: number, startRowId: number) => void;
   onRetryPackageMetadata: () => void;
   onRowFocus: (index: number, rowId: number) => void;
@@ -233,6 +293,12 @@ function parseExplorerCoordinates(value: string | undefined): [number, number] |
     : null;
 }
 
+function parseMetadataRoot(
+  value: string | undefined,
+): MetadataRootSelection | null {
+  return value === "cli" || value === "r2r-manifest" ? value : null;
+}
+
 export function bindMetadataExplorer(
   root: ParentNode,
   explorer: Pick<ExplorerState, "overview"> | null,
@@ -240,6 +306,11 @@ export function bindMetadataExplorer(
 ) {
   root.querySelector("[data-package-metadata-retry]")
     ?.addEventListener("click", actions.onRetryPackageMetadata);
+  root.querySelectorAll<HTMLSelectElement>("[data-metadata-root]")
+    .forEach(select => select.addEventListener("change", () => {
+      const metadataRoot = parseMetadataRoot(select.value);
+      if (metadataRoot) actions.onMetadataRootSelect(metadataRoot);
+    }));
   root.querySelector("#mde-exit")?.addEventListener("click", actions.onClose);
   root.querySelector("#mde-hist-back")?.addEventListener(
     "click",
@@ -250,21 +321,30 @@ export function bindMetadataExplorer(
   root.querySelectorAll<HTMLElement>("[data-mde-explore]").forEach(button =>
     button.addEventListener("click", () => {
       const assembly = button.dataset.mdeAssembly ?? "";
-      if (assembly) actions.onOpenOverview(assembly);
+      const metadataRoot = parseMetadataRoot(button.dataset.mdeRoot);
+      if (assembly && metadataRoot) {
+        actions.onOpenOverview(assembly, metadataRoot);
+      }
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
     button.addEventListener("click", () => {
       const assembly = button.dataset.mdeAssembly ?? "";
+      const metadataRoot = parseMetadataRoot(button.dataset.mdeRoot);
       const tableIndex = button.dataset.mdeOpen ?? "";
-      if (!assembly || !/^\d+$/.test(tableIndex)) return;
+      if (!assembly || !metadataRoot || !/^\d+$/.test(tableIndex)) return;
       const index = Number(tableIndex);
-      if (Number.isSafeInteger(index)) actions.onOpenTable(assembly, index);
+      if (Number.isSafeInteger(index)) {
+        actions.onOpenTable(assembly, metadataRoot, index);
+      }
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(button =>
     button.addEventListener("click", () => {
       const assembly = button.dataset.mdeAssembly ?? "";
+      const metadataRoot = parseMetadataRoot(button.dataset.mdeRoot);
       const heap = button.dataset.mdeOpenHeap ?? "";
-      if (assembly && heap) actions.onOpenHeap(assembly, heap);
+      if (assembly && metadataRoot && heap) {
+        actions.onOpenHeap(assembly, metadataRoot, heap);
+      }
     }));
   if (!explorer) return;
 
@@ -482,6 +562,7 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
   loading: boolean;
   error: string;
   metadata: PackageMetadata | null;
+  selectedRoot: MetadataRootSelection;
 }
 
 /**
@@ -492,7 +573,8 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
 export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const {
     isPlatform, scopedLibrary, packageId, packageVersion, activeFramework,
-    controlsHtml, fresh, loading, error, metadata, escapeHtml, fmtBytes,
+    controlsHtml, fresh, loading, error, metadata, selectedRoot, escapeHtml,
+    fmtBytes,
   } = options;
   const data = fresh ? metadata : null;
   const context = scopedLibrary
@@ -549,7 +631,10 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
     ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be read completely</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
     : "";
   const blocks = assemblies
-    .map(asm => renderAssemblyMetadataBlock(asm, { escapeHtml, fmtBytes }))
+    .map(asm => renderAssemblyMetadataBlock(
+      asm,
+      selectedRoot,
+      { escapeHtml, fmtBytes }))
     .join("");
   return renderSurface(
     `${warning}${blocks}`,
@@ -560,54 +645,187 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
  * One assembly's block: its non-empty heaps, its populated tables sorted by row count, and
  * its PE/CLI header facts. Every heap and table is a button that hands off to the explorer.
  */
-export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: MetadataTextHelpers): string {
+export function metadataRootSelection(
+  requestedRoot: string,
+): MetadataRootSelection | null {
+  switch (requestedRoot) {
+    case "Cli": return "cli";
+    case "ReadyToRunManifest": return "r2r-manifest";
+    default: return null;
+  }
+}
+
+export function selectMetadataImage(
+  roots: readonly MetadataImage[],
+  selectedRoot: MetadataRootSelection,
+): MetadataImage | null {
+  const selected = roots.find(root =>
+    metadataRootSelection(root.requestedRoot) === selectedRoot);
+  if (selected) return selected;
+  return roots.find(root =>
+    metadataRootSelection(root.requestedRoot) === "cli")
+    ?? roots.find(root => metadataRootSelection(root.requestedRoot) !== null)
+    ?? null;
+}
+
+function metadataRootOptionLabel(root: MetadataImage): string {
+  if (metadataRootSelection(root.requestedRoot) === "cli") {
+    return "CLI metadata";
+  }
+  return root.aliasesCliMetadata
+    ? "R2R manifest (aliases CLI)"
+    : "R2R manifest";
+}
+
+function metadataRootDescription(root: MetadataImage): string {
+  const requested = metadataRootOptionLabel(root);
+  const identity = root.rootRelativeVirtualAddress == null
+    || root.rootSize == null
+    ? ""
+    : ` · RVA 0x${(root.rootRelativeVirtualAddress >>> 0).toString(16)} · ${root.rootSize} bytes`;
+  if (root.aliasesCliMetadata) {
+    return `${requested} · canonical CLI metadata${identity}`;
+  }
+  return `${requested}${identity}`;
+}
+
+function renderReadyToRun(
+  asm: MetadataAssembly,
+  helpers: MetadataTextHelpers,
+): string {
   const { escapeHtml, fmtBytes } = helpers;
-  const heapRows = (asm.heaps || [])
-    .filter(heap => heap.sizeInBytes > 0)
-    .map(heap => `
-      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(heap.name)}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
-        <span class="meta-heap-name">${escapeHtml(heapStreamName(heap.name))}</span>
-        <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
-        <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
-      </button>`).join("");
+  if (asm.readyToRunError) {
+    return `<section class="meta-r2r meta-r2r-error">
+      <div class="meta-r2r-title"><h3>ReadyToRun</h3><span>read failed</span></div>
+      <p>${escapeHtml(asm.readyToRunError)}</p>
+    </section>`;
+  }
+  const readyToRun = asm.readyToRun;
+  if (!readyToRun) {
+    return `<section class="meta-r2r meta-r2r-absent">
+      <div class="meta-r2r-title"><h3>ReadyToRun</h3><span>No</span></div>
+    </section>`;
+  }
 
-  const tables = asm.tables || [];
+  const manifest = readyToRun.manifestMetadata;
+  const manifestText = manifest
+    ? `${manifest.aliasesCliMetadata ? "aliases CLI metadata" : "separate root"} · RVA 0x${(manifest.relativeVirtualAddress >>> 0).toString(16)} · ${fmtBytes(manifest.size)}`
+    : "absent";
+  const managedNative = readyToRun.managedNativeHeaderRelativeVirtualAddress == null
+    ? "absent"
+    : `RVA 0x${(readyToRun.managedNativeHeaderRelativeVirtualAddress >>> 0).toString(16)} · ${fmtBytes(readyToRun.managedNativeHeaderSize ?? 0)}`;
+  const exportHeader = readyToRun.exportHeaderRelativeVirtualAddress == null
+    ? "absent"
+    : `RVA 0x${(readyToRun.exportHeaderRelativeVirtualAddress >>> 0).toString(16)}`;
+  const sections = readyToRun.sections || [];
+  const sectionRows = sections.map(section => `
+    <div class="meta-r2r-section-row">
+      <span class="meta-r2r-section-name">${escapeHtml(section.type)}</span>
+      <span class="meta-r2r-section-id">0x${(section.typeValue >>> 0).toString(16).padStart(8, "0")}</span>
+      <span>RVA 0x${(section.relativeVirtualAddress >>> 0).toString(16)}</span>
+      <span>${fmtBytes(section.size)}</span>
+      ${section.aliasesCliMetadata ? '<span class="meta-r2r-alias">CLI alias</span>' : ""}
+    </div>`).join("");
+
+  return `<section class="meta-r2r">
+    <div class="meta-r2r-title">
+      <h3>ReadyToRun</h3>
+      <span>${escapeHtml(readyToRun.role)} · v${readyToRun.majorVersion}.${readyToRun.minorVersion}</span>
+    </div>
+    <div class="meta-r2r-facts">
+      <span><strong>Advertisements</strong>${escapeHtml(readyToRun.advertisements)}</span>
+      <span><strong>Flags</strong>0x${(readyToRun.flagsValue >>> 0).toString(16).padStart(8, "0")} (${escapeHtml(readyToRun.flags)})</span>
+      <span><strong>Header</strong>RVA 0x${(readyToRun.headerRelativeVirtualAddress >>> 0).toString(16)} · ${fmtBytes(readyToRun.headerSize)}</span>
+      <span><strong>Managed native</strong>${managedNative}</span>
+      <span><strong>Export header</strong>${exportHeader}</span>
+      <span><strong>Manifest metadata</strong>${manifestText}</span>
+    </div>
+    <div class="meta-r2r-sections">
+      <h4>Sections <span>${sections.length}</span></h4>
+      ${sectionRows || '<div class="meta-empty">No ReadyToRun sections</div>'}
+    </div>
+  </section>`;
+}
+
+export function renderAssemblyMetadataBlock(
+  asm: MetadataAssembly,
+  selectedRoot: MetadataRootSelection,
+  helpers: MetadataTextHelpers,
+): string {
+  const { escapeHtml, fmtBytes } = helpers;
+  const roots = (asm.metadataRoots || []).filter(root =>
+    metadataRootSelection(root.requestedRoot) !== null);
+  const selectedMetadata = selectMetadataImage(roots, selectedRoot);
+  const effectiveRoot = selectedMetadata
+    ? metadataRootSelection(selectedMetadata.requestedRoot)
+    : null;
+  const metadata = effectiveRoot ? selectedMetadata : null;
+  const heapRows = metadata && effectiveRoot
+    ? (metadata.heaps || [])
+        .filter(heap => heap.sizeInBytes > 0)
+        .map(heap => `
+          <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(heap.name)}" data-mde-assembly="${escapeHtml(asm.assembly)}" data-mde-root="${effectiveRoot}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
+            <span class="meta-heap-name">${escapeHtml(heapStreamName(heap.name))}</span>
+            <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
+            <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
+          </button>`).join("")
+    : "";
+
+  const tables = metadata?.tables || [];
   const tableGroups = groupMetadataTables(tables);
-  const tableGroupsHtml = tableGroups.map(group => `
-    <section class="meta-table-group">
-      <h4>${escapeHtml(group.name)}<span>${group.tables.length}</span></h4>
-      <div class="meta-table-list">${group.tables.map(table => `
-        <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
-          <span class="meta-table-name">${escapeHtml(table.name)}</span>
-          <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
-          <span class="meta-table-go">→</span>
-        </button>`).join("")}</div>
-    </section>`).join("");
+  const tableGroupsHtml = effectiveRoot
+    ? tableGroups.map(group => `
+        <section class="meta-table-group">
+          <h4>${escapeHtml(group.name)}<span>${group.tables.length}</span></h4>
+          <div class="meta-table-list">${group.tables.map(table => `
+            <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" data-mde-root="${effectiveRoot}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
+              <span class="meta-table-name">${escapeHtml(table.name)}</span>
+              <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
+              <span class="meta-table-go">→</span>
+            </button>`).join("")}</div>
+        </section>`).join("")
+    : "";
 
-  const h = asm.headers || {};
+  const h = metadata?.headers || {};
   const corLine = h.corFlags
     ? `<span class="meta-fact"><span class="meta-fact-k">CLI</span><span class="meta-fact-v">v${h.majorRuntimeVersion}.${h.minorRuntimeVersion} · ${escapeHtml(h.corFlags)}${h.entryPointToken ? ` · entry 0x${(h.entryPointToken >>> 0).toString(16)}` : ""}</span></span>`
     : "";
-  const readyToRunLine = (h.managedNativeHeaderSize || 0) > 0
-    ? `<span class="meta-fact"><span class="meta-fact-k">ReadyToRun</span><span class="meta-fact-v">managed native header · ${fmtBytes(h.managedNativeHeaderSize || 0)} · RVA 0x${((h.managedNativeHeaderRva || 0) >>> 0).toString(16)}</span></span>`
+  const rootLine = metadata
+    ? `<span class="meta-fact"><span class="meta-fact-k">Root</span><span class="meta-fact-v">${escapeHtml(metadataRootDescription(metadata))}</span></span>`
     : "";
-
-  return `
-    <section class="document-section meta-assembly">
-      <div class="section-title meta-assembly-title">
-        <div>
-          <h2>${escapeHtml(asm.assembly)}</h2>
-          <span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span>
-        </div>
-        <button type="button" class="meta-explore primary-action" data-mde-explore data-mde-assembly="${escapeHtml(asm.assembly)}">Explore</button>
-      </div>
+  const rootSelector = roots.length > 1
+    ? `<label class="metadata-root-select">
+        <span>Root</span>
+        <select data-metadata-root aria-label="Select metadata root">
+          ${roots.map(root => {
+            const id = metadataRootSelection(root.requestedRoot);
+            if (!id) return "";
+            return `<option value="${id}" ${id === effectiveRoot ? "selected" : ""}>${escapeHtml(metadataRootOptionLabel(root))}</option>`;
+          }).join("")}
+        </select>
+      </label>`
+    : "";
+  const rootErrors = [
+    asm.cliMetadataError
+      ? `CLI metadata: ${asm.cliMetadataError}`
+      : "",
+    asm.manifestMetadataError
+      ? `ReadyToRun manifest: ${asm.manifestMetadataError}`
+      : "",
+  ].filter(Boolean);
+  const metadataWarnings = rootErrors.length
+    ? `<section class="metadata-warning meta-root-warning"><strong>⚠ A metadata root could not be read</strong><ul>${rootErrors.map(error => `<li><code>${escapeHtml(error)}</code></li>`).join("")}</ul></section>`
+    : "";
+  const readyToRun = renderReadyToRun(asm, helpers);
+  const metadataContent = metadata
+    ? `
       <div class="meta-facts">
-        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}${asm.metadataVersionTruncated ? "…" : ""}</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(metadata.metadataVersion)}${metadata.metadataVersionTruncated ? "…" : ""}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
-        <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${metadata.projectedTableTotal}/${tables.length} populated</span></span>
+        ${rootLine}
         ${corLine}
-        ${readyToRunLine}
       </div>
       <div class="meta-heaps-section">
         <h3 class="meta-col-title">Heaps</h3>
@@ -616,7 +834,24 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
       <div class="meta-table-directory">
         <h3 class="meta-col-title">Tables <span class="meta-col-note">grouped by role</span></h3>
         <div class="meta-table-groups">${tableGroupsHtml || '<div class="meta-empty">No populated tables</div>'}</div>
+      </div>`
+    : `<div class="meta-empty meta-root-empty">No readable metadata root</div>`;
+
+  return `
+    <section class="document-section meta-assembly">
+      <div class="section-title meta-assembly-title">
+        <div>
+          <h2>${escapeHtml(asm.assembly)}</h2>
+          <span>${metadata ? `${escapeHtml(metadata.kind)}${metadata.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(metadata.metadataSize)}` : "metadata unavailable"}</span>
+        </div>
+        <div class="meta-assembly-actions">
+          ${rootSelector}
+          ${metadata && effectiveRoot ? `<button type="button" class="meta-explore primary-action" data-mde-explore data-mde-assembly="${escapeHtml(asm.assembly)}" data-mde-root="${effectiveRoot}">Explore</button>` : ""}
+        </div>
       </div>
+      ${metadataWarnings}
+      ${metadataContent}
+      ${readyToRun}
     </section>`;
 }
 
@@ -653,6 +888,11 @@ export function renderMetadataExplorer(context: ExplorerRenderContext): string {
   const note = ex.overview
     ? `metadata tables · ${ex.directory.length} populated · click a table to focus · Esc to exit`
     : `metadata tables · ${ex.directory.length} populated · click a ref to jump · Esc / click away for all tables`;
+  const rootLabel = ex.metadataRoot === "r2r-manifest"
+    ? ex.aliasesCliMetadata
+      ? "R2R manifest · canonical CLI metadata"
+      : "R2R manifest"
+    : "CLI metadata";
 
   return `
     <div class="metadata-explorer">
@@ -664,7 +904,7 @@ export function renderMetadataExplorer(context: ExplorerRenderContext): string {
         </div>
         <div class="mde-title">
           <span class="mde-title-asm">${escapeHtml(ex.assemblyFileName)}</span>
-          <span class="mde-title-note">${note}</span>
+          <span class="mde-title-note">${rootLabel} · ${note}</span>
         </div>
       </header>
       <nav class="mde-chips">${chips}${heapChips ? `<span class="mde-chip-sep"></span>${heapChips}` : ""}</nav>

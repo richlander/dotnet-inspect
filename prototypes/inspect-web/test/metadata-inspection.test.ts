@@ -46,6 +46,9 @@ function explorerState(
     open: true,
     assemblyId: "asset:example",
     assemblyFileName: "Example.Package.dll",
+    metadataRoot: "cli",
+    canonicalRoot: "Cli",
+    aliasesCliMetadata: false,
     directory: [],
     windows: {},
     heapWindows: {},
@@ -289,13 +292,17 @@ test("cached type metadata failures render without querying again", async () => 
 });
 
 test("explorer windows route package coordinates and publish errors", async () => {
-  const explorer = explorerState();
+  const explorer = explorerState({
+    metadataRoot: "r2r-manifest",
+    canonicalRoot: "ReadyToRunManifest",
+  });
   const events: string[] = [];
   const state = inspectionState({ explorer });
   const coordinator = createMetadataInspectionCoordinator(
     inspectionDependencies(state, {
       queryPackageTable: async (requestExplorer, index, startRowId, maxRows) => {
         assert.equal(requestExplorer, explorer);
+        assert.equal(requestExplorer.metadataRoot, "r2r-manifest");
         assert.deepEqual([index, startRowId, maxRows], [2, 51, 50]);
         return tableResult(index, startRowId, "malformed row");
       },
@@ -507,6 +514,9 @@ test("explorer heaps route platform coordinates and scroll the focused heap", as
     isPlatform: true,
     pack: "Microsoft.NETCore.App.Ref",
     focusHeap: "String",
+    metadataRoot: "r2r-manifest",
+    canonicalRoot: "Cli",
+    aliasesCliMetadata: true,
   });
   const events: string[] = [];
   const state = inspectionState({ explorer });
@@ -517,6 +527,7 @@ test("explorer heaps route platform coordinates and scroll the focused heap", as
       },
       queryPlatformHeap: async (requestExplorer, heapName) => {
         assert.equal(requestExplorer.pack, "Microsoft.NETCore.App.Ref");
+        assert.equal(requestExplorer.metadataRoot, "r2r-manifest");
         return heapResult(heapName);
       },
       render: () => events.push("render"),

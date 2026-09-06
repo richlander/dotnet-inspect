@@ -19,17 +19,28 @@ import {
   renderMetadataExplorer,
   renderPackageMetadata,
   sameFocus,
+  selectMetadataImage,
+  type ExplorerRenderContext,
+  type ExplorerState,
+  type MetadataAssembly,
   type MetadataExplorerBindingActions,
+  type MetadataImage,
+  type PackageMetadataOptions,
 } from "../src/metadata-viewer.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly value: string;
   private readonly closestElements = new Map<string, FakeElement>();
   private readonly listeners = new Map<string, EventListener[]>();
 
-  constructor(dataset: Record<string, string | undefined> = {}) {
+  constructor(
+    dataset: Record<string, string | undefined> = {},
+    value = "",
+  ) {
     this.dataset = dataset;
+    this.value = value;
   }
 
   addEventListener(type: string, listener: EventListener) {
@@ -87,12 +98,13 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
     onHistoryForward: () => calls.push("forward"),
     onHeapFocus: heap => calls.push(`heap:${heap}`),
     onJump: (index, rowId) => calls.push(`jump:${index}:${rowId}`),
-    onOpenHeap: (assemblyFileName, heap) =>
-      calls.push(`open-heap:${assemblyFileName}:${heap}`),
-    onOpenOverview: assemblyFileName =>
-      calls.push(`open-overview:${assemblyFileName}`),
-    onOpenTable: (assemblyFileName, index) =>
-      calls.push(`open-table:${assemblyFileName}:${index}`),
+    onMetadataRootSelect: root => calls.push(`root:${root}`),
+    onOpenHeap: (assemblyFileName, root, heap) =>
+      calls.push(`open-heap:${assemblyFileName}:${root}:${heap}`),
+    onOpenOverview: (assemblyFileName, root) =>
+      calls.push(`open-overview:${assemblyFileName}:${root}`),
+    onOpenTable: (assemblyFileName, root, index) =>
+      calls.push(`open-table:${assemblyFileName}:${root}:${index}`),
     onPage: (index, startRowId) =>
       calls.push(`page:${index}:${startRowId}`),
     onRetryPackageMetadata: () => calls.push("retry-metadata"),
@@ -303,27 +315,41 @@ test("explorer bindings ignore malformed encoded coordinates", () => {
 
 test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
-  const explore = new FakeElement({ mdeAssembly: "Contoso.dll" });
-  const invalidExplore = new FakeElement({ mdeAssembly: "" });
+  const rootSelect = new FakeElement({}, "r2r-manifest");
+  const invalidRootSelect = new FakeElement({}, "future");
+  root.addAll("[data-metadata-root]", rootSelect, invalidRootSelect);
+  const explore = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeRoot: "cli",
+  });
+  const invalidExplore = new FakeElement({
+    mdeAssembly: "",
+    mdeRoot: "cli",
+  });
   root.addAll("[data-mde-explore]", explore, invalidExplore);
   const table = new FakeElement({
     mdeAssembly: "Contoso.dll",
+    mdeRoot: "cli",
     mdeOpen: "6",
   });
   const tableZero = new FakeElement({
     mdeAssembly: "Contoso.dll",
+    mdeRoot: "cli",
     mdeOpen: "0",
   });
   const pipeAssemblyTable = new FakeElement({
     mdeAssembly: "A|6|B.dll",
+    mdeRoot: "r2r-manifest",
     mdeOpen: "2",
   });
   const invalidTables = [
-    new FakeElement({ mdeAssembly: "", mdeOpen: "6" }),
-    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpen: "" }),
-    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpen: "NaN" }),
+    new FakeElement({ mdeAssembly: "", mdeRoot: "cli", mdeOpen: "6" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeRoot: "", mdeOpen: "6" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeRoot: "cli", mdeOpen: "" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeRoot: "cli", mdeOpen: "NaN" }),
     new FakeElement({
       mdeAssembly: "Contoso.dll",
+      mdeRoot: "cli",
       mdeOpen: "9007199254740992",
     }),
   ];
@@ -335,15 +361,18 @@ test("metadata lens bindings open table and heap explorer views", () => {
     ...invalidTables);
   const heap = new FakeElement({
     mdeAssembly: "Contoso.dll",
+    mdeRoot: "cli",
     mdeOpenHeap: "String",
   });
   const pipeAssemblyHeap = new FakeElement({
     mdeAssembly: "A|6|B.dll",
+    mdeRoot: "r2r-manifest",
     mdeOpenHeap: "Blob",
   });
   const invalidHeaps = [
-    new FakeElement({ mdeAssembly: "", mdeOpenHeap: "String" }),
-    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpenHeap: "" }),
+    new FakeElement({ mdeAssembly: "", mdeRoot: "cli", mdeOpenHeap: "String" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeRoot: "", mdeOpenHeap: "String" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeRoot: "cli", mdeOpenHeap: "" }),
   ];
   root.addAll(
     "[data-mde-open-heap]",
@@ -358,6 +387,8 @@ test("metadata lens bindings open table and heap explorer views", () => {
     null,
     recordingActions(calls));
 
+  rootSelect.dispatch("change");
+  invalidRootSelect.dispatch("change");
   explore.dispatch("click");
   invalidExplore.dispatch("click");
   table.dispatch("click");
@@ -370,51 +401,74 @@ test("metadata lens bindings open table and heap explorer views", () => {
   chip.dispatch("click");
 
   assert.deepEqual(calls, [
-    "open-overview:Contoso.dll",
-    "open-table:Contoso.dll:6",
-    "open-table:Contoso.dll:0",
-    "open-table:A|6|B.dll:2",
-    "open-heap:Contoso.dll:String",
-    "open-heap:A|6|B.dll:Blob",
+    "root:r2r-manifest",
+    "open-overview:Contoso.dll:cli",
+    "open-table:Contoso.dll:cli:6",
+    "open-table:Contoso.dll:cli:0",
+    "open-table:A|6|B.dll:r2r-manifest:2",
+    "open-heap:Contoso.dll:cli:String",
+    "open-heap:A|6|B.dll:r2r-manifest:Blob",
   ]);
   assert.equal(root.queriedSelectors.has("[data-mde-chip]"), false);
 });
 
-function assembly(overrides = {}) {
+function metadataImage(
+  overrides: Partial<MetadataImage> = {},
+): MetadataImage {
+  return {
+      requestedRoot: "Cli",
+      canonicalRoot: "Cli",
+      rootRelativeVirtualAddress: 0x2000,
+      rootSize: 4096,
+      aliasesCliMetadata: false,
+      kind: "Managed",
+      isAssembly: true,
+      metadataSize: 4096,
+      metadataVersion: "v4.0.30319",
+      metadataVersionTruncated: false,
+      projectedTableTotal: 2,
+      heaps: [
+        { name: "String", sizeInBytes: 1024, maxAddress: 900, addressing: "Offset" },
+        { name: "Guid", sizeInBytes: 16, maxAddress: 1, addressing: "Index" },
+        { name: "Blob", sizeInBytes: 0, maxAddress: 0, addressing: "Offset" },
+      ],
+      tables: [
+        { index: 2, name: "TypeDef", rowCount: 12, isProjected: true },
+        { index: 6, name: "MethodDef", rowCount: 400, isProjected: true },
+        { index: 42, name: "Unmodeled", rowCount: 3, isProjected: false },
+      ],
+      headers: {
+        machine: "Amd64",
+        isPE32Plus: true,
+        subsystem: "WindowsCui",
+        corFlags: "ILOnly",
+        majorRuntimeVersion: 2,
+        minorRuntimeVersion: 5,
+        entryPointToken: 0x06000001,
+        managedNativeHeaderRva: 0,
+        managedNativeHeaderSize: 0,
+      },
+      ...overrides,
+  };
+}
+
+function assembly(
+  overrides: Partial<MetadataAssembly> = {},
+): MetadataAssembly {
   return {
     assembly: "Contoso.dll",
-    kind: "Managed",
-    isAssembly: true,
-    metadataSize: 4096,
-    metadataVersion: "v4.0.30319",
-    metadataVersionTruncated: false,
-    projectedTableTotal: 2,
-    heaps: [
-      { name: "String", sizeInBytes: 1024, maxAddress: 900, addressing: "Offset" },
-      { name: "Guid", sizeInBytes: 16, maxAddress: 1, addressing: "Index" },
-      { name: "Blob", sizeInBytes: 0, maxAddress: 0, addressing: "Offset" },
-    ],
-    tables: [
-      { index: 2, name: "TypeDef", rowCount: 12, isProjected: true },
-      { index: 6, name: "MethodDef", rowCount: 400, isProjected: true },
-      { index: 42, name: "Unmodeled", rowCount: 3, isProjected: false },
-    ],
-    headers: {
-      machine: "Amd64",
-      isPE32Plus: true,
-      subsystem: "WindowsCui",
-      corFlags: "ILOnly",
-      majorRuntimeVersion: 2,
-      minorRuntimeVersion: 5,
-      entryPointToken: 0x06000001,
-      managedNativeHeaderRva: 0,
-      managedNativeHeaderSize: 0,
-    },
+    metadataRoots: [metadataImage()],
+    cliMetadataError: null,
+    manifestMetadataError: null,
+    readyToRun: null,
+    readyToRunError: null,
     ...overrides,
   };
 }
 
-function lensOptions(overrides = {}) {
+function lensOptions(
+  overrides: Partial<PackageMetadataOptions> = {},
+): PackageMetadataOptions {
   return {
     isPlatform: false,
     scopedLibrary: "Contoso",
@@ -426,15 +480,21 @@ function lensOptions(overrides = {}) {
     loading: false,
     error: "",
     metadata: { assemblies: [assembly()] },
+    selectedRoot: "cli",
     ...helpers,
     ...overrides,
   };
 }
 
-function explorerState(overrides = {}) {
+function explorerState(
+  overrides: Partial<ExplorerState> = {},
+): ExplorerState {
   return {
     open: true,
     assemblyFileName: "Contoso.dll",
+    metadataRoot: "cli",
+    canonicalRoot: "Cli",
+    aliasesCliMetadata: false,
     directory: [
       { index: 2, name: "TypeDef", rowCount: 12, isProjected: true },
       { index: 42, name: "Unmodeled", rowCount: 3, isProjected: false },
@@ -453,7 +513,9 @@ function explorerState(overrides = {}) {
   };
 }
 
-function context(overrides = {}) {
+function context(
+  overrides: Partial<ExplorerState> = {},
+): ExplorerRenderContext {
   return { explorer: explorerState(overrides), ...helpers };
 }
 
@@ -512,8 +574,9 @@ test("the metadata lens distinguishes a truncated metadata version", () => {
   const truncated = renderPackageMetadata(lensOptions({
     metadata: {
       assemblies: [assembly({
-        metadataVersion: "v4.0.30319",
-        metadataVersionTruncated: true,
+        metadataRoots: [metadataImage({
+          metadataVersionTruncated: true,
+        })],
       })],
     },
   }));
@@ -526,6 +589,28 @@ test("the metadata lens distinguishes a truncated metadata version", () => {
 test("the metadata lens reports an image with no ECMA-335 metadata", () => {
   const html = renderPackageMetadata(lensOptions({ metadata: { assemblies: [] } }));
   assert.match(html, /No metadata image/);
+});
+
+test("the metadata lens exposes and preserves the selected metadata root", () => {
+  const cli = metadataImage();
+  const manifest = metadataImage({
+    requestedRoot: "ReadyToRunManifest",
+    canonicalRoot: "ReadyToRunManifest",
+    rootRelativeVirtualAddress: 0x8000,
+    rootSize: 768,
+    aliasesCliMetadata: false,
+    metadataVersion: "v4.0.30319-r2r",
+  });
+  const data = assembly({ metadataRoots: [cli, manifest] });
+  const html = renderPackageMetadata(lensOptions({
+    metadata: { assemblies: [data] },
+    selectedRoot: "r2r-manifest",
+  }));
+
+  assert.match(html, /data-metadata-root[\s\S]*value="r2r-manifest" selected/);
+  assert.match(html, /R2R manifest · RVA 0x8000 · 768 bytes/);
+  assert.match(html, /data-mde-explore[\s\S]*data-mde-root="r2r-manifest"/);
+  assert.equal(selectMetadataImage([manifest], "cli"), manifest);
 });
 
 test("the metadata lens does not render all-failed inspection as valid emptiness", () => {
@@ -542,25 +627,25 @@ test("the metadata lens does not render all-failed inspection as valid emptiness
 });
 
 test("an assembly block exposes Explore and groups tables by role", () => {
-  const html = renderAssemblyMetadataBlock(assembly(), helpers);
+  const html = renderAssemblyMetadataBlock(assembly(), "cli", helpers);
   // The empty #Blob heap is omitted; #Strings and #GUID keep their ECMA-335 spellings.
   assert.match(html, /#Strings/);
   assert.match(html, /#GUID/);
   assert.doesNotMatch(html, /#Blob/);
   assert.match(
     html,
-    /data-mde-open-heap="String" data-mde-assembly="Contoso\.dll"/);
+    /data-mde-open-heap="String" data-mde-assembly="Contoso\.dll" data-mde-root="cli"/);
 
   assert.match(
     html,
-    /class="meta-explore primary-action" data-mde-explore data-mde-assembly="Contoso\.dll">Explore/);
+    /class="meta-explore primary-action" data-mde-explore data-mde-assembly="Contoso\.dll" data-mde-root="cli">Explore/);
   assert.match(html, /Types/);
   assert.match(html, /Members/);
   assert.match(html, /Other/);
   const typeDefAt = html.indexOf("TypeDef");
   const methodDefAt = html.indexOf("MethodDef");
   assert.ok(typeDefAt > 0 && typeDefAt < methodDefAt, "tables retain metadata order within groups");
-  assert.match(html, /data-mde-open="2" data-mde-assembly="Contoso\.dll"/);
+  assert.match(html, /data-mde-open="2" data-mde-assembly="Contoso\.dll" data-mde-root="cli"/);
   assert.match(html, /meta-table-unprojected/);
   assert.match(html, /2\/3 populated/);
   assert.match(html, /v2\.5 · ILOnly · entry 0x6000001/);
@@ -569,18 +654,50 @@ test("an assembly block exposes Explore and groups tables by role", () => {
 
 test("an assembly block reports an available managed ReadyToRun header", () => {
   const readyToRun = renderAssemblyMetadataBlock(assembly({
-    headers: {
-      ...assembly().headers,
-      managedNativeHeaderRva: 0x1234,
+    readyToRun: {
+      role: "Component",
+      advertisements: "ManagedNativeHeader",
+      majorVersion: 9,
+      minorVersion: 1,
+      flagsValue: 4,
+      flags: "PlatformNeutralSource",
+      headerRelativeVirtualAddress: 0x1234,
+      headerSize: 96,
+      managedNativeHeaderRelativeVirtualAddress: 0x1234,
       managedNativeHeaderSize: 96,
+      exportHeaderRelativeVirtualAddress: null,
+      manifestMetadata: {
+        relativeVirtualAddress: 0x5678,
+        size: 512,
+        aliasesCliMetadata: false,
+      },
+      sections: [{
+        type: "ManifestMetadata",
+        typeValue: 101,
+        relativeVirtualAddress: 0x5678,
+        size: 512,
+        aliasesCliMetadata: false,
+      }],
     },
-  }), helpers);
-  const ilOnly = renderAssemblyMetadataBlock(assembly(), helpers);
+  }), "cli", helpers);
+  const ilOnly = renderAssemblyMetadataBlock(assembly(), "cli", helpers);
 
   assert.match(
     readyToRun,
-    /ReadyToRun[\s\S]*managed native header · 96 B · RVA 0x1234/);
-  assert.doesNotMatch(ilOnly, /ReadyToRun/);
+    /ReadyToRun[\s\S]*Component · v9\.1[\s\S]*PlatformNeutralSource[\s\S]*ManifestMetadata[\s\S]*RVA 0x5678/);
+  assert.match(ilOnly, /ReadyToRun[\s\S]*No/);
+});
+
+test("an assembly block keeps metadata and ReadyToRun failures independent", () => {
+  const html = renderAssemblyMetadataBlock(assembly({
+    manifestMetadataError: "Manifest metadata directory is malformed.",
+    readyToRunError: "ReadyToRun section table is malformed.",
+  }), "cli", helpers);
+
+  assert.match(html, /CLI metadata/);
+  assert.match(html, /Manifest metadata directory is malformed\./);
+  assert.match(html, /ReadyToRun section table is malformed\./);
+  assert.match(html, /data-mde-explore/);
 });
 
 test("the metadata lens places assembly content directly in its owned scroller", () => {
@@ -688,6 +805,22 @@ test("the explorer renders table and heap chips with the focused one active", ()
   assert.match(html, /mde-chip-unprojected/);
   assert.match(html, /data-mde-heap-chip="String"/);
   assert.match(html, /Contoso\.dll/);
+});
+
+test("the explorer discloses the selected manifest root and CLI alias", () => {
+  const separate = renderMetadataExplorer(context({
+    metadataRoot: "r2r-manifest",
+    canonicalRoot: "ReadyToRunManifest",
+    aliasesCliMetadata: false,
+  }));
+  const alias = renderMetadataExplorer(context({
+    metadataRoot: "r2r-manifest",
+    canonicalRoot: "Cli",
+    aliasesCliMetadata: true,
+  }));
+
+  assert.match(separate, /R2R manifest · metadata tables/);
+  assert.match(alias, /R2R manifest · canonical CLI metadata/);
 });
 
 test("the explorer disables history buttons at the ends of the stack", () => {

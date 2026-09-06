@@ -197,8 +197,9 @@ This owner adopts the manifest extent supplied by the sibling
 [ReadyToRun image projection](readytorun-image-projection.md), without changing
 that owner's discovery, validation, alias, or failure contract. The immediate
 consumer is this projection's overview and table/row/reference/heap operations.
-Issue #5974 is slice 2 of #5835's four-slice production-host path; CLI and
-browser/Wasm presentation remain slices 3 and 4.
+Issue #5974 is slice 2 of #5835's four-slice production-host path. The CLI and
+browser/Wasm presentations are implemented by their separately owned slices 3
+and 4.
 
 Root selection is explicit. A separate manifest projects exactly the declared
 section-112 bytes through the existing SRM-backed projection, not the containing
