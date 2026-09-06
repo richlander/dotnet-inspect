@@ -115,6 +115,7 @@
     <Project Path="src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
     <Project Path="src/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
@@ -165,6 +166,7 @@
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
+    <Project Path="tests/DotnetInspector.SourceSelection.Tests/DotnetInspector.SourceSelection.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
