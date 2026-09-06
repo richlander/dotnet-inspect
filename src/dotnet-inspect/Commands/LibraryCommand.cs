@@ -1983,10 +1983,16 @@ public class LibraryCommand
             throw new UnreachableException("NormalizeHeapSelection rejects a malformed --heap coordinate before this point.");
 
         string name = MetadataHeapCoordinate.StreamName(heap);
+        if (inspection.MetadataImageResult
+            is not MetadataImageResult.Available available)
+        {
+            return 0;
+        }
+
         MetadataValue? value;
         try
         {
-            if (inspection.MetadataRoot is { } root)
+            if (available.Root is { } root)
             {
                 value = root.HeapValue(heap, address);
             }
@@ -2761,8 +2767,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v28: deterministic, non-prefetched unsafe presence changes applicability.
-    private const string EffectiveCategory = "effective-v28";
+    // Bumped to v29: ReadyToRun applicability adds sections and a category door.
+    private const string EffectiveCategory = "effective-v29";
 
     static LibraryCommand()
     {

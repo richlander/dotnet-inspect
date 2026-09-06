@@ -2,6 +2,9 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using DotnetInspector.Commands;
+using DotnetInspector.Core;
 using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 using DotnetInspector.Sections;
@@ -313,6 +316,134 @@ public partial class CommandExecutionTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task MetadataLens_MalformedManifestRoot_HeapCoordinateDoesNotFallBackToCli()
+    {
+        string sourcePath = typeof(object).Assembly.Location;
+        using var sourceSession = AssemblyInspectionSession.Open(sourcePath);
+        MetadataRootInspection cli = sourceSession.MetadataRoot(MetadataRootKind.Cli)!;
+        MetadataHeapEntry cliEntry = cli.HeapEntries(HeapKind.String)
+            .Entries
+            .First(static entry =>
+                entry.Offset > 1
+                && entry.Value is MetadataValue.HeapReference
+                {
+                    Text: not null,
+                });
+        MetadataValue.HeapReference cliValue =
+            Assert.IsType<MetadataValue.HeapReference>(cliEntry.Value);
+
+        string path = WriteMutatedCoreLib(static (image, pe) =>
+        {
+            ReadyToRunSectionSummary manifest =
+                ReadyToRunImageInspector.Describe(pe)!.ManifestMetadata!;
+            int manifestOffset = FileOffset(pe, manifest.RelativeVirtualAddress);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(manifestOffset, sizeof(uint)),
+                0);
+        });
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "--metadata-root",
+                "r2r-manifest",
+                "--heap",
+                $"#Strings:{cliEntry.Offset}",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Metadata image", error, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                cliValue.Text!.Value.ToString(),
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ReadyToRunLens_EffectiveDiscoveryIgnoresPreLensCache()
+    {
+        const string legacyCategory = "effective-v28";
+        const string currentCategory = "effective-v29";
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"r2r-effective-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(
+            directory,
+            "System.Private.CoreLib.dll");
+        File.Copy(typeof(object).Assembly.Location, assemblyPath);
+
+        string hash = Convert.ToHexString(
+            SHA256.HashData(File.ReadAllBytes(assemblyPath)));
+        string[] keys =
+        [
+            LibraryCommand.BuildEffectiveCacheKey(
+                assemblyPath,
+                hash,
+                hasSourceLink: false),
+            LibraryCommand.BuildEffectiveCacheKey(
+                assemblyPath,
+                hash,
+                hasSourceLink: true),
+        ];
+
+        try
+        {
+            await CoreCache.RequestVersionedCategoryCleanupAsync();
+            foreach (string key in keys)
+            {
+                CoreCache.Set(
+                    legacyCategory,
+                    key,
+                    "Library Info\n",
+                    extension: "tsv");
+            }
+
+            var (_, output, _) = await RunAppAsync(
+                "library",
+                assemblyPath,
+                "-D",
+                "--effective",
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Contains(
+                SectionCategoryNames.ReadyToRun,
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            foreach (string key in keys)
+            {
+                DeleteCacheFile(legacyCategory, key);
+                DeleteCacheFile(currentCategory, key);
+            }
+
+            Directory.Delete(directory, recursive: true);
+        }
+
+        static void DeleteCacheFile(string category, string key)
+        {
+            string path = CoreCache.GetFilePath(
+                category,
+                key,
+                extension: "tsv");
+            if (File.Exists(path))
+                File.Delete(path);
         }
     }
 
