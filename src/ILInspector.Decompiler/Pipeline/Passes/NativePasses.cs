@@ -143,6 +143,8 @@ internal static class NativePasses
     public static IteratorAcknowledgmentPass IteratorAcknowledgment => new();
     [Native(NativeCategory.Diagnostic, "unsafe reconstructed iterator body declined after post-reconstruction cleanup exposed an unsupported structured shape")]
     public static IteratorReconstructionSafetyPass IteratorReconstructionSafety => new();
+    [Native(NativeCategory.Diagnostic, "final statement whose required unsafe context would contain await declined to an honest marker")]
+    public static UnsafeAwaitBoundaryPass UnsafeAwaitBoundary => new();
 }
 
 /// <summary>What a decompiler-native pass reconstructs (it inverts no Roslyn lowering).</summary>

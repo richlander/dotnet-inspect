@@ -83,6 +83,52 @@ public class ValidityShellNoiseTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor()
+    {
+        Type fixtureType = typeof(CfgSampleClass);
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            fixtureType.Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                fixtureType.FullName!,
+                nameof(CfgSampleClass.RuntimeAsyncNoAwaitUnsafe),
+                Overload: 0)]));
+
+        Assert.True(
+            result.Source.Contains(
+                "unsafe async Task RuntimeAsyncNoAwaitUnsafe",
+                StringComparison.Ordinal),
+            result.Source);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.NotEqual(
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            result.Status);
+    }
+
+    [Theory]
+    [InlineData("get_UnsafeGetter", "unsafe int UnsafeGetter")]
+    [InlineData("add_UnsafeChanged", "unsafe void add_UnsafeChanged")]
+    [Trait("Speed", "Slow")]
+    public void AccessorRts_PreservesUnsafeBodyContextWithoutFloor(
+        string methodName,
+        string declaration)
+    {
+        Type fixtureType = typeof(CfgSampleClass);
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            fixtureType.Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                fixtureType.FullName!,
+                methodName,
+                Overload: 0)]));
+
+        Assert.Contains(declaration, result.Source);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.NotEqual(
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            result.Status);
+    }
+
+    [Fact]
     public void OrdinaryTaskReturningShell_DoesNotInferAsyncFromReturnType()
     {
         TypeRef task = TypeRef.CoreLib(
@@ -144,6 +190,46 @@ public class ValidityShellNoiseTests
 
         Assert.Contains("async Task<int> __M(", shell);
         Assert.DoesNotContain("unsafe Task<int> __M(", shell);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.AwaitUsingAfterUnsafeRead))]
+    [InlineData(nameof(CfgSampleClass.AwaitForeachAfterUnsafeRead))]
+    public void LegacyUnsafeOperationWithRaisedAwaitSyntax_UsesExplicitBlock(
+        string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        var result = CSharpPrinter.Print(function);
+        string body = Assert.IsType<string>(result.Output);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.False(function.UsesUpdatedMemorySafetyRules);
+        Assert.True(result.ContainsAwaitExpression);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe\n{", body);
+        Assert.Contains("await ", body);
+
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            typeof(CfgSampleClass).FullName!,
+            methodName,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: true));
+
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     }
 
     [Theory]

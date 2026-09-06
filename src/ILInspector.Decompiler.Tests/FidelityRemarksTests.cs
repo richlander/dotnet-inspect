@@ -1,5 +1,6 @@
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -59,6 +60,49 @@ public class FidelityRemarksTests
 
         Assert.Empty(FidelityRemarks.Collect(function));
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Theory]
+    [InlineData(MemorySafetyRulesState.Unsupported, false, false)]
+    [InlineData(MemorySafetyRulesState.Malformed, false, false)]
+    [InlineData(MemorySafetyRulesState.Conflicting, false, true)]
+    [InlineData(MemorySafetyRulesState.Updated, false, true)]
+    [InlineData(null, true, true)]
+    public void Collect_InvalidCalleeMemorySafetyRules_ReportsDec0015(
+        MemorySafetyRulesState? rulesState,
+        bool rulesUnavailable,
+        bool contractUnavailable)
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var callee = new MethodRef(
+            TypeRef.Definition("Dependency", "Fixtures", "Library"),
+            "Risky",
+            i32,
+            [],
+            HasThis: false)
+        {
+            MemorySafetyRulesState = rulesState,
+            MemorySafetyRulesUnavailable = rulesUnavailable,
+            MemorySafetyContractUnavailable = contractUnavailable,
+        };
+        var container = new BlockContainer();
+        var entry = new Block(0x00);
+        entry.Add(new Return(new Call(callee, isVirtual: false, [])));
+        container.Add(entry);
+        var function = new IrFunction(
+            "Call",
+            TypeRef.Definition("Consumer", "Fixtures", "Consumer"),
+            new MethodSignature(i32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            container);
+
+        var cause = Assert.Single(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Code == DiagnosticIds.InvalidCalleeMemorySafetyRules);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.InvalidCalleeMemorySafetyRules,
+            cause.Discriminator);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     [Fact]

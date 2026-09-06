@@ -496,6 +496,7 @@ public static class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
+
         ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
             ? ApiAssemblyIdentity.FromDefinition(
                 reader,
