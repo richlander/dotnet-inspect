@@ -1753,6 +1753,47 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
     }
 
+    public static TheoryData<string, string, string, bool> ZeroArityLocalRows
+    {
+        get
+        {
+            var cases = new TheoryData<string, string, string, bool>();
+            foreach (string selector in new[] { "--versions", "--versions-with-feed" })
+            foreach (string package in new[] { "System.CommandLine", "2", "true", "false" })
+            foreach (string limit in new[] { "-n", "-2", "-n2" })
+            foreach (bool implicitCommand in new[] { false, true })
+                cases.Add(selector, package, limit, implicitCommand);
+            return cases;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroArityLocalRows))]
+    public async Task PackageVersionListing_ZeroArityValidationPreservesLocalRows(
+        string selector, string packageName, string limit, bool implicitCommand)
+    {
+        string source = Path.Combine(_testRoot, "zero-arity-source");
+        foreach (string version in new[] { "1.0.0", "2.0.0", "3.0.0" })
+            WriteLocalPackage(source, packageName, version);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                .. implicitCommand ? Array.Empty<string>() : ["package"],
+                selector, "--head", packageName, limit,
+                .. limit == "-n" ? new[] { "2" } : [],
+                "--json", "--source", source
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            ["3.0.0", "2.0.0"],
+            document.RootElement.EnumerateArray()
+                .Select(row => row.GetProperty("version").GetString()));
+    }
+
     [Theory]
     [InlineData(false, false, null)]
     [InlineData(true, false, null)]
@@ -2477,7 +2518,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             args = CommandLineBuilder.PreprocessArgs(args);
             var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
             Assert.Empty(parseResult.Errors);
-            return await CommandLineBuilder.InvokeAsync(parseResult);
+            return await CommandLineBuilder.InvokeAsync(parseResult, args);
         });
 
         return [.. observations];
@@ -2489,7 +2530,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             args = CommandLineBuilder.PreprocessArgs(args);
             var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
             Assert.Empty(parseResult.Errors);
-            return await CommandLineBuilder.InvokeAsync(parseResult);
+            return await CommandLineBuilder.InvokeAsync(parseResult, args);
         });
 
     private static async Task<(

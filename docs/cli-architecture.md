@@ -11,6 +11,8 @@ See:
 - [CLI change classification and obsolete
   inputs](design/cli-change-classification.md) for published surfaces, change
   disclosure, invalid-input guards, and routing reservations;
+- [CLI option-value validation](design/cli-option-value-validation.md) for
+  zero-arity errors and preserved positional ownership;
 - [Search scope resolution](design/search-scope-resolution.md) for search
   defaults, explicit-source suppression, and named scope-group expansion;
 - [Command transitions](design/command-transition-model.md) for command versus
