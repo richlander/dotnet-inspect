@@ -115,6 +115,34 @@ test("restart destroys the old realm and explicitly boots a new epoch", async ({
   expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1", "released:2"]);
 });
 
+test("Worker Ready includes the managed reporter and its generated lifecycle exports", async ({ page }) => {
+  const workerReady = page.waitForEvent("worker");
+  expect((await start(page)).kind).toBe("started");
+  expect((await canary(page)).kind).toBe("succeeded");
+  const worker = await workerReady;
+  const receipt = await worker.evaluate(async () => {
+    const host = await import("/inspect-web-host.js");
+    let duplicateRejected = false;
+    try {
+      host.registerEpochWorkReporter("unused", () => undefined, () => undefined);
+    } catch {
+      duplicateRejected = true;
+    }
+    await host.drainEpochWorkReporter();
+    host.unregisterEpochWorkReporter();
+    let reuseRejected = false;
+    try {
+      host.registerEpochWorkReporter("unused", () => undefined, () => undefined);
+    } catch {
+      reuseRejected = true;
+    }
+    return { duplicateRejected, reuseRejected };
+  });
+  expect(receipt).toEqual({ duplicateRejected: true, reuseRejected: true });
+  await page.evaluate(() => window.engineWorkerProbe.dispose());
+  expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1"]);
+});
+
 test("a generated-facade bootstrap rejection fails held work and releases the partial realm", async ({ page, context }) => {
   await context.addCookies([{
     name: "worker-runtime-gate",

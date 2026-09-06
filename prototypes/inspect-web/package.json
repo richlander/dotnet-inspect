@@ -13,7 +13,7 @@
     "test": "npm run typecheck && node --test",
     "test:browser": "playwright test --project=firefox",
     "inspect-web-worker-envelope-validation": "node --test test/worker-runtime-protocol.test.ts",
-    "inspect-web-worker-protocol": "node --test test/worker-runtime-protocol.test.ts test/worker-runtime-core.test.ts test/worker-runtime-events.test.ts",
+    "inspect-web-worker-protocol": "node --test test/worker-runtime-protocol.test.ts test/worker-runtime-core.test.ts test/worker-runtime-events.test.ts test/engine-worker-epoch-work.test.ts",
     "inspect-web-worker-browser-binding": "node --test test/worker-runtime-browser.test.ts && playwright test --config playwright.worker.config.ts",
     "inspect-web-typescript-semantic-facts": "node --test test/typescript-semantic-facts.test.ts test/typescript-semantic-facts-artifact.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
