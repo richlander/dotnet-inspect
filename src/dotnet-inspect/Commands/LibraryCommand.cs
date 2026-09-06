@@ -3015,6 +3015,14 @@ public class LibraryCommand
             return true;
         }
 
+        if (failureSection.Equals(ReadyToRunSectionNames.Image, StringComparison.Ordinal)
+            && ReadyToRunSectionNames.All.Contains(
+                section,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (failureSection.Equals("Classified Methods", StringComparison.Ordinal))
         {
             return section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)

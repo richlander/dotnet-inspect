@@ -126,8 +126,11 @@ public partial class CommandExecutionTests
         Assert.Contains("separate at 0x", output, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ReadyToRunLens_MalformedAdvertisedHeader_FailsVisibly()
+    [Theory]
+    [InlineData(ReadyToRunSectionNames.Image)]
+    [InlineData(ReadyToRunSectionNames.Sections)]
+    public async Task ReadyToRunLens_MalformedAdvertisedHeader_FailsVisibly(
+        string section)
     {
         string path = WriteMutatedCoreLib(static (image, pe) =>
         {
@@ -145,7 +148,7 @@ public partial class CommandExecutionTests
                 "library",
                 path,
                 "-S",
-                ReadyToRunSectionNames.Image,
+                section,
                 "--tips",
                 "q");
 
@@ -330,6 +333,48 @@ public partial class CommandExecutionTests
             "--metadata-root requires -S @Metadata",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MetadataRoot_DiscoveryRequiresEffectiveInspection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "--metadata-root",
+            "r2r-manifest",
+            "-D",
+            SectionCategoryNames.Metadata,
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--metadata-root requires --effective with -D",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MetadataRoot_EffectiveDiscoveryAcceptsSelectedRoot()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "--metadata-root",
+            "r2r-manifest",
+            "-D",
+            SectionCategoryNames.Metadata,
+            "--effective",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(MetadataSectionNames.Image, DiscoveryNames(output));
     }
 
     [Fact]
