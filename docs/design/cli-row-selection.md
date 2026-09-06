@@ -20,8 +20,9 @@ shorthand, preserves raw positions, extracts those occurrences, and invokes
 the lowerer. #5786 installs that adapter for plural package-version listings,
 renders its L3 failures before package acquisition, and carries typed intent
 through L2 row-cohort selection after source aggregation. The general implicit
-route envelope, remaining command adoptions, and shared universal guidance
-remain unimplemented.
+route envelope is implemented by #5784 as a pure pre-acquisition classifier;
+candidate-set construction, router wiring, remaining command adoptions, and
+shared universal guidance remain unimplemented.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -369,6 +370,8 @@ require platform or package resolution.
 Before an implicit router performs observable resolution, it uses a pure
 route-independent envelope over candidate command declarations:
 
+- `-n N` has the same default meaning for every adopting command: select the
+  first *N* declared semantic items; rendered lines require explicit `--lines`;
 - the required-value arity union protects a following negative token whenever
   any candidate route must consume it as that option's value;
 - an invocation with no row-selection request follows ordinary routing;
@@ -402,6 +405,15 @@ Envelope activation is evaluated per owned row-selection request: a semantic
 gesture or one of its direction/unit modifiers. A candidate that does not
 declare the request makes the candidate set non-uniform; L3 does not infer
 support from shared option objects or display behavior.
+
+Bare `-N` is the one declaration-sensitive exception because it has no explicit
+option identity until normalization. It is route-independent only when every
+candidate binds `-n`; mixed binding defers the shorthand to the authoritative
+child rather than manufacturing an explicit-command requirement. When no
+candidate binds `-n`, bare `-N` is not a route-envelope request at all.
+Explicit `-n N` already carries option identity, so mixed declaration remains
+a non-uniform request and uniform non-declaration remains a common unsupported
+gesture.
 
 ## L3 conflicts and failure
 
@@ -626,6 +638,12 @@ The plural package-version adoption is enforced by:
 | `CoordinateVersionListing_PreservesPartialEvidence` and `SingularCoordinateVersionListing_PreservesSourceFailureDisclosure` | Adopted coordinates preserve source-failure evidence before selection and count projection, with or without listing status: observed pins disclose partial results, latest/range queries fail without rows, and singular pins retain the source owner's disclosure. |
 | `PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport` | Local-directory and file-URI sources enumerate versions without HTTP/plugin authentication under semantic Head(1). |
 
+The implemented implicit-route envelope is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CliRowSelectionRouterPreflightTests` | Request-free invocations preserve ordinary routing; common row grammar failures and uniformly unsupported requests survive unrelated route deferral; mixed declaration or capability requires an explicit command; required-value disagreement defers dependent decisions; bare `-N` is common only when every candidate binds `-n`; original raw-argv positions are preserved. |
+
 The remaining implementation must satisfy:
 
 | Gate | Property |
@@ -634,7 +652,6 @@ The remaining implementation must satisfy:
 | `CliRowSelectionOrderTests` | `-n`, `--rows`, and `--top` preserve argv order; modifiers change unit or direction without becoming operation-intent positions. |
 | `CliRowSelectionBareShorthandTests` | Required, optional, boolean, attached, positional, router, parent-option, and `--` cases classify bare `-N` by parsed arity and ownership; normalization precedes duplicate-gesture lowering. |
 | `CliRowSelectionCapabilityTests` | Only the active adopted leaf command accepts its declared gestures; shared helpers and parent commands do not imply adoption. |
-| `CliRowSelectionRouterPreflightTests` | Request-free invocations route ordinarily; a determinate request across non-uniform candidate declarations requires an explicit command; uniform non-support rejects before routing; uniform support handles common token, arity, value, repetition, and modifier failures before target resolution; arity-union-indeterminate cases defer dependent decisions while preserving required negative option values; every envelope failure returns nonzero and emits no success-shaped result. |
 | `CliRowSelectionTopOrderBindingTests` | One explicit `--order-by` attaches only as the one `TopIntent`'s unresolved ranking-order operation; no explicit order leaves that operation absent for L2 default resolution; L3 never emits a resolved ranking identity or infers baseline order as ranking. |
 | `CliRowSelectionPreExecutionFailureTests` | L3-decidable explicit-command failures occur before command execution or command-owned acquisition, return nonzero, and emit no success-shaped result; L2 ranking failures follow L2-owned timing. |
 | `CliRowSelectionFailurePrecedenceTests` | Explicit and implicit multi-fault invocations, token/arity failures, malformed values, token-completed conflicts, tied end-of-argv absence conflicts, multiple capability rejections, and L2 failures produce the one diagnostic selected by their applicable precedence. |
