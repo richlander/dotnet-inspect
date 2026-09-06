@@ -3730,7 +3730,7 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     /if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
     graphSource,
-    /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
+    /packageIdentityKey\(await uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange \?\? null,\s+JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)\)/);
@@ -6603,9 +6603,9 @@ test("Mermaid resolves the current theme without inventing missing colors", () =
     "classDef self fill:#abcdef,stroke:var(--accent);");
 });
 
-test("dependency graph rendering contains artifact labels", () => {
+test("dependency graph rendering contains artifact labels", async () => {
   const root = packageAt("1.0.0", "net8.0");
-  const definition = buildDependencyGraphMermaid(
+  const definition = await buildDependencyGraphMermaid(
     {
       package: root,
       packages: [root],
