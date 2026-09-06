@@ -40,6 +40,10 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The target
+  [dependency inspection command](design/dependency-inspection-command.md)
+  owns asset admission, traversal intent, evidence disclosure, graph row
+  currency, and retirement of the separate `dependency-evidence` command.
   [Member source presentation](design/member-source-presentation.md) owns the
   CLI projection of one Research-issued Finding census across explicit Facts
   and Annotated Source output.

@@ -137,6 +137,14 @@ normalization only for type-hierarchy mode; its
 package-dependency and library-reference modes are unary source operations and
 do not acquire a search default.
 
+The target
+[Dependency Inspection Command](dependency-inspection-command.md) preserves
+this ownership for type relationship mode while replacing the current unary
+asset modes with an explicit root set. In that target, a positional type keeps
+`--package`, `--library`, and `--project` as search scope; without a positional
+type, those same options are dependency roots and never request a search
+default.
+
 Commands may support different direct-source options. Every supported direct
 source must nevertheless contribute to the same explicitness decision. Adding
 a source option without wiring its presence into default suppression is a

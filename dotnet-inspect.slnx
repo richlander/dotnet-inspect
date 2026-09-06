@@ -165,6 +165,7 @@
     <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
+    <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.SourceSelection.Tests/DotnetInspector.SourceSelection.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />

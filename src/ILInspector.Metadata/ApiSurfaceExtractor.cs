@@ -1054,11 +1054,12 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
 
                 var methodAttributes = method.Attributes;
-                bool isExtensionMethod = isExtensionClass
-                    && (methodAttributes & MethodAttributes.Static) != 0
-                    && AttributeReader.HasExtensionAttribute(
+                var (isExtensionMethod, isReadOnlyMethod) =
+                    AttributeReader.ReadMethodMarkerAttributes(
                         reader,
                         methodCustomAttributes,
+                        includeExtension: isExtensionClass
+                            && (methodAttributes & MethodAttributes.Static) != 0,
                         observeDecodeWork);
                 var signature = GetMethodSignature(
                     reader,
@@ -1072,9 +1073,9 @@ public static class ApiSurfaceExtractor
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
-                var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
-                var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
-                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+                var modifiers = ApiMethodModifiers.FromAttributes(
+                    methodAttributes,
+                    isExplicitInterfaceImplementation);
 
                 // A class finalizer is the `object.Finalize` override the C#
                 // `~Type()` destructor compiles to. It is detected by the
@@ -1120,12 +1121,13 @@ public static class ApiSurfaceExtractor
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
-                    IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtual,
-                    IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
-                    IsOverride = isOverride,
-                    IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
+                    IsStatic = modifiers.IsStatic,
+                    IsVirtual = modifiers.IsVirtual,
+                    IsAbstract = modifiers.IsAbstract,
+                    IsOverride = modifiers.IsOverride,
+                    IsSealed = modifiers.IsSealed,
                     IsFinalizer = isFinalizer,
+                    IsReadOnly = isReadOnlyMethod,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
@@ -1324,6 +1326,7 @@ public static class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
+                    explicitImplementationBodies,
                     includeAll,
                     observeText,
                     observeDecodeWork,
@@ -1791,6 +1794,7 @@ public static class ApiSurfaceExtractor
                     },
                     eventTypeNodeProvider,
                     typeContext,
+                    explicitImplementationBodies,
                     observeText,
                     observeDecodeWork);
 
@@ -4600,6 +4604,7 @@ public static class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         bool includeAll = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -4790,6 +4795,7 @@ public static class ApiSurfaceExtractor
             },
             typeNodeProvider,
             context,
+            explicitImplementationBodies,
             beforeRetainText,
             beforeDecodeWork);
 
@@ -4955,6 +4961,7 @@ public static class ApiSurfaceExtractor
         Func<string, MethodDefinitionHandle> handleForKind,
         TypeNodeProvider provider,
         GenericContext context,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
         Action<int>? beforeDecodeWork)
     {
@@ -4970,6 +4977,19 @@ public static class ApiSurfaceExtractor
                 provider,
                 context,
                 beforeRetainText);
+            if (!handle.IsNil)
+            {
+                MethodDefinition method = reader.GetMethodDefinition(handle);
+                accessor.IsExplicitInterfaceImplementation =
+                    explicitImplementationBodies.Contains(handle)
+                    && (method.Attributes & MethodAttributes.MemberAccessMask)
+                        == MethodAttributes.Private;
+                accessor.IsReadOnly = AttributeReader.HasAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    KnownAttributeNames.IsReadOnlyAttribute,
+                    beforeDecodeWork);
+            }
         }
     }
 
