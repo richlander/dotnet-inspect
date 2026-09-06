@@ -17,13 +17,21 @@ public enum CompileReferenceFailureKind
     ReferenceSelectionAmbiguous,
     SourceReferenceExcluded,
     ReferenceRoleConflict,
+    ReferencePlatformRequestUnsupported,
+    ReferencePlatformSelectionUnavailable,
+    ReferencePlatformIdentityMismatch,
+    ReferencePlatformAgreementMismatch,
+    ReferencePlatformPolicyMismatch,
 }
 
 public sealed record CompileReferenceFailure(
     CompileReferenceFailureKind Kind,
     ArtifactIdentity? Artifact = null,
     AssemblyReferenceIdentity? RequestedIdentity = null,
-    ImmutableArray<ArtifactIdentity> Candidates = default);
+    ImmutableArray<ArtifactIdentity> Candidates = default,
+    AssemblyBindingRequest? BindingRequest = null,
+    AssemblyBindingSelectionSnapshot? PolicySelection = null,
+    CandidateOpenFailure? ContentFailure = null);
 
 public abstract class CompileReferenceResult<T>
 {

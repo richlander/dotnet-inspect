@@ -129,6 +129,9 @@ A workspace is **keyed by its complete exact coordinate set and reused**. The
 package surface, a type projection, an annotated member, Integrations,
 Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
+Retained packages and workspace reuse preserve the selected source-client
+association: matching package coordinates or producer identities do not merge
+distinct clients. Cache and scope limits remain aggregate session limits.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
 Opening, evicting, removing, and releasing the last protected use of a scope
@@ -555,6 +558,7 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
@@ -759,6 +763,16 @@ work and owns publication` gate that single-threaded Browser/Wasm protection.
 `graph-only implementation bodies select, switch, and clear` gates the mutable
 application projection that authorizes accessor fallback and removes that
 authorization when the selected target no longer matches a product body.
+
+`QueryMemberFindingCensus` requests Facts rows and the portable source document
+through one Research member projection. Its Source-facade envelope carries one
+producer-issued receipt, per-row Finding instance keys, the existing annotated
+source envelope, and the document-fact sidecar keys. It validates that both
+projections describe the same key set before serialization and preserves the
+nested `AnnotatedSourceDocument` wire shape unchanged. The existing
+Analysis-only `QueryMemberFacts` payload remains separate. Browser selection
+and stale-result behavior follow under #5517 rather than entering this
+transport operation.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
@@ -993,6 +1007,15 @@ diagnostic probe drives the existing managed async-lowering canary through the
 Worker core and operation authority. It does not move current UI features off
 the main thread.
 
+Before Worker `Ready`, bootstrap registers the managed epoch-work reporter
+through the generated host facade. Both Worker and receiver use the same
+conservative unbounded managed-producer class. Managed callbacks carry the
+Worker-issued allowance unchanged; the realm supplies its epoch identity and
+enforces work-sequence rules. Rejected reporting fails visibly. Cooperative
+cleanup stops admission, drains retained work, and unregisters only after
+drainage; hard Worker termination remains a separate release boundary.
+Feature brokers still need to opt into this source as part of their migration.
+
 Worker protocol version 2 additionally carries nonempty batches of at most 64
 progress or durable events. Each operation registers its own bounded payload
 decoders; the whole batch is validated before any entry reaches operation
@@ -1015,8 +1038,9 @@ npm run inspect-web-worker-browser-binding
 The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
 The gate uses Firefox and the complete published artifact, covering cold and
-warm managed calls, restart, bootstrap rejection, and input during stalled
-Wasm initialization. It does not yet prove responsiveness during managed CPU
+warm managed calls, reporter registration and generated cleanup exports,
+restart, bootstrap rejection, and input during stalled Wasm initialization.
+It does not yet prove responsiveness during managed CPU
 work or complete the Worker lifecycle gate; those and source-feature adoption
 remain focused follow-on slices under #5418 and #5420.
 
@@ -2110,6 +2134,31 @@ text escaping.
   restate their taxonomy.
 
 ## Deploy
+
+### Compare deployed runtime performance
+
+[`docs/inspect-web-runtime-performance.md`](../../docs/inspect-web-runtime-performance.md)
+owns the deployed-site benchmark contract. The harness measures cold startup,
+network-sensitive package acquisition, warm package projection, whole-package
+analysis, sustained member-analysis throughput, and method-body comparison
+while validating that every runtime returns the same semantic result.
+
+```bash
+npm run benchmark:published -- \
+  --site mono=https://dotnet-inspect.ca \
+  --site coreclr=https://coreclr.dotnet-inspect.ca \
+  --samples 5 \
+  --member-count 10 \
+  --output ../../artifacts/inspect-web-runtime-performance.json \
+  --trend-output ../../artifacts/inspect-web-runtime-trend-point.json
+```
+
+Comparative reports require the sites to serve the same product commit.
+`--allow-mismatched-commits` permits a diagnostic run but leaves the report
+explicitly non-comparable. The daily
+`inspect-web-performance-nightly.yml` workflow runs the comparison on one
+runner, retains raw evidence for 90 days, and emits a trend point only for a
+fully successful, matched-head, semantically equivalent report.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped

@@ -10,16 +10,16 @@ public static class SearchSourceNormalizer
         bool usesImplicitPlatform = intent.Selectors.Count == 0;
         bool hasPlatform = usesImplicitPlatform
             || intent.Selectors.Any(selector => selector is SourceSelector.PlatformGroup);
-        var packages = new List<PackageCoordinate>();
-        var seen = new HashSet<PackageCoordinate>(CoordinateComparer.Instance);
+        var packages = new List<SourceSelector.PackageSource>();
+        var seen = new HashSet<PackageIdentity>(PackageIdentityComparer.Instance);
         var otherSources = new List<SourceSelector>();
 
         foreach (SourceSelector selector in intent.Selectors)
         {
             switch (selector)
             {
-                case SourceSelector.Package package:
-                    AddPackage(package.Coordinate);
+                case SourceSelector.PackageSource package:
+                    AddPackage(package);
                     break;
                 case SourceSelector.PackageGroup:
                 case SourceSelector.PlatformGroup:
@@ -40,7 +40,7 @@ public static class SearchSourceNormalizer
         foreach (var group in intent.Selectors.OfType<SourceSelector.PackageGroup>())
         {
             foreach (PackageCoordinate coordinate in group.Coordinates)
-                AddPackage(coordinate);
+                AddPackage(new SourceSelector.Package(coordinate));
         }
 
         return new(
@@ -53,29 +53,43 @@ public static class SearchSourceNormalizer
             [.. packages],
             [.. otherSources]);
 
-        void AddPackage(PackageCoordinate coordinate)
+        void AddPackage(SourceSelector.PackageSource package)
         {
-            if (seen.Add(coordinate))
-                packages.Add(coordinate);
+            if (seen.Add(GetIdentity(package)))
+                packages.Add(package);
         }
     }
 
-    private sealed class CoordinateComparer : IEqualityComparer<PackageCoordinate>
+    private static PackageIdentity GetIdentity(SourceSelector.PackageSource source) => source switch
     {
-        public static CoordinateComparer Instance { get; } = new();
+        SourceSelector.Package package => new(
+            false, package.Coordinate.PackageId, package.Coordinate.Version,
+            package.Coordinate.Framework, package.Coordinate.RuntimeIdentifier),
+        SourceSelector.PackageReference reference => new(
+            false, reference.PackageId, reference.Version, null, null),
+        SourceSelector.PackageArchive archive => new(true, archive.Path, null, null, null),
+        _ => throw new InvalidOperationException("Unknown package source."),
+    };
 
-        public bool Equals(PackageCoordinate? x, PackageCoordinate? y) =>
-            ReferenceEquals(x, y)
-            || (x is not null && y is not null
-                && StringComparer.OrdinalIgnoreCase.Equals(x.PackageId, y.PackageId)
-                && StringComparer.OrdinalIgnoreCase.Equals(x.Version, y.Version)
-                && StringComparer.OrdinalIgnoreCase.Equals(x.Framework, y.Framework)
-                && StringComparer.OrdinalIgnoreCase.Equals(x.RuntimeIdentifier, y.RuntimeIdentifier));
+    private readonly record struct PackageIdentity(
+        bool IsArchive, string Name, string? Version, string? Framework, string? RuntimeIdentifier);
 
-        public int GetHashCode(PackageCoordinate obj)
+    private sealed class PackageIdentityComparer : IEqualityComparer<PackageIdentity>
+    {
+        public static PackageIdentityComparer Instance { get; } = new();
+
+        public bool Equals(PackageIdentity x, PackageIdentity y) =>
+            x.IsArchive == y.IsArchive
+            && StringComparer.OrdinalIgnoreCase.Equals(x.Name, y.Name)
+            && StringComparer.OrdinalIgnoreCase.Equals(x.Version, y.Version)
+            && StringComparer.OrdinalIgnoreCase.Equals(x.Framework, y.Framework)
+            && StringComparer.OrdinalIgnoreCase.Equals(x.RuntimeIdentifier, y.RuntimeIdentifier);
+
+        public int GetHashCode(PackageIdentity obj)
         {
             var hash = new HashCode();
-            hash.Add(obj.PackageId, StringComparer.OrdinalIgnoreCase);
+            hash.Add(obj.IsArchive);
+            hash.Add(obj.Name, StringComparer.OrdinalIgnoreCase);
             hash.Add(obj.Version, StringComparer.OrdinalIgnoreCase);
             hash.Add(obj.Framework, StringComparer.OrdinalIgnoreCase);
             hash.Add(obj.RuntimeIdentifier, StringComparer.OrdinalIgnoreCase);

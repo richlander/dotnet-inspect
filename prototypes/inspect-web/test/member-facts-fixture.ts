@@ -164,3 +164,101 @@ export function callFactsFixture(
     ],
   };
 }
+
+export function safetyFactsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  const long = mode === "long";
+  return {
+    ...facts,
+    signals: { ...facts.signals, unsafe: true },
+    safety: [
+      {
+        kind: "Pointer local",
+        offset: null,
+        operation: "V_0: System.Byte*",
+        requirement: "requires unsafe",
+        evidence: "local",
+      },
+      {
+        kind: "Unsafe signature",
+        offset: null,
+        operation: "System.Byte*",
+        requirement: "requires unsafe",
+        evidence: "signature",
+      },
+      {
+        kind: "stackalloc",
+        offset: "IL_0002",
+        operation: "byte*",
+        requirement: "requires unsafe",
+        evidence: "stackalloc",
+      },
+      {
+        kind: "dereference",
+        offset: "IL_0008",
+        operation: "byte",
+        requirement: "requires unsafe",
+        evidence: "dereference",
+      },
+      {
+        kind: "Unsafe call",
+        offset: long ? "IL_12345678" : "IL_0014",
+        operation: long
+          ? "Example.Serialization.UnsafeBufferReader<System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.Text.Json.JsonElement>>>.ReadUnaligned<System.Collections.Generic.KeyValuePair<System.String,System.Text.Json.JsonElement>>(System.Byte*,System.Runtime.CompilerServices.UnsafeBufferReaderOptions)"
+          : "System.Runtime.CompilerServices.Unsafe.AsPointer<System.Byte>(System.Byte&)",
+        requirement: "requires unsafe",
+        evidence: "call",
+      },
+    ],
+  };
+}
+
+export function exceptionRegionsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  const long = mode === "long";
+  const regions: MemberFacts["exceptionRegions"] = [
+    {
+      region: long ? 123456789 : 1,
+      clause: "catch",
+      tryRange: long ? "IL_01234567..IL_12345678" : "IL_0000..IL_0020",
+      handlerRange: long ? "IL_23456789..IL_3456789A" : "IL_0020..IL_0030",
+      filterRange: null,
+      caughtType: long
+        ? "Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.Text.Json.JsonElement>>>.NestedReadException"
+        : "System.Text.Json.JsonException",
+    },
+    {
+      region: 2,
+      clause: "filter",
+      tryRange: "IL_0000..IL_0020",
+      handlerRange: "IL_0040..IL_0050",
+      filterRange: "IL_0030..IL_0040",
+      caughtType: null,
+    },
+    {
+      region: 3,
+      clause: "finally",
+      tryRange: "IL_0000..IL_0050",
+      handlerRange: "IL_0050..IL_005A",
+      filterRange: null,
+      caughtType: null,
+    },
+    {
+      region: 4,
+      clause: "fault",
+      tryRange: "IL_0060..IL_0070",
+      handlerRange: "IL_0070..IL_007A",
+      filterRange: null,
+      caughtType: null,
+    },
+  ];
+  return {
+    ...facts,
+    signals: { ...facts.signals, catches: 1, finallys: long ? 0 : 1 },
+    exceptionRegions: long ? regions.slice(0, 2) : regions,
+  };
+}

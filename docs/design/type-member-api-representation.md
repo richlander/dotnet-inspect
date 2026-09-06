@@ -230,6 +230,44 @@ JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
 The existing Boolean remains until its consumers explicitly migrate; no
 retirement or narrowing is performed here.
 
+### API layout facts
+
+For [#6144](https://github.com/richlander/dotnet-inspect/issues/6144),
+`ILInspector.Metadata` owns preservation of reader-independent layout
+observations through API extraction, snapshots, and JSON.
+`ApiType.LayoutDetails` retains SRM's type size and packing size with the
+module MVID and TypeDef token. The existing `ApiType.Layout` remains the
+layout-kind fact; no second kind classification is introduced.
+
+`ApiMember.FieldLayout` retains a usable explicit offset, including zero,
+with the module MVID, declaring TypeDef token, and FieldDef token. Staticness
+remains the member's existing fact. Offsets are never guessed from field
+order, type size, attribute display text, or runtime layout.
+
+These observations follow SRM's public contract rather than introducing a
+layout validator. An all-zero type layout is an observed default, not proof
+that a ClassLayout row is absent. A null field `Offset` means SRM did not
+provide a usable offset: both a missing FieldLayout row and an offset beyond
+SRM's supported signed range produce that result. It must not be interpreted
+as proof of row absence. A null outer record instead denotes unavailable or
+unprojected evidence, including older JSON and hand-composed surfaces.
+Read failures follow the extractor's existing visible failure path; they are
+not converted into available defaults.
+
+Full API extraction and handle-based `GetTypeSurface` supply these records.
+Compact summaries and types-only extraction leave them unavailable, preserving
+the existing cheap layout-kind observation. The records contain fixed-size
+values and introduce no retained metadata text.
+
+`ApiLayoutFactsTests` gates extraction, defaults, unusable offsets, scoped
+associations, and persistence; `ApiLayoutJsonTests` covers production JSON and
+selected command output. The CSharp snapshot gate verifies preservation only.
+The immediate consumer is shared CSharp declaration spelling in #6105/#5257,
+under the three-stage #5226 path: Metadata facts, shared CSharp adoption, then
+both CLI and browser/Wasm declaration/source enablement. This slice supplies
+the missing input, not C# layout attributes, ABI reconstruction, source
+legality, or host adoption.
+
 ### API method implementation facts
 
 `ApiMember.MethodImplementation` retains the MethodDef's raw

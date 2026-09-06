@@ -2429,7 +2429,7 @@ test("dependency graph render identity includes truncation and navigation", () =
 });
 
 test("ready status shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = await engineStartup\.host\.buildIdentity\(\)/);
+  assert.match(appSource, /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\)/);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
@@ -3010,13 +3010,13 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(
     runHomeDemo,
-    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*const navigationSeq = beginDemoNavigation\(destination\);[\s\S]*restoreWorkspaceCatalogEntry\(\s*loc,\s*navigationSeq,\s*snapshot,\s*message => failDemoWorkspaceOpen\(kind, message, snapshot, true\)/);
+    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*stageDemoNavigation\(navigationSeq, destination\);[\s\S]*restoreWorkspaceCatalogEntry\(\s*loc,\s*navigationSeq,\s*snapshot,\s*message => failDemoWorkspaceOpen\(kind, message, snapshot, true\)/);
   assert.match(
     runHomeDemo,
     /async function restoreWorkspaceCatalogEntry\([\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*true,\s*failureHandler\);[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
   assert.match(
     runHomeDemo,
-    /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*const navigationSeq = beginDemoNavigation\(destination\)/);
+    /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*stageDemoNavigation\(navigationSeq, destination\)/);
   assert.doesNotMatch(runHomeDemo, /workspaceLocation\.replace\("\/demos"/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
   const restoreWorkspace =
@@ -3515,7 +3515,7 @@ test("history validates saved type and member identity before restoring Member s
     /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? pkg\.types\[0\]\?\.id \?\? "";[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
@@ -3730,7 +3730,7 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     /if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
     graphSource,
-    /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
+    /packageIdentityKey\(await uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange \?\? null,\s+JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)\)/);
@@ -3906,9 +3906,6 @@ test("member detail adapters preserve exact engine coordinates", () => {
   assert.match(
     factsRenderer,
     /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
-  assert.match(
-    factsRenderer,
-    /\["Operation", "operation"\],[\s\S]*\["Requirement", "requirement"\],[\s\S]*\["Evidence", "evidence"\]/);
 });
 
 test("type source identity includes decompiler taste", () => {
@@ -5307,6 +5304,41 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
 });
 
+test("Package and Library Overview share the named identity frame", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction libraryIdentity/)?.[0]
+    ?? "";
+  const renderOverview =
+    appSource.match(/function renderPackageOverview\([\s\S]*?\n}\n\nfunction renderLibraryOverview/)?.[0]
+    ?? "";
+  assert.match(appSource,
+    /const overviewWorkingSurface =[\s\S]*activeScope === "package" && state\.packageLens === "overview"[\s\S]*activeScope === "library" && state\.libraryLens === "overview"/);
+  assert.match(appSource,
+    /overviewWorkingSurface \? " overview-working-surface" : ""/);
+  assert.match(appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| overviewWorkingSurface[\s\S]*?;/);
+  assert.match(renderPackage,
+    /return packageLensBody\(\);/);
+  assert.match(renderOverview,
+    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
+  assert.match(renderOverview,
+    /platformLibrarySelectHtml\(\)/);
+  assert.match(renderOverview,
+    /const libraries = packageLibraries\(\)/);
+  assert.match(renderOverview,
+    /data-lib-scope=[\s\S]*No managed libraries were admitted/);
+  assert.match(renderOverview,
+    /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageCoordinateFields\(\),[\s\S]*contentHtml,/);
+  const renderLibraryOverview =
+    appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
+    ?? "";
+  assert.match(renderLibraryOverview,
+    /renderOverviewSurface\(\{[\s\S]*subject: "library",[\s\S]*displayName: library\.name,[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*details: \[library\.asset \|\| "Managed library", libraryIdentity\(library\)\]/);
+  assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
+  assert.match(stylesSource,
+    /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
+});
+
 test("library metadata uses compact coordinates in a full-area working surface", () => {
   const renderLibrary =
     appSource.match(/function renderLibraryView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
@@ -5325,7 +5357,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
@@ -5351,7 +5383,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
     ?? "";
   const renderDependencies =
-    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction assemblyReferencesSectionHtml/)?.[0]
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction renderLibraryReferences/)?.[0]
     ?? "";
   assert.match(
     appSource,
@@ -5364,7 +5396,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /const contentNavigationIntegrated =[\s\S]*?\|\| packageDependenciesWorkingSurface[\s\S]*?;/);
   assert.match(
     renderPackage,
-    /if \(state\.packageLens === "dependencies"\) return body;/);
+    /return packageLensBody\(\);/);
   assert.match(
     appSource,
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageCoordinateFields\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
@@ -6571,9 +6603,9 @@ test("Mermaid resolves the current theme without inventing missing colors", () =
     "classDef self fill:#abcdef,stroke:var(--accent);");
 });
 
-test("dependency graph rendering contains artifact labels", () => {
+test("dependency graph rendering contains artifact labels", async () => {
   const root = packageAt("1.0.0", "net8.0");
-  const definition = buildDependencyGraphMermaid(
+  const definition = await buildDependencyGraphMermaid(
     {
       package: root,
       packages: [root],

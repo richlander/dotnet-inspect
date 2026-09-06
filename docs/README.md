@@ -14,15 +14,11 @@ Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the c
 ## Quick Example
 
 ```bash
-$ dotnet-inspect type JsonSerializer --package System.Text.Json --shape
+$ dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --markdown -v:q -T q
 
-# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
+# System.Text.Json.JsonSerializer
 
-System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
-   ├─ string Serialize<TValue>(TValue value, JsonSerializerOptions? options = null)
-   ├─ string Serialize(object? value, Type inputType, JsonSerializerOptions? options = null)
-   ├─ void Serialize<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)
-   └─ ...
+Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.0/System.Text.Json.dll | Source: NuGet | Kind: class | Modifiers: static | Properties: 1 | Methods: 103
 ```
 
 ## Documentation
@@ -68,6 +64,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Package Dependency Evidence](design/package-dependency-evidence.md) | Normalized declared dependency evidence, additive resolution and owner observations, cross-input equivalence, completion, and `InertString` query-result containment. |
+| [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md) | Host-neutral composition from one normalized declaration to an exact source-authorized package candidate, typed failure, or incomplete source evidence. |
 | [Package Dependency Traversal](design/package-dependency-traversal.md) | Source-authorized exact package-manifest traversal with typed graph identity, root-relative depth, failures, completion, and shared CLI/Browser consumption. |
 | [Dependency Evidence CLI](design/dependency-evidence-cli.md) | CLI command, input binding, sections, count exactness, Markout and JSON lowering, diagnostics, and routing for normalized dependency evidence. |
 | [Restored Project Dependency Facts](design/restored-project-dependency-facts.md) | Host-neutral `project.assets.json` declarations, resolved package graph, typed identity, completion, failure, and containment. |
@@ -84,6 +81,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Finding Instance Census](design/finding-instance-census.md) | Producer-issued receipt and per-instance keys for one sealed Finding census, including exact-association validation. |
 | [Research Finding Census Projection](design/research-finding-census-projection.md) | Preserving one producer-sealed body-fact census through Facts and Annotated Source without shape-derived identity. |
 | [Member Source Presentation](design/member-source-presentation.md) | CLI presentation of one Research-issued Finding census across member Facts and Annotated Source output. |
+| [Inspect Web Finding Census Transport](design/inspect-web-finding-census-transport.md) | Managed Source-facade transport of one Research-issued Finding census across Facts and Annotated Source. |
 | [Finding Value Semantics](design/finding-value-equality.md) | Equality and hashing for Finding-owned structural values, ordered collections, identity sets, union cases, and operation objects. |
 | [Analysis Diff Format](design/analysis-diff.md) | Complete immutable two-version item sequences and exhaustive producer-issued N:M relations for shared CLI and browser/Wasm analysis. |
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
@@ -122,6 +120,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
 | [ReadyToRun Image Projection](design/readytorun-image-projection.md) | PE managed-native and `RTR_HEADER` discovery, validated R2R headers and section directories, manifest-metadata extent identification, bounds, and failure behavior. |
+| [ReadyToRun CLI Projection](design/readytorun-cli-projection.md) | Explicit `@ReadyToRun` library sections and root-consistent `--metadata-root` selection for the existing `@Metadata` lens. |
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Proposed, design-locked, not-yet-implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release for shared CLI and Browser Package Query consumers. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
@@ -135,6 +134,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
 | [Inspect-web Worker Runtime](design/inspect-web-worker-runtime.md) | Long-lived worker epochs, bootstrap readiness, held starts, closed protocol and replay validation, liveness, draining, restart, and hard realm release. |
+| [Inspect Web Runtime Performance Evidence](inspect-web-runtime-performance.md) | Matched-head nightly production-site latency and throughput evidence for the Mono baseline, .NET 12 CoreCLR, and CoreCLR ReadyToRun. |
 | [Inspect-web Async Composition](design/inspect-web-async-composition.md) | Cross-owner scenarios, typed handoff order, runtime-semantics comparison, gate ownership, and focused migration dependencies. |
 | [Engine-to-browser Async Event Streams](design/engine-browser-async-event-stream.md) | Host-neutral ordered progress, durable partial outcomes, one semantic completion, adapter backpressure, batching, and cancellation for engine streams consumed by Browser hosts. |
 | [Inspect Web UI](design/inspect-web-ui.md) | Composition map for the website redesign: redesign summary, product dependencies, document map, cross-document relationships, and reference-product boundary. |

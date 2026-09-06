@@ -54,15 +54,8 @@ export function renderMemberFacts(
     </section>
     ${renderAllocationFacts(facts.allocations)}
     ${renderCallFacts(facts.calls)}
-    ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
-      ["Requirement", "requirement"], ["Evidence", "evidence"]
-    ], "No unsafe operations or declaration evidence were found.")}
-    ${renderFactTable("Exception regions", facts.exceptionRegions, [
-      ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
-      ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
-      ["Caught type", row => row.caughtType || ""]
-    ], "No exception regions were found in this method.")}
+    ${renderSafetyFacts(facts.safety)}
+    ${renderExceptionRegions(facts.exceptionRegions)}
     <section class="document-section performance-facts">
       <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
       ${facts.performanceOpportunities.length
@@ -125,23 +118,48 @@ function renderCallFacts(calls: MemberFacts["calls"]) {
   </section>`;
 }
 
-type FactTableColumn<T> =
-  readonly [label: string, field: keyof T | ((row: T) => unknown)];
+function renderSafetyFacts(safety: MemberFacts["safety"]) {
+  return `<section class="safety-facts" aria-labelledby="safety-facts-title">
+    <header><h2 id="safety-facts-title">Safety facts</h2><span>${safety.length} ${safety.length === 1 ? "fact" : "facts"}</span></header>
+    ${safety.length
+      ? `<ol class="safety-rows">${safety.map(fact => `
+        <li class="safety-row">
+          <div class="safety-location">${fact.offset == null
+            ? '<span class="safety-no-offset">No IL offset</span>'
+            : `<code>${escapeHtml(fact.offset)}</code>`}<span class="safety-kind">${escapeHtml(fact.kind)}</span></div>
+          <div class="safety-main">
+            <div class="safety-operation"><code>${escapeHtml(fact.operation)}</code></div>
+            <dl class="safety-properties">
+              <div><dt>Requirement</dt><dd><code>${escapeHtml(fact.requirement)}</code></dd></div>
+              <div><dt>Evidence</dt><dd><code>${escapeHtml(fact.evidence)}</code></dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="safety-empty">No unsafe operations or declaration evidence were found.</p>'}
+  </section>`;
+}
 
-function renderFactTable<T extends object>(
-  title: string,
-  rows: readonly T[],
-  columns: readonly FactTableColumn<T>[],
-  emptyText: string,
-) {
-  return `<section class="document-section fact-group">
-    <div class="section-title"><h2>${escapeHtml(title)}</h2><span>${rows.length}</span></div>
-    ${rows.length
-      ? `<div class="fact-table" style="--fact-columns:${columns.length}">${columns.map(([label]) => `<strong>${escapeHtml(label)}</strong>`).join("")}${rows.map(row => columns.map(([, field]) => {
-          const value = typeof field === "function" ? field(row) : row[field];
-          return `<code>${escapeHtml(value ?? "")}</code>`;
-        }).join("")).join("")}</div>`
-      : `<div class="empty-fact-group">${escapeHtml(emptyText)}</div>`}
+function renderExceptionRegions(regions: MemberFacts["exceptionRegions"]) {
+  return `<section class="exception-regions" aria-labelledby="exception-regions-title">
+    <header><h2 id="exception-regions-title">Exception regions</h2><span>${regions.length} ${regions.length === 1 ? "region" : "regions"}</span></header>
+    ${regions.length
+      ? `<ol class="exception-rows">${regions.map(region => `
+        <li class="exception-row">
+          <div class="exception-identity"><span>Region <code>${escapeHtml(region.region)}</code></span><code class="exception-clause">${escapeHtml(region.clause)}</code></div>
+          <div class="exception-main">
+            <dl class="exception-type"><div><dt>Caught type</dt><dd>${region.caughtType == null
+              ? '<span class="exception-unavailable">not supplied</span>'
+              : `<code>${escapeHtml(region.caughtType)}</code>`}</dd></div></dl>
+            <dl class="exception-ranges">${[
+              ["Try", region.tryRange],
+              ["Handler", region.handlerRange],
+              ["Filter", region.filterRange],
+            ].map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value == null
+              ? '<span class="exception-unavailable">not supplied</span>'
+              : `<code>${escapeHtml(value)}</code>`}</dd></div>`).join("")}</dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="exception-empty">No exception regions were found in this method.</p>'}
   </section>`;
 }
 

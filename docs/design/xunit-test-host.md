@@ -193,6 +193,21 @@ failure policy through MTP's `--fail-skips on` option. These paths reuse the
 pinned outcome-level host gate without changing the Research evidence composed
 from metadata, analysis, decompilation, source, or Finding contracts.
 
+`DotnetInspector.Services.Tests` is the eighth migrated adopter. Its required
+Linux and Windows PR commands and all three Deep Inspect platform lanes remain
+unfiltered, while its signed-package fixture instructions select the focused
+verification class through an MTP class filter. These paths reuse the pinned
+outcome-level host gate without changing the suite's service, package, source,
+cache, or resolution evidence.
+
+`DotnetInspector.Queries.Tests` is the ninth migrated adopter. Its required
+Linux and Windows PR commands and all three Deep Inspect platform lanes remain
+unfiltered. Supported package-manifest and source-query instructions use MTP
+method or class filters, while the workspace-scope instructions run each named
+regression class separately so every selection receives its own aggregate
+non-vacuity result. These paths reuse the pinned outcome-level host gate without
+changing query, workspace, package, source, or acquisition evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

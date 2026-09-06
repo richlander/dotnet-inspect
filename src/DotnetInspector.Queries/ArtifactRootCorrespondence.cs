@@ -69,7 +69,7 @@ internal readonly record struct PackageArtifactRootRequest(
             NormalizeRuntime(selectionRuntimeIdentifier));
     }
 
-    static string? NormalizeFramework(string? framework)
+    internal static string? NormalizeFramework(string? framework)
     {
         if (string.IsNullOrWhiteSpace(framework))
             return null;
@@ -84,7 +84,7 @@ internal readonly record struct PackageArtifactRootRequest(
                     : framework;
     }
 
-    static string? NormalizeRuntime(string? runtimeIdentifier) =>
+    internal static string? NormalizeRuntime(string? runtimeIdentifier) =>
         RealizedMemberCoordinate.IsCanonicalRuntimeIdentifier(
             runtimeIdentifier)
             ? runtimeIdentifier!.ToLowerInvariant()

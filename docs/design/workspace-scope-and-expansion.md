@@ -47,6 +47,28 @@ preserve display `PackageId`, exact `PackageVersion`, and effective
 `TargetFramework` separately from canonical coordinate and selection facts.
 Root-only and explicit-empty selections remain reportable Roots.
 
+Issue [#6151](https://github.com/richlander/dotnet-inspect/issues/6151) extends
+this exact-package, closed profile with `AddRootsAsync` and
+`RemoveRootOccurrenceAsync`. Add consumes already-acquired bindings and
+appends the complete distinct new batch in first-request order, retaining
+existing order and occurrence identities. An empty or all-present batch is
+`NoEffect` and does not prepare or repair physical Roots. Remove consumes one
+`WorkspaceRootOccurrenceIdentity`; it neither interprets a package name or row
+index nor selects a successor. Both require the expected revision and a finite
+deadline. Ordinary Add/Remove return `Rejected(Busy)` rather than superseding
+preparation; validation precedes that admission decision. Replace/Clear retain
+their existing supersession authority and first-observed stop ordering.
+
+Effective incremental publication requires a current Ready generation for
+every surviving Root, as required by Artifact Acquisition's existing Retain
+arm. If Add or Remove would retain a Pending/Failed Root, this initial profile
+returns `Failed(ArtifactGenerationMismatch)` before preparing new material and
+preserves the complete current Scope. It does not drop that Root, invent a
+generation, or reacquire through a retained snapshot. Removing the non-Ready
+occurrence itself can succeed when every survivor is Ready or the resulting
+set is empty. Supporting publication that retains non-Ready Roots requires
+separate Artifact-owner work; observation of those Roots remains supported.
+
 Membership changes use the sealed Artifact publication participant. Current
 snapshot reads observe every Ready/Pending/Failed projection under the existing
 composition read lease and perform only the clarified Scope-only refresh;
@@ -56,9 +78,12 @@ that observation.
 
 The user-authorized first host adoption is the CLI
 ([#5513](https://github.com/richlander/dotnet-inspect/issues/5513)) in the same
-issue #5821 slice. Browser adoption remains planned under #5697 after its existing
-Add/Remove and complete-restoration contracts are reconciled; this slice
-preserves existing Browser behavior. Add/Remove, expansion scopes and evidence,
+issue #5821 slice. The CLI now populates its fresh Scope with one complete
+`AddRootsAsync` batch, providing a production consumer for the incremental
+path without per-package publication or changed output. Browser Add/remove is
+the named incremental consumer under #5697, but its migration still requires
+owner-backed complete restoration under #5525. Existing Browser behavior and
+its legacy occurrence-view consumer remain unchanged. Expansion scopes and evidence,
 non-package preparation, Navigation, Definitions, and persistence remain later
 work. The broader target gates below remain **unverified** outside the
 implemented subset. CLI inventory rendering uses the committed snapshot rather
@@ -71,7 +96,7 @@ also retains the selected framework.
 [`WorkspaceCommandTests`](../../src/dotnet-inspect.Tests/WorkspaceCommandTests.cs)
 gates duplicate coalescing before row windows/counts, root-only and explicit-empty
 Roots, display/framework preservation, JSON/JSONL shape, and absence of a
-successful prefix after failed replacement. Browser adoption remains unverified.
+successful prefix after a failed Add batch. Browser adoption remains unverified.
 
 The Release implementation gate is
 [`WorkspaceScopeTests`](../../src/DotnetInspector.Queries.Tests/WorkspaceScopeTests.cs).
@@ -84,6 +109,10 @@ Its boundary evidence includes:
 | Validation before supersession, finite deadlines, and exact cancellation | `InvalidSubmissionsDoNotSupersedeAdmittedPreparation`, `DeadlineExpiryAfterAdmissionCancelsRatherThanRejects`, `ExactCancellationActionSettlesTheOriginalOperationAndCannotCancelAnother`, `CancellationBeforeCommitPreservesPriorRevision`, `CancellationAfterCommitCannotRetractPublication` |
 | Clear and Replace supersession without stale publication | `ClearSupersedesBlockedPreparationWithoutWaitingForCurrentQuery`, `ValidReplaceSupersedesPreparationAndOldCompletionCannotOverwriteIt` |
 | Cancellation/deadline versus supersession preserves the first observed outcome | `CancellationBeforeSupersessionRetainsFirstOutcome`, `SupersessionBeforeCancellationRetainsFirstOutcome` |
+| Ordered incremental Add, exact reduction, and no successful prefix | `AddPreservesExistingOrderAndAppendsOneDistinctBatch`, `EmptyOrDuplicateOnlyAddHasNoPhysicalEffect`, `AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation`, `LaterAddFailureDoesNotPublishSuccessfulPrefix` |
+| Exact removal, surviving identity, and admitted-query drainage | `RemoveRetainsOtherOccurrencesAndDoesNotWaitForAnAdmittedQuery`, `RemovingTheLastOccurrenceCommitsAnEmptyClosedRevision` |
+| Incremental validation before Busy and inherited stop ordering | `OrdinaryAddAndRemoveAreBusyWithoutSupersedingPreparation`, `IncrementalValidationPrecedesBusy`, `AddSupersessionPreservesFirstObservedStop`, `AddCancellationOrExpiryLeavesThePriorRevisionCurrent`, `RemoveHonorsCancellationBeforeAdmissionAndCannotBeRetractedAfterCommit` |
+| Non-Ready incremental boundary and stale physical refusal | `IncrementalEditsRefuseNonReadySurvivorsBeforePreparingMaterial`, `PhysicalMovementDuringAddRefusesTheStaleCandidateAndRefreshesAllCurrentRoots`, `IncrementalOperationsRespectRuntimeUnavailabilityBeforeInvalidRequests` |
 | Complete physical observation without another Artifact publication | `ObservationRefreshPreservesReadyPendingFailedAndDoesNotPublishArtifactComposition`, `RefreshDuringPreparationPreservesPreparingAndStalePhysicalCandidateCannotRebase` |
 | Runtime unavailability and historical resource drainage | `ClosingWorkspaceReportsUnavailableWhileAnAdmittedQueryDrains`, `CloseDuringPreparationSettlesUnavailableAndReleasesOperationAuthority`, `HistoricalSnapshotsAndResultsDoNotRetainRetiredResources` |
 
@@ -91,15 +120,20 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
-The focused implementation and adjacent-owner regression command is:
+The focused implementation and adjacent-owner regression commands are run
+separately so each named selection has its own nonzero-execution result:
 
 ```bash
 dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
-  -class '*WorkspaceScopeTests' \
-  -class '*ArtifactRootPublicationTests' \
-  -class '*ArtifactRootCorrespondenceTests' \
-  -class '*PackageAssemblyContextRealizationTests' \
-  -class '*WorkspacePackageRootAcquisitionTests'
+  --filter-class '*WorkspaceScopeTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*ArtifactRootPublicationTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*ArtifactRootCorrespondenceTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*PackageAssemblyContextRealizationTests' && \
+dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*WorkspacePackageRootAcquisitionTests'
 ```
 
 The [revision/publication model](models/workspace-scope-revisions/README.md)
@@ -1112,7 +1146,9 @@ The landed [Package Dependency Evidence
 Query](package-dependency-evidence.md) supplies canonical package identity and
 version-constraint declarations but deliberately does not claim a resolved
 dependency version for package manifests. That result is not directly a
-submit-ready expansion batch. [#5765](https://github.com/richlander/dotnet-inspect/issues/5765)
+submit-ready expansion batch.
+[Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
+tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
 owns the focused host-neutral composition from eligible declaration evidence
 through package-source authorization and version-constraint resolution to an
 owner-issued exact acquisition candidate. Until that adapter lands, a
@@ -1232,14 +1268,14 @@ retained intent, and active-snapshot publication.
 [Workspace Definitions](workspace-definitions.md) owns portable schema,
 projection, and complete restoration. An ordinary `ReplaceScope` publishes
 Scope state and therefore cannot act as the uncommitted Scope fragment required
-by that owner's prepare-and-commit protocol. This design does not yet expose a
-complete-restoration participant. [#5525](https://github.com/richlander/dotnet-inspect/issues/5525)
-must return to this owner for a focused design that lets Navigation prepare
-against candidate occurrence identities and lets Scope join the one complete
-restoration commit without separately publishing. Until that prerequisite
-lands, canonical demo, share, import, saved-definition, and history restoration
-is unsupported; those inputs cannot be approximated by invoking
-`ReplaceScope` before or after the other participants.
+by that owner's prepare-and-commit protocol. The focused contract below,
+tracked by [#6190](https://github.com/richlander/dotnet-inspect/issues/6190),
+defines Scope's contribution toward
+[#5525](https://github.com/richlander/dotnet-inspect/issues/5525).
+It is not implemented or model-checked. Canonical demo, share, import,
+saved-definition, and history restoration through this Scope remains
+unsupported; those inputs cannot be approximated by invoking `ReplaceScope`
+before or after the other participants.
 
 An ordinary **Open** that intentionally replaces only Scope and resets rather
 than restores Navigation, view, query, and history state may use
@@ -1251,6 +1287,186 @@ After the complete-restoration participant lands, Browser Back/Forward may
 restore prior committed data into a new current revision. It does not
 reactivate the old runtime revision identity or make several Workspaces live
 simultaneously.
+
+### Uncommitted Scope restoration fragment
+
+The claim is limited to this owner:
+
+> Prepare one complete candidate Scope with exact occurrence identities for
+> adjacent preparation, without making it current; install exactly that Scope
+> contribution only within the complete restoration commit, or publish none of
+> it.
+
+The immediate consumer is the Definitions coordinator, which supplies candidate
+occurrences to Navigation's
+[canonical restoration participant](inspection-subject-navigation.md#canonical-restoration-participant).
+Definitions owns the complete request and result. Navigation owns the attempt
+token, intent ordering, prepared subject/lens snapshot, and effect authority.
+Artifact Acquisition owns candidate physical facts, provisional inspection,
+publication, and resource lifetime. This section neither creates a second
+coordinator nor changes those contracts.
+
+The first runtime profile remains exact-package, closed Scope with at most 64
+distinct Roots. A restoration must supply the complete Root and expansion-policy
+intent; unsupported non-package Roots or nonempty expansion registrations fail
+visibly rather than being dropped. It does not reapply fresh-Workspace defaults.
+Wider Scope profiles require their own implementation and evidence.
+
+#### Complete candidate and exact association
+
+Scope consumes one exact accepting runtime Workspace, the expected current
+Scope revision, a finite deadline, cancellation, and the complete owner-resolved
+replacement request. It carries the coordinator's opaque Navigation-issued
+attempt token unchanged. That token correlates the participant with the complete
+attempt; Scope neither issues another intent token nor interprets its ordering.
+
+The resource-free fragment identifies one complete candidate revision and its
+ordered Root occurrences, descriptors, closed policy, and logical limits. It
+also preserves the association between each requested Root and its exact
+candidate occurrence. Request reduction and retention use the existing
+[Replace scope](#replace-scope) correspondence rules, not portable coordinate
+text, display names, or list positions. Multiple reduced requests may map to
+one occurrence; every request must still have its exact mapping.
+
+An exactly corresponding current occurrence keeps its identity. Each unmatched
+Root gets a fresh Scope-issued occurrence identity. The candidate revision is
+new even when its logical contents equal an earlier revision; successful
+restoration never reactivates a historical revision. Navigation can bind its
+private prepared state to those candidate occurrences. The committed revision
+must use those same identities, not freshly mint equal-looking replacements
+after Navigation has prepared.
+
+Candidate facts carry their exact attempt association and expected Scope and
+Artifact publication bases. Equality proves correspondence within that
+preparation, not current membership. The fragment is not a
+`WorkspaceScopeSnapshot` returned by a current-state read, and its occurrence
+identities grant neither ordinary query admission nor activation authority.
+Any inspection needed before publication must use Artifact-owned provisional
+access, not temporarily install a Root to make current queries work.
+
+Provisional bindings, receipts, contexts, leases, and reservations remain in
+private preparation authority under their existing owners. They are not
+retained by the resource-free fragment, historical snapshots, Navigation state,
+or portable projections. Holding an abandoned or terminal fragment cannot
+prolong physical preparation; the existing finite deadline and release
+contracts remain applicable.
+
+#### Admission, invalidation, and publication
+
+A restoration preparation is a complete replacement for Scope mutation
+admission. Common validation and the full logical request validation precede
+admission or supersession. A valid current restoration may supersede an earlier
+preparation; an invalid, stale, or foreign request may not. Ordinary Add/Remove
+remain Busy while it prepares, and valid Replace/Clear can supersede it.
+This does not give Navigation-local activation authority to undo a committed
+Scope effect; that separate consumption boundary remains #5584.
+
+Preparation does not publish a new current Scope snapshot, including an
+ordinary `Preparing` snapshot. Its progress and exact cancellation action
+belong to the unpublished participant outcome. This differs from ordinary
+Scope progress because Definitions requires preparation to leave the complete
+installed state unchanged. Current membership and revision remain unchanged by
+the attempt until complete commit. The shared admission slot is not a second
+current Workspace or a second intent scheduler.
+
+Before contributing to commit, Scope must still be preparing that exact
+candidate against its unchanged expected Scope publication base and
+Artifact-owned physical basis. A newer Scope publication, physical movement,
+supersession, cancellation, expiry, or runtime unavailability prevents stale
+publication under the applicable owner contract. A candidate cannot silently
+refresh its bases, replace its occurrences, or reacquire material while keeping
+the earlier ready fragment; that would invalidate the other participants'
+association with it.
+
+Scope readiness is necessary, not sufficient, for complete commit. Its final
+contribution must pair its exact candidate revision and occurrence sequence
+with the Artifact owner's exact candidate composition and projected Roots.
+The complete snapshot, initial closure observation, and fresh publication base
+must describe that same association. The contribution cannot independently
+make the candidate current while Navigation, queries, or canonical projection
+can still refuse the complete attempt.
+
+A non-success or abandoned preparation releases its provisional authority and
+publishes none of its candidate. If another valid operation has since changed
+Scope, settlement leaves that newer state current; it must not restore the
+attempt's cached old snapshot. Scope preserves exact owner failure evidence
+for Definitions rather than manufacturing an empty successful fragment.
+Definitions alone classifies the complete restoration result. After complete
+publication becomes irrevocable, late cancellation cannot retract Scope's
+committed contribution.
+
+#### Physical prerequisite and evidence boundary
+
+The existing Artifact publication protocol is a useful comparison, not a
+complete-restoration implementation. It stages physical Roots privately and
+accepts a sealed Scope-only no-fail pointer swap. Its current operation does
+not return a privately inspectable candidate for arbitrary later participant
+preparation, and its token cannot implicitly become a multi-owner commit hook.
+[#6189](https://github.com/richlander/dotnet-inspect/issues/6189) owns the
+required Artifact design and implementation. This section does not choose its
+staging, query-access, locking, or complete-publication mechanism.
+
+Likewise, the existing Scope revision model checks ordinary Scope/Artifact
+publication, and Definitions'
+[restoration model](models/workspace-definitions-restoration/README.md) checks
+its abstract coordinator. Neither proves their composition with candidate
+occurrences. Before implementing this participant, compose the resolved
+owner-issued behaviors through named model instances, preserving the live
+attempt/candidate/occurrence and publication-base associations. Recheck imported
+properties in that composition; do not manufacture model-local equivalents of
+owner-issued publication or Navigation authority.
+
+The new interaction and implementation claims are **unverified**. Required
+future gates, tracked by
+[#6194](https://github.com/richlander/dotnet-inspect/issues/6194), are
+deliberately limited to the participant's observable outcomes:
+
+| Claim | Required evidence |
+| --- | --- |
+| Candidate occurrence identity survives complete installation | Composed model plus a Release case preparing Navigation under a new occurrence and observing that exact occurrence after commit |
+| Preparation and later participant refusal publish no candidate Scope | Composed model plus a Release case failing after physical and Scope preparation, with prior membership retained and provisional resources released even while the fragment is retained |
+| An obsolete candidate cannot replace newer current Scope | Composed model plus Release cases for valid Replace/Clear, physical movement, cancellation, deadline, and close during preparation |
+| Complete empty replacement is not an early Clear | Release case retaining nonempty current Scope until the complete empty restoration commits |
+
+These are not additional gates on today's ordinary Add/Remove/Replace/Clear.
+Model-checking precedes runtime implementation; runtime delivery must include
+the real coordinator/host adoption path, not an independently unused participant.
+
+#### Mock restoration and delivery
+
+```text
+Current Scope: JSON occurrence A
+Definition: JSON, NETStandard; inspect a descendant under NETStandard
+
+Prepared Scope: A, new occurrence B       Current Scope: still A
+Navigation prepares its exact view under B
+
+Required participant refuses            Current Scope: still A
+  or complete restoration commits       Current Scope: A,B; view still names B
+```
+
+An empty definition is the neighboring case: its candidate is empty, but the
+current nonempty Scope is not cleared until complete restoration succeeds.
+Neither path saves editor state, selects a successor, or writes browser history
+through this participant.
+
+The production hosts are Browser saved/share/history restoration
+(#5511/#5697) and CLI canonical replay (#4647). The immediate coordinator is
+Definitions #5525 and the Navigation fragment is #6112. The counted adoption plan in
+[#6190](https://github.com/richlander/dotnet-inspect/issues/6190), linked from
+overall tracker #5865, expands the previously grouped restoration milestone:
+six landed milestones, then eight remaining milestones for this contract,
+Artifact support, Scope model/runtime, Navigation support, Definitions
+composition, Browser adoption, CLI replay, and migrated Browser retirement.
+The total is fourteen delivery milestones, not fourteen mandatory PRs.
+Independent owners may work in parallel; CLI replay is not a prerequisite for
+Browser delivery. The shared runtime must stay within the existing near-term
+consumer lead bound. No host is replaced until its corresponding adoption is
+complete.
+
+This fragment adds no rendering path. Hosts retain their existing typed
+result-to-Markout or interactive Browser presentation boundaries. The separate
+CLI packet/full-URL idea #6150 does not change this contract.
 
 ## Concurrency model
 

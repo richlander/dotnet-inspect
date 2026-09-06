@@ -217,10 +217,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Dependencies, Package Metadata,
-Source, Annotated Source, and Diagnostics are working surfaces rather than
-documents inset inside a general page. The Metadata Explorer retains its
-separately owned full-bleed composition.
+Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
+Library Metadata, Source, Annotated Source, and Diagnostics are working surfaces
+rather than documents inset inside a general page. The Metadata Explorer retains
+its separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -375,8 +375,44 @@ This presentation trades some vertical density for visible evidence without
 horizontal scrolling; it does not hide, group, or truncate sites to reduce
 height. A successful empty Calls result retains the section, zero count, and
 explicit absence message. Loading and failure remain separate top-level Facts
-states. Safety facts and subsequent detail sections retain their existing
-presentation.
+states.
+
+Safety facts uses the same readable measure and compact separators. Each
+returned fact keeps its IL offset and raw Kind beside its Operation, followed
+by labeled Requirement and Evidence properties. All five fields remain visible
+in returned order, including repeated values. At constrained pane widths,
+offset and Kind move above Operation; long values wrap within their fact.
+
+A null offset is explicitly `No IL offset`, not an inferred declaration
+category: local evidence can also lack an offset. The section count describes
+returned facts, not IL sites, distinct operations, vulnerabilities, or
+executions. Raw classifications retain their values without added severity,
+safety verdicts, or inferred navigation.
+
+This trades some vertical density for complete visible evidence. A successful
+empty result retains the section, zero count, and existing absence message;
+it does not assert that the method is safe. Loading and failure remain separate
+top-level Facts states.
+
+Exception regions continues the same readable measure and separator treatment.
+Each returned metadata entry retains its supplied Region number and raw Clause,
+with labeled Caught type, Try, Handler, and Filter values. All six fields remain
+visible in returned order, including shared ranges and repeated records.
+Constrained panes place region identity above the properties; long types,
+region numbers, and range strings wrap within the row.
+
+Null Caught type and Filter values are explicitly `not supplied`, not inferred
+`not applicable` or a wildcard catch. Range strings retain their supplied
+spelling; the presentation does not parse them, infer nesting, reconstruct
+C# try/catch blocks, or create navigation targets.
+
+The section count describes returned region entries, not distinct try blocks
+or runtime exceptions. The successful empty section retains its zero count
+and existing absence message, which does not assert that the method cannot
+throw. Loading and failure remain separate top-level Facts states.
+The additional row height is an explicit trade for complete visible values
+without horizontal scrolling. Performance opportunities and diagnostics retain
+their existing presentation.
 
 #### Graph Explore
 
@@ -509,6 +545,67 @@ At narrow widths, header status and both context values may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
 
+### Package Overview
+
+Package and Library Overview use the complete inspector area, following Library
+Metadata and Package Dependencies rather than enclosing their content in a second
+layer of chrome. Both use the same frame and retain a readable local subject name
+and icon; the small persistent subject path is navigation, not a replacement for
+Overview identity.
+
+```text
+Overview                                      type and member totals
+Version · Framework                         (Package only)
+icon · subject name
+subject-specific identity details and content
+package@version                                    active framework
+```
+
+The quiet header preserves the current subject's type and member totals. Existing
+Package Version and Framework controls occupy one compact row; Library Overview
+does not gain coordinate controls. One independently scrolling content region
+starts with a larger icon and readable name, the surface's single visible
+level-one heading. Both subjects reuse the package's existing icon selection and
+fallback. Library retains its own name, asset path and full assembly identity.
+The identity is part of the full-width content, not a new inset card.
+
+Package content retains the admitted-library inventory and document links. The
+platform library picker remains with the Libraries section. Library rows enter
+the existing Library subject, whose Overview retains kind and namespace
+navigation. Document opening, counts, and ordering retain their semantics.
+
+The bottom context row preserves the exact package/version and active
+framework. At narrow widths the Libraries (Package) or Types (Library) return
+control shares the quiet header; the local name and icon remain visible in the
+content below it. Controls wrap within their row, and header/footer values may
+elide as complete strings. Local subject names wrap rather than disappearing.
+Long identifiers, asset paths, and document names remain contained without
+page-level horizontal overflow. Many rows scroll inside Overview while its
+header, any controls, and coordinates remain in place.
+
+Overview presents the already-loaded package. Existing acquisition loading,
+failure, and partial-package notices remain in their current host presentation;
+this placement change introduces no independent Overview query or state machine.
+Empty inventories retain their zero totals and any available package documents.
+Admitted libraries with no public types retain their named Library Overview.
+
+[The one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6073)
+connects both production browser Overview consumers to this shared frame and
+retires their generic hero composition and Package's inset coordinate editor.
+The user explicitly approved this browser-only presentation scope and requested
+matching local name/icon treatment for Package and Library. Existing typed data
+supplies the content and counts; browser HTML rendering remains the lowering
+boundary rather than Markout because this slice arranges interactive controls
+and navigation.
+The frame reuses the current package-surface conventions, not a new general
+rendering architecture. Other Package and Library lenses remain separate consumers.
+
+Browser coverage exercises both production consumers' local names and icons,
+full-area geometry, narrow navigation, long content, and empty libraries.
+Published-site evidence separately exercises actual Package and Library
+Overviews, coordinate changes, and document navigation. The production
+composition fixture also confirms that returning from Library restores Overview.
+
 ### Package Dependencies
 
 Package Dependencies uses the complete package inspector area. It does not
@@ -553,6 +650,86 @@ strings. The surface creates no page-level horizontal overflow. This slice
 does not change dependency selection, graph construction or navigation,
 Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
 the Metadata Explorer.
+
+### Library References
+
+Library References fills the inspector area without the generic Library hero or
+an inset reference-section heading. The subject path retains navigation context.
+
+```text
+References                                  direct reference count or state
+reference names, versions, cultures, and public-key tokens
+Library asset and assembly identity              TFM · package@version
+```
+
+One independently scrolling region begins with the reference rows and uses the
+available width. The quiet header and bottom context remain in place while the
+list scrolls. Full Library assembly identity and asset path remain available in
+the footer rather than being discarded with the old heading.
+
+Loading, query failure, inspection failure, and successful zero-reference results
+retain the same frame and remain visibly distinct. Existing Library selection,
+query freshness, direct AssemblyRef semantics, counts, order, and field values
+are unchanged.
+
+At narrow widths the existing Types return control shares the quiet header.
+Reference names and identity fields wrap within rows; header status and footer
+values may elide as complete strings with their full text retained. Long values
+and many rows create local scrolling, not page-level horizontal overflow.
+
+The browser-only presentation scope was explicitly approved for
+[the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
+Its one production consumer is Library References; adoption retires only that
+consumer's generic hero and inset reference section. Browser HTML lowering
+continues over the existing typed `BrowserPackageDependencies` reference result.
+This is a placement change, not a new query or rendering architecture. Metadata
+and Package Dependencies are the local composition precedents.
+
+Focused renderer and production-composition browser gates cover wide/narrow
+geometry, long names and identities, many/zero rows, pending and failed results,
+and Library navigation. Subject-strip behavior and other Library lenses are
+separate work.
+
+### Library Integrations
+
+Library Integrations uses a quiet count/state header, an optional platform
+Library selector, one full-area results scroller, and bottom assembly context.
+It replaces the generic Library hero, repeated summary heading/noninteractive
+category chips, and inset signal cards.
+
+```text
+Integrations                             category/signal count or state
+optional platform Library selector
+category headings and full-width signal rows
+Library asset and assembly identity              TFM · package@version
+```
+
+Existing category order, type-first signal sorting, name/qualifier splitting,
+shape/kind badges, and category/total counts remain. The platform selector stays
+above scrolling results and keeps its existing acquisition and selection
+behavior. The footer retains the Library asset path, full assembly identity,
+and package/version/framework context.
+
+Loading and query failure retain the same frame. Incomplete results retain their
+available categories and diagnostics, visibly marked as partial. An incomplete
+scan with no returned signals does not claim established absence; only a
+complete empty result says no integrations were detected.
+
+At narrow widths the existing Types/details control shares the quiet header.
+Category names, signal names/qualifiers, and kind text wrap within the pane.
+Many rows scroll locally while header, selector, and bottom context stay put.
+
+The explicitly approved browser-only presentation scope has
+[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6202):
+wire production Library Integrations to this frame and retire only that
+consumer's old composition. Browser HTML lowering consumes the existing typed
+`BrowserPackageIntegrations` result. References and Metadata supply the local
+layout conventions; this is not a new inspection or rendering architecture.
+
+Focused renderer and production-composition browser gates cover wide/narrow,
+long/many results, state distinctions, Library switching, and platform controls.
+Scan classification, catalog ownership, other lenses, and subject-strip
+interaction remain separate work.
 
 ### Package Metadata
 

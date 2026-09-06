@@ -72,7 +72,7 @@ async function mountGraph() {
     diagram.innerHTML = '<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>Fixture diagram failure</p></div>';
     return;
   }
-  const graph = buildDependencyGraphMermaid({
+  const graph = await buildDependencyGraphMermaid({
     package: pkg,
     packages: [pkg, loaded],
     packageDependencies: { dependencyGroups: groups },
