@@ -69,6 +69,7 @@ export function filterMemberGroups(
 
 export interface MemberScopeState {
   atPackageRoot: boolean;
+  atLibraryRoot?: boolean;
   lens: TypeLens;
   selectedMemberKey: string;
   memberBrowseTypeId: string;
@@ -79,6 +80,7 @@ export function memberScopeIsActive(
   currentTypeId: string | null | undefined,
 ): boolean {
   return !state.atPackageRoot
+    && !state.atLibraryRoot
     && state.lens === "api"
     && Boolean(state.selectedMemberKey || (
       currentTypeId
@@ -168,7 +170,7 @@ export function restoreLibraryScope(
   const available = new Set(availableLibraries);
   const restored = new Set(
     savedScope.filter((key): key is string => typeof key === "string" && available.has(key)));
-  return restored.size > 0 && restored.size < available.size
+  return restored.size > 0
     ? restored
     : null;
 }

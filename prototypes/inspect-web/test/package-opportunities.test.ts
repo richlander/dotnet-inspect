@@ -181,7 +181,7 @@ function escapeHtml(value: unknown) {
 
 const baseOptions = {
   isPlatform: false,
-  scopedLibrary: null,
+  scopedLibrary: "Test.Assembly",
   activeFramework: "net10.0",
   picker: "",
   fresh: true,
@@ -251,6 +251,7 @@ test("empty categories render the no-opportunities message with the scan scope",
   });
 
   assert.match(html, /No integration opportunities/);
+  assert.match(html, /Test\.Assembly/);
   assert.match(html, /net10\.0/);
 });
 
@@ -275,7 +276,7 @@ test("an inspection error renders a warning banner alongside categories", () => 
     },
   });
 
-  assert.match(html, /Some assemblies could not be scanned/);
+  assert.match(html, /This library could not be scanned completely/);
   assert.match(html, /&lt;bad&gt; assembly/);
 });
 
@@ -292,7 +293,7 @@ test("categories render a summary with area/suggestion counts and a chip per cat
     },
   });
 
-  assert.match(html, /2 areas · 1 suggestion · net10\.0/);
+  assert.match(html, /2 areas · 1 suggestion · Test\.Assembly · net10\.0/);
   assert.match(html, /<span class="type-chip">Auth <span class="ns-count">1<\/span><\/span>/);
   assert.match(html, /<span class="type-chip">Database <span class="ns-count">0<\/span><\/span>/);
 });

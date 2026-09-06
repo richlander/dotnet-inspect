@@ -104,6 +104,11 @@ substrates, and inspection producers that will extend that space.
   [the typed source domain](design/search-scope-domain.md). Host adapter
   adoption remains staged under #5602; package-set identities remain in the
   application catalog.
+- `src/DotnetInspector.SourceDelegation/` implements the shared
+  [source delegation](design/source-delegation.md) effect protocol and typed
+  result contract. Its public contract harness exercises candidate selection,
+  committed execution, and completion-bound row or Count outcomes; Gallery,
+  L2, and host adoption remain staged under #5919.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
