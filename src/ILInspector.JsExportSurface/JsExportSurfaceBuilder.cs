@@ -189,6 +189,7 @@ public static class JsExportSurfaceBuilder
 
         var records = new List<ApiType>();
         var enums = new List<ApiType>();
+        var unionTypes = new List<ApiType>();
         var discovered = new HashSet<ApiType>();
         var policiesByType = new Dictionary<ApiType, HashSet<JsonWireNamingPolicy>>();
         var registeredJsonTypeInfoGetterModes =
@@ -480,7 +481,9 @@ public static class JsExportSurfaceBuilder
 
             if (discovered.Add(type))
             {
-                if (type.Kind == "enum")
+                if (type.HasUnionAttribute == true)
+                    unionTypes.Add(type);
+                else if (type.Kind == "enum")
                     enums.Add(type);
                 else
                     records.Add(type);
@@ -489,6 +492,19 @@ public static class JsExportSurfaceBuilder
             if (type.Kind == "enum"
                 || type.JsonConverterAttributeCount > 0)
                 continue;
+
+            if (type.HasUnionAttribute == true)
+            {
+                foreach (ApiMember constructor in JsonUnionWireRules.CaseConstructors(type))
+                {
+                    foreach (ApiTypeReferenceIdentity reference
+                        in constructor.SignatureModel!.Parameters[0].TypeReferences)
+                    {
+                        queue.Enqueue((null, reference, namingPolicy));
+                    }
+                }
+                continue;
+            }
 
             foreach (ApiMember member in type.Members)
             {
@@ -557,7 +573,8 @@ public static class JsExportSurfaceBuilder
                 functions,
                 surface.AssemblyIdentity,
                 typesByScopedIdentity,
-                discovered);
+                discovered,
+                bodyEvidenceAvailable: bodyIndex is not null);
         RejectReachedContextRelativeValueTypeAccessibility(
             functions,
             wireDirections,
@@ -572,9 +589,24 @@ public static class JsExportSurfaceBuilder
             Functions = functions,
             Records = records,
             Enums = enums,
+            Unions = DescribeUnions(unionTypes, bodyIndex),
             AllTypes = surface.Types,
             WireDirections = wireDirections,
         };
+    }
+
+    static IReadOnlyList<JsExportUnion> DescribeUnions(
+        IReadOnlyList<ApiType> unionTypes,
+        LibraryBodyIndex? bodyIndex)
+    {
+        if (unionTypes.Count == 0)
+            return [];
+
+        IReadOnlyDictionary<int, MethodIdentity> methods = bodyIndex is null
+            ? new Dictionary<int, MethodIdentity>()
+            : bodyIndex.DeclaredMethods.ToDictionary(method => method.MetadataToken);
+        return [.. unionTypes.Select(type =>
+            JsonUnionWireRules.Describe(type, bodyIndex, methods))];
     }
 
     /// <summary>
@@ -598,7 +630,8 @@ public static class JsExportSurfaceBuilder
         List<JsExportFunction> functions,
         ApiAssemblyIdentity? assemblyIdentity,
         Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
-        HashSet<ApiType> discovered)
+        HashSet<ApiType> discovered,
+        bool bodyEvidenceAvailable)
     {
         var directions = new Dictionary<ApiType, JsonWireDirection>();
         var queue = new Queue<(ApiType Type, JsonWireDirection Direction)>();
@@ -641,6 +674,13 @@ public static class JsExportSurfaceBuilder
             if (type.Kind == "enum" || type.JsonConverterAttributeCount > 0)
                 continue;
 
+            if (type.HasUnionAttribute == true)
+            {
+                foreach (ApiMember constructor in JsonUnionWireRules.CaseConstructors(type))
+                    Seed(constructor.SignatureModel!.Parameters[0].TypeReferences, direction);
+                continue;
+            }
+
             foreach (ApiMember member in type.Members)
             {
                 if (!JsonWireMemberRules.IsSerialized(
@@ -658,7 +698,7 @@ public static class JsExportSurfaceBuilder
             }
         }
 
-        if (directions.Count > 0)
+        if (bodyEvidenceAvailable || directions.Count > 0)
         {
             foreach (ApiType type in discovered)
                 directions.TryAdd(type, JsonWireDirection.None);
@@ -702,6 +742,7 @@ public static class JsExportSurfaceBuilder
             if (!wireDirections.TryGetValue(type, out JsonWireDirection directions)
                 || directions == JsonWireDirection.None
                 || type.Kind == "enum"
+                || type.HasUnionAttribute == true
                 || type.JsonConverterAttributeCount > 0)
             {
                 continue;
@@ -818,6 +859,18 @@ public static class JsExportSurfaceBuilder
 
             if (type.Kind == "enum" || type.JsonConverterAttributeCount > 0)
                 continue;
+
+            if (type.HasUnionAttribute == true)
+            {
+                foreach (ApiMember constructor in JsonUnionWireRules.CaseConstructors(type))
+                {
+                    Seed(
+                        constructor.SignatureModel!.Parameters[0].TypeReferences,
+                        [contextScopeKey],
+                        direction);
+                }
+                continue;
+            }
 
             foreach (ApiMember member in type.Members)
             {
