@@ -71,6 +71,35 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void KnownUnsafeFact_DoesNotSuppressInvalidRulesState()
+    {
+        using var fixture = MethodCollisionFixture.Create(
+            rulesVersion: 99);
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "ReturnCollision",
+            objectType,
+            [],
+            HasThis: false)
+        {
+            TypeArguments = [objectType],
+            DefinitionReturnType = objectType,
+            RequiresUnsafeFact = MetadataFactState.No,
+        };
+
+        MethodRef resolved = fixture.Resolve(callee);
+
+        Assert.Equal(
+            MemorySafetyRulesState.Unsupported,
+            resolved.MemorySafetyRulesState);
+        Assert.Equal(
+            MetadataFactState.No,
+            resolved.RequiresUnsafeFact);
+        Assert.False(resolved.MemorySafetyContractUnavailable);
+    }
+
+    [Fact]
     public void CustomModifierSignatureCollision_UsesExactModifiers()
     {
         using var fixture = MethodCollisionFixture.Create();
@@ -759,14 +788,17 @@ public class CrossAssemblyMethodFactsTests
             _library = library;
         }
 
-        public static MethodCollisionFixture Create()
+        public static MethodCollisionFixture Create(
+            int rulesVersion = 2)
         {
             string directory = Directory.CreateTempSubdirectory(
                 "dotnet-inspect-method-collisions-").FullName;
             string library = Path.Combine(
                 directory,
                 "MethodCollisionLib.dll");
-            File.WriteAllBytes(library, BuildMethodCollisionLibrary());
+            File.WriteAllBytes(
+                library,
+                BuildMethodCollisionLibrary(rulesVersion));
             return new MethodCollisionFixture(directory, library);
         }
 
@@ -818,10 +850,10 @@ public class CrossAssemblyMethodFactsTests
         public void Dispose()
             => Directory.Delete(_directory, recursive: true);
 
-        static byte[] BuildMethodCollisionLibrary()
+        static byte[] BuildMethodCollisionLibrary(int rulesVersion)
         {
             var metadata = new MetadataBuilder();
-            metadata.AddModule(
+            ModuleDefinitionHandle module = metadata.AddModule(
                 0,
                 metadata.GetOrAddString("MethodCollisionLib.dll"),
                 metadata.GetOrAddGuid(Guid.NewGuid()),
@@ -855,11 +887,21 @@ public class CrossAssemblyMethodFactsTests
                 metadata.GetOrAddString(
                     "System.Diagnostics.CodeAnalysis"),
                 metadata.GetOrAddString("RequiresUnsafeAttribute"));
+            var memorySafetyRules = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("MemorySafetyRulesAttribute"));
             var attributeConstructor = metadata.AddMemberReference(
                 requiresUnsafe,
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(
                     new byte[] { 0x20, 0x00, 0x01 }));
+            var rulesConstructor = metadata.AddMemberReference(
+                memorySafetyRules,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x01, 0x01, 0x08 }));
             metadata.AddTypeDefinition(
                 default,
                 default,
@@ -915,6 +957,16 @@ public class CrossAssemblyMethodFactsTests
                 GenericInstanceSignature(
                     metadata,
                     otherGenericMarker));
+            metadata.AddCustomAttribute(
+                module,
+                rulesConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        1, 0,
+                        (byte)rulesVersion, 0, 0, 0,
+                        0, 0,
+                    }));
 
             var genericReturn = AddMethod(
                 metadata,

@@ -435,10 +435,12 @@ consumer's convenience.
 
 **Status:** #5860 implements the #4711 population sealer and companion-internal
 projection, with the named Release gates in
-[Migration and gates](#migration-and-gates). Public comparison query execution
-has not migrated: that adoption is step 7 of #4706, after Queries publication
-can retain the receipt. Body-signal target-evidence migration still
-requires #4777.
+[Migration and gates](#migration-and-gates). The implementation profile is
+consumed by `DirectMemberComparisonQuery`, CLI `match --body` (#5967), and
+Browser Method Body Diff (#5990). Whole-assembly and body-signal query execution
+remain separate step-7 migrations in #4706. The unconsumed Queries body-signal
+population profile is retired in #6044; its target-evidence migration still
+requires #4777 and an actual execution adopter.
 
 This boundary is owned by the L1 `DotnetInspector.Queries` component and this
 document. The component spans the core query assembly and the optional
@@ -474,8 +476,8 @@ workspace lifetime contract. A comparison may borrow its participant evidence,
 but the group does not become the comparison-population owner and its disposal
 rules do not move into this boundary.
 
-`QueryComparisonPopulationSealer.Execute` now accepts separately typed,
-Queries-owned implementation or body-signal population requests and returns a
+`QueryComparisonPopulationSealer.Execute` accepts a typed, Queries-owned
+implementation population request and returns a
 sealed `QueryComparisonPopulation<TBinding>` or typed rejection. The internal
 `QueryPopulationProjection.Execute` in the ResearchQueries companion admits the
 sealed inputs and returns `ProjectedQueryPopulation` with its inert
@@ -486,16 +488,16 @@ one question; the question map identifies the unique admitted question, even
 when both sides are empty.
 
 The existing `ImplementationComparisonInput`, `BodySignalComparisonInput`, and
-their public `Execute` result contracts are unchanged in this slice. The new
-receipt is not discarded to adapt them prematurely. #4706 counts the shared
+their public `Execute` result contracts remain supported by the CLI `diff`
+consumer. The receipt is not discarded to adapt them prematurely. #4706 counts the shared
 population boundary as step 1, local CLI/browser adoption as steps 8/9, and
 final Queries/Research retirement as steps 16/17.
 
 ### Population contract
 
-Each `ImplementationComparisonQuery.Execute` or
-`BodySignalComparisonQuery.Execute` invocation is one query question. Before
-Research execution, L1 snapshots and seals:
+Each sealing invocation is one query question. The current execution consumer
+is `DirectMemberComparisonQuery.Execute`. Before Research execution, L1
+snapshots and seals:
 
 - one opaque, operation-local `QueryComparisonOperationId`;
 - one opaque `QueryComparisonQuestionId` parented by that operation;
@@ -526,20 +528,19 @@ id kinds. The sealer does not deduplicate borrowed values, and it does not open
 content, hash bytes, read an MVID, compare paths, or use list position as the
 resulting identity.
 
-The boundary has two separately typed profiles corresponding to the current
-queries:
+The implemented boundary has one typed profile used by the direct-member query:
 
 | Profile | Query-owned input binding | Borrowed owner values |
 | --- | --- | --- |
 | Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and `LibraryBodyIndex` |
-| Body-signal comparison | one binding per submitted body index | exact `LibraryBodyIndex` |
 
-The profiles share identity and sealing rules, not an untyped input bag.
-The public execution migration must replace the Research-owned
-`ImplementationAssemblyInput` at the public L1 input seam with a query-owned
-idless binding. Body-signal comparison likewise wraps each index in a
-query-owned idless binding instead of treating `LibraryBodyIndex.Path` or
-object position as identity.
+The separate whole-assembly execution migration must replace the Research-owned
+`ImplementationAssemblyInput` at its public L1 input seam with a query-owned
+idless binding. A body-signal adoption must supply its required Metadata target
+evidence and an actual public execution consumer together; the unused
+index-only population request, sealer overload, and projection are not retained
+as placeholders for that future work. Research's own supported profiles and the
+existing `BodySignalComparisonQuery` are unchanged by this Queries contraction.
 
 The sealer copies caller-owned collections and selection sets into immutable
 storage before returning. Subsequent caller mutation cannot change the

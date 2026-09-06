@@ -327,7 +327,13 @@ public class LadderRung6GateTests
                 }
                 public static unsafe class Extensions
                 {
-                    public static int ExtPtr(Point* p) => p->X;
+                    public static int ExtPtr(Point* p)
+                    {
+                        unsafe
+                        {
+                            return p->X;
+                        }
+                    }
                 }
                 """),
             body);
@@ -564,6 +570,1276 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StaticPointerRefArguments_UseRuleSpecificUnsafeContexts()
+    {
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var byRefInt = TypeRef.ByRef(Int32);
+        var takeRef = new MethodRef(helpers, "TakeRef", Void, [byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        var takeIn = new MethodRef(helpers, "TakeIn", Int32, [byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.In],
+        };
+        var takeLaterRef = new MethodRef(helpers, "TakeLaterRef", Void, [Int32, byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Value, ArgumentRefKind.Ref],
+        };
+        var takeLaterIn = new MethodRef(helpers, "TakeLaterIn", Int32, [Int32, byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Value, ArgumentRefKind.In],
+        };
+        var takeOut = new MethodRef(helpers, "TakeOut", Void, [byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+        };
+
+        const string declarations = """
+            public static class Helpers
+            {
+                public static void TakeRef(ref int value) { }
+                public static int TakeIn(in int value) => value;
+                public static void TakeLaterRef(int unused, ref int value) { }
+                public static int TakeLaterIn(int unused, in int value) => value;
+                public static void TakeOut(out int value) => value = 0;
+            }
+            """;
+
+        AssertCall(takeRef, () => [new LoadArgument(0, "p", IntPointer)], "Helpers.TakeRef(ref *p)");
+        AssertCall(takeIn, () => [new LoadArgument(0, "p", IntPointer)], "Helpers.TakeIn(in *p)");
+        AssertCall(
+            takeLaterRef,
+            () => [new Constant(0, Int32), new LoadArgument(0, "p", IntPointer)],
+            "Helpers.TakeLaterRef(0, ref *p)");
+        AssertCall(
+            takeLaterIn,
+            () => [new Constant(0, Int32), new LoadArgument(0, "p", IntPointer)],
+            "Helpers.TakeLaterIn(0, in *p)");
+        AssertCall(takeOut, () => [new LoadArgument(0, "p", IntPointer)], "Helpers.TakeOut(out *p)");
+
+        void AssertCall(
+            MethodRef method,
+            Func<IReadOnlyList<IrExpression>> createArguments,
+            string expected)
+        {
+            IrFunction CreateFunction() => Function(
+                "StaticPointerRefArgument",
+                Void,
+                [new Parameter("p", IntPointer)],
+                [],
+                new ExpressionStatement(new Call(
+                    method,
+                    isVirtual: false,
+                    createArguments())),
+                new Return(null));
+
+            var (updated, legacy) = PrintRulePair(CreateFunction);
+
+            Assert.Contains(expected, updated);
+            Assert.Contains("unsafe", updated);
+            Assert.DoesNotContain("unsafe", legacy);
+            AssertNoErrors(RecompileNewRules("static unsafe void M(int* p)", updated, declarations), updated);
+            AssertNoErrors(RecompileLegacyRules("static unsafe void M(int* p)", legacy, declarations), legacy);
+        }
+    }
+
+    [Fact]
+    public void Rung6PointerRefArgumentsInOtherCalls_UseRuleSpecificUnsafeContexts()
+    {
+        var byRefInt = TypeRef.ByRef(Int32);
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var instanceMethod = new MethodRef(holder, "Take", Void, [byRefInt], HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        AssertCall(
+            () => Function(
+                "InstancePointerRefArgument",
+                Void,
+                [
+                    new Parameter("holder", holder),
+                    new Parameter("p", IntPointer),
+                ],
+                [],
+                new ExpressionStatement(new Call(
+                    instanceMethod,
+                    isVirtual: true,
+                    [
+                        new LoadArgument(0, "holder", holder),
+                        new LoadArgument(1, "p", IntPointer),
+                    ])),
+                new Return(null)),
+            "static unsafe void M(Holder holder, int* p)",
+            "public sealed class Holder { public void Take(ref int value) { } }",
+            "holder.Take(ref *p);");
+
+        var constructor = new MethodRef(holder, ".ctor", Void, [byRefInt], HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        AssertCall(
+            () => Function(
+                "ConstructorPointerRefArgument",
+                Void,
+                [new Parameter("p", IntPointer)],
+                [],
+                new ExpressionStatement(new NewObject(
+                    constructor,
+                    [new LoadArgument(0, "p", IntPointer)])),
+                new Return(null)),
+            "static unsafe void M(int* p)",
+            "public sealed class Holder { public Holder(ref int value) { } }",
+            "new Holder(ref *p);");
+
+        AssertCall(
+            () => Function(
+                "LocalFunctionPointerRefArgument",
+                Void,
+                [new Parameter("p", IntPointer)],
+                [],
+                new LocalFunctionStatement(
+                    "Take",
+                    Void,
+                    [new Parameter("value", byRefInt)],
+                    [ArgumentRefKind.Ref],
+                    isStatic: true,
+                    [],
+                    [],
+                    usesUpdatedMemorySafetyRules: true,
+                    skipLocalsInit: false,
+                    BlockContainer(new Return(null))),
+                new ExpressionStatement(new LocalFunctionInvocation(
+                    "Take",
+                    Void,
+                    [new LoadArgument(0, "p", IntPointer)],
+                    [byRefInt],
+                    [ArgumentRefKind.Ref])),
+                new Return(null)),
+            "static unsafe void M(int* p)",
+            "",
+            "Take(ref *p);");
+
+        static void AssertCall(
+            Func<IrFunction> createFunction,
+            string methodHeader,
+            string declarations,
+            string expected)
+        {
+            var (updated, legacy) = PrintRulePair(createFunction);
+
+            Assert.Contains(expected, updated);
+            Assert.Contains("unsafe", updated);
+            Assert.DoesNotContain("unsafe", legacy);
+            AssertNoErrors(RecompileNewRules(methodHeader, updated, declarations), updated);
+            AssertNoErrors(RecompileLegacyRules(methodHeader, legacy, declarations), legacy);
+        }
+    }
+
+    [Fact]
+    public void Rung6UpdatedPointerSignatureLocalFunctionCall_NeedsNoUnsafeContext()
+    {
+        IrFunction CreateFunction() => Function(
+            "PointerSignatureLocalFunctionCall",
+            Void,
+            [new Parameter("p", IntPointer)],
+            [],
+            new LocalFunctionStatement(
+                "Take",
+                Void,
+                [new Parameter("value", IntPointer)],
+                isStatic: true,
+                [],
+                [],
+                usesUpdatedMemorySafetyRules: true,
+                skipLocalsInit: false,
+                BlockContainer(new Return(null))),
+            new ExpressionStatement(new LocalFunctionInvocation(
+                "Take",
+                Void,
+                [new LoadArgument(0, "p", IntPointer)],
+                [IntPointer],
+                [ArgumentRefKind.Value])),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.DoesNotContain("unsafe\n{\n    Take(p);", updated);
+        Assert.DoesNotContain("unsafe\n{\n    Take(p);", legacy);
+        AssertNoErrors(RecompileNewRules("static void M(int* p)", updated), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M(int* p)", legacy), legacy);
+    }
+
+    [Fact]
+    public void Rung6RequiresUnsafeLocalFunction_RetainsModifierAndCallContext()
+    {
+        IrFunction CreateFunction() => Function(
+            "RequiresUnsafeLocalFunction",
+            Void,
+            [],
+            [],
+            new LocalFunctionStatement(
+                "Take",
+                Void,
+                [],
+                isStatic: true,
+                [],
+                [],
+                usesUpdatedMemorySafetyRules: true,
+                skipLocalsInit: false,
+                BlockContainer(new Return(null)),
+                requiresUnsafe: true),
+            new ExpressionStatement(new LocalFunctionInvocation(
+                "Take",
+                Void,
+                [],
+                [],
+                [],
+                requiresUnsafe: true)),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("static unsafe void Take()", updated);
+        Assert.Contains("unsafe\n{\n    Take();", updated);
+        Assert.Contains("static unsafe void Take()", legacy);
+        Assert.DoesNotContain("unsafe\n{\n    Take();", legacy);
+        AssertNoErrors(RecompileNewRules("static void M()", updated), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M()", legacy), legacy);
+    }
+
+    [Fact]
+    public void Rung6UnsafeLocalFunctionBody_KeepsDeclarationInCallerScope()
+    {
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var risky = new MethodRef(helpers, "Risky", Void, [], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+
+        IrFunction CreateFunction()
+        {
+            var localBody = BlockContainer(
+                new ExpressionStatement(new Call(risky, isVirtual: false, [])),
+                new Return(null));
+            return Function(
+                "UnsafeLocalFunctionBody",
+                Void,
+                [],
+                [],
+                new ExpressionStatement(new LocalFunctionInvocation("Take", Void, [])),
+                new LocalFunctionStatement(
+                    "Take",
+                    Void,
+                    [],
+                    isStatic: true,
+                    [],
+                    [],
+                    usesUpdatedMemorySafetyRules: true,
+                    skipLocalsInit: false,
+                    localBody),
+                new Return(null));
+        }
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+        const string declarations =
+            "public static class Helpers { public static unsafe void Risky() { } }";
+
+        Assert.Contains("Take();\nstatic void Take()", updated);
+        Assert.Contains("static void Take()\n{\n    unsafe", updated);
+        Assert.DoesNotContain("unsafe\n{\n    static void Take()", updated);
+        AssertNoErrors(RecompileNewRules("static void M()", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M()", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6UnsafeEvaluationBeforeAwait_UsesExplicitBlockUnderBothRuleSets()
+    {
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var intPointer = TypeRef.Pointer(Int32);
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(holder, "get_Risky", intPointer, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+
+        IrFunction CreateFunction()
+        {
+            var function = Function(
+                "UnsafeEvaluationBeforeAwait",
+                taskOfInt,
+                [new Parameter("holder", holder)],
+                [Int32],
+                new StoreLocal(
+                    0,
+                    Int32,
+                    new LoadIndirect(
+                        Int32,
+                        new LoadProperty(
+                            getter,
+                            new LoadArgument(0, "holder", holder),
+                            []))),
+                new Return(new AwaitExpression(
+                    new Call(
+                        fromResult,
+                        isVirtual: false,
+                        [new LoadLocal(0, Int32)]),
+                    Int32)));
+            function.RequiresAsyncBodyModifier = true;
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations =
+            "using System.Threading.Tasks; "
+            + "public sealed class Holder { public unsafe int* Risky => (int*)0; }";
+        const string header =
+            "static async System.Threading.Tasks.Task<int> M(Holder holder)";
+
+        Assert.False(updated.RequiresUnsafeBodyModifier);
+        Assert.False(legacy.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe\n{", updated.Output);
+        Assert.Contains("unsafe\n{", legacy.Output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", updated.Output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
+    public void Rung6AwaitBeforeUnsafeConsumer_PreservesSafeBoundary()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var risky = new MethodRef(
+            TypeRef.Definition("Synthetic", "", "Helpers"),
+            "Risky",
+            Int32,
+            [Int32],
+            HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+
+        IrFunction CreateFunction()
+        {
+            var function = Function(
+                "AwaitBeforeUnsafeConsumer",
+                taskOfInt,
+                [new Parameter("task", taskOfInt)],
+                [Int32],
+                new StoreLocal(
+                    0,
+                    Int32,
+                    new AwaitExpression(
+                        new LoadArgument(0, "task", taskOfInt),
+                        Int32)),
+                new Return(new Call(
+                    risky,
+                    isVirtual: false,
+                    [new LoadLocal(0, Int32)])));
+            function.RequiresAsyncBodyModifier = true;
+            new ExpressionInliningPass().Run(function, PassContext.None);
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations =
+            "using System.Threading.Tasks; "
+            + "public static class Helpers { public static unsafe int Risky(int value) => value; }";
+        const string header =
+            "static async System.Threading.Tasks.Task<int> M(System.Threading.Tasks.Task<int> task)";
+
+        Assert.Contains("int V_0 = await task;", updated.Output);
+        Assert.Contains("int V_0 = await task;", legacy.Output);
+        Assert.DoesNotContain("Risky(await", updated.Output);
+        Assert.DoesNotContain("Risky(await", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
+    public void Rung6UnsafeHeaderBeforeAwaitingBody_PreservesSafeBoundary()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var risky = new MethodRef(
+            holder,
+            "get_Risky",
+            boolean,
+            [],
+            HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+
+        IrFunction CreateFunction()
+        {
+            var thenArm = new Block();
+            thenArm.Add(new ExpressionStatement(new AwaitExpression(
+                new Call(
+                    fromResult,
+                    isVirtual: false,
+                    [new Constant(1, Int32)]),
+                Int32)));
+            var function = Function(
+                "UnsafeHeaderBeforeAwaitingBody",
+                taskOfInt,
+                [new Parameter("holder", holder)],
+                [boolean],
+                new StoreLocal(
+                    0,
+                    boolean,
+                    new LoadProperty(
+                        risky,
+                        new LoadArgument(0, "holder", holder),
+                        [])),
+                new IfStatement(
+                    new LoadLocal(0, boolean),
+                    thenArm,
+                    elseArm: null),
+                new Return(new AwaitExpression(
+                    new Call(
+                        fromResult,
+                        isVirtual: false,
+                        [new Constant(2, Int32)]),
+                    Int32)));
+            function.RequiresAsyncBodyModifier = true;
+            new ExpressionInliningPass().Run(function, PassContext.None);
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations =
+            "using System.Threading.Tasks; "
+            + "public sealed class Holder { public unsafe bool Risky => true; }";
+        const string header =
+            "static async System.Threading.Tasks.Task<int> M(Holder holder)";
+
+        Assert.Contains("if (V_0)", updated.Output);
+        Assert.Contains("if (V_0)", legacy.Output);
+        Assert.DoesNotContain("if (holder.Risky)", updated.Output);
+        Assert.DoesNotContain("if (holder.Risky)", legacy.Output);
+        Assert.DoesNotContain("unsafe\n{\n    if", updated.Output);
+        Assert.DoesNotContain("unsafe\n{\n    if", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
+    public void Rung6LegacyAsyncLocalFunction_UsesExplicitInnerBlock()
+    {
+        var task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+        var yieldAwaitable = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "YieldAwaitable");
+        var yield = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "Yield",
+            yieldAwaitable,
+            [],
+            HasThis: false);
+
+        IrFunction CreateFunction()
+        {
+            var function = Function(
+                "LegacyAsyncLocalFunction",
+                task,
+                [],
+                [],
+                new ExpressionStatement(new AwaitExpression(
+                    new Call(yield, isVirtual: false, []),
+                    Void)),
+                new LocalFunctionStatement(
+                    "Read",
+                    Int32,
+                    [new Parameter("pointer", IntPointer)],
+                    [ArgumentRefKind.Value],
+                    isStatic: true,
+                    [],
+                    [],
+                    usesUpdatedMemorySafetyRules: false,
+                    skipLocalsInit: false,
+                    BlockContainer(new Return(new LoadIndirect(
+                        Int32,
+                        new LoadArgument(0, "pointer", IntPointer))))),
+                new Return(null));
+            function.RequiresAsyncBodyModifier = true;
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations = "using System.Threading.Tasks;";
+        const string header = "static async System.Threading.Tasks.Task M()";
+
+        Assert.Contains("static int Read(int* pointer)\n{\n    unsafe", updated.Output);
+        Assert.Contains("static int Read(int* pointer)\n{\n    unsafe", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
+    public void Rung6LocalFunctionRefReturn_UsesLocalReturnTypeForUnsafeBlock()
+    {
+        var refInt = TypeRef.ByRef(Int32);
+
+        IrFunction CreateFunction() => Function(
+            "LocalFunctionRefReturn",
+            Void,
+            [],
+            [],
+            new LocalFunctionStatement(
+                "Reference",
+                refInt,
+                [new Parameter("p", IntPointer)],
+                isStatic: true,
+                [],
+                [],
+                usesUpdatedMemorySafetyRules: true,
+                skipLocalsInit: false,
+                BlockContainer(new Return(new LoadArgument(0, "p", IntPointer)))),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("unsafe\n    {\n        return ref *p;\n    }", updated);
+        Assert.Contains("=> ref *p;", legacy);
+        Assert.DoesNotContain("unsafe\n    {\n        return ref *p;\n    }", legacy);
+        AssertNoErrors(RecompileNewRules("static void M()", updated), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M()", legacy), legacy);
+    }
+
+    [Fact]
+    public void Rung6LegacyPointerDeclaration_RequiresMemberUnsafeModifier()
+    {
+        IrFunction CreateFunction(bool updatedRules, IrNode statement, ImmutableArray<TypeRef> locals)
+        {
+            var function = Function(
+                "PointerDeclaration",
+                Void,
+                [],
+                locals,
+                statement,
+                new Return(null));
+            function.UsesUpdatedMemorySafetyRules = updatedRules;
+            return function;
+        }
+
+        AssertRuleDifference(
+            new StoreLocal(0, IntPointer, new Constant(null, IntPointer)),
+            [IntPointer]);
+        AssertRuleDifference(
+            new StoreLocal(0, Int32, new SizeOf(IntPointer)),
+            [Int32]);
+        AssertRuleDifference(
+            new ExpressionStatement(new ILInspector.Decompiler.Pipeline.Convert(
+                TypeRef.CoreLib("System", "UIntPtr"),
+                isChecked: false,
+                isUnsigned: false,
+                new LoadLocalAddress(0, Int32))),
+            [Int32]);
+        AssertRuleDifference(
+            new Fixed(
+                Int32,
+                localIndex: 0,
+                new Constant(null, TypeRef.ByRef(Int32)),
+                BlockContainer()),
+            [TypeRef.ByRef(Int32)]);
+        var functionPointer = TypeRef.FunctionPointer(Void, [], "");
+        AssertRuleDifference(
+            new StoreField(
+                new FieldRef(TypeRef.Definition("Synthetic", "", "Holder"), "Target", functionPointer),
+                instance: null,
+                new AddressOfMethod(
+                    new MethodRef(
+                        TypeRef.Definition("Synthetic", "", "Holder"),
+                        "Method",
+                        Void,
+                        [],
+                        HasThis: false),
+                    functionPointer)),
+            []);
+
+        void AssertRuleDifference(IrNode statement, ImmutableArray<TypeRef> locals)
+        {
+            var updated = CSharpPrinter.Print(CreateFunction(
+                updatedRules: true,
+                (IrNode)statement.Clone(),
+                locals));
+            var legacy = CSharpPrinter.Print(CreateFunction(
+                updatedRules: false,
+                statement,
+                locals));
+
+            Assert.False(updated.RequiresUnsafeBodyModifier);
+            Assert.True(legacy.RequiresUnsafeBodyModifier);
+        }
+    }
+
+    [Fact]
+    public void Rung6PointerNullCoalescingFieldStatement_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var field = new FieldRef(point, "Field", nullableInt);
+
+        IrFunction CreateFunction() => Function(
+            "PointerNullCoalescingField",
+            Void,
+            [new Parameter("p", pointPointer)],
+            [],
+            new NullCoalescingFieldAssignment(
+                field,
+                new LoadArgument(0, "p", pointPointer),
+                new Constant(1, Int32)),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("p->Field ??= 1;", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = "public struct Point { public int? Field; }";
+        AssertNoErrors(RecompileNewRules("static unsafe void M(Point* p)", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M(Point* p)", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6PointerNullCoalescingFieldExpression_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var field = new FieldRef(point, "Field", nullableInt);
+
+        IrFunction CreateFunction() => Function(
+            "PointerNullCoalescingFieldExpression",
+            nullableInt,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(new NullCoalescingFieldAssignmentExpression(
+                field,
+                new LoadArgument(0, "p", pointPointer),
+                new Constant(1, Int32))));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("return p->Field ??= 1;", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = "public struct Point { public int? Field; }";
+        AssertNoErrors(RecompileNewRules("static unsafe int? M(Point* p)", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe int? M(Point* p)", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6PointerNullCoalescingProperty_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var setter = new MethodRef(point, "set_Property", Void, [nullableInt], HasThis: true);
+
+        IrFunction CreateFunction() => Function(
+            "PointerNullCoalescingProperty",
+            Void,
+            [new Parameter("p", pointPointer)],
+            [],
+            new NullCoalescingPropertyAssignment(
+                setter,
+                new LoadArgument(0, "p", pointPointer),
+                [],
+                new Constant(2, Int32),
+                isVirtual: false),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("p->Property ??= 2;", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = "public struct Point { public int? Property { get; set; } }";
+        AssertNoErrors(RecompileNewRules("static unsafe void M(Point* p)", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M(Point* p)", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6PointerPropertyDeconstruction_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var tuple = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "ValueTuple`2"),
+            [nullableInt, Int32]);
+        var setter = new MethodRef(point, "set_Property", Void, [nullableInt], HasThis: true);
+
+        IrFunction CreateFunction() => Function(
+            "PointerPropertyDeconstruction",
+            Void,
+            [
+                new Parameter("p", pointPointer),
+                new Parameter("tuple", tuple),
+            ],
+            [Int32],
+            new DeconstructionAssignment(
+                [
+                    DeconstructionTarget.Property(
+                        setter,
+                        new LoadArgument(0, "p", pointPointer),
+                        [],
+                        isVirtual: false),
+                    DeconstructionTarget.Local(0, Int32, isDeclared: false),
+                ],
+                new LoadArgument(1, "tuple", tuple)),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("(p->Property,", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = """
+            public struct Point
+            {
+                public int? Property { get; set; }
+            }
+            """;
+        AssertNoErrors(
+            RecompileNewRules("static unsafe void M(Point* p, (int?, int) tuple)", updated, declarations),
+            updated);
+        AssertNoErrors(
+            RecompileLegacyRules("static unsafe void M(Point* p, (int?, int) tuple)", legacy, declarations),
+            legacy);
+    }
+
+    [Fact]
+    public void Rung6RequiresUnsafeDelegateCreation_UsesRuleSpecificUnsafeContexts()
+    {
+        var action = TypeRef.CoreLib("System", "Action");
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var risky = new MethodRef(helpers, "Risky", Void, [], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+
+        IrFunction CreateFunction() => Function(
+            "RequiresUnsafeDelegateCreation",
+            Void,
+            [],
+            [action],
+            new StoreLocal(
+                0,
+                action,
+                new DelegateCreation(
+                    action,
+                    risky,
+                    isVirtual: false,
+                    new Constant(null, TypeRef.CoreLib("System", "Object")))),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("new Action(Helpers.Risky)", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = """
+            public static class Helpers
+            {
+                public static unsafe void Risky() { }
+            }
+            """;
+        AssertNoErrors(RecompileNewRules("static void M()", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static void M()", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6RaisedRequiresUnsafeMembers_UseRuleSpecificUnsafeContexts()
+    {
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var risky = RequiresUnsafe(new MethodRef(helpers, "Risky", Void, [], HasThis: false));
+        var functionPointer = TypeRef.FunctionPointer(Void, [], "");
+        AssertRaised(
+            () => new StoreLocal(0, functionPointer, new AddressOfMethod(risky, functionPointer)),
+            [],
+            [functionPointer],
+            "static unsafe void M()",
+            "public static class Helpers { public static unsafe void Risky() { } }",
+            "&Helpers.Risky");
+
+        var counter = TypeRef.Definition("Synthetic", "", "Counter", ValueTypeHint.ValueType);
+        var increment = RequiresUnsafe(new MethodRef(counter, "op_Increment", counter, [counter], HasThis: false));
+        AssertRaised(
+            () => new ExpressionStatement(new IncrementDecrement(
+                new LoadArgument(0, "value", counter),
+                isIncrement: true,
+                isPrefix: false,
+                isUserDefined: true,
+                consumedMethod: increment)),
+            [new Parameter("value", counter)],
+            [],
+            "static unsafe void M(Counter value)",
+            """
+            public struct Counter
+            {
+                public static unsafe Counter operator ++(Counter value) => value;
+            }
+            """,
+            "value++;");
+
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var holderConstructor = new MethodRef(holder, ".ctor", Void, [], HasThis: true);
+        var holderSetter = RequiresUnsafe(new MethodRef(holder, "set_P", Void, [Int32], HasThis: true));
+        AssertRaised(
+            () => new ExpressionStatement(new ObjectInitializerExpression(
+                new NewObject(holderConstructor, []),
+                isCollection: false,
+                [new InitializerEntry("P", [new Constant(1, Int32)], holderSetter)])),
+            [],
+            [],
+            "static unsafe void M()",
+            """
+            public sealed class Holder
+            {
+                public unsafe int P { get; set; }
+            }
+            """,
+            "new Holder");
+
+        var staticSetter = RequiresUnsafe(new MethodRef(helpers, "set_A", Void, [Int32], HasThis: false));
+        var safeStaticSetter = new MethodRef(helpers, "set_B", Void, [Int32], HasThis: false);
+        AssertRaised(
+            () => new ChainedAssignment(
+                [
+                    ChainedAssignmentTarget.StaticProperty(staticSetter, isVirtual: false),
+                    ChainedAssignmentTarget.StaticProperty(safeStaticSetter, isVirtual: false),
+                ],
+                new Constant(1, Int32)),
+            [],
+            [],
+            "static unsafe void M()",
+            """
+            public static class Helpers
+            {
+                public static unsafe int A { get; set; }
+                public static int B { get; set; }
+            }
+            """,
+            "Helpers.A = Helpers.B = 1;");
+
+        var pair = TypeRef.Definition("Synthetic", "", "Pair");
+        var deconstruct = RequiresUnsafe(new MethodRef(
+            pair,
+            "Deconstruct",
+            Void,
+            [TypeRef.ByRef(Int32), TypeRef.ByRef(Int32)],
+            HasThis: true));
+        AssertRaised(
+            () => new DeconstructionAssignment(
+                [
+                    DeconstructionTarget.Local(0, Int32, isDeclared: true),
+                    DeconstructionTarget.Local(1, Int32, isDeclared: true),
+                ],
+                new LoadArgument(0, "pair", pair),
+                deconstruct),
+            [new Parameter("pair", pair)],
+            [Int32, Int32],
+            "static unsafe void M(Pair pair)",
+            """
+            public sealed class Pair
+            {
+                public unsafe void Deconstruct(out int first, out int second)
+                    => (first, second) = (1, 2);
+            }
+            """,
+            "(int");
+
+        AssertRaised(
+            () => new StoreLocal(
+                0,
+                TypeRef.CoreLib("System", "Boolean"),
+                new PositionalPattern(
+                    new LoadArgument(0, "pair", pair),
+                    [
+                        new PositionalPatternSubpattern(ComparisonKind.Equal),
+                        new PositionalPatternSubpattern(ComparisonKind.GreaterThan),
+                    ],
+                    [new Constant(1, Int32), new Constant(0, Int32)],
+                    deconstruct)),
+            [new Parameter("pair", pair)],
+            [TypeRef.CoreLib("System", "Boolean")],
+            "static unsafe void M(Pair pair)",
+            """
+            public sealed class Pair
+            {
+                public unsafe void Deconstruct(out int first, out int second)
+                    => (first, second) = (1, 2);
+            }
+            """,
+            "pair is");
+
+        var patternAccessor = RequiresUnsafe(new MethodRef(holder, "get_P", Int32, [], HasThis: true));
+        AssertRaised(
+            () => new ExpressionStatement(new RecursivePropertyDeclarationPattern(
+                new LoadArgument(0, "value", holder),
+                patternAccessor,
+                Int32,
+                localIndex: 0)),
+            [new Parameter("value", holder)],
+            [Int32],
+            "static unsafe void M(Holder value)",
+            """
+            public sealed class Holder
+            {
+                public unsafe int P => 0;
+            }
+            """,
+            "value is { P: int");
+
+        AssertRaised(
+            () => new ExpressionStatement(new PatternSwitchExpression(
+                new LoadArgument(0, "value", holder),
+                [
+                    new PatternSwitchExpressionArm(
+                        holder,
+                        localIndex: null,
+                        new PropertySubpattern(patternAccessor, Int32, LocalIndex: 0),
+                        new Constant(1, Int32)),
+                ],
+                new Constant(0, Int32))),
+            [new Parameter("value", holder)],
+            [Int32],
+            "static unsafe void M(Holder value)",
+            """
+            public sealed class Holder
+            {
+                public unsafe int P => 0;
+            }
+            """,
+            "switch");
+
+        var item = TypeRef.Definition("Synthetic", "", "Item");
+        var itemSetter = RequiresUnsafe(new MethodRef(item, "set_P", Void, [Int32], HasThis: true));
+        AssertRaised(
+            () => new ExpressionStatement(new WithExpression(
+                new LoadArgument(0, "value", item),
+                [new InitializerEntry("P", [new Constant(1, Int32)], itemSetter)])),
+            [new Parameter("value", item)],
+            [],
+            "static unsafe void M(Item value)",
+            """
+            public sealed record Item
+            {
+                public unsafe int P { get; init; }
+            }
+            """,
+            "value with");
+
+        var outer = TypeRef.Definition("Synthetic", "", "Outer");
+        var inner = TypeRef.Definition("Synthetic", "", "Inner");
+        var outerConstructor = new MethodRef(outer, ".ctor", Void, [], HasThis: true);
+        var innerSetter = RequiresUnsafe(new MethodRef(inner, "set_P", Void, [Int32], HasThis: true));
+        AssertRaised(
+            () =>
+            {
+                var nested = new InitializerBlock(
+                    isCollection: false,
+                    [new InitializerEntry("P", [new Constant(1, Int32)], innerSetter)]);
+                return new ExpressionStatement(new ObjectInitializerExpression(
+                    new NewObject(outerConstructor, []),
+                    isCollection: false,
+                    [new InitializerEntry("Inner", [nested])]));
+            },
+            [],
+            [],
+            "static unsafe void M()",
+            """
+            public sealed class Outer
+            {
+                public Inner Inner { get; } = new();
+            }
+            public sealed class Inner
+            {
+                public unsafe int P { get; set; }
+            }
+            """,
+            "Inner =");
+
+        var resource = TypeRef.Definition("Synthetic", "", "Resource", ValueTypeHint.ValueType);
+        var resourceConstructor = new MethodRef(resource, ".ctor", Void, [], HasThis: true);
+        var dispose = RequiresUnsafe(new MethodRef(resource, "Dispose", Void, [], HasThis: true));
+        AssertRaised(
+            () => new UsingStatement(
+                0,
+                resource,
+                new NewObject(resourceConstructor, []),
+                BlockContainer(),
+                consumedMemberRefs: [dispose]),
+            [],
+            [resource],
+            "static unsafe void M()",
+            """
+            public ref struct Resource
+            {
+                public unsafe void Dispose() { }
+            }
+            """,
+            "using");
+
+        var collection = TypeRef.Definition("Synthetic", "", "Collection");
+        var getEnumerator = RequiresUnsafe(new MethodRef(
+            collection,
+            "GetEnumerator",
+            TypeRef.Definition("Synthetic", "", "Enumerator", ValueTypeHint.ValueType),
+            [],
+            HasThis: true));
+        AssertRaised(
+            () => new ForeachStatement(
+                0,
+                Int32,
+                new LoadArgument(0, "items", collection),
+                new Block(1),
+                consumedMemberRefs: [getEnumerator]),
+            [new Parameter("items", collection)],
+            [Int32],
+            "static unsafe void M(Collection items)",
+            """
+            public sealed class Collection
+            {
+                public unsafe Enumerator GetEnumerator() => new();
+            }
+            public struct Enumerator
+            {
+                public int Current => 0;
+                public bool MoveNext() => false;
+            }
+            """,
+            "foreach");
+
+        static MethodRef RequiresUnsafe(MethodRef method)
+            => method with { RequiresUnsafe = true };
+
+        static void AssertRaised(
+            Func<IrNode> createStatement,
+            ImmutableArray<Parameter> parameters,
+            ImmutableArray<TypeRef> locals,
+            string methodHeader,
+            string declarations,
+            string expected)
+        {
+            IrFunction CreateFunction() => Function(
+                "RaisedRequiresUnsafeMember",
+                Void,
+                parameters,
+                locals,
+                createStatement(),
+                new Return(null));
+
+            var (updated, legacy) = PrintRulePair(CreateFunction);
+
+            Assert.Contains(expected, updated);
+            Assert.Contains("unsafe", updated);
+            Assert.DoesNotContain("unsafe", legacy);
+            AssertNoErrors(RecompileNewRules(methodHeader, updated, declarations), updated);
+            AssertNoErrors(RecompileLegacyRules(methodHeader, legacy, declarations), legacy);
+        }
+    }
+
+    [Fact]
+    public void Rung6PointerRefBindings_UseRuleSpecificUnsafeContexts()
+    {
+        var byRefInt = TypeRef.ByRef(Int32);
+
+        IrFunction CreateDeclaration() => Function(
+            "PointerRefLocalDeclaration",
+            Void,
+            [new Parameter("p", IntPointer)],
+            [byRefInt],
+            new StoreLocal(0, byRefInt, new LoadArgument(0, "p", IntPointer)),
+            new StoreIndirect(Int32, new LoadLocal(0, byRefInt), new Constant(9, Int32)),
+            new Return(null));
+
+        IrFunction CreateRebind() => Function(
+            "PointerRefLocalRebind",
+            Void,
+            [
+                new Parameter("seed", byRefInt),
+                new Parameter("p", IntPointer),
+            ],
+            [byRefInt],
+            new StoreLocal(0, byRefInt, new LoadArgument(0, "seed", byRefInt)),
+            new StoreLocal(0, byRefInt, new LoadArgument(1, "p", IntPointer)),
+            new Return(null));
+
+        IrFunction CreateReturn() => Function(
+            "PointerRefReturn",
+            byRefInt,
+            [new Parameter("p", IntPointer)],
+            [],
+            new Return(new LoadArgument(0, "p", IntPointer)));
+
+        AssertBinding(
+            CreateDeclaration,
+            "static unsafe void M(int* p)",
+            "ref int V_0 = ref *p;");
+        AssertBinding(
+            CreateRebind,
+            "static unsafe void M(ref int seed, int* p)",
+            "V_0 = ref *p;");
+        AssertBinding(
+            CreateReturn,
+            "static unsafe ref int M(int* p)",
+            "return ref *p;");
+
+        static void AssertBinding(
+            Func<IrFunction> createFunction,
+            string methodHeader,
+            string expected)
+        {
+            var (updated, legacy) = PrintRulePair(createFunction);
+
+            Assert.Contains(expected, updated);
+            Assert.Contains("unsafe", updated);
+            Assert.DoesNotContain("unsafe", legacy);
+            AssertNoErrors(RecompileNewRules(methodHeader, updated), updated);
+            AssertNoErrors(RecompileLegacyRules(methodHeader, legacy), legacy);
+        }
+    }
+
+    [Fact]
+    public void Rung6ForeachBodyUnsafeOperation_WrapsOnlyTheBody()
+    {
+        var collection = TypeRef.Definition("Synthetic", "LadderRung6", "Collection");
+
+        IrFunction CreateFunction()
+        {
+            var loopBody = new Block(1);
+            loopBody.Add(new StoreIndirect(
+                Int32,
+                new LoadArgument(1, "p", IntPointer),
+                new Constant(1, Int32)));
+            return Function(
+                "ForeachBodyUnsafeOperation",
+                Void,
+                [
+                    new Parameter("items", collection),
+                    new Parameter("p", IntPointer),
+                ],
+                [Int32],
+                new ForeachStatement(
+                    0,
+                    Int32,
+                    new LoadArgument(0, "items", collection),
+                    loopBody),
+                new Return(null));
+        }
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        int foreachIndex = updated.IndexOf("foreach", StringComparison.Ordinal);
+        int unsafeIndex = updated.IndexOf("unsafe", StringComparison.Ordinal);
+        Assert.True(foreachIndex >= 0 && unsafeIndex > foreachIndex, updated);
+        Assert.DoesNotContain("unsafe", updated[..foreachIndex]);
+        Assert.Contains("*p = 1;", FirstUnsafeBlockBody(updated));
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = """
+            public sealed class Collection
+            {
+                public Enumerator GetEnumerator() => new();
+            }
+            public struct Enumerator
+            {
+                public int Current => 0;
+                public bool MoveNext() => false;
+            }
+            """;
+        AssertNoErrors(
+            RecompileNewRules("static unsafe void M(Collection items, int* p)", updated, declarations),
+            updated);
+        AssertNoErrors(
+            RecompileLegacyRules("static unsafe void M(Collection items, int* p)", legacy, declarations),
+            legacy);
+    }
+
+    [Fact]
+    public void Rung6PrimitivePointerOperations_OnlyRequireLegacyBodyModifier()
+    {
+        IrFunction CreateFunction() => Function(
+            "PrimitivePointerOperations",
+            Void,
+            [],
+            [IntPointer],
+            new StoreLocal(0, IntPointer, new Constant(null, IntPointer)),
+            new ExpressionStatement(new IncrementDecrement(
+                new LoadLocal(0, IntPointer),
+                isIncrement: true,
+                isPrefix: false)),
+            new Return(null));
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+
+        Assert.Contains("V_0++;", updated.Output);
+        Assert.DoesNotContain("unsafe", updated.Output);
+        Assert.False(updated.RequiresUnsafeBodyModifier);
+        Assert.DoesNotContain("unsafe", legacy.Output);
+        Assert.True(legacy.RequiresUnsafeBodyModifier);
+        AssertNoErrors(RecompileNewRules("static void M()", updated.Output!), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M()", legacy.Output!), legacy.Output!);
+    }
+
+    [Fact]
     public void Rung6PointerReceiver_DoesNotRaiseNullConditional()
     {
         var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
@@ -642,6 +1918,7 @@ public class LadderRung6GateTests
         var arithmetic = members.Single(m => m.Name == "PointerArithmeticAndComparison").Body;
         Assert.Contains("next - 1", arithmetic);
         Assert.Contains("q - p", arithmetic);
+        Assert.DoesNotContain("unsafe", arithmetic);
         if (assemblyPath == NewUnsafePath)
         {
             AssertNoErrors(
@@ -726,13 +2003,13 @@ public class LadderRung6GateTests
         Assert.Contains("fixed (char* ", member.Body);
         Assert.Contains(" = value)", member.Body);
         Assert.DoesNotContain("pinned", member.Body);
-        AssertNoErrors(
-            RecompileNewRules(
-                assemblyPath == NewUnsafePath
-                    ? "static int M(string value)"
-                    : "static unsafe int M(string value)",
-                member.Body),
-            member.Body);
+        string methodHeader = assemblyPath == NewUnsafePath
+            ? "static int M(string value)"
+            : "static unsafe int M(string value)";
+        var diagnostics = assemblyPath == NewUnsafePath
+            ? RecompileNewRules(methodHeader, member.Body)
+            : RecompileLegacyRules(methodHeader, member.Body);
+        AssertNoErrors(diagnostics, member.Body);
     }
 
     [Fact]
@@ -917,7 +2194,9 @@ public class LadderRung6GateTests
                 "SourceAuthoredCopyBlock" => "static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)",
                 _ => $"static unsafe void {name}()"
             };
-            var diagnostics = RecompileNewRules(methodHeader, member.Body);
+            var diagnostics = assemblyPath == NewUnsafePath
+                ? RecompileNewRules(methodHeader, member.Body)
+                : RecompileLegacyRules(methodHeader, member.Body);
             AssertNoErrors(diagnostics, member.Body);
         }
     }
@@ -1221,12 +2500,33 @@ public class LadderRung6GateTests
         string methodHeader,
         string body,
         params MetadataReference[] extraReferences)
-        => RecompileNewRules(methodHeader, body, "", extraReferences);
+        => Recompile(methodHeader, body, "", useUpdatedMemorySafetyRules: true, extraReferences);
 
     static ImmutableArray<Diagnostic> RecompileNewRules(
         string methodHeader,
         string body,
         string extraDeclarations,
+        params MetadataReference[] extraReferences)
+        => Recompile(methodHeader, body, extraDeclarations, useUpdatedMemorySafetyRules: true, extraReferences);
+
+    static ImmutableArray<Diagnostic> RecompileLegacyRules(
+        string methodHeader,
+        string body,
+        params MetadataReference[] extraReferences)
+        => Recompile(methodHeader, body, "", useUpdatedMemorySafetyRules: false, extraReferences);
+
+    static ImmutableArray<Diagnostic> RecompileLegacyRules(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        params MetadataReference[] extraReferences)
+        => Recompile(methodHeader, body, extraDeclarations, useUpdatedMemorySafetyRules: false, extraReferences);
+
+    static ImmutableArray<Diagnostic> Recompile(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        bool useUpdatedMemorySafetyRules,
         params MetadataReference[] extraReferences)
     {
         string source = $$"""
@@ -1243,8 +2543,12 @@ public class LadderRung6GateTests
                 }
             }
             """;
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
-            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        if (useUpdatedMemorySafetyRules)
+        {
+            parseOptions = parseOptions.WithFeatures(
+                [new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        }
         var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
         return CSharpCompilation.Create(
                 "__gate",
@@ -1274,6 +2578,17 @@ public class LadderRung6GateTests
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef IntPointer = TypeRef.Pointer(Int32);
     static readonly TypeRef PinnedRefInt = TypeRef.Pinned(TypeRef.ByRef(Int32));
+
+    static (string Updated, string Legacy) PrintRulePair(Func<IrFunction> createFunction)
+    {
+        var updatedFunction = createFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var legacyFunction = createFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        return (
+            CSharpPrinter.Print(updatedFunction).Output!,
+            CSharpPrinter.Print(legacyFunction).Output!);
+    }
 
     static IrFunction VolatileIndirectRead(bool isVolatile)
     {
@@ -1318,7 +2633,10 @@ public class LadderRung6GateTests
             TypeRef.Definition("Synthetic", "LadderRung6", "NativeCanaries"),
             new MethodSignature(returnType, parameters, HasThis: false, GenericParameterCount: 0),
             locals,
-            BlockContainer(statements));
+            BlockContainer(statements))
+        {
+            UsesUpdatedMemorySafetyRules = true
+        };
 
     static BlockContainer BlockContainer(params IrNode[] statements)
     {

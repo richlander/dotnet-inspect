@@ -75,13 +75,9 @@ public static class MatchOutputFormatter
 }
 
 /// <summary>
-/// JSON envelope for <c>match --implementation --json</c>: composes the structural clone
-/// comparison with a decompiled C#/IL implementation-diff view, reusing the same
-/// <see cref="DotnetInspector.Views.ImplementationDiffView"/>/<see cref="ImplementationDiffRow"/>
-/// types the <c>diff</c> command's Implementation Diff section serializes (issue #4304 Slice 4).
-/// Plain <c>match --json</c> (without <c>--implementation</c>) is unaffected: it stays the flat
-/// <see cref="StructuralCloneComparisonDocument"/> shape shipped in Slice 3.
+/// JSON envelope for <c>match --body --json</c>. The structural result stays independent
+/// of the native body comparisons; plain <c>match --json</c> keeps its flat document.
 /// </summary>
-public sealed record MatchImplementationDocument(
+public sealed record MatchBodyDocument(
     StructuralCloneComparisonDocument Match,
-    ImplementationDiffView Implementation);
+    MethodBodyDiffDocument Body);

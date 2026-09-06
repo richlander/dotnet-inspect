@@ -61,7 +61,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Optimization / parse-option matrices intrinsic to the claim.
             ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + reconstruction seams: compiles the complex-iterator source under Debug and Release, and a parameterized Release inline-array-collection iterator (single-loop and conditional-yield shapes) whose dead buffer local must stay eliminated across the two seams that carry MoveNext locals into the kickoff (#3221)."),
-            ["CompilerFeatureOptionsTests.cs"] = (1, "Parse-option matrix: varies LanguageVersion/feature flags across compilations."),
+            ["CompilerFeatureOptionsTests.cs"] = (2, "Parse-option matrix: varies LanguageVersion/feature flags across compilations and directly probes rejecting diagnostics without requiring successful emit."),
 
             // Cross-assembly reference seam.
             ["CompileReferenceSetTests.cs"] = (3, "Compiler-reference semantic-model seam: binds consumer syntax against selected cataloged images to verify aliases, source exclusion, and retained snapshot identity; emits no inspected fixture."),
@@ -133,15 +133,18 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #4732 adds TypeRefDecoderRecursionTests.cs (1 site): compiles the
     //     Decompiler's bounded invalid-rank output and proves it cannot bind as
     //     another array shape.
+    //   #5495 adds a second CompilerFeatureOptionsTests.cs site (1 -> 2):
+    //     directly obtains rejecting diagnostics to prove legacy and updated
+    //     memory-safety replay remain observably distinct under Roslyn 5.9.
     //   #5473 adds a second site to AuthoredRebuildFidelityTests.cs (1 -> 2):
     //     emits checksum-bearing portable-PDB fixtures for live source
     //     acquisition, absence, and failure gates.
     //   #6005 adds CompileReferenceSetTests.cs (3 sites): binds consumer syntax
     //     against frozen cataloged images for alias, source-exclusion, and
     //     retained-snapshot reference contracts.
-    //   Combined: 45 files, 58 sites.
+    //   Combined: 45 files, 59 sites.
     const int ExpectedDynamicFiles = 45;
-    const int ExpectedDynamicSites = 58;
+    const int ExpectedDynamicSites = 59;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

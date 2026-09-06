@@ -273,8 +273,8 @@ over-broad-design recovery procedure live in
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 - Put independently compiled inspected test inputs under `fixtures/<owner>/`;
-  keep test infrastructure under `tests/` and production code under `src/`.
-  Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
+  keep test executables and infrastructure under `tests/`, and production code
+  under `src/`. Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
 - Use inclusive terminology: "allow list"/"deny list", never
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").
@@ -336,9 +336,9 @@ compiler-generated IL shapes differ in Debug.
 | Area | Command |
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
-| Artifact contracts | `dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release` |
-| Row selection | `dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release` |
-| Section-row shaping | `dotnet run --project src/DotnetInspector.Sections.Tests -c Release` |
+| Artifact contracts | `dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release` |
+| Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
+| Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |

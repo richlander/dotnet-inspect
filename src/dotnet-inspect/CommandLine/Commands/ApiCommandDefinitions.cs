@@ -368,7 +368,8 @@ public static class ApiCommandDefinitions
                         jsonl: memberFormat == OutputFormat.Jsonl,
                         markdown: memberFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
-                        sectionCategories: memberPipeline.GetCategoryMap(),
+                        sectionCategories:
+                            ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
                         projection: ProjectionAudit.Requested(parseResult, opts));
 
                 case MemberOptionsParser.ShowHelp:

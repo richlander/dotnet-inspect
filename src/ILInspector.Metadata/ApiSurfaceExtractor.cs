@@ -496,6 +496,7 @@ public static class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
+
         ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
             ? ApiAssemblyIdentity.FromDefinition(
                 reader,
@@ -1019,8 +1020,8 @@ public static class ApiSurfaceExtractor
                     continue;
                 }
 
-                // Skip compiler-generated methods (lambdas, state machines, etc.)
-                if (methodName.StartsWith("<"))
+                // Keep generated bodies out of ordinary API views unless explicitly requested.
+                if (methodName.StartsWith("<") && !includeCompilerGenerated)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1053,11 +1054,12 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
 
                 var methodAttributes = method.Attributes;
-                bool isExtensionMethod = isExtensionClass
-                    && (methodAttributes & MethodAttributes.Static) != 0
-                    && AttributeReader.HasExtensionAttribute(
+                var (isExtensionMethod, isReadOnlyMethod) =
+                    AttributeReader.ReadMethodMarkerAttributes(
                         reader,
                         methodCustomAttributes,
+                        includeExtension: isExtensionClass
+                            && (methodAttributes & MethodAttributes.Static) != 0,
                         observeDecodeWork);
                 var signature = GetMethodSignature(
                     reader,
@@ -1071,9 +1073,9 @@ public static class ApiSurfaceExtractor
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
-                var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
-                var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
-                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+                var modifiers = ApiMethodModifiers.FromAttributes(
+                    methodAttributes,
+                    isExplicitInterfaceImplementation);
 
                 // A class finalizer is the `object.Finalize` override the C#
                 // `~Type()` destructor compiles to. It is detected by the
@@ -1119,12 +1121,13 @@ public static class ApiSurfaceExtractor
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
-                    IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtual,
-                    IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
-                    IsOverride = isOverride,
-                    IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
+                    IsStatic = modifiers.IsStatic,
+                    IsVirtual = modifiers.IsVirtual,
+                    IsAbstract = modifiers.IsAbstract,
+                    IsOverride = modifiers.IsOverride,
+                    IsSealed = modifiers.IsSealed,
                     IsFinalizer = isFinalizer,
+                    IsReadOnly = isReadOnlyMethod,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
@@ -1140,6 +1143,8 @@ public static class ApiSurfaceExtractor
                         method.GetGenericParameters().Count,
                     HasMethodBody =
                         method.RelativeVirtualAddress != 0,
+                    MethodImplementation = ApiMethodImplementationFacts.Read(
+                        reader, moduleVersionId, methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1321,6 +1326,7 @@ public static class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
+                    explicitImplementationBodies,
                     includeAll,
                     observeText,
                     observeDecodeWork,
@@ -1372,6 +1378,9 @@ public static class ApiSurfaceExtractor
                     AccessorMemorySafety = ReadAccessorMemorySafety(
                         reader, GetMemorySafetyIndex(), moduleVersionId,
                         [accessors.Getter, accessors.Setter, .. accessors.Others]),
+                    AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                        reader, moduleVersionId,
+                        [accessors.Getter, accessors.Setter, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(propHandle)],
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
@@ -1404,6 +1413,12 @@ public static class ApiSurfaceExtractor
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    GetterHasMethodBody = accessors.Getter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Getter).RelativeVirtualAddress != 0,
+                    SetterHasMethodBody = accessors.Setter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Setter).RelativeVirtualAddress != 0,
                     HasGetter = !accessors.Getter.IsNil,
                     GetterAccessibility = accessors.Getter.IsNil
                         ? null
@@ -1779,6 +1794,7 @@ public static class ApiSurfaceExtractor
                     },
                     eventTypeNodeProvider,
                     typeContext,
+                    explicitImplementationBodies,
                     observeText,
                     observeDecodeWork);
 
@@ -1795,6 +1811,9 @@ public static class ApiSurfaceExtractor
                         reader, GetMemorySafetyIndex(), moduleVersionId, eventHandle),
                     AccessorMemorySafety = ReadAccessorMemorySafety(
                         reader, GetMemorySafetyIndex(), moduleVersionId,
+                        [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
+                    AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                        reader, moduleVersionId,
                         [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(eventHandle)],
                     ReturnType = eventType,
@@ -1826,7 +1845,11 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
+                        : MetadataTokens.GetToken(accessors.Remover),
+                    AdderHasMethodBody = adder.RelativeVirtualAddress != 0,
+                    RemoverHasMethodBody = accessors.Remover.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Remover).RelativeVirtualAddress != 0
                 };
 
                 budget?.RetainMember(member);
@@ -2975,6 +2998,8 @@ public static class ApiSurfaceExtractor
                     IsSealed = extension.IsSealed,
                     IsUnsafe = extension.IsUnsafe,
                     MemorySafety = extension.MemorySafety,
+                    MethodImplementation = extension.MethodImplementation,
+                    HasMethodBody = extension.HasMethodBody,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,
@@ -4579,6 +4604,7 @@ public static class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         bool includeAll = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -4769,6 +4795,7 @@ public static class ApiSurfaceExtractor
             },
             typeNodeProvider,
             context,
+            explicitImplementationBodies,
             beforeRetainText,
             beforeDecodeWork);
 
@@ -4934,6 +4961,7 @@ public static class ApiSurfaceExtractor
         Func<string, MethodDefinitionHandle> handleForKind,
         TypeNodeProvider provider,
         GenericContext context,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
         Action<int>? beforeDecodeWork)
     {
@@ -4949,6 +4977,19 @@ public static class ApiSurfaceExtractor
                 provider,
                 context,
                 beforeRetainText);
+            if (!handle.IsNil)
+            {
+                MethodDefinition method = reader.GetMethodDefinition(handle);
+                accessor.IsExplicitInterfaceImplementation =
+                    explicitImplementationBodies.Contains(handle)
+                    && (method.Attributes & MethodAttributes.MemberAccessMask)
+                        == MethodAttributes.Private;
+                accessor.IsReadOnly = AttributeReader.HasAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    KnownAttributeNames.IsReadOnlyAttribute,
+                    beforeDecodeWork);
+            }
         }
     }
 

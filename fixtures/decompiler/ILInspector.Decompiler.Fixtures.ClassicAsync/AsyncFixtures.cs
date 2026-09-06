@@ -30,6 +30,18 @@ public static class AsyncFixtures
 
     public sealed record Snapshot(int Value);
 
+    public sealed class UnsafeHolder
+    {
+        public unsafe int* Risky => (int*)0;
+    }
+
+    public readonly struct PointerTarget
+    {
+        public Task<int> GetTask() => Task.FromResult(42);
+    }
+
+    public static unsafe PointerTarget* Pointer => null;
+
     public struct Counter
     {
         public int Value;
@@ -159,6 +171,63 @@ public static class AsyncFixtures
 
     public static async Task<int> AwaitOrdinarySetMethod(Task<int> task)
         => await set_GetTask(task);
+
+    public static async Task<int> AwaitUnsafeProperty(UnsafeHolder holder)
+    {
+        int value;
+        unsafe
+        {
+            value = *holder.Risky;
+        }
+        return await Task.FromResult(value);
+    }
+
+    public static unsafe int ConsumePointer(int value, int* pointer)
+    {
+        *pointer = value;
+        return value;
+    }
+
+    public static async Task<int> AwaitThenConsumePointer(
+        Task<int> task,
+        UnsafeHolder holder)
+    {
+        int value = await task;
+        unsafe
+        {
+            return ConsumePointer(value, holder.Risky);
+        }
+    }
+
+    public static async Task<int> AwaitWithUnsafeLocalFunction(
+        Task<int> task,
+        UnsafeHolder holder)
+    {
+        int Read(int* pointer)
+        {
+            unsafe
+            {
+                return *pointer;
+            }
+        }
+
+        int value;
+        unsafe
+        {
+            value = Read(holder.Risky);
+        }
+        return value + await task;
+    }
+
+    public static async Task<int> AwaitPointerReceiver()
+    {
+        Task<int> task;
+        unsafe
+        {
+            task = Pointer->GetTask();
+        }
+        return await task;
+    }
 
     public static Task<int> set_GetTask(Task<int> task) => task;
 

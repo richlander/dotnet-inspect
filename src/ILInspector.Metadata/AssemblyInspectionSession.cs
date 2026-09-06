@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -47,6 +48,11 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
+
+    // Only the synchronous artifact query scope uses this borrow. It disposes
+    // the session before disposing the reader and releasing the image pin.
+    internal static AssemblyInspectionSession Borrow(PEReader reader) =>
+        new(AssemblyImage.Borrow(reader, () => _ = reader.GetEntireImage()));
 
     /// <summary>
     /// A session over an image a <see cref="PdbContext"/> already opened, so a caller that holds
@@ -312,6 +318,13 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// </summary>
     public MetadataTableProjection MetadataTables(MetadataProjectionOptions? options = null)
         => MetadataTableProjector.Project(_image.PEReader, options);
+
+    /// <summary>
+    /// Captures an explicitly selected metadata root for scoped table and heap
+    /// navigation. The captured root remains readable after this session closes.
+    /// </summary>
+    public MetadataRootInspection? MetadataRoot(MetadataRootKind root = MetadataRootKind.Cli)
+        => MetadataRootInspection.Open(_image.PEReader, root);
 
     /// <summary>
     /// A single row of one metadata table, read on demand and independent of any

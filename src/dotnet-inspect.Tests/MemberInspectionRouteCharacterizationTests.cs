@@ -321,19 +321,19 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:81:0B835ECE3CFC]",
+                "ApiMemberOverload[schema:83:EC233F0F8836]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:57:9CF9EB2E407B]",
+                "ApiMemberDetail[schema:59:D5DF0FA9A398]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:163:C277619B2C35]",
+                "ApiType[schema:165:F3B3EB15AE2D]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];
@@ -365,6 +365,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Type[] fixtureTypes =
         [
             typeof(IBodyShapeValue),
+            typeof(get_IBodyShapePrefixMethods),
             typeof(BodyShapeFixture),
             typeof(BodyShapeFixtureExtensions),
             typeof(GenericBodyShapeFixture<>),
@@ -396,6 +397,11 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "event:Changed,property:Value",
                 "method:add_Changed,method:remove_Changed,property:Value"),
             new(
+                nameof(get_IBodyShapePrefixMethods),
+                "method:get_Count,method:set_Count,property:Value",
+                "method:get_Count,method:set_Count,property:Value",
+                "method:get_Count,method:set_Count,property:Value"),
+            new(
                 nameof(BodyShapeFixture),
                 "constructor:.ctor,"
                     + "explicit-interface-implementation:"
@@ -404,6 +410,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "DotnetInspector.Fixtures.IBodyShapeValue.get_Value,"
                     + "explicit-interface-implementation:"
                     + "DotnetInspector.Fixtures.IBodyShapeValue.remove_Changed,"
+                    + "explicit-interface-implementation:"
+                    + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Count,"
+                    + "explicit-interface-implementation:"
+                    + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Value,"
+                    + "explicit-interface-implementation:"
+                    + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Count,"
+                    + "explicit-interface-implementation:"
+                    + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Value,"
                     + "extension-method:ProjectedCreation,"
                     + "method:Branch,method:Classify,method:PublicCreation,"
                     + "method:PublicLocalFunctionBox,method:PublicSmallArray,"
@@ -413,6 +427,10 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "method:DotnetInspector.Fixtures.IBodyShapeValue.add_Changed,"
                     + "method:DotnetInspector.Fixtures.IBodyShapeValue.get_Value,"
                     + "method:DotnetInspector.Fixtures.IBodyShapeValue.remove_Changed,"
+                    + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Count,"
+                    + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Value,"
+                    + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Count,"
+                    + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Value,"
                     + "method:PublicCreation,method:PublicLocalFunctionBox,"
                     + "method:PublicSmallArray,method:ReadableLocal",
                 "constructor:.ctor,method:Branch,method:Classify,"

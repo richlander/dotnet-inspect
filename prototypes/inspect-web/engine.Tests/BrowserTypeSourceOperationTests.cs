@@ -188,7 +188,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
     public async Task ExportSuccess_PreservesSourceAndProvenanceAndReleasesScope()
     {
         const string packageId = "Type.Source.Bridge.Success";
-        RegisterSourcePackage(packageId);
+        await RegisterSourcePackageAsync(packageId);
         string id = Guid.NewGuid().ToString();
         BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
             id, packageId, "1.0.0", "net11.0", "TsJsExport.Contracts.dll",
@@ -209,7 +209,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
     public async Task MissingType_IsExpectedFailureAndReleasesScope()
     {
         const string packageId = "Type.Source.Bridge.Missing";
-        RegisterSourcePackage(packageId);
+        await RegisterSourcePackageAsync(packageId);
         string id = Guid.NewGuid().ToString();
         BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
             id, packageId, "1.0.0", "net11.0", "TsJsExport.Contracts.dll",
@@ -227,7 +227,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
     public async Task ProducerException_IsUnexpectedFailureAndReleasesScope()
     {
         const string packageId = "Type.Source.Bridge.Unexpected";
-        RegisterSourcePackage(packageId);
+        await RegisterSourcePackageAsync(packageId);
         string id = Guid.NewGuid().ToString();
         BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
             id, packageId, "1.0.0", "net11.0", "TsJsExport.Contracts.dll",
@@ -245,9 +245,12 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         Assert.Equal(BrowserTypeSourceCancellationKind.NotActive, Cancel(id).Kind);
         using BrowserSourceOperationLease next =
             await BrowserSourceOperationCoordinator.BeginAsync();
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId, "1.0.0", "net11.0");
-        BrowserPackageWorkspace.RemoveScope(scope);
+        await using BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId, "1.0.0", "net11.0");
+        BrowserInspectionScope scope = lease.Scope;
+        await BrowserPackageWorkspace.RemoveScopeAsync(scope);
+        await lease.DisposeAsync();
         Assert.False(BrowserPackageWorkspace.IsScopeRetained(scope));
     }
 
@@ -263,7 +266,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         JsonSerializer.Deserialize(
             json, BrowserSourceJsonContext.Default.BrowserTypeSourceResult)!;
 
-    static void RegisterSourcePackage(string packageId)
+    static async Task RegisterSourcePackageAsync(string packageId)
     {
         using var bytes = new MemoryStream();
         using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
@@ -271,7 +274,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
             using Stream entry = archive.CreateEntry("lib/net11.0/TsJsExport.Contracts.dll").Open();
             entry.Write(File.ReadAllBytes(typeof(JsExportRootAttribute).Assembly.Location));
         }
-        BrowserPackageWorkspace.RegisterAcquiredPackage(
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(packageId, "1.0.0", bytes.ToArray(), fromCache: false));
     }
 }

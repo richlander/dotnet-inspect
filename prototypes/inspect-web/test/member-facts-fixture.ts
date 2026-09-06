@@ -64,3 +64,58 @@ export function memberFactsFixture(
     diagnostics: [],
   };
 }
+
+export function allocationFactsFixture(
+  mode: "populated" | "long" = "populated",
+): MemberFacts {
+  const facts = memberFactsFixture();
+  const long = mode === "long";
+  return {
+    ...facts,
+    signals: { ...facts.signals, allocations: 2, allocatesInLoop: true },
+    allocations: [
+      {
+        kind: "Object",
+        type: long
+          ? "Example.Serialization.BufferedDocumentReader<System.Collections.Generic.Dictionary<System.String, System.Collections.Generic.List<System.Text.Json.JsonElement>>>"
+          : "System.Text.Json.JsonException",
+        offset: long ? "IL_12345678" : "IL_0020",
+        countedAsHeap: true,
+        frequency: "Always",
+        multiplicity: "Conditional",
+        path: "ErrorPath",
+        escape: "ThrowPath",
+        inLoop: false,
+        estimatedSizeBytes: null,
+        detail: null,
+      },
+      {
+        kind: "Array",
+        type: "System.Byte[]",
+        offset: "IL_0048",
+        countedAsHeap: true,
+        frequency: "PerIteration",
+        multiplicity: "Loop",
+        path: "LoopBody",
+        escape: "LocalOnly",
+        inLoop: true,
+        estimatedSizeBytes: long ? 2147483647 : 280,
+        detail: null,
+      },
+      {
+        kind: "Enumerator",
+        type: long ? null
+          : "System.Collections.Generic.Dictionary<System.String, System.Text.Json.JsonElement>.Enumerator",
+        offset: "IL_009C",
+        countedAsHeap: false,
+        frequency: "Always",
+        multiplicity: "Once",
+        path: "StraightLine",
+        escape: "Unknown",
+        inLoop: false,
+        estimatedSizeBytes: null,
+        detail: null,
+      },
+    ],
+  };
+}

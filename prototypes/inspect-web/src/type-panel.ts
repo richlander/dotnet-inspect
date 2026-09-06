@@ -540,13 +540,13 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`;
   };
   if (metadataState.typeMetadataLoading && fresh) {
-    return renderSurface(`<section class="document-section metadata-surface-state source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
+    return renderSurface(`<section class="document-section metadata-surface-state source-progress" data-type-graph-surface><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
   }
   if (fresh && metadataState.typeMetadataError) {
-    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`);
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document" data-type-graph-surface><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`);
   }
   if (!meta) {
-    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`);
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document" data-type-graph-surface><span class="loader"></span><h2>Loading…</h2></section>`);
   }
 
   const shape: (readonly [string, string])[] = [
@@ -591,16 +591,19 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
-  const graph = (meta.graphNodes || []).length > 1
-    ? `<section class="document-section call-graph-section">
-        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a highlighted node to open</span></div>
-        <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-      </section>`
-    : "";
-
   const failures = (meta.inspectionFailures || []).length
     ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures!.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
     : "";
+
+  const graph = (meta.graphNodes || []).length > 1
+    ? `<div data-type-graph-surface>
+        <section class="document-section call-graph-section">
+          <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — select a highlighted node to open</span></div>
+          <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+        </section>
+        ${failures}
+      </div>`
+    : failures;
 
   return renderSurface(`
     <section class="document-section metadata-shape-section">
@@ -611,8 +614,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${interfaces}
     ${derived}
     ${attributes}
-    ${graph}
-    ${failures}`);
+    ${graph}`);
 }
 
 export function typeSourceSignature(

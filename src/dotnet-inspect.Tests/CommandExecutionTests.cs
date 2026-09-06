@@ -743,6 +743,105 @@ public partial class CommandExecutionTests
         assemblyBuilder.Save(path);
     }
 
+    private static void WriteRuntimeAccessorAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("RuntimeAccessor");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "RuntimeAccessor.Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract);
+        typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+
+        var property = typeBuilder.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        var getter = typeBuilder.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        getter.SetImplementationFlags(MethodImplAttributes.Runtime);
+        property.SetGetMethod(getter);
+
+        var setter = typeBuilder.DefineMethod(
+            "set_Value",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(int)]);
+        setter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        property.SetSetMethod(setter);
+
+        var @event = typeBuilder.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        var adder = typeBuilder.DefineMethod(
+            "add_Changed",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        adder.SetImplementationFlags(MethodImplAttributes.Runtime);
+        @event.SetAddOnMethod(adder);
+
+        var remover = typeBuilder.DefineMethod(
+            "remove_Changed",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        remover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        @event.SetRemoveOnMethod(remover);
+
+        var mixedProperty = typeBuilder.DefineProperty(
+            "MixedValue",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        var abstractGetter = typeBuilder.DefineMethod(
+            "get_MixedValue",
+            MethodAttributes.Public | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot | MethodAttributes.Abstract,
+            typeof(int),
+            Type.EmptyTypes);
+        mixedProperty.SetGetMethod(abstractGetter);
+
+        var concreteSetter = typeBuilder.DefineMethod(
+            "set_MixedValue",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(int)]);
+        concreteSetter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        mixedProperty.SetSetMethod(concreteSetter);
+
+        var mixedEvent = typeBuilder.DefineEvent(
+            "MixedChanged",
+            EventAttributes.None,
+            typeof(Action));
+        var abstractAdder = typeBuilder.DefineMethod(
+            "add_MixedChanged",
+            MethodAttributes.Public | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot | MethodAttributes.Abstract,
+            typeof(void),
+            [typeof(Action)]);
+        mixedEvent.SetAddOnMethod(abstractAdder);
+
+        var concreteRemover = typeBuilder.DefineMethod(
+            "remove_MixedChanged",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        concreteRemover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        mixedEvent.SetRemoveOnMethod(concreteRemover);
+
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteHostileFactDetailAssembly(string path)
     {
         var assemblyName = new AssemblyName("HostileFactDetail");
@@ -10632,12 +10731,9 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.PdbSource, true)]
-    [InlineData(SectionNames.SourceDiff, true)]
-    [InlineData(SectionNames.PdbSource, false)]
-    [InlineData(SectionNames.SourceDiff, false)]
-    public async Task Member_InformationalSourceStateInNonCodeFormatsDoesNotBecomeFailure(
-        string section,
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Member_PdbSourceInformationalStateInNonCodeFormatsDoesNotBecomeFailure(
         bool bodyless)
     {
         var type = new ApiType
@@ -10664,7 +10760,7 @@ public partial class CommandExecutionTests
                 MemberHasNoPdbDeclaration = !bodyless,
                 PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    { section },
+                    { SectionNames.PdbSource },
             };
 
             var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -10679,6 +10775,58 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Member_SourceDiff_InformationalStateInNonCodeFormatsFailsVisibly(
+        bool bodyless)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberHasNoBody = bodyless,
+                MemberHasNoPdbDeclaration = !bodyless,
+                PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { SectionNames.SourceDiff },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(ApiCommand.NoPdbSourceMappingReason, error);
+            Assert.Contains(
+                "cannot represent this code-section failure",
+                error);
         }
     }
 
@@ -10777,6 +10925,7 @@ public partial class CommandExecutionTests
     [InlineData("*", false)]
     [InlineData("PDB Source", true)]
     [InlineData("Source Diff", true)]
+    [InlineData("PDB Source,Source Diff", true)]
     [InlineData("Original Source", true)]
     public async Task Member_PdbSourceFailureUnderDocumentJsonHonorsExactSelection(
         string selector,
@@ -11081,11 +11230,25 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 section == SectionNames.PdbSource
                     ? ApiCommand.BodylessMemberNote
-                    : "PDB Source unavailable",
+                    : "Source diff unavailable",
                 bare.Output);
-            Assert.Equal(0, count.Exit);
-            Assert.Empty(count.Error);
-            Assert.Equal("0\n", count.Output);
+            if (section == SectionNames.PdbSource)
+            {
+                Assert.Equal(0, count.Exit);
+                Assert.Empty(count.Error);
+                Assert.Equal("0\n", count.Output);
+            }
+            else
+            {
+                Assert.Equal(1, count.Exit);
+                Assert.Empty(count.Output);
+                Assert.Contains(
+                    "Source diff unavailable",
+                    count.Error);
+                Assert.Contains(
+                    "cannot represent this code-section failure",
+                    count.Error);
+            }
         }
     }
 
@@ -11102,6 +11265,21 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("get => _maxDepth;", output);
         Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Fact]
+    public async Task Member_PdbSourceAndSourceDiff_BodylessMemberKeepsBodylessPdbNote()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "PDB Source,Source Diff", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## PDB Source", output);
+        Assert.Contains(ApiCommand.BodylessMemberNote, output);
+        Assert.Contains("## Source Diff", output);
+        Assert.DoesNotContain("..", output);
     }
 
     [Fact]
@@ -11182,7 +11360,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceDiff_BodylessMember_ReportsPdbSourceUnavailable()
+    public async Task Member_SourceDiff_BodylessMember_ReportsComparisonUnavailable()
     {
         // The bodyless explanation is prose about the member, not source text, so the diff must
         // report its "before" side unavailable rather than diffing the explanation (#3299).
@@ -11193,8 +11371,44 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("PDB Source unavailable", output);
+        Assert.Contains("PDB comparison unavailable", output);
         Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_SourceDiff_BodylessMemberUnderExactOutputFailsVisibly(
+        string outputOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "Source Diff", outputOption, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Source diff unavailable", error);
+        Assert.Contains(
+            "cannot represent this code-section failure",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_SourceDiff_NoVouchedDeclarationUnderExactOutputFailsVisibly(
+        string outputOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            ".ctor:3", "-S", "Source Diff", outputOption, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Source diff unavailable", error);
+        Assert.Contains(
+            "cannot represent this code-section failure",
+            error);
     }
 
     [Fact]
@@ -11207,10 +11421,498 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("--- PDB Source", output);
-        Assert.Contains("+++ Decompiled Source", output);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
         // The decompiled side is the accessor's own body, spelled with its metadata name.
         Assert.Contains("set_MaxDepth", output);
+        Assert.Contains("VerifyMutable();", output);
+        Assert.Contains("_maxDepth = value;", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_CoSelectionPreservesAnnotatedSourcePdbLocals()
+    {
+        string[] command =
+        [
+            "member",
+            "System.Collections.Generic.Dictionary<TKey,TValue>",
+            "--platform",
+            "System.Collections",
+            "Item:1",
+            "--all",
+            "--tips",
+            "q",
+        ];
+        var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
+            [.. command, "-S", SectionNames.AnnotatedSource]);
+        var (togetherExit, togetherOutput, togetherError) =
+            await RunAppAsync(
+                [
+                    .. command,
+                    "-S",
+                    $"{SectionNames.AnnotatedSource},{SectionNames.SourceDiff}",
+                ]);
+
+        Assert.Equal(0, aloneExit);
+        Assert.Empty(aloneError);
+        Assert.Equal(0, togetherExit);
+        Assert.Empty(togetherError);
+
+        string alone = Assert.IsType<string>(
+            TryExtractSectionBody(
+                aloneOutput,
+                SectionNames.AnnotatedSource));
+        string together = Assert.IsType<string>(
+            TryExtractSectionBody(
+                togetherOutput,
+                SectionNames.AnnotatedSource));
+        Assert.Contains("value", alone);
+        Assert.Contains("local: value", alone);
+        Assert.DoesNotContain("V_0", alone);
+        Assert.Equal(alone, together);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_CoSelectionPreservesFindingCensusPdbDocument()
+    {
+        string[] command =
+        [
+            "member",
+            "System.Collections.Generic.Dictionary<TKey,TValue>",
+            "--platform", "System.Collections",
+            "Item:1", "--all", "--tips", "q",
+        ];
+        var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
+            [.. command, "-S", SectionNames.AnnotatedSourceDocument, "--json"]);
+        var (togetherExit, togetherOutput, togetherError) = await RunAppAsync(
+            [.. command, "-S", $"{SectionNames.FindingCensus},{SectionNames.SourceDiff}"]);
+
+        Assert.Equal(0, aloneExit);
+        Assert.Empty(aloneError);
+        Assert.Equal(0, togetherExit);
+        Assert.Empty(togetherError);
+        string census = Assert.IsType<string>(
+            TryExtractSectionBody(togetherOutput, SectionNames.FindingCensus)).Trim();
+        const string FenceStart = "```json\n";
+        const string FenceEnd = "```";
+        Assert.StartsWith(FenceStart, census);
+        Assert.EndsWith(FenceEnd, census);
+        using var alone = JsonDocument.Parse(aloneOutput);
+        using var envelope = JsonDocument.Parse(
+            census[FenceStart.Length..^FenceEnd.Length]);
+        JsonElement document = envelope.RootElement.GetProperty("annotated_source_document");
+        string text = document.GetProperty("text").GetString()!;
+        Assert.Contains("value", text);
+        Assert.DoesNotContain("V_0", text);
+        Assert.True(JsonElement.DeepEquals(alone.RootElement, document));
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ReadonlyAccessorPreservesPhysicalModifier()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandExecutionReadonlySourceDiffFixture).FullName!,
+            "Value:1",
+            "--library",
+            TestAssemblyPath,
+            "--all",
+            "-S",
+            "Source Diff",
+            "-v:d",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "+public readonly int get_Value()",
+            output);
+        Assert.DoesNotContain(
+            "+public int get_Value()",
+            output);
+    }
+
+    [Theory]
+    [InlineData(1, "=> _value;")]
+    [InlineData(2, "set => GC.KeepAlive(value);")]
+    public async Task Member_SourceDiff_ReadonlyExplicitAccessorPreservesPhysicalModifier(
+        int accessorOrdinal,
+        string expectedBody)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandExecutionReadonlySourceDiffFixture).FullName!,
+            $"{typeof(ICommandExecutionReadonlyValue).FullName}.Value:{accessorOrdinal}",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains("readonly int ICommandExecutionReadonlyValue.Value", output);
+        Assert.DoesNotContain("+int ICommandExecutionReadonlyValue.Value", output);
+        Assert.Contains(expectedBody, output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ExplicitInitAccessorPreservesAccessorKind()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.Initial:2",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains("init => _value = value;", output);
+        Assert.DoesNotContain("set =>", output);
+    }
+
+    [Theory]
+    [InlineData("Map")]
+    [InlineData("Pair")]
+    [InlineData("Reference")]
+    public async Task Member_SourceDiff_ExplicitGetterPreservesCompleteReturnType(
+        string propertyName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:1",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "PDB comparison and Decompiled comparison are identical.",
+            output);
+    }
+
+    [Theory]
+    [InlineData("Item", 1)]
+    [InlineData("Item", 2)]
+    [InlineData("Chars", 1)]
+    [InlineData("Chars", 2)]
+    public async Task Member_SourceDiff_ExplicitItemAndCharsRemainProperties(
+        string propertyName,
+        int accessorOrdinal)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:{accessorOrdinal}",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        string declaration = $"int ISourceDiffPropertyShapeFixture.{propertyName}";
+        Assert.Contains(
+            accessorOrdinal == 1
+                ? $"+{declaration} => _value;"
+                : $" {declaration}\n",
+            output.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain($".get_{propertyName}(", output);
+        Assert.DoesNotContain($".set_{propertyName}(", output);
+    }
+
+    [Theory]
+    [InlineData(1, "int ISourceDiffIndexerFixture.get_Lookup(int index)")]
+    [InlineData(2, "void ISourceDiffIndexerFixture.set_Lookup(int index, int value)")]
+    public async Task Member_SourceDiff_ExplicitIndexerRetainsMethodForm(
+        int accessorOrdinal,
+        string expectedDeclaration)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffIndexerFixture).FullName!,
+            $"{typeof(ISourceDiffIndexerFixture).FullName}.Item:{accessorOrdinal}",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains($"+{expectedDeclaration}", output);
+    }
+
+    [Theory]
+    [InlineData("Value", "get_Value", 1)]
+    [InlineData("Value", "set_Value", 2)]
+    [InlineData("Changed", "add_Changed", 1)]
+    [InlineData("Changed", "remove_Changed", 2)]
+    public async Task Member_SourceDiff_RenamedAccessorOrdinalMatchesRawSelection(
+        string memberName,
+        string accessorName,
+        int accessorOrdinal)
+    {
+        string interfaceName = typeof(ISourceDiffAccessorNames).FullName!;
+        string originalName = $"{interfaceName}.{accessorName}";
+        string renamed = "renamedAccessor".PadRight(originalName.Length, '_');
+        byte[] image = File.ReadAllBytes(TestAssemblyPath);
+        byte[] originalBytes = Encoding.UTF8.GetBytes(originalName + '\0');
+        byte[] renamedBytes = Encoding.UTF8.GetBytes(renamed + '\0');
+        int offset = image.AsSpan().IndexOf(originalBytes);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            image.AsSpan(offset + originalBytes.Length).IndexOf(originalBytes));
+        renamedBytes.CopyTo(image.AsSpan(offset));
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"source-diff-accessor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string library = Path.Combine(directory, "RenamedAccessor.dll");
+            File.WriteAllBytes(library, image);
+            File.Copy(
+                Path.ChangeExtension(TestAssemblyPath, ".pdb"),
+                Path.ChangeExtension(library, ".pdb"));
+            string typeName = typeof(SourceDiffAccessorNamesSample).FullName!;
+            var (ordinalExit, ordinalOutput, ordinalError) = await RunAppAsync(
+                "member", typeName, $"{interfaceName}.{memberName}:{accessorOrdinal}",
+                "--library", library, "--all",
+                "-S", "Source Diff", "-v:d", "--tips", "q");
+            var (rawExit, rawOutput, rawError) = await RunAppAsync(
+                "member", typeName, $"explicit:{renamed}",
+                "--library", library, "--all",
+                "-S", "Source Diff", "-v:d", "--tips", "q");
+
+            Assert.Equal(0, ordinalExit);
+            Assert.Equal(0, rawExit);
+            Assert.Empty(ordinalError);
+            Assert.Empty(rawError);
+            string ordinalDiff = Assert.IsType<string>(
+                TryExtractSectionBody(ordinalOutput, SectionNames.SourceDiff));
+            string rawDiff = Assert.IsType<string>(
+                TryExtractSectionBody(rawOutput, SectionNames.SourceDiff));
+            Assert.Equal(rawDiff, ordinalDiff);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            "DotnetInspector.Fixtures.IBodyShapeValue.Value:1",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "PDB comparison and Decompiled comparison are identical.",
+            output);
+        Assert.DoesNotContain(
+            "get_DotnetInspector.Fixtures.IBodyShapeValue",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ExplicitInterfaceSetterUsesPropertyValueType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Data.DataView",
+            "--platform", "System.Data.Common",
+            "System.ComponentModel.IBindingListView.Filter:2",
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "string? IBindingListView.Filter",
+            output);
+        Assert.Contains("set => RowFilter = value;", output);
+        Assert.DoesNotContain(
+            "void IBindingListView.Filter",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ExplicitInterfaceEventUsesPhysicalAccessor()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            "DotnetInspector.Fixtures.IBodyShapeValue.Changed:1",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains("IBodyShapeValue.add_Changed", output);
+        Assert.Contains("GC.KeepAlive(new object());", output);
+        Assert.DoesNotContain(
+            "add_DotnetInspector.Fixtures.IBodyShapeValue",
+            output);
+    }
+
+    [Theory]
+    [InlineData("get_Count")]
+    [InlineData("set_Count")]
+    public async Task Member_SourceDiff_ExplicitGetSetPrefixedMethodRetainsMethodForm(
+        string methodName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            $"explicit:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.{methodName}",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            "Decompiled comparison unavailable",
+            output);
+        Assert.Contains(
+            "PDB comparison and Decompiled comparison are identical.",
+            output);
+        Assert.Contains($".{methodName}", output);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Member_SourceDiff_ExplicitQualifiedPropertyPreservesInterfaceIdentity(
+        int accessorOrdinal)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            $"DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.Value:{accessorOrdinal}",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "get_IBodyShapePrefixMethods.Value",
+            output);
+        Assert.DoesNotContain(
+            "DotnetInspector.Fixtures.IBodyShapePrefixMethods.",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ProjectedExtensionUsesPhysicalMethod()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", nameof(BodyShapeFixture),
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation) + ":1",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains(
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation),
+            output);
+        Assert.DoesNotContain(
+            "Decompiled comparison unavailable",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiffDecompilerFailureUnderDocumentJsonOrCountFailsVisibly()
+    {
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            MetadataToken = MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)),
+        };
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "C",
+            MetadataName = "C",
+            DefinitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Example",
+                        ["C"]))
+                .Name,
+            Kind = "class",
+            Members = [member],
+        };
+        AssemblyMemberSourceComparisonEntry.Available comparison =
+            MemberSourceComparisonTestData
+                .CreateWithUnavailableDecompiler(
+                    type,
+                    member,
+                    "void M() { }",
+                    ILInspector.Decompiler
+                        .MemberBodyProductionStatus.Failed);
+        var cases = new[]
+        {
+            new MemberOptions { JsonOutput = true },
+            new MemberOptions { Count = true },
+        };
+
+        foreach (MemberOptions candidate in cases)
+        {
+            var options = candidate with
+            {
+                IncludeSections =
+                    new HashSet<string>(
+                        [SectionNames.SourceDiff],
+                        StringComparer.OrdinalIgnoreCase),
+                ExactIncludeSectionsOverride =
+                    new HashSet<string>(
+                        [SectionNames.SourceDiff],
+                        StringComparer.OrdinalIgnoreCase),
+                MemberSourceComparison = comparison,
+            };
+
+            var (exit, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => ApiCommand.WriteTypeOutputAsync(
+                        type,
+                        foundIn: null,
+                        packageName: null,
+                        packageVersion: null,
+                        apiSource: null,
+                        selectedTfm: null,
+                        options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Decompiled comparison unavailable",
+                error);
+            Assert.Contains(
+                "cannot represent this code-section failure",
+                error);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_PrintJson_RetainsTypedPdbSourceUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:2", "-S", "Source Diff", "--print", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Contains(
+            "JsonSerializerOptions.cs",
+            document.RootElement.GetProperty("url").GetString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -13936,10 +14638,15 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
 
-        using var row = JsonDocument.Parse(output.Trim());
-        Assert.Equal(
-            ["type", "library"],
-            row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        foreach (string line in lines)
+        {
+            using var row = JsonDocument.Parse(line);
+            Assert.Equal(
+                ["type", "library"],
+                row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        }
     }
 
     [Fact]
@@ -15331,7 +16038,48 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_CallGraph_VersionSkewedCallerScopeIsCompleteAndEmpty()
+    public async Task Member_CallGraph_VersionSkewedCallerScopeWarns()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-version-skew-").FullName;
+        try
+        {
+            string caller =
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+            File.Copy(
+                caller,
+                Path.Combine(directory, Path.GetFileName(caller)));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath(),
+                "-m",
+                "Api.Ping",
+                "--index",
+                "1",
+                "-S",
+                "Call Graph",
+                "--bin",
+                directory,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Call Graph", output);
+            Assert.DoesNotContain("Shared.Entry.Run", output);
+            Assert.Contains(
+                "Warning: Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_CallGraph_VersionSkewedCallerScopeWithExactTargetBindingIsCompleteAndEmpty()
     {
         string directory = Directory.CreateTempSubdirectory(
             "dotnet-inspect-version-skew-").FullName;
@@ -15966,8 +16714,21 @@ public partial class CommandExecutionTests
         Assert.Contains("Select value 'Annotated Source Document' not found", error);
     }
 
-    [Fact]
-    public void Member_AnnotatedSourceDocument_AuthorizesPdbResolution()
+    [Theory]
+    [InlineData(SectionNames.DecompiledSource, true)]
+    [InlineData(SectionNames.AnnotatedSource, true)]
+    [InlineData(SectionNames.AnnotatedSourceDocument, true)]
+    // Finding Census additionally requires a proven body.
+    [InlineData(SectionNames.FindingCensus, false)]
+    [InlineData(SectionNames.BodyShapes, true)]
+    [InlineData(SectionNames.Facts, true)]
+    [InlineData(SectionNames.FidelityCauses, false)]
+    [InlineData(SectionNames.AppliedTaste, false)]
+    [InlineData(SectionNames.CostOverlay, false)]
+    [InlineData(SectionNames.SemanticsOverlay, false)]
+    public void Member_SelectedSections_PreserveStandalonePdbAuthorization(
+        string section,
+        bool expectedAuthorization)
     {
         var type = new ApiType
         {
@@ -15980,7 +16741,41 @@ public partial class CommandExecutionTests
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                SectionNames.AnnotatedSourceDocument,
+                section,
+            },
+        };
+
+        Assert.Equal(
+            expectedAuthorization,
+            MemberCommand.NeedsMemberSourceResolution(type, options));
+
+        options.IncludeSections.Add(SectionNames.SourceDiff);
+        Assert.True(MemberCommand.NeedsMemberSourceResolution(type, options));
+    }
+
+    [Fact]
+    public void Member_FindingCensus_AuthorizesPdbResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    HasMethodBody = true,
+                },
+            ],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.FindingCensus,
             },
         };
 
@@ -16337,17 +17132,17 @@ public partial class CommandExecutionTests
             OverloadIndex = member.DeclaringOverloadIndex ?? 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.SourceDiff },
             Verbosity = Verbosity.Detailed,
-            MethodSource = new MethodSourceContext(
+            MemberSourceComparison = MemberSourceComparisonTestData.Create(
+                type,
+                member,
                 """
                 public int AddOne(int value)
                 {
                     return value + 2;
                 }
                 """,
-                SourceUrl: "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
-                ChecksumAlgorithm: "SHA256",
-                Checksum: "0123456789ABCDEF",
-                ChecksumVerification: checksumVerification)
+                "    public int AddOne(int value) => value + 1;",
+                checksumVerification),
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -16361,8 +17156,8 @@ public partial class CommandExecutionTests
             "PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
             output);
         Assert.Contains(expectedIntegrity, output);
-        Assert.Contains("--- PDB Source", output);
-        Assert.Contains("+++ Decompiled Source", output);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
         Assert.Contains("-    return value + 2;", output);
         Assert.Contains("+public int AddOne(int value) => value + 1;", output);
         Assert.DoesNotContain("## PDB Source", output);
@@ -16385,7 +17180,14 @@ public partial class CommandExecutionTests
 
         string authored = string.Join(
             "\n",
-            Enumerable.Range(1, 120).Select(index => $"authored-line-{index}"));
+            [
+                "public int AddOne(int value)",
+                "{",
+                .. Enumerable.Range(1, 120)
+                    .Select(index => $"    // authored-line-{index}"),
+                "    return value + 2;",
+                "}",
+            ]);
         MemberOptions Options(Verbosity verbosity) => new()
         {
             AssemblyPath = TestAssemblyPath,
@@ -16397,12 +17199,11 @@ public partial class CommandExecutionTests
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { SectionNames.SourceDiff },
             Verbosity = verbosity,
-            MethodSource = new MethodSourceContext(
+            MemberSourceComparison = MemberSourceComparisonTestData.Create(
+                type,
+                member,
                 authored,
-                "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
-                "SHA256",
-                "0123456789ABCDEF",
-                SourceChecksumVerification.Exact),
+                "    public int AddOne(int value) => value + 1;"),
         };
 
         var (normalExit, normalOutput, normalError) = await ConsoleCapture.RunAsync(
@@ -16436,7 +17237,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, detailedExit);
         Assert.Empty(detailedError);
         Assert.Contains("```diff", detailedOutput);
-        Assert.Contains("-authored-line-60", detailedOutput);
+        Assert.Contains("-    // authored-line-60", detailedOutput);
     }
 
     [Fact]
@@ -16509,6 +17310,56 @@ public partial class CommandExecutionTests
         {
             Assert.Contains("field\tvalue", output);
         }
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    public async Task Member_SourceDiff_IdenticalTabularOutputRetainsZeroStatistics(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{nameof(ISourceDiffPropertyShapeFixture.Map)}:1",
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", SectionNames.SourceDiff,
+            format,
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Dictionary<string, string?> fields = new(StringComparer.Ordinal);
+        string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (format == "--jsonl")
+        {
+            foreach (string line in lines)
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                fields.Add(
+                    Assert.IsType<string>(document.RootElement.GetProperty("field").GetString()),
+                    document.RootElement.GetProperty("value").GetString());
+            }
+        }
+        else
+        {
+            Assert.Equal("field\tvalue", lines[0].TrimEnd('\r'));
+            foreach (string line in lines.Skip(1))
+            {
+                string[] columns = line.TrimEnd('\r').Split('\t');
+                Assert.Equal(2, columns.Length);
+                fields.Add(columns[0], columns[1]);
+            }
+        }
+
+        Assert.True(fields.ContainsKey("PDB source"));
+        Assert.True(fields.ContainsKey("Integrity"));
+        Assert.Equal("PDB comparison and Decompiled comparison are identical.", fields["Status"]);
+        Assert.Equal("0", fields["Added lines"]);
+        Assert.Equal("0", fields["Removed lines"]);
+        Assert.Equal("0 PDB comparison -> 0 Decompiled comparison", fields["Changed lines"]);
+        Assert.Equal("0 PDB comparison -> 0 Decompiled comparison", fields["Moved lines"]);
     }
 
     [Fact]
@@ -16639,10 +17490,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Facts", output);
-        Assert.Contains("| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality |", output);
+        Assert.Contains(
+            "| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality | Census Receipt | Instance Key |",
+            output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
-        Assert.Contains("| offset | Allocation | alloc.box | `int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` | Always |", output);
+        Assert.Matches(
+            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \| Always \| [0-9a-f-]{36} \| 1 \|",
+            output);
     }
 
     [Fact]
@@ -16654,8 +17509,467 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
-        Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once\tAlways", output);
+        string row = Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        string[] columns = row.Split('\t');
+        Assert.Equal(10, columns.Length);
+        Assert.EndsWith("FactsTableFixture::BoxInt", columns[0]);
+        Assert.StartsWith("IL_", columns[1]);
+        Assert.Equal("offset", columns[3]);
+        Assert.Equal("Allocation", columns[4]);
+        Assert.Equal("alloc.box", columns[5]);
+        Assert.Equal("Always", columns[7]);
+        Assert.True(Guid.TryParse(columns[8], out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+        Assert.Equal("1", columns[9]);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_FindingCensusJson_CorrelatesFactsAndSource()
+    {
+        string[] command =
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+        ];
+        var (exit, output, error) = await RunAppAsync(
+            [.. command, "-S", "Finding Census", "--json", "--tips", "q"]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var envelope = JsonDocument.Parse(output);
+        JsonElement root = envelope.RootElement;
+        Assert.True(Guid.TryParse(
+            root.GetProperty("fact_census_receipt").GetString(),
+            out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+
+        JsonElement[] facts = root.GetProperty("facts").EnumerateArray().ToArray();
+        JsonElement[] sourceInstances = root
+            .GetProperty("source_fact_instances")
+            .EnumerateArray()
+            .ToArray();
+        int[] factKeys = facts
+            .Where(static fact => fact.TryGetProperty("instance_key", out _))
+            .Select(static fact => fact.GetProperty("instance_key").GetInt32())
+            .Order()
+            .ToArray();
+        int[] sourceKeys = sourceInstances
+            .Select(static identity =>
+                identity.GetProperty("instance_key").GetInt32())
+            .Order()
+            .ToArray();
+        Assert.NotEmpty(factKeys);
+        Assert.Equal(factKeys, sourceKeys);
+        Assert.Contains(
+            facts,
+            static fact => fact.TryGetProperty("csharp_line", out _));
+        Assert.DoesNotContain(
+            facts,
+            static fact => fact.TryGetProperty("c_sharp_line", out _));
+
+        JsonElement annotated = root.GetProperty("annotated_source_document");
+        Assert.NotEmpty(annotated.GetProperty("text").GetString()!);
+        JsonElement[] documentFacts = annotated
+            .GetProperty("facts")
+            .EnumerateArray()
+            .ToArray();
+        Assert.All(sourceInstances, identity =>
+        {
+            int factId = identity.GetProperty("fact_id").GetInt32();
+            Assert.Equal(
+                "Body",
+                documentFacts[factId].GetProperty("origin").GetString());
+        });
+
+        var (documentExit, documentOutput, documentError) = await RunAppAsync(
+            [.. command, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+        Assert.Equal(0, documentExit);
+        Assert.Empty(documentError);
+        using var document = JsonDocument.Parse(documentOutput);
+        Assert.True(JsonElement.DeepEquals(annotated, document.RootElement));
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_FindingCensusMarkdown_RendersEnvelope()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt),
+            "-S", "Finding Census", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Finding Census", output);
+        Assert.Contains("```json", output);
+        Assert.Contains("\"fact_census_receipt\":", output);
+        Assert.Contains("\"annotated_source_document\":", output);
+        Assert.Contains("\"source_fact_instances\":", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_FindingCensusBare_RendersEnvelope()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "Finding Census", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.True(
+            Guid.TryParse(
+                envelope.RootElement
+                    .GetProperty("fact_census_receipt")
+                    .GetString(),
+                out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensus_RejectsBodylessMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(IGenericExplicitInterfaceFixture<>).FullName!,
+            "--library", TestAssemblyPath,
+            "Map:1", "-S", "Finding Census", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Finding Census", error);
+    }
+
+    [Theory]
+    [InlineData("Run")]
+    [InlineData("Run:1")]
+    public async Task Member_FindingCensusDiscovery_OmitsBodylessMember(
+        string memberSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(IBodylessFindingCensusFixture).FullName!,
+            "--library", TestAssemblyPath,
+            memberSelector, "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("| Finding Census |", output);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensus_UsesSelectedAccessorBodyAvailability()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-runtime-accessor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "RuntimeAccessor.dll");
+            WriteRuntimeAccessorAssembly(dllPath);
+
+            foreach (var memberName in (string[])
+            [
+                "Value",
+                "Changed",
+                "MixedValue",
+                "MixedChanged",
+            ])
+            {
+                var (bodylessDiscoverExit, bodylessDiscoverOutput, bodylessDiscoverError) =
+                    await RunAppAsync(
+                        "member", "RuntimeAccessor.Target", "--library", dllPath,
+                        $"{memberName}:1", "-D", "--tips", "q");
+
+                Assert.Equal(0, bodylessDiscoverExit);
+                Assert.Empty(bodylessDiscoverError);
+                Assert.DoesNotContain(
+                    "| Finding Census |",
+                    bodylessDiscoverOutput);
+
+                var (bodylessExit, bodylessOutput, bodylessError) =
+                    await RunAppAsync(
+                        "member", "RuntimeAccessor.Target", "--library", dllPath,
+                        $"{memberName}:1", "-S", "Finding Census", "--json",
+                        "--tips", "q");
+
+                Assert.Equal(1, bodylessExit);
+                Assert.Empty(bodylessOutput);
+                Assert.Contains("Finding Census", bodylessError);
+
+                var (bodyDiscoverExit, bodyDiscoverOutput, bodyDiscoverError) =
+                    await RunAppAsync(
+                        "member", "RuntimeAccessor.Target", "--library", dllPath,
+                        $"{memberName}:2", "-D", "--tips", "q");
+
+                Assert.Equal(0, bodyDiscoverExit);
+                Assert.Empty(bodyDiscoverError);
+                Assert.Contains("| Finding Census |", bodyDiscoverOutput);
+
+                var (bodyExit, bodyOutput, bodyError) = await RunAppAsync(
+                    "member", "RuntimeAccessor.Target", "--library", dllPath,
+                    $"{memberName}:2", "-S", "Finding Census", "--json",
+                    "--tips", "q");
+
+                Assert.Equal(0, bodyExit);
+                Assert.Empty(bodyError);
+                using var envelope = JsonDocument.Parse(bodyOutput);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    envelope.RootElement
+                        .GetProperty("fact_census_receipt")
+                        .GetGuid());
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("MixedValue", "set_MixedValue")]
+    [InlineData("MixedChanged", "remove_MixedChanged")]
+    public async Task Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract(
+        string memberName,
+        string concreteAccessor)
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-mixed-accessor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "RuntimeAccessor.dll");
+            WriteRuntimeAccessorAssembly(dllPath);
+
+            var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
+                "member", "RuntimeAccessor.Target", "--library", dllPath,
+                $"{memberName}:1", "-S", "Decompiled Source", "--tips", "q");
+
+            Assert.Equal(0, abstractExit);
+            Assert.Empty(abstractError);
+            Assert.DoesNotContain("## Decompiled Source", abstractOutput);
+            Assert.DoesNotContain(concreteAccessor, abstractOutput);
+
+            var (concreteExit, concreteOutput, concreteError) = await RunAppAsync(
+                "member", "RuntimeAccessor.Target", "--library", dllPath,
+                $"{memberName}:2", "-S", "Decompiled Source", "--tips", "q");
+
+            Assert.Equal(0, concreteExit);
+            Assert.Empty(concreteError);
+            Assert.Contains("## Decompiled Source", concreteOutput);
+            Assert.Contains($"public void {concreteAccessor}(", concreteOutput);
+            Assert.DoesNotContain("virtual ", concreteOutput);
+            Assert.DoesNotContain("abstract ", concreteOutput);
+            Assert.DoesNotContain("override ", concreteOutput);
+            Assert.DoesNotContain("sealed ", concreteOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_ExtensionMethod_FindingCensusDiscoversAndRenders()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:AsMemory:1", "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Finding Census |", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:AsMemory:1", "-S", "Finding Census",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.True(
+            Guid.TryParse(
+                envelope.RootElement
+                    .GetProperty("fact_census_receipt")
+                    .GetString(),
+                out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensus_RejectsUnnarrowedOverloads()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S", "Finding Census", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires a single selected overload", error);
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--count")]
+    [InlineData("-n", "1")]
+    [InlineData("-n", "1", "--tail")]
+    [InlineData("--rows", "1")]
+    [InlineData("--fields", "facts")]
+    [InlineData("--columns", "facts")]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task Member_FindingCensus_RejectsRowProjection(
+        params string[] projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "Finding Census",
+            .. projection,
+            "--tips", "q",
+        ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensusJson_RejectsSectionComposition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "Finding Census,Facts", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Finding Census' must be the only selected section under --json",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("-n", "5")]
+    [InlineData("--rows", "1")]
+    [InlineData("--fields", "Member")]
+    [InlineData("--columns", "Member")]
+    public async Task Member_AllSelector_ProjectionDoesNotBecomeFindingCensusProjection(
+        params string[] projection)
+    {
+        var (exit, _, error) = await RunAppAsync(
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "@All",
+            .. projection,
+            "--tips", "q",
+        ]);
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("indivisible document payload", error);
+    }
+
+    [Fact]
+    public async Task Member_AllSelector_OmitsFindingCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "@All", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Finding Census", output);
+        Assert.DoesNotContain("\"fact_census_receipt\":", output);
+    }
+
+    [Fact]
+    public async Task Member_AllSectionsWildcard_OmitsFindingCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "*", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Facts", output);
+        Assert.DoesNotContain("## Finding Census", output);
+        Assert.DoesNotContain("\"fact_census_receipt\":", output);
+    }
+
+    [Fact]
+    public async Task Member_AllDiscovery_OmitsFindingCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-D", "@All", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("| Finding Census |", output);
+    }
+
+    [Theory]
+    [InlineData()]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_FindingCensusGlob_RequiresExactSelector(
+        params string[] format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "Finding*",
+            .. format,
+            "--tips", "q",
+        ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Finding Census' requires an exact -S selector",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_AllPlusFindingCensusGlob_RequiresExactSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "@All,Finding*", "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Finding Census' requires an exact -S selector",
+            error);
     }
 
     [Fact]
@@ -20326,7 +21640,9 @@ public partial class CommandExecutionTests
         List<string> args = [.. command];
         if (command is ["library", ..] && section == "Context: Source Location")
             args.AddRange(["--il-offset", "0x06000041+0x0"]);
-        args.AddRange(["-S", section, "--table", "--tips", "q", "-n", "40"]);
+        args.AddRange(section == SectionNames.FindingCensus
+            ? ["-S", section, "--tips", "q"]
+            : ["-S", section, "--table", "--tips", "q", "-n", "40"]);
         return [.. args];
     }
 
@@ -20343,6 +21659,9 @@ public partial class CommandExecutionTests
         // declaration while preserving the non-empty guard for probed sections. The generated
         // no-SourceLink overload fixture gates this distinction without depending on checkout
         // source acquisition (#3464).
+        if (section == SectionNames.FindingCensus)
+            return true;
+
         if (IsNoMemberTypeDiscoveryCommand(command))
             return !TypeUnprobedDiscoverySections.Contains(section);
 
@@ -20404,6 +21723,7 @@ public partial class CommandExecutionTests
         "Decompiled Source",
         "Annotated Source",
         "Annotated Source Document",
+        "Finding Census",
         "Cost Overlay",
         "Semantics Overlay",
         "PDB Source",
@@ -35027,6 +36347,11 @@ public interface IGenericExplicitInterfaceFixture<T>
     void Map<U, V>(U first, V second);
 }
 
+public interface IBodylessFindingCensusFixture
+{
+    void Run();
+}
+
 public sealed class GenericExplicitInterfaceFixture<T>
     : IGenericExplicitInterfaceFixture<T>
 {
@@ -35044,6 +36369,86 @@ public sealed class Operators<T>
     public T Apply(T value) => value;
     public TResult Convert<TResult>(T value) => default!;
     public TResult Convert<TResult>(IEnumerable<T> values) => default!;
+}
+
+public interface ICommandExecutionReadonlyValue
+{
+    int Value { get; set; }
+}
+
+public struct CommandExecutionReadonlySourceDiffFixture : ICommandExecutionReadonlyValue
+{
+    int _value;
+
+    public CommandExecutionReadonlySourceDiffFixture(int value) => _value = value;
+
+    public readonly int Value => _value;
+
+    readonly int ICommandExecutionReadonlyValue.Value
+    {
+        get => _value;
+        set => GC.KeepAlive(value);
+    }
+}
+
+public interface ISourceDiffPropertyShapeFixture
+{
+    Dictionary<string, int> Map { get; }
+    (int Count, string Name) Pair { get; }
+    ref readonly int Reference { get; }
+    int Initial { get; init; }
+    int Item { get; set; }
+    int Chars { get; set; }
+}
+
+public sealed class SourceDiffPropertyShapeFixture : ISourceDiffPropertyShapeFixture
+{
+    Dictionary<string, int> _map = [];
+    (int Count, string Name) _pair = (1, "value");
+    int _value;
+
+    public SourceDiffPropertyShapeFixture(int value) => _value = value;
+
+    Dictionary<string, int> ISourceDiffPropertyShapeFixture.Map => _map;
+
+    (int Count, string Name) ISourceDiffPropertyShapeFixture.Pair => _pair;
+
+    ref readonly int ISourceDiffPropertyShapeFixture.Reference => ref _value;
+
+    int ISourceDiffPropertyShapeFixture.Initial
+    {
+        get => _value;
+        init => _value = value;
+    }
+
+    int ISourceDiffPropertyShapeFixture.Item
+    {
+        get => _value;
+        set => _value = value;
+    }
+
+    int ISourceDiffPropertyShapeFixture.Chars
+    {
+        get => _value;
+        set => _value = value;
+    }
+}
+
+public interface ISourceDiffIndexerFixture
+{
+    [System.Runtime.CompilerServices.IndexerName("Lookup")]
+    int this[int index] { get; set; }
+}
+
+public sealed class SourceDiffIndexerFixture : ISourceDiffIndexerFixture
+{
+    int _value;
+
+    int ISourceDiffIndexerFixture.this[int index]
+    {
+        get => _value + index;
+        set => _value = value - index;
+    }
 }
 
 public sealed class CommandExecutionSourceDiffFixture
