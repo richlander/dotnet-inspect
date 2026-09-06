@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { SlideStripPolicy } from "../src/slide-strip.ts";
 import { callFactsFixture } from "../test/member-facts-fixture.ts";
 
 async function box(page: Page, selector: string) {
@@ -1506,12 +1507,13 @@ test("SlideStrip slides one uniform window without stealing external focus", asy
   await expect(inspector).toHaveAttribute("data-fallback", "false");
 });
 
-test("width-only changes retain the initially applied window", async ({
-  page,
-}) => {
+async function windowContinuityProbe(
+  page: Page,
+  windowContinuity?: SlideStripPolicy["windowContinuity"],
+) {
   await page.goto("/browser/workspace-titlebar.html");
 
-  const state = await page.evaluate(async () => {
+  return page.evaluate(async windowContinuity => {
     const { SlideStripDomController } = await import(
       "../src/slide-strip-dom.ts");
     document.head.insertAdjacentHTML(
@@ -1555,7 +1557,7 @@ test("width-only changes retain the initially applied window", async ({
     const continuity: { key: string; leadingId?: string } = {
       key: "resize-continuity",
     };
-    const controller = new SlideStripDomController(
+    const createController = (continuityKey: string) => new SlideStripDomController(
       element,
       [
         { id: "a", label: "A" },
@@ -1566,11 +1568,13 @@ test("width-only changes retain the initially applied window", async ({
         modes: [{ kind: "label", minimumVisible: 1, gap: 0 }],
         initialAnchor: "b",
         preferredDirection: "after",
-        continuityKey: "resize-continuity",
+        continuityKey,
+        ...(windowContinuity ? { windowContinuity } : {}),
         fallbackVisibilityFloor: 20,
         oversizedAlignment: "start",
       },
       continuity);
+    const controller = createController("resize-continuity");
     const snapshot = () => ({
       visible: [...element.querySelectorAll<HTMLElement>(
         "[data-slide-strip-id]:not([hidden])")]
@@ -1584,6 +1588,26 @@ test("width-only changes retain the initially applied window", async ({
     const wider = snapshot();
     controller.apply(controller.resolve(170));
     const complete = snapshot();
+    const edgeNoOp = controller.slide("after");
+    controller.apply(controller.resolve(60));
+    const narrowed = snapshot();
+    let focusBeforeSlide = null;
+    const focusOutside = () => {
+      const button = document.querySelector<HTMLElement>(
+        "#application-menu-button");
+      if (!button) throw new Error("The external focus target is missing.");
+      button.focus();
+    };
+    if (windowContinuity === "anchor-until-slide") {
+      controller.revealForFocus("c");
+      const focused = snapshot();
+      const focusedId = document.activeElement instanceof HTMLElement
+        ? document.activeElement.dataset.slideStripId
+        : undefined;
+      focusOutside();
+      controller.apply(controller.resolve(60));
+      focusBeforeSlide = { focused, focusedId, afterFocus: snapshot() };
+    }
     controller.apply(controller.resolve(100));
     const moved = controller.slide("after");
     const slid = snapshot();
@@ -1591,22 +1615,45 @@ test("width-only changes retain the initially applied window", async ({
     const expandedAfterSlide = snapshot();
     controller.apply(controller.resolve(110));
     const narrowedAfterSlide = snapshot();
+    controller.revealForFocus("a");
+    const focusedAfterSlide = snapshot();
+    focusOutside();
+    controller.apply(controller.resolve(70));
+    const afterFocus = snapshot();
+    const resetController = createController("reset-continuity");
+    resetController.apply(resetController.resolve(60));
+    const reset = snapshot();
 
     return {
       initial,
       wider,
       complete,
+      edgeNoOp,
+      narrowed,
+      focusBeforeSlide,
       moved,
       slid,
       expandedAfterSlide,
       narrowedAfterSlide,
+      focusedAfterSlide,
+      afterFocus,
+      reset,
     };
-  });
+  }, windowContinuity);
+}
+
+test("default window continuity retains the initially applied window", async ({
+  page,
+}) => {
+  const state = await windowContinuityProbe(page);
 
   expect(state).toEqual({
     initial: { visible: ["a", "b"], leading: "a" },
     wider: { visible: ["a", "b"], leading: "a" },
     complete: { visible: ["a", "b", "c"], leading: "a" },
+    edgeNoOp: false,
+    narrowed: { visible: ["a"], leading: "a" },
+    focusBeforeSlide: null,
     moved: true,
     slid: { visible: ["c"], leading: "c" },
     expandedAfterSlide: {
@@ -1614,6 +1661,38 @@ test("width-only changes retain the initially applied window", async ({
       leading: "c",
     },
     narrowedAfterSlide: { visible: ["b", "c"], leading: "c" },
+    focusedAfterSlide: { visible: ["a", "b"], leading: "a" },
+    afterFocus: { visible: ["a"], leading: "a" },
+    reset: { visible: ["b"], leading: "b" },
+  });
+});
+
+test("anchor-following window continuity retains only explicit slides", async ({
+  page,
+}) => {
+  const state = await windowContinuityProbe(page, "anchor-until-slide");
+
+  expect(state).toEqual({
+    initial: { visible: ["a", "b"], leading: undefined },
+    wider: { visible: ["b", "c"], leading: undefined },
+    complete: { visible: ["a", "b", "c"], leading: undefined },
+    edgeNoOp: false,
+    narrowed: { visible: ["b"], leading: undefined },
+    focusBeforeSlide: {
+      focused: { visible: ["c"], leading: undefined },
+      focusedId: "c",
+      afterFocus: { visible: ["b"], leading: undefined },
+    },
+    moved: true,
+    slid: { visible: ["c"], leading: "c" },
+    expandedAfterSlide: {
+      visible: ["a", "b", "c"],
+      leading: "c",
+    },
+    narrowedAfterSlide: { visible: ["b", "c"], leading: "c" },
+    focusedAfterSlide: { visible: ["a", "b"], leading: "c" },
+    afterFocus: { visible: ["c"], leading: "c" },
+    reset: { visible: ["b"], leading: undefined },
   });
 });
 
