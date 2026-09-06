@@ -160,6 +160,30 @@ separate from this compiler-backed ledger.
 
 [readonly-parameter-encoding]: https://github.com/dotnet/csharplang/blob/main/proposals/csharp-12.0/ref-readonly-parameters.md#metadata-encoding
 
+`FunctionPointerModifierSignatureShapeFlowTests` extends the ledger to managed
+function-pointer parameters. Its compiled value/reference pairs distinguish the
+outer pointer parameter's `Value` passing from an inner by-reference argument
+(`&` in `mss1`, not outer `r`). Raw nested signatures record `modreq(OutAttribute)`
+for `out`, `modreq(InAttribute)` for `in`, and
+`modopt(RequiresLocationAttribute)` for `ref readonly`, following the
+[function-pointer metadata encoding][readonly-function-pointer-encoding].
+These modifiers erase to the same available Metadata shape as plain `ref`;
+that equality does not establish binary compatibility.
+
+The current source adapter accepts the value/`ref`/`out`/`in` specimens but
+refuses inner `ref readonly` syntax. Its unavailable result is retained:
+Metadata-to-source comparison of the complete `ReadOnly` group is unavailable
+even for its otherwise matching value sibling. In the other direction, that
+value source uniquely matches the Metadata value candidate. Alternative source
+versions demonstrate unique correspondence, ambiguity, or refusal without
+pretending they coexist as legal overloads; the
+[compiler pre-work](https://github.com/richlander/dotnet-inspect/issues/6163#issuecomment-5560340986)
+records rejection of overloads differing only in those nested modifiers.
+This evidence does not expand source syntax support or cover every calling
+convention, return modifier, or modifier placement.
+
+[readonly-function-pointer-encoding]: https://github.com/dotnet/csharplang/blob/main/proposals/csharp-12.0/ref-readonly-parameters.md#function-pointers
+
 ### Demo: distinguish overloads, retain ambiguity
 
 Within the compiled `Ref` group:
