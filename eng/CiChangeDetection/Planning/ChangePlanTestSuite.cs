@@ -142,6 +142,7 @@ internal static class ChangePlanTestSuite
             ("eng/restore-iltools.sh", "code"),
             ("eng/activate-iltools.sh", "code"),
             ("eng/test-ts-jsexport-context-aot.sh", "code"),
+            ("eng/test-runtime-flavor.sh", "code"),
             ("eng/run-method-semantics-platform-probe.sh", "code,web"),
             ("eng/run-local-path-admission-platform-probe.sh", "code,web"),
             ("eng/test-ts-jsexport-typescript.sh", "web"),

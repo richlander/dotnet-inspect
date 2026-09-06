@@ -21,8 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
-    <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Instructions\ILInspector.Instructions.csproj" />
   </ItemGroup>
 
 </Project>
