@@ -523,6 +523,60 @@ public class ReturnToSenderFixtureCatalogTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public void ReturnToSenderMemberComparison_PreservesSiblingMetadata(bool originalIsSibling)
+    {
+        string testAssembly = typeof(BoxedReferenceEqualitySpecimens).Assembly.Location;
+        var fixture = CompileSourceFixture(
+            [MetadataReference.CreateFromFile(testAssembly)],
+            ("SiblingDonor.cs", """
+                namespace ILInspector.Decompiler.Tests;
+                public static class BoxedReferenceEqualitySpecimens
+                {
+                    public static bool PlainReferenceEquals(PlainReference left, PlainReference right)
+                        => left == right;
+                }
+                """));
+        try
+        {
+            // Cover both a reference back to the original participant and a third image.
+            if (!originalIsSibling)
+                File.Copy(testAssembly, Path.Combine(fixture.Directory, Path.GetFileName(testAssembly)));
+            string path = originalIsSibling ? testAssembly : fixture.AssemblyPath;
+            string type = typeof(BoxedReferenceEqualitySpecimens).FullName!;
+            string name = nameof(BoxedReferenceEqualitySpecimens.PlainReferenceEquals);
+            using var pe = new PEReader(File.OpenRead(path));
+            var reader = pe.GetMetadataReader();
+            var original = FindMethod(reader, type, name);
+            using var originalSource = MetadataSource.OpenWithoutSymbols(path);
+            var expected = Assert.IsType<FindingInspection<CSharpCanonicalLine>.Complete>(
+                CSharpFindings.Inspect(originalSource, original, new("sibling", "sibling")).Value)
+                .Findings.Select(finding => finding.Payload).ToArray();
+
+            var comparison = ReturnToSender.CompareMemberBodies(
+                path, reader, original, File.ReadAllBytes(fixture.AssemblyPath), type, name, 0,
+                [ResearchProducerKind.CSharp, ResearchProducerKind.IlBody]);
+
+            var completion = Assert.IsType<ResearchProducerSessionOutcome.Completed>(
+                Assert.IsType<LocalComparisonQueryResult.Published>(comparison).Outcome).Completion;
+            var csharp = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(
+                completion.Results.Single(result => result.Item.Producer == ResearchProducerKind.CSharp).Outcome).Result;
+            Assert.True(csharp.BodyDiff!.IsExact);
+            Assert.True(csharp.Findings.IsExact);
+            Assert.Equal(expected, Assert.IsType<FindingInspection<CSharpCanonicalLine>.Complete>(
+                csharp.Findings.OldInspection.Value).Findings.Select(finding => finding.Payload));
+            Assert.Equal(expected, Assert.IsType<FindingInspection<CSharpCanonicalLine>.Complete>(
+                csharp.Findings.NewInspection.Value).Findings.Select(finding => finding.Payload));
+            Assert.True(ReturnToSender.GetIlDiff(comparison)!.Diff.IsExact);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public void ReturnToSenderMemberComparison_BodylessEndpointIsNotDifference(bool before)
     {
         string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
@@ -2526,6 +2580,11 @@ public class ReturnToSenderFixtureCatalogTests
 
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
+        => CompileSourceFixture([], sources);
+
+    static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
+        IEnumerable<MetadataReference> additionalReferences,
+        params (string FileName, string Source)[] sources)
     {
         string directory = Path.Combine(Path.GetTempPath(), $"rts-source-probe-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -2538,7 +2597,7 @@ public class ReturnToSenderFixtureCatalogTests
         }
 
         string assemblyPath = Path.Combine(directory, "SourceProbe.dll");
-        var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
+        var references = RoslynTestReferences.TrustedPlatform.Concat(additionalReferences);
         var trees = sourcePaths.Select(path =>
             CSharpSyntaxTree.ParseText(
                 File.ReadAllText(path),

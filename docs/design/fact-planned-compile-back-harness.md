@@ -919,6 +919,11 @@ physical method addresses; it does not strengthen that selection into a new
 correspondence proof. IL is the default and only requested producer unless the
 caller explicitly selects C# as well.
 
+An explicit C# request admits the unchanged sibling policy's selected
+descriptors as supporting group participants, retaining their acquisition
+registrations. A path-equivalent descriptor is not a substitute for that
+selection. IL-only calls do not prepare this C# supporting context.
+
 The supplemental RTS IL evidence is not its versioned fidelity verdict.
 `FidelityCheck.ContractBodyDiffNormalization` and the independent `FidelityDiff`
 remain the decompiled lane's oracle. An existing CompileBack floor does not
@@ -934,6 +939,9 @@ Release gates are the bounded `ReturnToSenderMemberComparison_*` cases in
 `FloorReplacement_DropsPreviousCompilationContext`. They cover requested
 producers, physical addresses, missing donors, bodyless and invalid bodies,
 wrong-module designation, separate attempts, and the independent oracle.
+`ReturnToSenderMemberComparison_PreservesSiblingMetadata` additionally checks
+native C# Findings against the original resolver, both for references to the
+original image and to a third sibling image.
 This migration does not establish RTS replacement readiness or retire
 reconstruction, compilation closure, Source policy, or the CompileBack floor.
 

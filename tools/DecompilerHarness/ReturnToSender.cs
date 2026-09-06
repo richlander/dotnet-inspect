@@ -2204,6 +2204,9 @@ static class ReturnToSender
         int overload,
         IEnumerable<ResearchProducerKind>? producers = null)
     {
+        ImmutableArray<ResearchProducerKind> selectedProducers = producers is null
+            ? [ResearchProducerKind.IlBody]
+            : [.. producers];
         using var recompiledIdentityStream =
             new MemoryStream(recompiledAssembly, writable: false);
         using var recompiledIdentityReader =
@@ -2217,12 +2220,34 @@ static class ReturnToSender
         var originalReference = ResolvedAssemblyReference.CreateFromPath(
             assemblyPath, AssemblyResolutionProvenance.Local("ReturnToSender"));
         // The memory-backed donor shares the original's sibling-resolution context.
-        var policy = new AssemblyReferenceBindingPolicy(
-            MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath));
+        var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
         var before = new AssemblyContextParticipant(originalReference, policy);
         var after = new AssemblyContextParticipant(recompiledReference, policy);
+        List<AssemblyContextParticipant> participants = [before, after];
+        if (selectedProducers.Contains(ResearchProducerKind.CSharp))
+        {
+            // The query can retain only registered selections, not fresh path-equivalent descriptors.
+            var registrations = new HashSet<AssemblyAcquisitionRegistration>(ReferenceEqualityComparer.Instance)
+            {
+                originalReference.Registration,
+                recompiledReference.Registration,
+            };
+            string directory = Path.GetDirectoryName(Path.GetFullPath(assemblyPath))!;
+            foreach (string siblingPath in Directory.EnumerateFiles(directory, "*.dll"))
+            {
+                if (ResolvedAssemblyReference.TryCreateFromPath(
+                        siblingPath, AssemblyResolutionProvenance.Local("ReturnToSender sibling candidate"),
+                        out var candidate)
+                    && resolver.Resolve(candidate.Identity, AssemblyResolutionScope.Any) is { } selected
+                    && registrations.Add(selected.Registration))
+                {
+                    participants.Add(new(selected, policy));
+                }
+            }
+        }
         using var workspace = new InspectionWorkspace();
-        var group = workspace.CreateAssemblyContextGroup([before, after]);
+        var group = workspace.CreateAssemblyContextGroup(participants);
         var recompiled = FindMethodDefinition(
             recompiledIdentityReader.GetMetadataReader(), fullType, methodName, overload);
 
@@ -2231,7 +2256,7 @@ static class ReturnToSender
             new(after, recompiled is { } target
                 ? MetadataMethodAddress.Create(target.Reader, target.Handle)
                 : null),
-            producers ?? [ResearchProducerKind.IlBody]));
+            selectedProducers));
     }
 
     internal static IlMemberDiffResult? GetIlDiff(LocalComparisonQueryResult comparison)
