@@ -225,6 +225,7 @@ import {
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import { renderOverviewSurface } from "./overview-surface.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
+import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -3515,6 +3516,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "metadata";
   const libraryReferencesWorkingSurface =
     activeScope === "library" && state.libraryLens === "references";
+  const libraryIntegrationsWorkingSurface =
+    activeScope === "library" && state.libraryLens === "integrations";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3553,6 +3556,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || packageDependenciesWorkingSurface
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
+    || libraryIntegrationsWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3638,7 +3642,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4223,6 +4227,7 @@ function renderLibraryView() {
   const body = libraryLensBody();
   if (state.libraryLens === "overview"
     || state.libraryLens === "references"
+    || state.libraryLens === "integrations"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4590,72 +4595,24 @@ function packageIntegrationsSignature() {
 
 function renderPackageIntegrations() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
+  const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
-  // On the Platform the scan targets one library at a time (the whole shared framework is
-  // ~160 assemblies). Offer a picker to switch libraries; when nothing is scoped yet, prompt
-  // for a choice instead of scanning.
-  const platformPicker = isPlatform
-    ? `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr: "data-platform-integrations-library", selected: scopedLib || "" })}</div></section>`
-    : "";
-  if (isPlatform && !scopedLib) {
-    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to scan its public surface for DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting integration signals.</p></section>`;
-  }
-  const library = selectedLibraryName();
-  const scanScope = `${escapeHtml(library)} · ${escapeHtml(pkg.activeFramework)}`;
   const current = packageIntegrationsSignature();
   const fresh = state.packageIntegrationsKey === current;
-  if (state.packageIntegrationsLoading && fresh) {
-    return `${platformPicker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of ${escapeHtml(library)} for ecosystem signals.</p></section>`;
-  }
-  if (fresh && state.packageIntegrationsError) {
-    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(state.packageIntegrationsError)}</p></section>`;
-  }
-  const data = fresh ? state.packageIntegrations : null;
-  if (!data) {
-    return `${platformPicker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const categories = data.categories || [];
-  const warning = data.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be scanned completely</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
-    : "";
-
-  if (!categories.length) {
-    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${escapeHtml(library)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
-  }
-
-  const summary = `
-    <section class="document-section">
-      <div class="section-title"><h2>Ecosystem integrations</h2><span>${categories.length} categor${categories.length === 1 ? "y" : "ies"} · ${data.totalSignals} signal${data.totalSignals === 1 ? "" : "s"} · ${scanScope}</span></div>
-      <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.signals.length}</span></span>`).join("")}</div>
-    </section>`;
-
-  const blocks = categories.map(category => {
-    const signals = [...category.signals].sort((a, b) => {
-      const rank = (shape: string) => /type/i.test(shape) ? 0 : 1;
-      return rank(a.shape) - rank(b.shape) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
-    });
-    const typeCount = signals.filter(signal => /type/i.test(signal.shape)).length;
-    const apiCount = signals.length - typeCount;
-    const rows = signals.map(signal => {
-      const isType = /type/i.test(signal.shape);
-      const { short, qualifier } = splitSignalName(signal.name);
-      return `
-        <div class="signal-row" title="${escapeHtml(signal.name)} · ${escapeHtml(signal.shape)} · ${escapeHtml(signal.kind)}">
-          <span class="signal-badge signal-${isType ? "type" : "api"}">${isType ? "T" : "ƒ"}</span>
-          <span class="signal-body"><span class="signal-name">${escapeHtml(short)}</span>${qualifier ? `<span class="signal-ns">${escapeHtml(qualifier)}</span>` : ""}</span>
-          <span class="signal-kind">${escapeHtml(signal.kind)}</span>
-        </div>`;
-    }).join("");
-    return `
-    <section class="document-section">
-      <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${typeCount} type${typeCount === 1 ? "" : "s"} · ${apiCount} API${apiCount === 1 ? "" : "s"}</span></div>
-      <div class="signal-list">${rows}</div>
-    </section>`;
-  }).join("");
-
-  return `${platformPicker}${warning}${summary}${blocks}`;
+  return renderLibraryIntegrationsSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({ dataAttr: "data-platform-integrations-library", selected: scopedLib || "" })
+      : "",
+    loading: state.packageIntegrationsLoading && fresh,
+    error: fresh ? state.packageIntegrationsError : "",
+    data: fresh ? state.packageIntegrations : null,
+    escapeHtml,
+  });
 }
 
 async function loadPackageIntegrations() {
@@ -5756,23 +5713,6 @@ function shortTypeName(fullName: string) {
   const tail = generic < 0 ? "" : fullName.slice(generic);
   const dot = head.lastIndexOf(".");
   return (dot < 0 ? head : head.slice(dot + 1)) + tail;
-}
-
-// Split an integration signal's fully-qualified name into its short member/type name and a
-// declaring qualifier. Cuts off a method parameter list or generic argument list before the
-// last-dot split so a dot inside "(...)" or "<...>" never gets mistaken for the name boundary.
-function splitSignalName(fullName: string) {
-  const paren = fullName.indexOf("(");
-  const angle = fullName.indexOf("<");
-  const bounds = [paren, angle].filter(i => i >= 0);
-  const cut = bounds.length ? Math.min(...bounds) : -1;
-  const head = cut < 0 ? fullName : fullName.slice(0, cut);
-  const suffix = cut < 0 ? "" : fullName.slice(cut);
-  const dot = head.lastIndexOf(".");
-  return {
-    short: (dot < 0 ? head : head.slice(dot + 1)) + suffix,
-    qualifier: dot < 0 ? "" : head.slice(0, dot),
-  };
 }
 
 function kindIcon(kind: string) {

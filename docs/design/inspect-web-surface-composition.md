@@ -671,6 +671,47 @@ geometry, long names and identities, many/zero rows, pending and failed results,
 and Library navigation. Subject-strip behavior and other Library lenses are
 separate work.
 
+### Library Integrations
+
+Library Integrations uses a quiet count/state header, an optional platform
+Library selector, one full-area results scroller, and bottom assembly context.
+It replaces the generic Library hero, repeated summary heading/noninteractive
+category chips, and inset signal cards.
+
+```text
+Integrations                             category/signal count or state
+optional platform Library selector
+category headings and full-width signal rows
+Library asset and assembly identity              TFM · package@version
+```
+
+Existing category order, type-first signal sorting, name/qualifier splitting,
+shape/kind badges, and category/total counts remain. The platform selector stays
+above scrolling results and keeps its existing acquisition and selection
+behavior. The footer retains the Library asset path, full assembly identity,
+and package/version/framework context.
+
+Loading and query failure retain the same frame. Incomplete results retain their
+available categories and diagnostics, visibly marked as partial. An incomplete
+scan with no returned signals does not claim established absence; only a
+complete empty result says no integrations were detected.
+
+At narrow widths the existing Types/details control shares the quiet header.
+Category names, signal names/qualifiers, and kind text wrap within the pane.
+Many rows scroll locally while header, selector, and bottom context stay put.
+
+The explicitly approved browser-only presentation scope has
+[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6202):
+wire production Library Integrations to this frame and retire only that
+consumer's old composition. Browser HTML lowering consumes the existing typed
+`BrowserPackageIntegrations` result. References and Metadata supply the local
+layout conventions; this is not a new inspection or rendering architecture.
+
+Focused renderer and production-composition browser gates cover wide/narrow,
+long/many results, state distinctions, Library switching, and platform controls.
+Scan classification, catalog ownership, other lenses, and subject-strip
+interaction remain separate work.
+
 ### Package Metadata
 
 Package Metadata uses the complete package inspector area. It does not retain
