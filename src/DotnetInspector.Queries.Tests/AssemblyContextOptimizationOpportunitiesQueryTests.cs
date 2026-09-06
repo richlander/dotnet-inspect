@@ -308,6 +308,76 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
+    public void ExecuteParticipant_LeavesUnrelatedParticipantUnopenedAndPreservesSelectedFailure()
+    {
+        ImmutableArray<byte> image = SelfImage();
+        var policy = new RecordingBindingPolicy();
+        int selectedOpens = 0;
+        int unrelatedOpens = 0;
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+        [
+            Participant(
+                image,
+                ContentIdentity(image) with { Name = "WrongIdentity" },
+                policy,
+                () => unrelatedOpens++),
+            Participant(
+                image,
+                ContentIdentity(image),
+                policy,
+                () => selectedOpens++),
+        ]);
+
+        AssemblyContextOptimizationOpportunitiesResult selected =
+            AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(
+                group,
+                group.Participants[1]);
+
+        Assert.True(selected.IsComplete);
+        Assert.Single(selected.Assemblies.Assemblies);
+        Assert.True(selected.TotalOpportunities > 0);
+        Assert.Equal(1, selectedOpens);
+        Assert.Equal(0, unrelatedOpens);
+        Assert.All(selected.RankedMembers, member => Assert.Same(
+            group.Participants[1].Assembly.Registration,
+            member.Subject.Registration));
+        AssemblyOptimizationOpportunityRanking ranking = Assert.IsType<
+            AssemblyContextEntry<AssemblyOptimizationOpportunityRanking>.Available>(
+                Assert.Single(selected.Assemblies.Assemblies)).Value;
+        Assert.Equal(ranking.TotalOpportunities, selected.TotalOpportunities);
+        Assert.Equal(ranking.NonPublicOpportunities, selected.NonPublicOpportunities);
+
+        AssemblyContextOptimizationOpportunitiesResult rejected =
+            AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(
+                group,
+                group.Participants[0]);
+
+        Assert.False(rejected.IsComplete);
+        Assert.IsType<AssemblyContextEntry<AssemblyOptimizationOpportunityRanking>.Rejected>(
+            Assert.Single(rejected.Assemblies.Assemblies));
+        Assert.Empty(rejected.RankedMembers);
+        Assert.Equal(0, rejected.TotalOpportunities);
+        Assert.Equal(1, unrelatedOpens);
+    }
+
+    [Fact]
+    public void ExecuteParticipant_RejectsForeignParticipantBeforeOpening()
+    {
+        ImmutableArray<byte> image = SelfImage();
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+        int opens = 0;
+        AssemblyContextParticipant foreign =
+            Participant(image, ContentIdentity(image), policy, () => opens++);
+
+        Assert.Throws<ArgumentException>(() =>
+            AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(group, foreign));
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
     public void Execute_RanksAcrossTwoAvailableParticipants()
     {
         ImmutableArray<byte> firstImage = SelfImage();
@@ -417,14 +487,19 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     static AssemblyContextParticipant Participant(
         ImmutableArray<byte> image,
         AssemblyReferenceIdentity identity,
-        IAssemblyBindingPolicy policy) =>
+        IAssemblyBindingPolicy policy,
+        Action? onOpen = null) =>
         new(
             ResolvedAssemblyReference.Create(
                 identity,
                 path: null,
-                () => new MemoryStream(
-                    ImmutableCollectionsMarshal.AsArray(image)!,
-                    writable: false),
+                () =>
+                {
+                    onOpen?.Invoke();
+                    return new MemoryStream(
+                        ImmutableCollectionsMarshal.AsArray(image)!,
+                        writable: false);
+                },
                 AssemblyResolutionProvenance.Package(
                     "ranking-probe",
                     "1.0.0",

@@ -35,7 +35,7 @@ the centralized reference.
 
 ## Status
 
-Focused cross-cutting L1 pattern proposal for
+Focused cross-cutting L1 pattern for
 [#5202](https://github.com/richlander/dotnet-inspect/issues/5202), following
 the L2 contract locked by [Section-row shaping](section-row-shaping.md). This
 revision restructures the draft reviewed on
@@ -47,9 +47,20 @@ independently-adoptable-tier proof for the row and limit systems; this
 contract is written to be adoptable through its public surface alone, without
 dotnet-inspect's layer names, section rendering, or CLI.
 
-The current product has no general source delegation contract and does not
-implement this proposal. All asserted behavior is unverified until the Release
-gates in [Required gates](#required-gates) land.
+The shared protocol is implemented in
+[`DotnetInspector.SourceDelegation`](../../src/DotnetInspector.SourceDelegation/).
+Its first exercising consumer is the
+[public contract harness](../../tests/DotnetInspector.SourceDelegation.Tests/),
+whose Release suite runs in PR CI. Production source and caller adoption remain
+separate work; this slice does not change Gallery, L2, browser, or CLI execution.
+
+[#6042](https://github.com/richlander/dotnet-inspect/issues/6042) owns the shared
+protocol implementation and public contract harness. It is milestone 6 of the
+eight-step [Gallery adoption path #5919](https://github.com/richlander/dotnet-inspect/issues/5919).
+Milestone 7 adopts the protocol through Gallery acquisition, L2 finite-input
+binding, and the existing website query path; milestone 8 adds CLI execution.
+The website's current ordinary-acquisition path remains supported until that
+focused adoption replaces it.
 
 This design uses two established evidence sources:
 
@@ -101,6 +112,24 @@ changing the effect protocol; a different terminal aggregate requires its own
 result branch and equivalence gate. The L1/L2 positioning in this document is
 dotnet-inspect composition policy recorded for this repository's adoption; the
 contract surface itself carries no layer names.
+
+### Alignment with repository principles
+
+The design applies the repository's
+[development practices](../development-practices.md) to shared source execution:
+
+| Principle | How this design applies it |
+| --- | --- |
+| Build useful shared capabilities | One protocol lets source optimizations serve multiple consumers while preserving the caller's reference result. Gallery discovery's CLI and browser adoption path is tracked in [#5919](https://github.com/richlander/dotnet-inspect/issues/5919). |
+| Prefer the simplest sufficient design | Four effect rules and a closed result algebra express the commitment and completion decisions. Structural candidate/result binding supplies the association; the protocol remains linear. |
+| Keep hosts thin and preserve structured information | Candidates, member outcomes, rows, counts, dispositions, and evidence retain their typed meaning through shared execution. Hosts consume those outcomes through their existing composition and rendering paths. |
+| Preserve owner boundaries | The caller owns plan partitioning and residual execution; operation owners define source-closed behavior; sources own acquisition and proof construction. The protocol composes those responsibilities. |
+| Preserve behavior-safe defaults and visible failure | Pure decline leaves the reference strategy available. Accepted execution publishes an explicit outcome, and completion evidence determines whether that outcome can substitute for the reference result. |
+| Gate observable behavior | Release cases exercise effect ordering, atomic publication, and evidence acceptance against the reference semantics. The canonical boundary distinguishes a provider cap equal to N from a witness proving N applicable rows. |
+
+Design review evaluates this alignment. The named Release gates below establish
+the specific behavioral contracts that make the shared execution useful and
+reliable.
 
 ### Trust model
 
@@ -511,9 +540,9 @@ candidate wins.
 ## Security and platform boundary
 
 Remote content does not mint member or completion-requirement identities and
-does not construct candidates, plans, or evidence. Source-specific remote
-text does not enter this pattern as a diagnostic string; an adopter carries
-only its owner-issued contained disposition and evidence types.
+does not construct candidates, plans, or evidence. The adopting source interprets
+provider observations and carries the resulting owner-issued contained
+disposition and evidence types.
 
 The contract authorizes no source, endpoint, credential, cache, or filesystem
 path. Host and source owners perform that authorization before execution.
@@ -528,13 +557,20 @@ under those components' existing platform contracts.
 ## Required gates
 
 The pattern implementation and each optimized adoption must add the
-applicable named Release gates. Gates are executable evidence in the Release
-test suites — reference-equivalence fixtures, static closure checks, and
-dependency assertions — not product runtime validation. The product runtime
+applicable named Release gates. Release tests exercise public construction,
+execution outcomes, and reference-equivalence fixtures. The product runtime
 carries only the semantic decisions the contract itself defines, such as
 evidence-basis acceptance and result-shape validity; the guarantees in
 [By construction, not by gate](#by-construction-not-by-gate) ship as type
 shape, not checks.
+
+The public harness covers the protocol-owned effect, result-algebra, and
+completion-evidence gates below. Its toy partition examples exercise public
+candidate construction and reference composition, but do not certify a
+production caller's `SourceDelegationPartitionMatchesReference` gate.
+`SourceClosedDeclarationsMatchOwnerContracts`,
+`OwnerObservationsRemainReferenceBarriers`, and the two optimized section-row
+equivalence gates remain unverified until their owning adoptions land.
 
 | Gate | Contract |
 | --- | --- |
@@ -554,7 +590,6 @@ shape, not checks.
 | `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped acquisition-only handoff preserves the caller owner's typed Rows-usability decision and incompleteness evidence through its residual, while the same evidence remains Count-insufficient. After any non-empty delegated prefix, incomplete-stop evidence keeps the member `Unavailable`, and the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after any residuals admitted by the owning composition, matches the complete section-row reference result exactly for values, order, member identity, unavailable-member composition, source evidence, every owner-observable invocation, and terminal failure identity, scope, and precedence. Fixtures exercise an acquisition-only incomplete handoff through a non-empty residual under the caller owner's existing usability contract; incomplete handoffs after non-empty delegated prefixes that remain unavailable; a multi-member Count handoff whose unavailable companion suppresses all residual execution; immutable result snapshots under mutation of every source collection; an exact sentinel callback/comparer/resolver exception; and a case where both the semantic and callback failures are reachable with reference precedence preserved. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
-| `SourceDelegationContractIsPresentationFree` | Protocol-owned fields of candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label; opaque caller-owned row values are outside this constraint. |
 
 ## Non-claims
 
