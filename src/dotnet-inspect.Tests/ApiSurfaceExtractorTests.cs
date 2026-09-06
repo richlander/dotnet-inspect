@@ -81,6 +81,7 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Extract_ClassifiesLanguageNeutralOpPrefixAsOperator()
     {
         var assemblyPath =
@@ -407,6 +408,7 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Extract_RendersMemberAttributes()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -461,6 +463,7 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -1242,6 +1245,7 @@ public class ApiSurfaceExtractorTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(false)]
     [InlineData(true)]
     public void Extract_CompilerGeneratedMethodsRequireOptIn(bool includeCompilerGenerated)

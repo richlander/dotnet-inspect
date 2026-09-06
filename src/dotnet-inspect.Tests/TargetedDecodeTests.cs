@@ -20,6 +20,7 @@ public class TargetedDecodeTests
             : "";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TargetedBuild_MatchesFullBuild_ForEveryPerMethodFactOfTheTarget()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
@@ -48,6 +49,7 @@ public class TargetedDecodeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TargetedBuild_DecodesOnlyTheScopedMember()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
