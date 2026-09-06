@@ -107,16 +107,9 @@ public sealed partial class DesktopPackageSourceComposition
             if (coordinate is null)
                 return new(null, null, failures);
 
-            PackageAcquisitionCandidate candidate =
-                discovery.SelectCandidate(coordinate.Version);
-            return await AcquireCandidateAsync(
-                candidate,
-                createStore,
-                log,
-                operation,
-                limits,
-                transferPolicy,
-                failures).ConfigureAwait(false);
+            return await AcquireDiscoveredAsync(
+                discovery, coordinate, createStore, sourceOptions, log, operation,
+                limits, transferPolicy).ConfigureAwait(false);
         }
         catch (NuGetOperationTimeoutException)
         {
@@ -130,6 +123,43 @@ public sealed partial class DesktopPackageSourceComposition
         {
             return PayloadOperationTimedOut(operation, failures);
         }
+    }
+
+    internal Task<ConfiguredPackagePayloadResult> AcquireDiscoveredAsync(
+        PackageVersionDiscoveryResult discovery,
+        PackageSourceCoordinate coordinate,
+        Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ArgumentNullException.ThrowIfNull(createStore);
+        var failures = new List<PackageAuthorityFailure>(discovery.Failures);
+        if (discovery.State != PackageVersionDiscoveryState.Authoritative)
+            return Task.FromResult(new ConfiguredPackagePayloadResult(null, null, failures));
+        if (sourceOptions?.AuthorizedSourceKeys is not null
+            || sourceOptions?.ResolvedSources is not null)
+            return Task.FromResult(InvalidSelection(
+                "Selected payload acquisition requires configured sources, not legacy producer or resolved-source restrictions."));
+
+        PackageAcquisitionCandidate candidate = discovery.SelectCandidate(coordinate.Version);
+        PackageAcquisitionCandidateResult originalPolicy = ResolvePinnedCandidate(
+            candidate.Coordinate, sourceOptions, operationContext: operation);
+        failures.AddRange(originalPolicy.Failures);
+        if (originalPolicy.Candidate is not { } originalSources)
+            return Task.FromResult(new ConfiguredPackagePayloadResult(null, null, failures));
+
+        var reporters = new HashSet<ConfiguredPackageAuthority>(
+            candidate.Authorities.Select(evidence => evidence.Authority),
+            ReferenceEqualityComparer.Instance);
+        bool selectionUsesOriginalSources = failures.Count == 0
+            && reporters.SetEquals(originalSources.Authorities.Select(evidence => evidence.Authority));
+        return AcquireCandidateAsync(
+            candidate, createStore, log, operation,
+            limits, transferPolicy, failures, selectionUsesOriginalSources);
     }
 
     private static bool IsRangeAddressSyntaxValid(string? address) =>
