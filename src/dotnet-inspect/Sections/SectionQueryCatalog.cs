@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Planning;
 
@@ -71,6 +72,24 @@ public sealed record SectionQueryCatalog(
                             .Where(facet => facet.Operators.Contains("--where"))
                             .Select(facet => facet with { Operators = ["--where"] })]
                     : [BodyKindQueryOptions.QueryFacet]));
+        }
+        if (command == "library")
+        {
+            string[] integrationSections =
+            [
+                LibraryIntegrationCatalog.RollupName,
+                .. LibraryIntegrationCatalog.CategorySections,
+                IntegrationSectionNames.Opportunities,
+            ];
+            foreach (string section in integrationSections)
+            {
+                queries.Add(new(
+                    section,
+                    "All integrations are enabled by default. An ecosystem equality predicate narrows "
+                    + "ordinary Integration evidence and opportunities; it does not replace full-library presence or Census. "
+                    + "This query cannot be combined with Body Shapes or Performance Triage predicates/ranking.",
+                    [IntegrationQueryOptions.QueryFacet]));
+            }
         }
 
         ImmutableArray<string> sections = command == "find"

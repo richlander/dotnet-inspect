@@ -23,6 +23,7 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallersSection_KeepsVirtualCallvirtAsDeclaredTarget()
     {
         var result = await RunMemberCallersAsync(typeof(CallersBase).FullName!, nameof(CallersBase.Speak));
@@ -33,6 +34,7 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallersSection_TsvUsesPlainNormalizedValues()
     {
         var result = await RunMemberCallersAsync(typeof(MemberCallersFixture).FullName!, nameof(MemberCallersFixture.Target), tsv: true);
@@ -99,6 +101,7 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallersSection_RendersEmptyStateNote_WhenExplicitlySelectedAndNoCallers()
     {
         // Orphan has no callers in this assembly. Explicitly selecting the Callers section
@@ -131,6 +134,7 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallersSection_CrossAssembly_AttributesCallersToSourceAssembly()
     {
         // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,
@@ -160,6 +164,7 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallersSection_NoScope_OmitsSourceColumn()
     {
         // Without a caller scope, callers come from a single assembly, so the Source column is
@@ -173,6 +178,7 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraph_CrossAssembly_IncorporatesExternalCallersTaggedWithSource()
     {
         // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,

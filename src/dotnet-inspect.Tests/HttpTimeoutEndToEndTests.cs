@@ -60,6 +60,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// changing nothing. Only asserting the value took effect distinguishes the two.
     /// </remarks>
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData("--http-timeout", "3")]
     [InlineData("--http-timeout=3", null)]
     [InlineData("--http-timeout:3", null)]
@@ -76,6 +77,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// The variable still works for callers that never pass a flag.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void HttpTimeout_EnvironmentVariableGovernsTheSearchRequest()
     {
         string error = RunSearch([], environmentValue: "4");
@@ -87,6 +89,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// A value above the default extends the request instead of being clamped back to 30 seconds.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void HttpTimeout_AboveDefaultExtendsTheSearchRequest()
     {
         string error = RunSearch(
@@ -103,6 +106,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// override what the operator typed.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void HttpTimeout_FlagOutranksTheEnvironmentVariable()
     {
         IReadOnlyList<int> seconds = TimeoutSeconds(RunSearch(["--http-timeout", "2"], environmentValue: "9"));

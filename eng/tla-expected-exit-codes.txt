@@ -36,6 +36,11 @@ docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecyc
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
+docs/design/models/inspect-web-worker-events/BrokenDropEvent.cfg=12
+docs/design/models/inspect-web-worker-events/BrokenOvertakeBatch.cfg=12
+docs/design/models/inspect-web-worker-events/BrokenReverseBatch.cfg=12
+docs/design/models/inspect-web-worker-events/ReachabilityCompleteDelivery.cfg=12
+docs/design/models/inspect-web-worker-events/Safety.cfg=0
 docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
 docs/design/models/resolver-lineage/BrokenCandidateCache.cfg=12
 docs/design/models/resolver-lineage/BrokenRegistrationMap.cfg=12

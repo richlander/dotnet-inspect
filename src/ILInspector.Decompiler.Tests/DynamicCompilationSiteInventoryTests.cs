@@ -64,6 +64,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CompilerFeatureOptionsTests.cs"] = (2, "Parse-option matrix: varies LanguageVersion/feature flags across compilations and directly probes rejecting diagnostics without requiring successful emit."),
 
             // Cross-assembly reference seam.
+            ["CompileReferenceSetTests.cs"] = (3, "Compiler-reference semantic-model seam: binds consumer syntax against selected cataloged images to verify aliases, source exclusion, and retained snapshot identity; emits no inspected fixture."),
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
             ["AuthoredRebuildFidelityTests.cs"] = (2, "Cross-assembly snapshot + portable-PDB seams: replaces a same-identity dependency after RTS acquisition, and emits checksum-bearing PDB fixtures for live source-acquisition outcomes."),
             ["ReferenceEqualityMetadataFactsTests.cs"] = (1, "Cross-assembly version-pair seam: builds same-name hierarchy assemblies with distinct versions to gate exact visited identity."),
@@ -138,9 +139,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #5473 adds a second site to AuthoredRebuildFidelityTests.cs (1 -> 2):
     //     emits checksum-bearing portable-PDB fixtures for live source
     //     acquisition, absence, and failure gates.
-    //   Combined: 44 files, 56 sites.
-    const int ExpectedDynamicFiles = 44;
-    const int ExpectedDynamicSites = 56;
+    //   #6005 adds CompileReferenceSetTests.cs (3 sites): binds consumer syntax
+    //     against frozen cataloged images for alias, source-exclusion, and
+    //     retained-snapshot reference contracts.
+    //   Combined: 45 files, 59 sites.
+    const int ExpectedDynamicFiles = 45;
+    const int ExpectedDynamicSites = 59;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

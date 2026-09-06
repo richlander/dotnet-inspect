@@ -33,7 +33,12 @@ export function isTypeLens(
 
 export const packageLenses = [
   ["overview", "Overview"],
-  ["dependencies", "Dependencies"],
+  ["dependencies", "Dependencies"]
+] as const;
+
+export const libraryLenses = [
+  ["overview", "Overview"],
+  ["references", "References"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
@@ -47,6 +52,15 @@ export function isPackageLens(
 ): value is PackageLens {
   return typeof value === "string"
     && packageLenses.some(([id]) => id === value);
+}
+
+export type LibraryLens = (typeof libraryLenses)[number][0];
+
+export function isLibraryLens(
+  value: string | null | undefined,
+): value is LibraryLens {
+  return typeof value === "string"
+    && libraryLenses.some(([id]) => id === value);
 }
 
 export const memberSectionDefinitions = [
@@ -66,7 +80,13 @@ export function isMemberSection(
     && memberSectionDefinitions.some(([id]) => id === value);
 }
 
-const workspaceScopes = ["workspace", "package", "type", "member"] as const;
+const workspaceScopes = [
+  "workspace",
+  "package",
+  "library",
+  "type",
+  "member",
+] as const;
 
 export type WorkspaceScope = (typeof workspaceScopes)[number];
 
@@ -1412,6 +1432,7 @@ export interface SourceWorkbenchState {
   package?: unknown;
   graphSourceOpen?: boolean;
   atPackageRoot?: boolean;
+  atLibraryRoot?: boolean;
   lens?: TypeLens;
   selectedMemberKey?: string;
   memberSection?: MemberSection;
@@ -1437,7 +1458,7 @@ export function activeSourceOperationKind(
 ): SourceOperationKind {
   if (!sourceWorkbenchIsVisible(state)) return null;
   if (state.graphSourceOpen) return "graph";
-  if (state.atPackageRoot) return null;
+  if (state.atPackageRoot || state.atLibraryRoot) return null;
   if (state.lens === "source") return "type";
   if (state.lens === "api"
     && state.selectedMemberKey
@@ -1469,6 +1490,7 @@ export function sourceReloadKind(
   if (active) return active;
   if (!sourceWorkbenchIsVisible(state)
     || state.atPackageRoot
+    || state.atLibraryRoot
     || state.graphSourceOpen) {
     return null;
   }

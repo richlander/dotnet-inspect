@@ -95,6 +95,7 @@ export interface TypePanelBindingActions {
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
+  onLibraryOpen: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
   onMemberBack: () => void;
@@ -136,6 +137,9 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelector("[data-library-root]")?.addEventListener(
+    "click",
+    actions.onLibraryOpen);
   root.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button =>
     button.addEventListener(
       "click",
@@ -303,7 +307,7 @@ export interface TypeNavOptions {
   namespaceOptionsHtml: string;
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
-  libraryControlHtml: string;
+  library: string;
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -316,7 +320,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
-    libraryControlHtml, filtersExpanded, filterSummary, escapeHtml,
+    library, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, kindIcon, shortKind,
   } = options;
   return `
@@ -331,6 +335,11 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${renderContentNavigationCloseButton()}
         </div>
       </div>
+      <button class="nav-back-row" type="button" data-library-root title="Back to library">
+        <span class="chevron">‹</span>
+        <span class="type-name">${escapeHtml(library)}</span>
+        <small>library</small>
+      </button>
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
         <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
         <label class="type-search">
@@ -352,7 +361,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${accessibilityControlHtml}
         </div>
       </details>
-      <div class="type-library-context">${libraryControlHtml}</div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
