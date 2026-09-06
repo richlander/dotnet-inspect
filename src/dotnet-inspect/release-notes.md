@@ -1,5 +1,14 @@
 # Release Notes
 
+## Unreleased
+
+- **Breaking:** Renames `match --implementation` to `match --body`, with
+  a `Method Body Diff` view. Body comparison now consumes the shared Queries
+  designated-pair path and retains native endpoint and failure outcomes.
+  `--body --json` uses a `match`/`body` envelope with typed native results
+  instead of the former `match`/`implementation` presentation envelope.
+  Plain `match --json` is unchanged (#5925).
+
 ## v0.22.0
 
 ### Inspection and matching
@@ -56,6 +65,10 @@
 
 ### Source and implementation evidence
 
+- Type Exception Regions now opens the selected root or forwarded supplier
+  descriptor in normal/projected output and effective discovery. Opening
+  failures are visible command errors rather than successful path retries;
+  descriptorless and standalone-member behavior is unchanged (#5999).
 - Type Analysis-index sections now acquire bytes through the selected root or
   forwarded supplier descriptor, including effective discovery. Rejected
   acquisition is a visible command error rather than a path retry; ordinary
@@ -83,8 +96,19 @@
 
 - Online metadata-only package version queries now support configured folder
   feeds for pinned verification, latest and range selection, listing status,
-  and per-feed rows. Payload inspection and offline local discovery remain
-  separate work (#5400).
+  and per-feed rows (#5400).
+- Online caller-pinned single-package inspection now acquires packages from
+  configured folder feeds, including file/content views and exact tool-wrapper
+  redirects. Eligible local payloads are tried before HTTP payloads, regardless
+  of source declaration order (#5400).
+- **Breaking:** Online caller-pinned single-package extraction now authorizes
+  payload caches by configured authority rather than producer identity. Local
+  authorities use a new persistent cache namespace; HTTP authorities currently
+  use temporary materialization and bypass legacy persistent payload and
+  global-packages entries. Multi-package inspection, package-scoped
+  API/dependency commands, offline extraction, and payload-selecting
+  latest/wildcard/range paths remain unchanged and have not adopted folder feeds
+  yet (#5400).
 - **Breaking:** Online bare `--version`, `--latest-version`, and version ranges
   now fail when an eligible source is unreadable instead of selecting from
   incomplete evidence. Fix or exclude the failing source, or use raw

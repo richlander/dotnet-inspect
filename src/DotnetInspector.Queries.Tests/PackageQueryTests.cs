@@ -1622,7 +1622,7 @@ public sealed class PackageQueryTests
         public List<string> Requests { get; } = [];
 
         public ValueTask<PackageQueryContentResult> GetContentAsync(
-            PackageProfileMatch package,
+            PackageQueryPackage package,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();

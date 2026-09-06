@@ -18,7 +18,7 @@ namespace InspectWeb.Engine;
 internal sealed class BrowserPlatformScope(
     InspectionWorkspace workspace,
     WorkspaceContextLoadOutcome.Loaded context,
-    IReadOnlyDictionary<string, string> platformPacks) : IDisposable
+    IReadOnlyDictionary<string, string> platformPacks) : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace = workspace;
     readonly ImmutableDictionary<string, string> _platformPacks =
@@ -89,13 +89,14 @@ internal sealed class BrowserPlatformScope(
     internal string? PlatformPackForAssembly(string assembly) =>
         _platformPacks.GetValueOrDefault(assembly);
 
-    public void Dispose()
+    public ValueTask DisposeAsync()
     {
         if (_context is null)
-            return;
+            return ValueTask.CompletedTask;
 
         _context = null;
         _workspace.Dispose();
+        return ValueTask.CompletedTask;
     }
 }
 
@@ -104,9 +105,9 @@ internal sealed record BrowserPlatformScopeResolution(
     BrowserPlatformScope Scope,
     WorkspaceContextMember Participant,
     RealizedMemberCoordinate.Platform Coordinate,
-    BrowserScopeLease<BrowserPlatformScope> ScopeLease) : IDisposable
+    BrowserScopeLease<BrowserPlatformScope> ScopeLease) : IAsyncDisposable
 {
-    public void Dispose() => ScopeLease.Dispose();
+    public ValueTask DisposeAsync() => ScopeLease.DisposeAsync();
 }
 
 internal sealed record BrowserPlatformAssemblyRequest(
@@ -148,6 +149,35 @@ internal static class BrowserPlatformWorkspace
     static readonly Dictionary<string, Task> TargetTails =
         new(StringComparer.Ordinal);
     static long _targetClock;
+
+    internal static BrowserPlatformScopeResolution LeaseRetainedAssembly(
+        string framework, string version, string assembly)
+    {
+        string name = AssemblySimpleName(assembly);
+        BrowserPlatformScope[] scopes = Targets.Values
+            .Select(state => state.Scope)
+            .OfType<BrowserPlatformScope>()
+            .Distinct()
+            .Where(scope => BrowserPackageWorkspace.IsScopeRetained(scope)
+                && scope.Framework.Equals(framework, StringComparison.OrdinalIgnoreCase)
+                && scope.Coordinates.Any(coordinate =>
+                    coordinate.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(coordinate.Assembly, name, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (scopes.Length != 1)
+            throw new InvalidOperationException(
+                $"ContextUnavailable: no unique retained platform workspace contains {name} {version} / {framework}.");
+        BrowserPlatformScope retained = scopes[0];
+        RealizedMemberCoordinate.Platform[] coordinates = retained.Coordinates.Where(coordinate =>
+            coordinate.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(coordinate.Assembly, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (coordinates.Length != 1)
+            throw new InvalidOperationException(
+                "ContextUnavailable: the retained platform assembly selection is ambiguous.");
+        RealizedMemberCoordinate.Platform selected = coordinates[0];
+        return new(retained, retained.Participant(selected.Family, name),
+            selected, BrowserPackageWorkspace.LeaseScope(retained));
+    }
 
     internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
         string targetFramework,
@@ -463,7 +493,7 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
-        using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+        await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
         return await OpenCoreAsync(
             targetKey,
@@ -490,7 +520,7 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
-        using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+        await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
 
         RealizedMemberCoordinate.Platform[] known =
@@ -538,7 +568,10 @@ internal static class BrowserPlatformWorkspace
                 state: state).ConfigureAwait(false);
         }
 
-        using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
+        await using ScopeReservation reservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+                .ConfigureAwait(false);
+        var runtime = await ProbeFamilyAsync(
             state,
             targetFramework,
             platformVersion,
@@ -553,7 +586,7 @@ internal static class BrowserPlatformWorkspace
             throw Failure(runtime.Failure);
         }
 
-        using PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
+        var aspNetCore = await ProbeFamilyAsync(
             state,
             targetFramework,
             platformVersion,
@@ -568,51 +601,30 @@ internal static class BrowserPlatformWorkspace
             throw Failure(aspNetCore.Failure);
         }
 
-        if (runtime.Scope is not null && aspNetCore.Scope is not null)
+        if (runtime.Coordinate is not null && aspNetCore.Coordinate is not null)
         {
             throw new InvalidOperationException(
                 $"Platform assembly '{assembly}' belongs to more than one supported platform family.");
         }
 
-        PlatformLoadAttempt selected;
-        string family;
-        if (runtime.Scope is not null)
-        {
-            selected = runtime;
-            family = RuntimeFamily;
-        }
-        else if (aspNetCore.Scope is not null)
-        {
-            selected = aspNetCore;
-            family = AspNetCoreFamily;
-        }
-        else
-        {
-            throw new InvalidOperationException(
+        RealizedMemberCoordinate.Platform selected =
+            runtime.Coordinate ?? aspNetCore.Coordinate
+            ?? throw new InvalidOperationException(
                 $"Platform assembly '{assembly}' is not carried by any supported platform family. "
                 + $"{FailureMessage(runtime.Failure!)}; "
                 + FailureMessage(aspNetCore.Failure!));
-        }
-
-        if (ReferenceEquals(selected, runtime))
-            aspNetCore.Dispose();
-        else
-            runtime.Dispose();
-        bool useDeclaration = !state.Coordinates.Any(coordinate =>
-            coordinate.Family.Equals(family, StringComparison.Ordinal));
-        if (!useDeclaration)
-            selected.Dispose();
 
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
             platformVersion,
-            [new PlatformSelection(family, assembly)],
+            [new PlatformSelection(selected.Family, assembly)],
             host,
             deadline,
             packageLeases,
-            declaration: useDeclaration ? selected : null,
-            state: state).ConfigureAwait(false);
+            declaration: selected,
+            state: state,
+            reservation: reservation).ConfigureAwait(false);
     }
 
     static BrowserScopeLease<BrowserPlatformScope>? LeaseRetainedScope(
@@ -630,8 +642,9 @@ internal static class BrowserPlatformWorkspace
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
         BrowserPackageWorkspace.PackageLeaseSet packageLeases,
-        PlatformLoadAttempt? declaration,
-        TargetState state)
+        RealizedMemberCoordinate.Platform? declaration,
+        TargetState state,
+        ScopeReservation? reservation = null)
     {
         deadline.Token.ThrowIfCancellationRequested();
         state.LastAccess = ++_targetClock;
@@ -694,6 +707,12 @@ internal static class BrowserPlatformWorkspace
                 retainedLease);
         }
 
+        // The counted workspace entry — and with it the full image allowance — is reserved before
+        // any platform image is loaded, so a platform load under construction counts against the
+        // same bound as a ready workspace.
+        await using ScopeReservation candidateReservation =
+            reservation ?? await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+                .ConfigureAwait(false);
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
             state.Coordinates;
         BrowserPlatformScope? candidate = null;
@@ -737,28 +756,28 @@ internal static class BrowserPlatformWorkspace
                         StringComparison.Ordinal));
             if (familyCoordinate is null)
             {
-                bool usesDeclaration = declaration?.Scope?.Coordinates.Any(
-                    coordinate =>
-                        coordinate.Family.Equals(
-                            selection.Family,
-                            StringComparison.Ordinal)
-                        && string.Equals(
-                            coordinate.Assembly,
-                            selection.Assembly,
-                            StringComparison.OrdinalIgnoreCase)) == true;
-                using PlatformLoadAttempt? loaded = !usesDeclaration
-                    ? await LoadDeclaredAttemptAsync(
+                if (declaration is { } discovered
+                    && discovered.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        discovered.Assembly,
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    coordinates = coordinates.Add(discovered);
+                    continue;
+                }
+
+                await using PlatformLoadAttempt declared =
+                    await LoadDeclaredAttemptAsync(
                         targetFramework,
                         platformVersion,
                         selection.Family,
                         selection.Assembly,
                         host,
                         deadline,
-                        packageLeases).ConfigureAwait(false)
-                    : null;
-                PlatformLoadAttempt declared = usesDeclaration
-                    ? declaration!
-                    : loaded!;
+                        packageLeases).ConfigureAwait(false);
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
                 RealizedMemberCoordinate.Platform realized =
@@ -805,18 +824,19 @@ internal static class BrowserPlatformWorkspace
                 selected.Assembly,
                 StringComparison.OrdinalIgnoreCase));
         string scopeKey = ScopeKey(coordinates);
-        BrowserPlatformScope registered =
-            BrowserPackageWorkspace.RegisterScope(
-                scopeKey,
-                candidate,
-                packageKeys,
-                ForgetScope);
+        BrowserScopeLease<BrowserPlatformScope> lease =
+            await BrowserPackageWorkspace.RegisterScopeAsync(
+                    candidateReservation,
+                    scopeKey,
+                    candidate,
+                    packageKeys,
+                    ForgetScope)
+                .ConfigureAwait(false);
+        BrowserPlatformScope registered = lease.Scope;
         WorkspaceContextMember participant =
             registered.Participant(
                 selected.Family,
                 selected.Assembly);
-        BrowserScopeLease<BrowserPlatformScope> lease =
-            BrowserPackageWorkspace.LeaseScope(registered);
         BrowserPlatformScope? previous = state.Scope;
         state.Coordinates = coordinates;
         state.Scope = registered;
@@ -825,7 +845,8 @@ internal static class BrowserPlatformWorkspace
         if (previous is not null
             && !ReferenceEquals(previous, registered))
         {
-            BrowserPackageWorkspace.RemoveScope(previous);
+            await BrowserPackageWorkspace.RemoveScopeAsync(previous)
+                .ConfigureAwait(false);
         }
 
         return new BrowserPlatformScopeResolution(
@@ -835,7 +856,9 @@ internal static class BrowserPlatformWorkspace
             lease);
     }
 
-    static async Task<PlatformLoadAttempt> ProbeFamilyAsync(
+    static async Task<(
+        RealizedMemberCoordinate.Platform? Coordinate,
+        WorkspaceContextLoadOutcome.Failed? Failure)> ProbeFamilyAsync(
         TargetState state,
         string targetFramework,
         string? platformVersion,
@@ -848,30 +871,34 @@ internal static class BrowserPlatformWorkspace
         RealizedMemberCoordinate.Platform? pinned =
             state.Coordinates.FirstOrDefault(coordinate =>
                 coordinate.Family.Equals(family, StringComparison.Ordinal));
-        if (pinned is null)
-        {
-            return await LoadDeclaredAttemptAsync(
+        // Only the realized coordinate survives a probe. Its images close before the next
+        // probe or final realization reuses the operation's single counted reservation.
+        await using PlatformLoadAttempt attempt = pinned is null
+            ? await LoadDeclaredAttemptAsync(
                 targetFramework,
                 platformVersion,
                 family,
                 assembly,
                 host,
                 deadline,
+                packageLeases).ConfigureAwait(false)
+            : await LoadRealizedAttemptAsync(
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        pinned.Family,
+                        pinned.Version,
+                        pinned.Producer,
+                        pinned.Framework,
+                        assembly),
+                ],
+                host,
+                deadline,
                 packageLeases).ConfigureAwait(false);
-        }
-
-        return await LoadRealizedAttemptAsync(
-            [
-                new RealizedMemberCoordinate.Platform(
-                    pinned.Family,
-                    pinned.Version,
-                    pinned.Producer,
-                    pinned.Framework,
-                    assembly),
-            ],
-            host,
-            deadline,
-            packageLeases).ConfigureAwait(false);
+        return (
+            attempt.Scope is { } scope
+                ? AssertSingleCoordinate(scope, family, assembly)
+                : null,
+            attempt.Failure);
     }
 
     static async Task<PlatformLoadAttempt> LoadDeclaredAttemptAsync(
@@ -1314,7 +1341,7 @@ internal static class BrowserPlatformWorkspace
     sealed class PlatformLoadAttempt(
         BrowserPlatformScope? scope,
         ImmutableHashSet<string> packageKeys,
-        WorkspaceContextLoadOutcome.Failed? failure) : IDisposable
+        WorkspaceContextLoadOutcome.Failed? failure) : IAsyncDisposable
     {
         BrowserPlatformScope? _scope = scope;
 
@@ -1335,10 +1362,12 @@ internal static class BrowserPlatformWorkspace
             return released;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            _scope?.Dispose();
+            BrowserPlatformScope? scope = _scope;
             _scope = null;
+            if (scope is not null)
+                await scope.DisposeAsync().ConfigureAwait(false);
         }
     }
 

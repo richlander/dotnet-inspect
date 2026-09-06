@@ -106,12 +106,7 @@ export function resolvePackageQueryWorkspaceSuccessor(
   }
 }
 
-export function validPackageQueryPrefix(value: string): string {
-  const prefix = value.trim();
-  return prefix.length > 0
-    && prefix.length <= 100
-    && !Array.from(prefix).some(character =>
-      character.codePointAt(0)! < 0x20 || character.codePointAt(0) === 0x7f)
-    ? prefix
-    : "";
+export function validPackageQuerySearchText(value: string): string | null {
+  if (value.length > 100 || /\p{Cc}/u.test(value)) return null;
+  return value.trim().length === 0 ? "" : value;
 }

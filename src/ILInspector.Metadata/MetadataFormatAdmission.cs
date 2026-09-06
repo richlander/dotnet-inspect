@@ -40,7 +40,14 @@ public static class MetadataFormatAdmission
     {
         ArgumentNullException.ThrowIfNull(peReader);
 
-        return MetadataImageFormatClassifier.Classify(peReader) switch
+        return Admit(MetadataImageFormatClassifier.Classify(peReader));
+    }
+
+    internal static void AdmitRoot(BlobReader root) =>
+        _ = Admit(MetadataImageFormatClassifier.Classify(root));
+
+    static bool Admit(MetadataImageFormatResult result) =>
+        result switch
         {
             MetadataImageFormatResult.SupportedEcma335 => true,
             MetadataImageFormatResult.NoMetadata => false,
@@ -51,7 +58,6 @@ public static class MetadataFormatAdmission
             _ => throw new InvalidOperationException(
                 "Unknown metadata image format result."),
         };
-    }
 
     public static MetadataReader GetMetadataReader(PEReader peReader)
     {
@@ -65,6 +71,14 @@ public static class MetadataFormatAdmission
     {
         EnsureMetadata(peReader);
         return peReader.GetMetadataReader(options);
+    }
+
+    internal static bool HasDeclaredClrHeader(PEReader peReader)
+    {
+        PEHeader? peHeader = peReader.PEHeaders.PEHeader;
+        return peHeader is not null
+            && (peHeader.CorHeaderTableDirectory.RelativeVirtualAddress != 0
+                || peHeader.CorHeaderTableDirectory.Size != 0);
     }
 
     static void EnsureMetadata(PEReader peReader)

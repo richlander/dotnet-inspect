@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>inspect-web-fixture-resolver</AssemblyName>
+    <RootNamespace>InspectWeb.FixtureResolver</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <!-- Build-only references: building this resolver materializes the cataloged
+         fixture binaries the package-adoption gate consumes, at the exact paths
+         FixtureCatalog.AssemblyPath resolves. The resolver never references the
+         fixtures' types, so ReferenceOutputAssembly stays false. -->
+    <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.LibB/DiffAsmFixtures.LibB.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+</Project>

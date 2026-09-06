@@ -669,6 +669,7 @@ public sealed class PackageSourceOperationResult<T>
     {
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         if (typeof(T) != typeof(PackageSearchResult)
+            && typeof(T) != typeof(NuGetGalleryDiscoveryResult)
             && typeof(T) != typeof(PackageVersionResult)
             && typeof(T) != typeof(PackageSourceManifest)
             && typeof(T) != typeof(PackageSourcePayload))
@@ -698,7 +699,7 @@ public sealed class PackageSourceOperationResult<T>
 /// <summary>
 /// Issues immutable results for one runtime package source.
 /// </summary>
-public sealed class PackageSourceResultFactory
+public sealed partial class PackageSourceResultFactory
 {
     private readonly object _ownerCapability;
     private readonly object _issuer = new();
@@ -1400,6 +1401,21 @@ public sealed class PackageSourceResultFactory
 
 internal static class PackageSourceOperation
 {
+    public static Task<PackageSourceOperationResult<NuGetGalleryDiscoveryResult>>
+        CaptureGalleryDiscoveryAsync(
+            PackageSourceResultFactory factory,
+            Func<Task<NuGetGalleryDiscoveryResult>> operation,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext,
+            NuGetOperationDeadline operationDeadline) =>
+        CaptureAsync(
+            operation,
+            value => factory.SucceededGalleryDiscovery(value, operationDeadline),
+            factory.FailedGalleryDiscovery,
+            allowNotFound: false,
+            cancellationToken,
+            operationContext);
+
     public static Task<PackageSourceOperationResult<PackageSearchResult>>
         CaptureSearchAsync(
             PackageSourceResultFactory factory,

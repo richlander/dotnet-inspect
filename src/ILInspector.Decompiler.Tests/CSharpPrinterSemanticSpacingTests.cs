@@ -544,12 +544,9 @@ public class CSharpPrinterSemanticSpacingTests
     {
         var pointer = TypeRef.Pointer(Int32);
         var copy = new CopyBlock(
-            new Binary(
-                BinaryKind.Add,
-                isChecked: false,
-                isUnsigned: false,
-                new LoadArgument(1, "pointer", pointer),
-                new Constant(1, Int32)),
+            new LoadIndirect(
+                Int32,
+                new LoadArgument(1, "pointer", pointer)),
             new LoadArgument(1, "pointer", pointer),
             new Constant(4, Int32));
         var entry = new Block(0);

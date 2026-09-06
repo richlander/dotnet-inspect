@@ -11,6 +11,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
@@ -26,6 +27,59 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         CoreCache.Initialize("dotnet-inspect-test");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InspectAsync_ConfiguredAuthoritiesDoNotShareProducerIndexes(bool local)
+    {
+        CoreCache.Initialize("dotnet-inspect-test", Path.Combine(_root, "cache"));
+        const string packageId = "Authority.Index";
+        const string version = "1.0.0";
+        const string producer = "shared-test-producer";
+        PackageIndexCache.Set(packageId, version, producer,
+            new InspectionResult
+            {
+                PackageName = packageId,
+                Version = version,
+                Description = new InertString(TextPolicy.Field, "Legacy index", maxLength: 100),
+            });
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException("This inspection does not request remote metadata.")));
+
+        foreach (string name in new[] { "first", "second" })
+        {
+            string root = Path.Combine(_root, name);
+            Directory.CreateDirectory(root);
+            var authority = new ConfiguredPackageAuthority(new NuGetFetch.PackageSource(
+                name, local ? root : $"https://feed.example/v3/index.json?tenant={name}"));
+            var resolution = new PackageExtractionResult(
+                root, TempDir: null, packageId, version, ProducerKey: producer)
+            {
+                Authority = authority,
+            };
+            NuspecData nuspec = NuspecParser.ParseContent($"""
+                <package><metadata><id>{packageId}</id><version>{version}</version>
+                <description>{name}</description></metadata></package>
+                """)!;
+            InspectionResult result = await PackageInspector.InspectAsync(
+                resolution, packageId, version, isLocalFile: false,
+                localFilePath: null, nuspec, client, new VerboseLogger(enabled: false));
+
+            Assert.Equal(name, result.Description?.ToString());
+            if (local)
+            {
+                Assert.Equal(authority.PersistentCacheKey, resolution.CacheScopeKey);
+                Assert.Equal(name,
+                    PackageIndexCache.TryGet(packageId, version, resolution.CacheScopeKey!)?.Description?.ToString());
+            }
+            else
+            {
+                Assert.Null(resolution.CacheScopeKey);
+            }
+        }
+        Assert.Equal("Legacy index", PackageIndexCache.TryGet(packageId, version, producer)?.Description?.ToString());
     }
 
     [Fact]
@@ -1085,9 +1139,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             "https://command-audit.example/v3/index.json";
         byte[] package = CreatePackage(packageId);
         var requests = new List<Uri>();
-        using var client = new HttpClient(
-            new RoutingHandler(request =>
-            {
+        HttpResponseMessage Respond(HttpRequestMessage request)
+        {
                 requests.Add(request.RequestUri!);
                 return request.RequestUri!.AbsolutePath switch
                 {
@@ -1135,7 +1188,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                         $"Unexpected command request: "
                         + $"{request.Method} {request.RequestUri}"),
                 };
-            }));
+        }
+        using var client = new HttpClient(new RoutingHandler(Respond));
         var sourceOptions = new NuGetSourceOptions
         {
             Sources = [source],
@@ -1157,9 +1211,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         var rendered = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
                 Options(),
-                new CommandContext(
-                    verbose: false,
-                    client)));
+                PayloadContext(client, Respond)));
         InspectionOptions discoveryOptions = Options() with
         {
             IncludeSections = null,
@@ -1168,9 +1220,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         var discovered = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
                 discoveryOptions,
-                new CommandContext(
-                    verbose: false,
-                    client)));
+                PayloadContext(client, Respond)));
         InspectionOptions auditDiscoveryOptions = Options() with
         {
             IncludeSections = null,
@@ -1179,9 +1229,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         var auditDiscovered = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
                 auditDiscoveryOptions,
-                new CommandContext(
-                    verbose: false,
-                    client)));
+                PayloadContext(client, Respond)));
         InspectionOptions statisticsOptions = Options() with
         {
             IncludeSections =
@@ -1194,9 +1242,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         var statistics = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
                 statisticsOptions,
-                new CommandContext(
-                    verbose: false,
-                    client)));
+                PayloadContext(client, Respond)));
 
         Assert.Equal(1, rendered.ExitCode);
         Assert.Contains("Identifier confusion", rendered.Output);
@@ -1415,9 +1461,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 typeof(PackageInspectorMetadataSourceTests)
                     .Assembly.Location);
         var requests = new List<Uri>();
-        using var client = new HttpClient(
-            new RoutingHandler(request =>
-            {
+        HttpResponseMessage Respond(HttpRequestMessage request)
+        {
                 requests.Add(request.RequestUri!);
                 return request.RequestUri!.AbsolutePath switch
                 {
@@ -1450,7 +1495,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     _ => new HttpResponseMessage(
                         HttpStatusCode.NotFound),
                 };
-            }));
+        }
+        using var client = new HttpClient(new RoutingHandler(Respond));
 
         var discovered = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
@@ -1464,9 +1510,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                         Sources = [source],
                     },
                 },
-                new CommandContext(
-                    verbose: false,
-                    client)));
+                PayloadContext(client, Respond)));
 
         Assert.Equal(0, discovered.ExitCode);
         Assert.Contains("| Signals | section |", discovered.Output);
@@ -1587,8 +1631,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         byte[] package = CreatePackage(
             packageId,
             dependencyId: "\u0405ystem.Text.Json");
-        using var client = new HttpClient(
-            new RoutingHandler(request =>
+        HttpResponseMessage Respond(HttpRequestMessage request) =>
                 request.RequestUri!.AbsolutePath switch
                 {
                     "/v3/index.json" => Json($$"""
@@ -1611,7 +1654,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                         Bytes(package),
                     _ => new HttpResponseMessage(
                         HttpStatusCode.NotFound),
-                }));
+                };
+        using var client = new HttpClient(new RoutingHandler(Respond));
 
         var rendered = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
@@ -1631,9 +1675,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                         Sources = [source],
                     },
                 },
-                new CommandContext(
-                    verbose: false,
-                    client)));
+                PayloadContext(client, Respond)));
 
         Assert.Equal(0, rendered.ExitCode);
         Assert.Contains(
@@ -1654,6 +1696,22 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         {
             Directory.Delete(_root, recursive: true);
         }
+    }
+
+    private static CommandContext PayloadContext(
+        HttpClient client, Func<HttpRequestMessage, HttpResponseMessage> respond) =>
+        new(verbose: false, client, createPackageSourceComposition: () =>
+            new DesktopPackageSourceComposition(
+                TimeSpan.FromSeconds(5), new NoCredentials(),
+                (_, _) => new RoutingHandler(respond)));
+
+    private sealed class NoCredentials : NuGetFetch.Plugins.ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+
+        public Task<NuGetFetch.PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri, bool isRetry, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("These feeds do not request credentials.");
     }
 
     private static HttpResponseMessage Json(string content) =>

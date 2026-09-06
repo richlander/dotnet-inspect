@@ -1313,11 +1313,11 @@ progress.
 
 #### Resolver-lineage continuations
 
-> **Status: design-only; product adoption is unverified.** #5801 supplies
-> compiled evidence for the existing behavior, not this representation.
-> #5666 owns this focused decision; #5274 tracks adoption and retirement.
-> Existing policies retain their transitional behavior until their adoption
-> slices land.
+> **Status: implemented, with CLI and Browser endpoint evidence.**
+> #5978 carries occurrences through Metadata; #5982 adopts them in the
+> source-relative Services producer and the existing CLI API-surface path.
+> #6049 confirms the Browser's existing query composition through production
+> export methods. #5274 tracks the remaining binding-policy work.
 
 **Claim:** a selected assembly occurrence retains the policy-issued binding
 context required for its subsequent references, without changing the answers
@@ -1329,8 +1329,12 @@ already invoke it through `ApiSurfaceEndpointResolver`. The #5801 fixture
 demonstrates `Consumer -> Middle forwarder -> Base`: a constraint classifies as
 `ReferenceType` through Consumer's resolver and as `Undetermined` when the
 learned association is removed. This establishes the need for resolver lineage,
-not the need for a shared mutable route map. It is Services-level evidence;
-it does not claim an end-to-end command or call-graph demonstration.
+not the need for a shared mutable route map. That original fixture is
+Services-level evidence. The Services adoption also exercises the same
+forwarding chain through the real CLI `diff` parser: a complete dependency set
+returns a complete comparison, while an absent Base produces explicit
+inspection failures and a nonzero exit. This single-root command case does
+not claim to reproduce the two-resolver boundary or a Browser call graph.
 
 ##### Decision and alternatives
 
@@ -1345,7 +1349,10 @@ it does not claim an end-to-end command or call-graph demonstration.
 The two-context boundary is deliberately distinct from the minimal #5801
 fixture: two supported policy delegates can return the same acquisition
 descriptor while prescribing different dependencies. The model explores this
-boundary; a compiled product gate for it remains part of adoption.
+boundary; `ExtractApiSurface_SharedForwarderRetainsBothResolverContexts`
+enforces it with compiled class and interface implementations of Base.
+Both discovery orders and repeated extraction retain `ReferenceType` versus
+`NeitherReferenceNorValue` under one policy version.
 
 ##### Currency and authority
 
@@ -1436,13 +1443,17 @@ revisiting a candidate through a different context on one forwarding path.
 
 The counted adoption path in #5274 has **four steps**, including this design.
 The table is a composition plan, not authority over another owner's internals.
+Steps 2 and 3 form one consumer-led delivery milestone: stage the Metadata
+prerequisite immediately below its Services/CLI adopter, keeping at most one
+unmerged substrate PR ahead of that production consumer. A merged prerequisite
+alone is not host adoption; this sequencing follows #5865.
 
 | Step | Owning slice and completion |
 | --- | --- |
-| 1 | Binding owner: lock this currency and the companion model in #5666. Product behavior is unchanged. |
-| 2 | Metadata: carry selected occurrences through requests, results, deferred dependencies, and policy-dependent caches. Existing seed-only producers remain behavior-compatible; context-aware gates demonstrate distinct answers for a shared registration. |
-| 3 | Services: adopt the currency in `SourceRelativeAssemblyGroupBindingPolicy` and remove learned-route insertion, its CAS publication, and registration-only intrinsic caching. Preserve the #5801 result and demonstrate it through the existing CLI `diff` endpoint; `timeline` uses the same endpoint construction. |
-| 4 | Queries/Browser: adopt through `AssemblyContextTypeResolutionQuery` and `MemberCallGraphSession`, exercised by `PlatformCallGraphExports`. Confirm terminal member navigation and call-graph endpoints while retaining sealed participant provisioning and one attempt per authorized demand. |
+| 1 | Binding owner: currency and companion model locked in #5912 under #5666. Product behavior was unchanged. |
+| 2 | Metadata (#5953, landed #5978): implemented selected occurrences across requests, results, deferred dependencies, and policy-dependent caches. Existing seed-only producers remain behavior-compatible; context-aware gates demonstrate distinct answers for a shared registration. |
+| 3 | Services (#5666, landed #5982): implemented `SourceRelativeAssemblyGroupBindingPolicy` continuation issuance, retiring learned-route insertion and registration-only intrinsic caching. The #5801 result and real CLI `diff` endpoint are exercised; `timeline` uses the same endpoint construction. |
+| 4 | Queries/Browser (#6049): endpoint gates confirm the existing composition through `AssemblyContextTypeResolutionQuery` and `MemberCallGraphSession`, exercised by `PlatformCallGraphExports`. Terminal member navigation and graph expansion retain sealed participant provisioning and one attempt per authorized demand. |
 
 The CLI production path is reached at step 3; the Browser path at step 4.
 Browser is an actual caller of both named query services. It is not evidence
@@ -1450,9 +1461,13 @@ for discovery-time route learning: the workspace-owned complete-plan and
 one-attempt contract remains unchanged. No Browser filesystem resolver or
 host-specific continuation algorithm is introduced.
 
-The replacement is incomplete until step 3 retires the Services learned-route
-representation and step 4 closes both-host adoption. Other transforming
+Step 3 retired the Services learned-route representation. The existing Queries
+composition also consumes that implementation; step 4 confirms its Browser
+endpoint behavior rather than introducing another runtime cutover. Other transforming
 policies remain the separately scoped work in #5667, #5668, and #5669.
+Retirement requires the affected existing consumers to have safely cut over;
+the presence of the new currency alone does not justify deletion. If that
+requires a separate retirement step, update the count in #5274 explicitly.
 Delegated-version refresh is still required when a delegate actually changes;
 it is not made unnecessary by replacing route learning.
 
@@ -1469,10 +1484,41 @@ advance the token merely for selecting a continuation.
 The model abstracts two resolver contexts, one shared selected candidate, and
 two terminal dependencies; it is not a PE decoder, a workspace realization
 model, or proof of product adoption. Exact TLC outcomes are enforced by
-`eng/tla-expected-exit-codes.txt`. Product enforcement remains unverified until
-steps 2-4 provide Release gates at the Metadata, Services/CLI, and
-Queries/Browser boundaries. No feature-specific rendering domain is added:
-the existing API and call-graph models and their lowering owners remain.
+`eng/tla-expected-exit-codes.txt`. Metadata's `TypeResolutionContextTests`
+enforce occurrence separation, forwarding and deferred-dependency propagation,
+intrinsic answers, same-version recipe reuse, stale-origin rejection, and
+contextual discovery bounds in Release. Services'
+`SourceRelativeAssemblyGroupBindingPolicyTests` enforce canonical-root and
+nested-delegate continuation, stable seed behavior, separate intrinsic answers,
+delegate-version refresh, and the compiled two-context case.
+`AssemblySetResolutionSessionTests` retain the original forwarded-constraint
+oracle; CLI `CommandLine_ForwardedConstraint_ReportsDependencyCompleteness`
+exercises the real command and its missing-dependency neighbor.
+Existing `MemberCallGraphSessionTests` provide query-level regression coverage,
+not Browser endpoint adoption. Browser's Release `BrowserEngineBoundaryTests`
+provide that endpoint evidence:
+
+- `PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing`
+  follows a returned `System.IO.TextWriter.WriteLine` target from a
+  `System.Console` graph to its terminal browsable surface. It expands the
+  member from both the canonical assembly and the `System.Runtime` facade
+  using the product-issued type identity and selector, while preserving the
+  earlier retained scope.
+- `MemberFacts_DistinguishesSurfaceAndBodyTokenResolution` and
+  `GraphMemberSurface_UsesSurfaceAssetForImplementationOnlyType` exercise
+  package member navigation and repeated surface/implementation selection.
+- `QueryMemberCallGraph_RejectsCollapsedContextCoordinates` keeps an
+  incomplete workspace request visibly rejected.
+
+These are managed invocations of the production Browser export methods, not
+DOM or live-Wasm execution evidence. The supported endpoint path starts from
+sealed canonical participants: selecting a forwarded terminal definition as
+the next canonical root is not replay of a transitive continuation.
+This confirms the existing composition, not a Browser demonstration of the
+model's two-context nonparticipant case. The host continues projecting physical
+navigation identity; this adoption introduces no lineage wire representation.
+No feature-specific rendering domain is added: the existing API and call-graph
+models and their lowering owners remain.
 
 The comparative baseline is explicit context association, not a new loading
 mechanism. [AssemblyLoadContext][lineage-alc] associates assemblies with loading

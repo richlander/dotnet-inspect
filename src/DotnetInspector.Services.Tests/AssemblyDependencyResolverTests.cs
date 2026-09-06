@@ -613,7 +613,7 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public async Task AssemblyGroup_ConcurrentLearnedRoutesAreBothRetained()
+    public async Task AssemblyGroup_ConcurrentSelectionsRetainBothOccurrences()
     {
         ResolvedAssemblyReference defaultOwner = Descriptor(
             new AssemblyReferenceIdentity(
@@ -687,14 +687,12 @@ public class AssemblyDependencyResolverTests
         AssemblyBindingSelectionSnapshot[] snapshots =
             await Task.WhenAll(firstSelection, secondSelection);
 
-        Assert.Same(
-            firstCandidate,
-            Assert.IsType<AssemblyBindingSelection.Selected>(
-                snapshots[0].Selection).Assembly);
-        Assert.Same(
-            secondCandidate,
-            Assert.IsType<AssemblyBindingSelection.Selected>(
-                snapshots[1].Selection).Assembly);
+        var firstSelected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            snapshots[0].Selection);
+        var secondSelected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            snapshots[1].Selection);
+        Assert.Same(firstCandidate, firstSelected.Assembly);
+        Assert.Same(secondCandidate, secondSelected.Assembly);
         Assert.All(
             snapshots,
             snapshot => Assert.Same(version, snapshot.Version));
@@ -709,14 +707,14 @@ public class AssemblyDependencyResolverTests
                 group.Select(
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(probe),
-                        AssemblyBindingOrigin.FromAssembly(firstCandidate),
+                        AssemblyBindingOrigin.FromOccurrence(firstSelected.Occurrence),
                         AssemblyResolutionScope.Any)).Selection);
         var secondProbe = Assert.IsType<
             AssemblyBindingSelection.Selected>(
                 group.Select(
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(probe),
-                        AssemblyBindingOrigin.FromAssembly(secondCandidate),
+                        AssemblyBindingOrigin.FromOccurrence(secondSelected.Occurrence),
                         AssemblyResolutionScope.Any)).Selection);
 
         Assert.Same(firstCandidate, firstProbe.Assembly);

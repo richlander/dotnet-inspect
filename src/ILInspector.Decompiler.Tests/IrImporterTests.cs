@@ -370,7 +370,11 @@ public class IrImporterTests
                 && method.RelativeVirtualAddress == 0;
         });
 
-        var methodRef = IrImporter.ResolveMethod(reader, methodHandle, GenericScope.Empty);
+        var methodRef = IrImporter.ResolveMethod(
+            reader,
+            methodHandle,
+            GenericScope.Empty,
+            source.MemorySafety);
 
         Assert.Equal("Overloaded", methodRef.Name);
         Assert.Equal(MetadataFactState.Yes, methodRef.IsPInvoke);
@@ -4712,7 +4716,9 @@ public class RaisingPassTests
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
         Assert.Contains("if (node is Call c)", output);
-        Assert.Contains("return c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee);", output);
+        Assert.Contains(
+            "return MethodRequiresUnsafe(c.Callee) || CallRendersPointerDereference(c);",
+            output);
     }
 
     [Fact]

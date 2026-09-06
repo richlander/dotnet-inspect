@@ -129,6 +129,23 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+### API declaration modifiers
+
+Full API extraction retains the physical MethodDef `IsReadOnly` attribute in
+`ApiMember.IsReadOnly` for all methods, not only projected accessors. Existing
+API JSON, C# declaration views, and Metadata Findings consume this fact, so
+ordinary member output can gain `is_read_only` or `readonly` independently of
+Source Diff. The Release
+`MethodSignatureModel_RetainsPhysicalReadOnlyAttribute` cases gate ordinary
+readonly and mutable methods alongside the Source Diff accessor cases.
+
+Rich accessor models also retain whether a method is a private MethodImpl
+body. Accessor projection uses that relationship-derived classification rather
+than inferring it from a qualified MethodDef name. An unknown value denotes
+older or declaration-only models that did not retain the relationship, rather
+than a negative metadata result. Only those unknown values retain the prior
+name-based projection fallback; a known negative classification is authoritative.
+
 ### API memory-safety facts
 
 `ApiMember.MemorySafety` retains two independent facts: the caller contract
@@ -209,6 +226,44 @@ declaration policy. This slice completes stage 1, not the host behavior.
 JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
 The existing Boolean remains until its consumers explicitly migrate; no
 retirement or narrowing is performed here.
+
+### API method implementation facts
+
+`ApiMember.MethodImplementation` retains the MethodDef's raw
+`MethodAttributes`, `MethodImplAttributes`, and whether its RVA is nonzero.
+The immutable record carries the module MVID and MethodDef token;
+`AccessorImplementations` retains one record per distinct property or event
+accessor, including non-public and other accessor slots. A projected extension
+or accessor keeps its own declaration's evidence. Flags are retained without
+normalization, including combinations not expressible in C#.
+
+This is Metadata evidence, not an `IsExtern` decision. Abstract, P/Invoke,
+runtime-provided, internal-call, and ordinary IL declarations remain
+distinguishable without parsing attribute display text. A nonzero RVA does not
+prove a usable managed implementation: it can describe a reference-assembly
+stub or a non-IL method. Reference-assembly status, body acquisition, and the
+source shape selected for reconstruction remain separate questions.
+
+Full API extraction and handle-based `GetTypeSurface` supply these facts.
+Compact summaries, older JSON, and hand-composed members can lack them;
+null is unavailable evidence, never an implicit ordinary-IL classification.
+The existing `HasMethodBody` field retains its RVA-presence meaning.
+The new records contain only fixed-size values and use the existing member
+and relationship bounds; they add no retained metadata text.
+
+The owning claim for [#5940](https://github.com/richlander/dotnet-inspect/issues/5940)
+is preservation through extraction, projection, and JSON.
+`ApiMethodImplementationFactsTests` and `ApiMethodImplementationJsonTests`
+gate extraction and persistence;
+`CSharpTypePrinterTests.SnapshotTypeForRendering_CarriesMethodImplementationEvidence`
+gates the rendering snapshot. The conventional comparison is the existing
+MethodDef table projection, which also exposes raw attributes separately from
+implementation flags. CSharp alone chooses the eventual `extern` and
+`safe`/`unsafe` spelling under its
+[declaration contract](csharp-memory-safety-spelling.md).
+This is a prerequisite within stage 2 of the existing three-stage #5257
+adoption path under #5226, not completed CLI/browser spelling adoption.
+Current rendering, filtering, diff, and JS-export policies are unchanged.
 
 ### Projected Member declaring identity
 
@@ -683,6 +738,15 @@ return-type identity. The caller supplies the operator-name group: the shape
 itself does not distinguish implicit from explicit or checked operators. Checked
 explicit operators retain Metadata return evidence, while the current source
 adapter refuses their headers visibly rather than manufacturing correspondence.
+
+`ParameterPassingSignatureShapeFlowTests` records value-versus-by-reference
+passing through compiler-produced signatures, source headers, literal canonical
+transport, and candidate matching. Passing position and array element type stay
+distinct, and an array passed by value is not a by-reference parameter.
+`ref`, `out`, `in`, and `ref readonly` share the by-reference shape: alternative
+declarations differing only in those modifiers remain ambiguous, not evidence
+of direction, readonly semantics, or member identity. Correspondence remains
+unavailable when only an opposite-passing candidate is supplied.
 
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows

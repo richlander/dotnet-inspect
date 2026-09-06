@@ -6,7 +6,10 @@ This is the Queries-owned target contract for
 [#5925](https://github.com/richlander/dotnet-inspect/issues/5925), the bounded
 first profile of publication step 5 in
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706).
-It is **unimplemented and unverified**.
+The borrowed-input profile is implemented by `DirectMemberComparisonQuery`
+in `DotnetInspector.ResearchQueries` and consumed by CLI `match --body` (#5967)
+and Browser Method Body Diff (#5990). The Release gates below cover publication;
+the Browser owner supplies its own facade and interaction gates.
 
 `DotnetInspector.Queries` is the sole architectural owner. The optional
 `DotnetInspector.ResearchQueries` companion supplies the physical dependency
@@ -23,8 +26,8 @@ The claim is:
 The immediate consumer is the
 [direct-member adapter](direct-member-comparison.md) for two explicitly
 selected methods in one already-open implementation assembly. CLI
-`match --implementation` already serves this scenario. Inspect Web will expose
-an explicit comparison action over its existing member selection and retained
+`match --body` serves this scenario (formerly `--implementation`). Inspect Web
+exposes an explicit comparison action over its existing member selection and retained
 implementation participant.
 
 The same method on both sides is valid. Different member names do not imply
@@ -121,10 +124,10 @@ or host cancellation authority. Those remain adopting-owner work.
 
 ## Demo and gates
 
-Design mockup, not evidence of a shipped query:
+The CLI invocation exercises the public query; the before/after path is:
 
 ```text
-match Left.Compute Right.Compute --library app.dll --implementation
+match Left.Compute Right.Compute --library app.dll --body
 
 Before: CLI -> legacy CompareMembers -> synthetic assembly-result wrapper
 After:  CLI -> direct-member query -> exact designated Research pair
@@ -139,7 +142,7 @@ through an explicit user action. Ordinary single-member navigation remains
 ordinary navigation. A component test or file-based application is useful
 evidence, but is not production adoption in either host.
 
-The planned Release gates are:
+The Release gates in `DirectMemberComparisonQueryTests` are:
 
 | Gate | Required observation |
 | --- | --- |
@@ -147,11 +150,24 @@ The planned Release gates are:
 | `LocalComparisonPublication_PreservesTerminalEvidence` | Real Research completion, rejection, failure, and cancellation retain their original typed payloads, including empty-cleanup cases. |
 | `LocalComparisonPublication_PreservesQueryNonSuccess` | Wrong-image or missing physical designation, rejected access, and query-origin cancellation do not issue successful comparison evidence. |
 | `LocalComparisonPublication_RemainsUsableAfterInputScopeCloses` | After borrowed input scopes end, consumers can read the retained identities, native verdicts, and failure evidence. |
+| `DirectMemberComparison_PreservesGenericDeclaringTypes` | Generic and nested-generic declaring types retain their exact physical addresses and native body evidence. |
+| `DirectMemberComparison_PreservesCompilerGeneratedMethods` | Explicitly selected lambda and local-function MethodDefs reach the native producers with their original addresses. |
 
 Use compiled methods and product-issued evidence. Existing Research gates
 continue to establish its own association and completion invariants. These new
 gates establish the Queries handoff, not a second proof of native comparison.
-All are currently **unverified**.
+These gates exercise real fixture images and Research-issued outcomes, including
+cleanup failure and cancellation before a Research stage exists.
+
+CLI gates in `MatchCommandTests` cover the actual `--body` entry point, native
+JSON payloads and physical addresses, private raw-token and getter selections,
+same-method comparison, bodyless availability, cancellation, and removal of the
+former option. A compiler-generated seed and a discovery-returned token also
+retain both physical endpoints through `--body`. `MatchDiscoveryTests` covers
+neighboring discovery and pairwise selection behavior.
+`ApiSurfaceExtractorTests.Extract_CompilerGeneratedMethodsRequireOptIn` covers
+the existing explicit opt-in while keeping generated methods out of ordinary
+API views.
 
 The baseline is the existing population receipt and Research terminal union;
 the member source-comparison query is analogous evidence for preserving
@@ -164,14 +180,15 @@ The counted first-consumer route is recorded in
 [the adapter's adoption ledger](direct-member-comparison.md#first-production-punch-through)
 under #4706 and the production-first direction in #5865.
 
-Lock this contract before adapter implementation. Keep its first runtime
-implementation with the adapter and CLI adopter, using the bounded
+The first runtime implementation is delivered with the adapter and CLI adopter,
+using the bounded
 first-adopter exception in
 [design scope](../design-scope.md#stage-implementation-after-locking-the-design).
 Browser adoption follows as its own immediate owner effort, not after a new
 unconsumed infrastructure chain.
 
-The CLI cutover removes its replaced direct Research dispatch and synthetic
+The CLI now consumes the public query instead of its former direct
+`ImplementationDiff.CompareMembers` dispatch and synthetic `ResearchComparison`
 wrapper. After both hosts work, focused Queries and Research cleanups remove
 the unused remainder established by the actual caller inventory. Existing
 Source and assembly-comparison behavior must remain supported; a future issue

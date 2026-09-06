@@ -104,14 +104,18 @@ public static partial class CatalogExports
             ((EcosystemDemoSelectionResult.Known)selectionResult).Selection.Scenario;
         BrowserHomeDemoRunPlan plan =
             BrowserProductHomeDemos.ToRunPlan(resolved);
-        BrowserScopeResolution resolution =
+        BrowserHomeDemoRunResult result;
+        await using (BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 deadline => BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
                     plan.Requests,
                     deadline.Token),
-                BrowserPackageWorkspace.PackageOperationTimeout);
-        BrowserHomeDemoRunResult result =
-            RunHomeDemoCore(plan, resolution);
+                BrowserPackageWorkspace.PackageOperationTimeout))
+        {
+            result = RunHomeDemoCore(plan, resolution);
+        }
+
+        // Keep JSON return provenance outside async cleanup for the generated typed facade.
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);

@@ -4665,6 +4665,25 @@ public class CfgSampleClass
     }
 #pragma warning restore CS1998, CS9123
 
+    public unsafe int UnsafeGetter
+    {
+        get
+        {
+            int value = 42;
+            return *(&value);
+        }
+    }
+
+    public unsafe event Action UnsafeChanged
+    {
+        add
+        {
+            int local = 0;
+            _ = *(&local);
+        }
+        remove { }
+    }
+
     public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
     {
         int x = await t;
@@ -4760,6 +4779,38 @@ public class CfgSampleClass
             sum += value;
 
         return sum;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitForeachAfterUnsafeRead(
+        nint address,
+        System.Collections.Generic.IAsyncEnumerable<int> source)
+    {
+        int sum;
+        unsafe
+        {
+            sum = *(int*)address;
+        }
+
+        await foreach (int value in source)
+            sum += value;
+
+        return sum;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingAfterUnsafeRead(
+        nint address,
+        System.IAsyncDisposable resource)
+    {
+        int value;
+        unsafe
+        {
+            value = *(int*)address;
+        }
+
+        await using (resource)
+        {
+            return value;
+        }
     }
 
     public static async System.Threading.Tasks.Task<int> ManualAwaitEnumeratorLoop(

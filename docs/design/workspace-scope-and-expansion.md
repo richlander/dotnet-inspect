@@ -34,6 +34,12 @@ property below is **unverified** until its named Release gate exists. The
 revision-authority properties additionally require the model described under
 [Concurrency model](#concurrency-model) before implementation.
 
+[Approved lazy traversal](approved-lazy-traversal.md) records the approved
+cross-owner target experience for Browser construction defaults, ecosystem
+knowledge, and demand-driven operations. It does not change this owner's
+empty-registration-set-is-closed invariant or claim the missing registration,
+candidate-discovery, or query-population adoption is implemented.
+
 ## Authority and exact claim
 
 Workspace Scope and Expansion is the product authority for the committed

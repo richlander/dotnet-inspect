@@ -179,7 +179,13 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
     testTsconfig.include,
-    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts", "../playwright.worker.config.ts"],
+    [
+      "./**/*.ts",
+      "../browser/**/*.ts",
+      "../playwright.config.ts",
+      "../playwright.worker.config.ts",
+      "../playwright.package-adoption.config.ts",
+    ],
   );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
@@ -2160,10 +2166,14 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
         .map(([rule, entry]) => [`${override.files.join(", ")} :: ${rule}`, entry] as const)),
   ].filter(([, entry]) => optionsOf(entry).length > 0));
 
-  // The one exception this project configures: `node:test` returns a promise nobody is
+  // Two exceptions this project configures. `node:test` returns a promise nobody is
   // expected to await, so `test(...)` at the top level of a test file is not a floating
-  // promise. Nothing else narrows a rule by option.
+  // promise. Prism ships each language grammar as a module whose only effect is
+  // registering itself onto the core, so there is nothing to bind and the import is
+  // unassigned by construction; the allowance names that path and nothing else, so an
+  // unassigned import anywhere outside `prismjs/components/` still reports.
   assert.deepEqual(configuredOptions, {
+    "import/no-unassigned-import": ["deny", [{ allow: ["prismjs/components/*"] }]],
     "typescript/no-floating-promises": ["deny", [{
       allowForKnownSafeCalls: [{ from: "package", name: "test", package: "node:test" }],
     }]],
@@ -2704,8 +2714,8 @@ test("static hosting sends its security headers on every static response", () =>
   // These are response-header protections, so nothing in the source tree can stand in for
   // them: a linter reads the markup this project ships, while these constrain what a
   // browser will do with it once shipped. `nosniff` stops content-type guessing on the
-  // JSON, TSV and wasm this site serves, and the other three are the cheap defaults that
-  // need no coordination with page content.
+  // JSON, TSV and wasm this site serves. CSP's hash is filled after the SDK publishes
+  // the import map; the published-artifact browser gate checks the resulting policy.
   //
   // "static" in this test's name is load-bearing. Azure Static Web Apps does not apply
   // `globalHeaders` to responses produced by the managed functions under `/api/*`; those
@@ -2717,6 +2727,7 @@ test("static hosting sends its security headers on every static response", () =>
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{{IMPORT_MAP_HASH}}'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https:; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
   });
 
   // Azure Static Web Apps returns the union of `globalHeaders` and a matching route's
@@ -2747,7 +2758,7 @@ test("static hosting sends its security headers on every static response", () =>
   // global headers without naming any of them. Azure has acknowledged this since 2022
   // (Azure/static-web-apps#739): a route with `redirect` returns neither `globalHeaders`
   // nor its own `headers`. Such a route passes the disjointness check above while serving
-  // a 302 with none of the four headers on it, which is exactly the silent weakening this
+  // a 302 with none of the security headers on it, which is exactly the silent weakening this
   // test exists to prevent. There are no redirect routes today; this keeps it that way
   // rather than waiting for one to be added and quietly punch a hole.
   const redirecting = staticWebAppConfig.routes
@@ -2756,7 +2767,7 @@ test("static hosting sends its security headers on every static response", () =>
 
   assert.deepEqual(redirecting, [],
     "Azure Static Web Apps omits `globalHeaders` on redirect responses "
-      + "(Azure/static-web-apps#739), so this route would answer without any of the four "
+      + "(Azure/static-web-apps#739), so this route would answer without any of the security "
       + "headers while the config still reads as though they are global; serve the "
       + "redirect from a route that does not use `redirect`, or narrow this test's claim "
       + "deliberately");
@@ -2855,7 +2866,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades engine/facades "
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
-      + "playwright.config.ts playwright.worker.config.ts && "
+      + "playwright.config.ts playwright.worker.config.ts "
+      + "playwright.package-adoption.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });

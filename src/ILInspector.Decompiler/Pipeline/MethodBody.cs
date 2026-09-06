@@ -141,5 +141,7 @@ public sealed record ImportedMethod(
 {
     internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
         { get; init; }
+    internal RequiresUnsafeContractResult RequiresUnsafeContract
+        { get; init; }
     internal bool IsMetadataBacked { get; init; }
 }

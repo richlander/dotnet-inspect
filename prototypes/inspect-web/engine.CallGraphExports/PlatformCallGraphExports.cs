@@ -32,7 +32,8 @@ public static partial class CallGraphExports
         int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        using PlatformGraphBuild build =
+        BrowserCallGraph graph;
+        await using (PlatformGraphBuild build =
             await BuildPlatformGraphAsync(
                 targetFramework,
                 platformVersion,
@@ -44,44 +45,47 @@ public static partial class CallGraphExports
                 typeFullName,
                 memberName,
                 selectorKey,
-                metadataToken);
-        BrowserPlatformScopeResolution resolution = build.Resolution;
-        MemberCallGraphView view = build.View;
-        CallGraphProjection projection = build.Projection;
-        int callerAssemblies = resolution.Scope.Members
-            .Select(candidate =>
-                candidate.Participant.Assembly.Identity.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
+                metadataToken))
+        {
+            BrowserPlatformScopeResolution resolution = build.Resolution;
+            MemberCallGraphView view = build.View;
+            CallGraphProjection projection = build.Projection;
+            int callerAssemblies = resolution.Scope.Members
+                .Select(candidate =>
+                    candidate.Participant.Assembly.Identity.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            graph = new BrowserCallGraph(
+                    BrowserCallGraphProjection.Mermaid(projection),
+                    BrowserCallGraphWireProjection.Project(
+                        BrowserCallGraphProjection.Tree(view.CallerRoot)),
+                    BrowserCallGraphWireProjection.Project(
+                        BrowserCallGraphProjection.Tree(view.CalleeRoot)),
+                    new BrowserCallGraphScope(
+                        Packages: 0,
+                        resolution.Scope.Members.Length,
+                        callerAssemblies,
+                        view.Tier.ToString()),
+                    [
+                        .. BrowserCallGraphProjection.Targets(
+                            projection.Nodes,
+                            resolution.Scope.Members.Select(candidate =>
+                                candidate.Participant.Assembly.Identity),
+                            resolution.Scope.PlatformPackForAssembly)
+                            .Select(BrowserCallGraphWireProjection.Project),
+                    ],
+                    BrowserCallGraphWireProjection.Project(
+                        BrowserCallGraphProjection.Diagnostics(
+                            view.Diagnostics,
+                            projection.HasUnexploredTraversalBoundary,
+                            projection.HasAnalysisFailureBoundary)),
+                    NoBody:
+                        view.CalleeRoot is null
+                        && view.CallerRoot is null);
+        }
 
         return JsonSerializer.Serialize(
-            new BrowserCallGraph(
-                BrowserCallGraphProjection.Mermaid(projection),
-                BrowserCallGraphWireProjection.Project(
-                    BrowserCallGraphProjection.Tree(view.CallerRoot)),
-                BrowserCallGraphWireProjection.Project(
-                    BrowserCallGraphProjection.Tree(view.CalleeRoot)),
-                new BrowserCallGraphScope(
-                    Packages: 0,
-                    resolution.Scope.Members.Length,
-                    callerAssemblies,
-                    view.Tier.ToString()),
-                [
-                    .. BrowserCallGraphProjection.Targets(
-                        projection.Nodes,
-                        resolution.Scope.Members.Select(candidate =>
-                            candidate.Participant.Assembly.Identity),
-                        resolution.Scope.PlatformPackForAssembly)
-                        .Select(BrowserCallGraphWireProjection.Project),
-                ],
-                BrowserCallGraphWireProjection.Project(
-                    BrowserCallGraphProjection.Diagnostics(
-                        view.Diagnostics,
-                        projection.HasUnexploredTraversalBoundary,
-                        projection.HasAnalysisFailureBoundary)),
-                NoBody:
-                    view.CalleeRoot is null
-                    && view.CallerRoot is null),
+            graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
     }
 
@@ -135,7 +139,7 @@ public static partial class CallGraphExports
                 StringComparison.OrdinalIgnoreCase)
             ? assembly
             : $"{assembly}.dll";
-        using var owner = new PlatformScopeOwner(
+        await using var owner = new PlatformScopeOwner(
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
@@ -216,7 +220,7 @@ public static partial class CallGraphExports
                         targetPack);
                 }),
             ];
-            owner.Replace(
+            await owner.ReplaceAsync(
                 await BrowserPlatformWorkspace.OpenAssembliesAsync(
                     targetFramework,
                     platformVersion,
@@ -367,7 +371,7 @@ public static partial class CallGraphExports
                     $"Platform assembly '{target.Name}' is required to "
                     + $"resolve '{typeFullName}', but no authorized "
                     + "platform pack supplies it.");
-            owner.Replace(
+            await owner.ReplaceAsync(
                 await BrowserPlatformWorkspace.OpenAssemblyAsync(
                     targetFramework,
                     platformVersion,
@@ -504,7 +508,7 @@ public static partial class CallGraphExports
         Analysis.CallGraphMemberResolution Member);
 
     sealed class PlatformScopeOwner(
-        BrowserPlatformScopeResolution current) : IDisposable
+        BrowserPlatformScopeResolution current) : IAsyncDisposable
     {
         BrowserPlatformScopeResolution? _current = current;
 
@@ -512,13 +516,13 @@ public static partial class CallGraphExports
             _current
             ?? throw new ObjectDisposedException(nameof(PlatformScopeOwner));
 
-        internal void Replace(
+        internal async ValueTask ReplaceAsync(
             BrowserPlatformScopeResolution replacement)
         {
             ArgumentNullException.ThrowIfNull(replacement);
             BrowserPlatformScopeResolution previous = Current;
             _current = replacement;
-            previous.Dispose();
+            await previous.DisposeAsync().ConfigureAwait(false);
         }
 
         internal BrowserPlatformScopeResolution Detach()
@@ -528,20 +532,21 @@ public static partial class CallGraphExports
             return result;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             BrowserPlatformScopeResolution? current = _current;
             _current = null;
-            current?.Dispose();
+            if (current is not null)
+                await current.DisposeAsync().ConfigureAwait(false);
         }
     }
 
     sealed record PlatformGraphBuild(
         BrowserPlatformScopeResolution Resolution,
         MemberCallGraphView View,
-        CallGraphProjection Projection) : IDisposable
+        CallGraphProjection Projection) : IAsyncDisposable
     {
-        public void Dispose() => Resolution.Dispose();
+        public ValueTask DisposeAsync() => Resolution.DisposeAsync();
     }
 
 }

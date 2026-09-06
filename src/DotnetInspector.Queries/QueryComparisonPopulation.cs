@@ -8,7 +8,6 @@ namespace DotnetInspector.Queries;
 public enum QueryComparisonProfile
 {
     ImplementationComparison,
-    BodySignal,
 }
 
 public enum QueryComparisonSide
@@ -52,17 +51,9 @@ public sealed record ImplementationComparisonBinding(
     IAssemblyReferenceResolver Resolver,
     LibraryBodyIndex BodyIndex);
 
-public sealed record BodySignalComparisonBinding(LibraryBodyIndex BodyIndex);
-
 public sealed record ImplementationComparisonPopulationRequest(
     IReadOnlyList<ImplementationComparisonBinding?>? Before,
     IReadOnlyList<ImplementationComparisonBinding?>? After,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
-
-public sealed record BodySignalComparisonPopulationRequest(
-    IReadOnlyList<BodySignalComparisonBinding?>? Before,
-    IReadOnlyList<BodySignalComparisonBinding?>? After,
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null);
 

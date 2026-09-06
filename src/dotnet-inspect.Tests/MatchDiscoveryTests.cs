@@ -625,18 +625,18 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
-    public async Task Similar_WithImplementation_RejectsCombination()
+    public async Task Similar_WithBody_RejectsCombination()
     {
         MatchOptions options = Seeded($"{typeof(MatchSampleA).FullName}.AddOne") with
         {
-            IncludeImplementation = true,
+            IncludeBody = true,
         };
 
         var (exitCode, output, error) = await RunAsync(options);
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
-        Assert.Contains("--implementation cannot be combined with --similar", error);
+        Assert.Contains("--body cannot be combined with --similar", error);
     }
 
     [Fact]

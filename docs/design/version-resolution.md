@@ -26,6 +26,13 @@ implementation-ready syntax.
 
 ### Pinned (`Name@version`)
 
+Online caller-pinned CLI extraction now follows the
+[configured-authority acquisition contract](package-source-model.md#caller-pinned-payload-acquisition):
+local authority caches may answer immediately, while HTTP payloads currently
+use temporary authority-scoped materialization rather than persistent
+producer-keyed caches. The following producer-cache description applies to
+offline and other unmigrated consumers.
+
 The version is treated as immutable and the caller supplies the candidate. If
 the package is already in a payload cache under an eligible producer, it is
 used immediately. A global-folder entry qualifies only when its

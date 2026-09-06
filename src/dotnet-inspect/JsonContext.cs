@@ -84,8 +84,8 @@ internal partial class DiffJsonContext : JsonSerializerContext
 }
 
 /// <summary>
-/// Serialization contract for <c>match --implementation --json</c>
-/// (<see cref="MatchImplementationDocument"/>): snake-case names, omitted nulls, and string enums
+/// Serialization contract for <c>match --body --json</c>
+/// (<see cref="MatchBodyDocument"/>): snake-case names, omitted nulls, and string enums
 /// to match <see cref="ILInspector.Analysis.StructuralCloneComparisonDocumentJsonContext"/>'s
 /// contract for the nested <see cref="ILInspector.Analysis.StructuralCloneComparisonDocument"/>.
 /// </summary>
@@ -94,19 +94,19 @@ internal partial class DiffJsonContext : JsonSerializerContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(MatchImplementationDocument))]
-internal partial class MatchImplementationDocumentJsonContext : JsonSerializerContext
+[JsonSerializable(typeof(MatchBodyDocument))]
+internal partial class MatchBodyDocumentJsonContext : JsonSerializerContext
 {
 }
 
-/// <inheritdoc cref="MatchImplementationDocumentJsonContext"/>
+/// <inheritdoc cref="MatchBodyDocumentJsonContext"/>
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(MatchImplementationDocument))]
-internal partial class MatchImplementationDocumentCompactJsonContext : JsonSerializerContext
+[JsonSerializable(typeof(MatchBodyDocument))]
+internal partial class MatchBodyDocumentCompactJsonContext : JsonSerializerContext
 {
 }
 

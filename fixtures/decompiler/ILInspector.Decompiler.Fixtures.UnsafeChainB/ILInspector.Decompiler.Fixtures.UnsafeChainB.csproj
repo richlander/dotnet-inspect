@@ -16,6 +16,9 @@
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <MemorySafetyRules>updated</MemorySafetyRules>
+    <!-- Isolate cross-assembly contract resolution from classic state-machine
+         reconstruction, which has separate compiler-produced coverage. -->
+    <Features>$(Features);runtime-async=on</Features>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
