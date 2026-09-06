@@ -101,6 +101,9 @@ and form rendering/binding. The production-root case
 `Package comparison targets survive Library, Type, and Member navigation` in
 `browser/library-hierarchy.spec.ts` exercises the actual navigation and controls
 with deterministic facade responses, including retained keyboard focus.
+`saved-workspace-navigation.test.ts` composes the real target and inventory
+coordinators with the production snapshot functions to gate successful
+retirement and rollback after acquisition or view-selection failure.
 
 These do not claim that a selected counterpart is inspectable or that a
 comparison has run. Those require the successor's acquisition and query gates.
