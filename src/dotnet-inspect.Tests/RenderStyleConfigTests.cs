@@ -585,6 +585,7 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Collect_WithQualifyMethodAccess_QualifiesThisMethodGroup()
     {
         var (code, _) = RenderSpecimenMember(
@@ -637,6 +638,7 @@ public class RenderStyleConfigTests
     // disagreeing with itself (#3191).
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Collect_AnnotatedSource_AppliesTheSameTasteAsDecompiledSource()
     {
         var (decompiled, annotated) = RenderSpecimenBothViews(
@@ -801,6 +803,7 @@ public class RenderStyleConfigTests
     // source but MemberBodyProducer.Project yields no listing, so the whole-type
     // emit gate (listing is not null) never surfaces a config warning.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void WholeTypeProject_EmptyType_ProducesNoListing()
     {
         string assemblyPath = typeof(IEmptyStyleFixture).Assembly.Location;
@@ -821,6 +824,7 @@ public class RenderStyleConfigTests
     // config is not consumed; the warning latch must key off a produced Output,
     // not merely a non-null result.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void NoBodyMethod_ProducesResultWithoutOutput_SoNoStyledSource()
     {
         var decompiledSourceRequested = new MemberCodeProvider.Request(

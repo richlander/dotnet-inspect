@@ -69,7 +69,8 @@ internal static class CustomAttributeValueDecoder
         AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
         out CustomAttributeValue<string> value,
         out ImmutableArray<bool> fixedArgumentWidthDefaulted,
-        out ImmutableArray<bool> namedArgumentWidthDefaulted)
+        out ImmutableArray<bool> namedArgumentWidthDefaulted,
+        GenericContextWork? genericContextWork = null)
     {
         value = default;
         fixedArgumentWidthDefaulted = default;
@@ -84,7 +85,8 @@ internal static class CustomAttributeValueDecoder
                 preserveSerializedTypeNames,
                 captureDefaultedWidths,
                 beforeMaterialize,
-                enumUnderlyingType);
+                enumUnderlyingType,
+                genericContextWork);
             return decoder.Run(
                 attribute,
                 out value,
@@ -108,6 +110,11 @@ internal static class CustomAttributeValueDecoder
         }
     }
 
+    internal sealed class GenericContextWork
+    {
+        public long BytesSkipped { get; internal set; }
+    }
+
     /// <summary>
     /// One decode of one attribute value. Fixed arguments are read from the
     /// constructor signature interleaved with their values from the value blob,
@@ -121,7 +128,8 @@ internal static class CustomAttributeValueDecoder
         bool preserveSerializedTypeNames,
         bool captureDefaultedWidths,
         Action<int>? beforeMaterialize,
-        AttributeDecoder.EnumWidthResolver? enumUnderlyingType)
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
+        GenericContextWork? genericContextWork)
     {
         readonly MetadataReader _reader = reader;
         readonly EntityHandle _constructor = constructor;
@@ -135,6 +143,9 @@ internal static class CustomAttributeValueDecoder
         readonly Stack<ValueJob> _work = new();
 
         BlobReader _value;
+        BlobReader _genericArgumentCursor;
+        List<int>? _genericArgumentOffsets;
+        int _genericParameterCount;
         bool _currentArgumentDefaulted;
         CustomAttributeTypedArgument<string> _rootResult;
 
@@ -287,6 +298,36 @@ internal static class CustomAttributeValueDecoder
             return context;
         }
 
+        BlobReader LocateGenericArgument(BlobReader genericContext, int parameterIndex)
+        {
+            if (_genericArgumentOffsets is null)
+            {
+                _genericArgumentCursor = genericContext;
+                _genericParameterCount = _genericArgumentCursor.ReadCompressedInteger();
+            }
+            if (parameterIndex >= _genericParameterCount)
+                throw new BadImageFormatException();
+
+            // Retain only visited starts, never storage sized by declared arity.
+            // Leave unused suffixes alone and preserve the existing skipper's
+            // cursor semantics rather than decoding types into the index.
+            _genericArgumentOffsets ??= [_genericArgumentCursor.Offset];
+            while (_genericArgumentOffsets.Count <= parameterIndex)
+            {
+                int start = _genericArgumentCursor.Offset;
+                bool skipped = SrmType.TrySkip(ref _genericArgumentCursor);
+                if (genericContextWork is not null)
+                    genericContextWork.BytesSkipped += _genericArgumentCursor.Offset - start;
+                if (!skipped)
+                    throw new BadImageFormatException();
+                _genericArgumentOffsets.Add(_genericArgumentCursor.Offset);
+            }
+
+            BlobReader arguments = genericContext;
+            arguments.Offset = _genericArgumentOffsets[parameterIndex];
+            return arguments;
+        }
+
         // Reads one fixed-argument type from the constructor signature. Renders
         // the type name and resolves any enum width exactly once; array element
         // types are read here once and the value loop never re-reads them.
@@ -356,15 +397,8 @@ internal static class CustomAttributeValueDecoder
                     int parameterIndex = signature.ReadCompressedInteger();
                     if (parameterIndex < 0)
                         throw new BadImageFormatException();
-                    BlobReader arguments = genericContext;
-                    int genericParameterCount = arguments.ReadCompressedInteger();
-                    if (parameterIndex >= genericParameterCount)
-                        throw new BadImageFormatException();
-                    for (int skip = 0; skip < parameterIndex; skip++)
-                    {
-                        if (!SrmType.TrySkip(ref arguments))
-                            throw new BadImageFormatException();
-                    }
+                    BlobReader arguments = LocateGenericArgument(
+                        genericContext, parameterIndex);
 
                     // Substitute once, then decode with an empty generic
                     // context so a self-referential VAR cannot recurse.

@@ -53,10 +53,7 @@ export function renderMemberFacts(
       <p class="facts-metadata-identity"><span>Metadata token</span><code>${escapeHtml(`0x${facts.metadataToken.toString(16).padStart(8, "0")}`)}</code></p>
     </section>
     ${renderAllocationFacts(facts.allocations)}
-    ${renderFactTable("Calls", facts.calls, [
-      ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
-    ], "No direct call sites were found in this method.")}
+    ${renderCallFacts(facts.calls)}
     ${renderFactTable("Safety facts", facts.safety, [
       ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
       ["Requirement", "requirement"], ["Evidence", "evidence"]
@@ -106,6 +103,25 @@ function renderAllocationFacts(allocations: MemberFacts["allocations"]) {
           </div>
         </li>`).join("")}</ol>`
       : '<p class="allocation-empty">No allocation occurrences were found in this method.</p>'}
+  </section>`;
+}
+
+function renderCallFacts(calls: MemberFacts["calls"]) {
+  return `<section class="call-facts" aria-labelledby="call-facts-title">
+    <header><h2 id="call-facts-title">Calls</h2><span>${calls.length} ${calls.length === 1 ? "call site" : "call sites"}</span></header>
+    ${calls.length
+      ? `<ol class="call-rows">${calls.map(call => `
+        <li class="call-row">
+          <div class="call-location"><code>${escapeHtml(call.offset)}</code><code>${escapeHtml(call.opcode)}</code></div>
+          <div class="call-main">
+            <div class="call-callee"><code>${escapeHtml(call.callee)}</code></div>
+            <dl class="call-properties">
+              <div><dt>Multiplicity</dt><dd><code>${escapeHtml(call.multiplicity)}</code></dd></div>
+              <div><dt>Loop</dt><dd><code>${call.inLoop ? "yes" : "no"}</code></dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="call-empty">No direct call sites were found in this method.</p>'}
   </section>`;
 }
 

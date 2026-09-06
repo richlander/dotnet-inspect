@@ -65,6 +65,7 @@ public class TypeTargetedDecodeTests
                     StringComparer.Ordinal));
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
@@ -104,6 +105,7 @@ public class TypeTargetedDecodeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void
         TypeTargetedBuild_AnalyzesOnlyPhysicalOrSourceOwnedBodies()
     {

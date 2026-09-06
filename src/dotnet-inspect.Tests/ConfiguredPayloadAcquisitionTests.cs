@@ -18,7 +18,7 @@ using DesktopPackageExtractor = DotnetInspector.Packages.PackageExtractor;
 namespace DotnetInspector.Tests;
 
 [Collection("Console")]
-public sealed class ConfiguredPayloadAcquisitionTests : IDisposable
+public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 {
     private const string Version = "1.0.0";
     private const string FirstFeed = "https://first-payload.invalid/v3/index.json";
@@ -600,27 +600,29 @@ public sealed class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     private static void WriteLocalPackage(
-        string root, string id, string readme, bool hierarchical = false, string? redirectId = null)
+        string root, string id, string readme, bool hierarchical = false,
+        string? redirectId = null, string version = Version)
     {
-        string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), Version) : root;
+        string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
         File.WriteAllBytes(
-            Path.Combine(directory, $"{id.ToLowerInvariant()}.{Version}.nupkg"),
-            CreatePackage(id, readme, redirectId));
+            Path.Combine(directory, $"{id.ToLowerInvariant()}.{version}.nupkg"),
+            CreatePackage(id, readme, redirectId, version));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
         new ByteArrayContent(CreatePackage(id, readme));
 
     private static byte[] CreatePackage(
-        string id, string readme, string? redirectId = null, byte[]? library = null)
+        string id, string readme, string? redirectId = null,
+        string version = Version, byte[]? library = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
         {
             WriteEntry(archive, $"{id}.nuspec", $"""
                 <package><metadata>
-                  <id>{id}</id><version>{Version}</version>
+                  <id>{id}</id><version>{version}</version>
                   <authors>Payload tests</authors><description>Exact-pin fixture</description>
                   <readme>README.md</readme>
                 </metadata></package>
