@@ -292,7 +292,7 @@ public sealed class WorkspaceCommandTests
     [Theory]
     [InlineData("net10.0")]
     [InlineData("net11.0")]
-    public async Task FailedReplacement_DoesNotRenderASuccessfulPrefix(string assetFramework)
+    public async Task FailedAddBatch_DoesNotRenderASuccessfulPrefix(string assetFramework)
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(store, "Workspace.Good", ("readme.txt", []));

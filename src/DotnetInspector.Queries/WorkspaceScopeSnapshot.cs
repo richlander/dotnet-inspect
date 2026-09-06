@@ -92,7 +92,7 @@ public sealed class WorkspaceRootOccurrenceDescriptor
     public ArtifactRootScopeProjection Realization { get; }
 }
 
-/// <summary>The fixed closed-Scope profile for initial Replace/Clear adoption.</summary>
+/// <summary>The fixed closed-Scope profile for exact package membership operations.</summary>
 public sealed class WorkspaceScopeLimits
 {
     public const int DefaultMaxRoots = 64;
@@ -141,6 +141,8 @@ public enum WorkspaceScopeOperationKind
 {
     Replace,
     Clear,
+    Add,
+    Remove,
 }
 
 /// <summary>An exact resource-free cancellation request, interpreted only by its Workspace.</summary>
@@ -225,6 +227,8 @@ public enum WorkspaceScopeRejection
     RevisionMismatch,
     RootCapacityExceeded,
     AsynchronousWorkspaceRequired,
+    Busy,
+    OccurrenceNotCurrent,
 }
 
 public abstract record WorkspaceScopeOperationResult

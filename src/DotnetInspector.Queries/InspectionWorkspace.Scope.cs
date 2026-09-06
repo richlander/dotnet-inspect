@@ -51,6 +51,31 @@ public sealed partial class InspectionWorkspace
             WorkspaceScopeOperationKind.Clear, cancellationToken);
 
     /// <summary>
+    /// Appends one all-or-failure batch of distinct already-acquired package
+    /// Roots, preserving current order and exact occurrences. Surviving Roots
+    /// must be Ready unless the batch has no effect.
+    /// </summary>
+    public ValueTask<WorkspaceScopeOperationResult> AddRootsAsync(
+        WorkspaceScopeRevision expectedRevision,
+        ImmutableArray<PackageRootBinding> roots,
+        DateTimeOffset deadline,
+        CancellationToken cancellationToken = default) =>
+        MutateScopeAsync(expectedRevision, roots, deadline,
+            WorkspaceScopeOperationKind.Add, cancellationToken);
+
+    /// <summary>
+    /// Removes one exact current occurrence without choosing a successor or
+    /// waiting for admitted queries to drain. Surviving Roots must be Ready.
+    /// </summary>
+    public ValueTask<WorkspaceScopeOperationResult> RemoveRootOccurrenceAsync(
+        WorkspaceScopeRevision expectedRevision,
+        WorkspaceRootOccurrenceIdentity occurrence,
+        DateTimeOffset deadline,
+        CancellationToken cancellationToken = default) =>
+        MutateScopeAsync(expectedRevision, [], deadline,
+            WorkspaceScopeOperationKind.Remove, cancellationToken, occurrence);
+
+    /// <summary>
     /// Requests cancellation of the exact preparing operation and awaits its
     /// complete settlement. An action for a no-longer-preparing operation has no effect.
     /// </summary>
@@ -93,7 +118,8 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> roots,
         DateTimeOffset deadline,
         WorkspaceScopeOperationKind kind,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        WorkspaceRootOccurrenceIdentity? occurrence = null)
     {
         var read = await ReadArtifactRootCompositionAsync(_identity).ConfigureAwait(false);
         if (read is ArtifactRootResult<ArtifactRootCompositionReadLease>.Rejected rejected)
@@ -117,7 +143,29 @@ public sealed partial class InspectionWorkspace
                     return new WorkspaceScopeOperationResult.Rejected(
                         current, WorkspaceScopeRejection.Malformed);
 
+                if (kind == WorkspaceScopeOperationKind.Remove)
+                {
+                    if (occurrence is null)
+                        return new WorkspaceScopeOperationResult.Rejected(
+                            current, WorkspaceScopeRejection.Malformed);
+                    if (!ReferenceEquals(occurrence.WorkspaceIdentity, _identity))
+                        return new WorkspaceScopeOperationResult.Rejected(
+                            current, WorkspaceScopeRejection.ForeignWorkspace);
+                    if (!current.Roots.Any(row => ReferenceEquals(row.Occurrence.Identity, occurrence)))
+                        return new WorkspaceScopeOperationResult.Rejected(
+                            current, WorkspaceScopeRejection.OccurrenceNotCurrent);
+                }
+
+                ImmutableArray<WorkspaceRootOccurrenceDescriptor> survivors = kind switch
+                {
+                    WorkspaceScopeOperationKind.Add => current.Roots,
+                    WorkspaceScopeOperationKind.Remove =>
+                        [.. current.Roots.Where(row => !ReferenceEquals(row.Occurrence.Identity, occurrence))],
+                    _ => [],
+                };
                 var unique = new HashSet<ArtifactRootCorrespondence>();
+                foreach (WorkspaceRootOccurrenceDescriptor survivor in survivors)
+                    unique.Add(survivor.Occurrence.Correspondence);
                 var candidates = ImmutableArray.CreateBuilder<ScopeRequestedRoot>();
                 foreach (PackageRootBinding binding in roots)
                 {
@@ -127,11 +175,16 @@ public sealed partial class InspectionWorkspace
                         continue;
                     WorkspaceRootOccurrenceDescriptor? retained = current.Roots.FirstOrDefault(
                         row => row.Occurrence.Correspondence.Equals(correspondence));
-                    candidates.Add(new(binding, correspondence, retained));
+                    candidates.Add(retained?.Realization.Status is ArtifactRootRealizationStatus.Ready ready
+                        ? new ScopeRequestedRoot.Retain(retained.Occurrence, ready.Generation)
+                        : new ScopeRequestedRoot.Prepare(binding, correspondence, retained?.Occurrence));
                 }
-                if (candidates.Count > current.Revision.Limits.MaxRoots)
+                if (candidates.Count > current.Revision.Limits.MaxRoots - survivors.Length)
                     return new WorkspaceScopeOperationResult.Rejected(
                         current, WorkspaceScopeRejection.RootCapacityExceeded);
+                if (kind is WorkspaceScopeOperationKind.Add or WorkspaceScopeOperationKind.Remove
+                    && _scopePreparation is not null)
+                    return new WorkspaceScopeOperationResult.Rejected(current, WorkspaceScopeRejection.Busy);
 
                 operation = new(_identity, kind, deadline, cancellationToken, current);
                 if (operation.Stop.IsCancellationRequested)
@@ -139,9 +192,27 @@ public sealed partial class InspectionWorkspace
                     operation.Dispose();
                     return new WorkspaceScopeOperationResult.Cancelled(current, operation.Identity);
                 }
-                requested = candidates.ToImmutable();
+                if (kind == WorkspaceScopeOperationKind.Add && candidates.Count == 0)
+                {
+                    operation.Dispose();
+                    return new WorkspaceScopeOperationResult.NoEffect(current);
+                }
+                var complete = ImmutableArray.CreateBuilder<ScopeRequestedRoot>(survivors.Length + candidates.Count);
+                foreach (WorkspaceRootOccurrenceDescriptor survivor in survivors)
+                {
+                    if (survivor.Realization.Status is not ArtifactRootRealizationStatus.Ready ready)
+                    {
+                        operation.Dispose();
+                        return new WorkspaceScopeOperationResult.Failed(
+                            current, ArtifactRootFailure.ArtifactGenerationMismatch);
+                    }
+                    complete.Add(new ScopeRequestedRoot.Retain(survivor.Occurrence, ready.Generation));
+                }
+                complete.AddRange(candidates);
+                requested = complete.MoveToImmutable();
                 var next = WithScopePreparation(current,
-                    new(_identity, operation.Identity, kind, requested.Length, deadline));
+                    new(_identity, operation.Identity, kind,
+                        kind == WorkspaceScopeOperationKind.Remove ? 1 : candidates.Count, deadline));
                 if (_scopePreparation is { } displaced)
                 {
                     // Preserve a cancellation or deadline that won before displacement.
@@ -171,7 +242,7 @@ public sealed partial class InspectionWorkspace
         try
         {
             ImmutableArray<PackageRootBinding> unmatched =
-                [.. requested.Where(static root => !root.CanRetain).Select(static root => root.Binding)];
+                [.. requested.OfType<ScopeRequestedRoot.Prepare>().Select(static root => root.Binding)];
             if (!unmatched.IsEmpty)
             {
                 var prepared = await PreparePackageArtifactRootsAsync(
@@ -263,18 +334,23 @@ public sealed partial class InspectionWorkspace
         int preparedIndex = 0;
         foreach (ScopeRequestedRoot root in requested)
         {
-            if (root.Retained?.Realization.Status is ArtifactRootRealizationStatus.Ready ready)
-                entries.Add(new ArtifactRootPublicationEntry.Retain(root.Correspondence, ready.Generation));
-            else
+            switch (root)
             {
-                ArtifactRootPreparedEntry prepared = receipt!.Entries[preparedIndex++];
-                if (!prepared.Correspondence.Equals(root.Correspondence))
-                    throw new WorkspaceScopeInvariantException(current, ArtifactRootFailure.CompositionMismatch);
-                entries.Add(new ArtifactRootPublicationEntry.Adopt(receipt.Preparation, prepared.Entry));
+                case ScopeRequestedRoot.Retain retained:
+                    entries.Add(new ArtifactRootPublicationEntry.Retain(
+                        retained.Occurrence.Correspondence, retained.Generation));
+                    occurrences.Add(retained.Occurrence);
+                    break;
+                case ScopeRequestedRoot.Prepare pending:
+                    ArtifactRootPreparedEntry prepared = receipt!.Entries[preparedIndex++];
+                    if (!prepared.Correspondence.Equals(pending.Correspondence))
+                        throw new WorkspaceScopeInvariantException(current, ArtifactRootFailure.CompositionMismatch);
+                    entries.Add(new ArtifactRootPublicationEntry.Adopt(receipt.Preparation, prepared.Entry));
+                    occurrences.Add(pending.ExistingOccurrence
+                        ?? new WorkspaceRootOccurrence(_identity,
+                            new WorkspaceRootDescriptor.Package(pending.Binding), pending.Correspondence));
+                    break;
             }
-            occurrences.Add(root.Retained?.Occurrence
-                ?? new WorkspaceRootOccurrence(_identity,
-                    new WorkspaceRootDescriptor.Package(root.Binding), root.Correspondence));
         }
         var revision = new WorkspaceScopeRevision(_identity, occurrences.MoveToImmutable());
         var candidate = new ScopePublicationCandidate(this, operation, current.PublicationBase, revision);
@@ -365,12 +441,18 @@ public sealed partial class InspectionWorkspace
         WorkspaceScopePreparationDescriptor? preparing) =>
         new(current.Revision, current.PhysicalComposition, current.Roots, current.Closure, preparing);
 
-    sealed record ScopeRequestedRoot(
-        PackageRootBinding Binding,
-        ArtifactRootCorrespondence Correspondence,
-        WorkspaceRootOccurrenceDescriptor? Retained)
+    abstract record ScopeRequestedRoot
     {
-        internal bool CanRetain => Retained?.Realization.Status is ArtifactRootRealizationStatus.Ready;
+        private protected ScopeRequestedRoot() { }
+
+        internal sealed record Retain(
+            WorkspaceRootOccurrence Occurrence,
+            ArtifactRootGenerationReference Generation) : ScopeRequestedRoot;
+
+        internal sealed record Prepare(
+            PackageRootBinding Binding,
+            ArtifactRootCorrespondence Correspondence,
+            WorkspaceRootOccurrence? ExistingOccurrence) : ScopeRequestedRoot;
     }
 
     sealed class ScopePreparation : IDisposable

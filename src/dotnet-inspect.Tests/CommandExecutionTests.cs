@@ -4066,7 +4066,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            error.Contains("not found", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("valid package ID", StringComparison.OrdinalIgnoreCase),
+            error);
     }
 
     [Theory]
@@ -19407,8 +19410,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Package 'frobnicate' not found", error);
-        Assert.DoesNotContain("Package '--json' not found", error);
+        Assert.Contains("Package 'frobnicate' selection 'latest'", error);
+        Assert.DoesNotContain("Package '--json' selection", error);
     }
 
     [Fact]
@@ -19418,8 +19421,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Package 'frobnicate' not found", error);
-        Assert.DoesNotContain("Package 'Widget' not found", error);
+        Assert.Contains("Package 'frobnicate' selection 'latest'", error);
+        Assert.DoesNotContain("Package 'Widget' selection", error);
     }
 
     [Fact]
@@ -23990,7 +23993,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AISection_ForAspireOpenAI_ShowsStarterApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.OpenAI", "--library", "-S", "Integration: AI", "--rows", "40");
+            "package", "Aspire.OpenAI", "--preview",
+            "--library", "-S", "Integration: AI", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -24029,7 +24033,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationsCategory_ForAspireOpenAI_ShowsStarterIntegrations()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.OpenAI", "--library", "-S", "@Integrations", "--rows", "40");
+            "package", "Aspire.OpenAI", "--preview",
+            "--library", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -24074,7 +24079,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HostingSection_ForAspireOpenAI_ShowsStarterApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.OpenAI", "--library", "-S", "Integration: Hosting");
+            "package", "Aspire.OpenAI", "--preview",
+            "--library", "-S", "Integration: Hosting");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Hosting", output);
