@@ -87,15 +87,44 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         return Execute(group, publicMembers);
     }
 
+    /// <summary>
+    /// Ranks one participant without inspecting unrelated group participants. The group's
+    /// binding policy remains available for resolving the selected participant's dependencies.
+    /// </summary>
+    public static AssemblyContextOptimizationOpportunitiesResult ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        var publicMembers =
+            new AssemblyContextResult<AssemblyOptimizationPublicMembers>(
+            [
+                AssemblyContextQueryExecutor.ExecuteParticipant(
+                    group,
+                    participant,
+                    ProjectPublicMembers),
+            ]);
+        return Execute(group, [participant], publicMembers);
+    }
+
     internal static AssemblyContextOptimizationOpportunitiesResult Execute(
         AssemblyContextGroup group,
         AssemblyContextResult<AssemblyOptimizationPublicMembers>
             publicMembers)
     {
         ArgumentNullException.ThrowIfNull(group);
+        return Execute(group, group.Participants, publicMembers);
+    }
+
+    static AssemblyContextOptimizationOpportunitiesResult Execute(
+        AssemblyContextGroup group,
+        IReadOnlyList<AssemblyContextParticipant> participants,
+        AssemblyContextResult<AssemblyOptimizationPublicMembers> publicMembers)
+    {
         ArgumentNullException.ThrowIfNull(publicMembers);
         if (publicMembers.Assemblies.Length
-            != group.Participants.Length)
+            != participants.Count)
         {
             throw new InspectionQueryException(
                 "Assembly context public members did not produce one result per participant.");
@@ -105,13 +134,13 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
             ImmutableArray.CreateBuilder<
                 AssemblyContextEntry<
                     AssemblyOptimizationOpportunityRanking>>(
-                        group.Participants.Length);
+                        participants.Count);
         for (int index = 0;
-            index < group.Participants.Length;
+            index < participants.Count;
             index++)
         {
             AssemblyContextParticipant participant =
-                group.Participants[index];
+                participants[index];
             AssemblyContextEntry<AssemblyOptimizationPublicMembers>
                 projectedPublicMembers =
                     publicMembers.Assemblies[index];

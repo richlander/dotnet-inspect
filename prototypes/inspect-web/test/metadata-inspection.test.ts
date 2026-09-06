@@ -44,6 +44,7 @@ function explorerState(
 ): AppExplorerState {
   return {
     open: true,
+    assemblyId: "asset:example",
     assemblyFileName: "Example.Package.dll",
     directory: [],
     windows: {},

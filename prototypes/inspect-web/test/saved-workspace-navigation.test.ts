@@ -312,6 +312,7 @@ function harness() {
     retainFailedWorkspaceUrl: () => false,
     packageDisplayName: (pkg: Package) => pkg.id,
     selectedType: () => null,
+    selectedLibraryRequest: () => "asset:retained-library",
     isRuntimePackId: () => false,
     loadPackage: async (
       id: string, version: string, framework: string,
@@ -387,6 +388,7 @@ test("capture uses the original share projection and retains Workspace presentat
   }));
   h.state.package = h.state.packages[1]!;
   h.state.workspaceShareBasis = basis;
+  h.state.libraryScope = new Set(["asset:retained-library"]);
   h.state.selectedTypeId = "Hidden.Old.Type";
   h.state.selectedMemberKey = "Hidden.Old.Member";
   const before = structuredClone(h.state);
@@ -777,7 +779,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: ["Source.Core"] },
+      section: null, libraries: [] },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");
