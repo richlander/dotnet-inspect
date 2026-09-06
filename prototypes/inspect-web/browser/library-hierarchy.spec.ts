@@ -386,10 +386,12 @@ test("Search between retained packages restores the incoming Library ancestry", 
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-subject-list")).toBeFocused();
   await expect(page.locator('[data-subject-tab][data-scope="library"]')).toHaveCount(1);
   await expect(page.locator('[data-subject-tab][data-scope="type"]')).toHaveCount(1);
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Tab");
+  await expect(page.locator('.library-subject-list [data-lib-scope="asset:core"]')).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await expect(page.locator("#type-list")).toContainText("Widget");
@@ -397,6 +399,7 @@ test("Search between retained packages restores the incoming Library ancestry", 
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-open="Second.Package"]').click();
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-subject-list")).toBeFocused();
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");

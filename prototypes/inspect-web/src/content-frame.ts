@@ -131,9 +131,9 @@ export function bindContentFrameMedia(
 }
 
 export function focusContentNavigation(root: ParentNode) {
-  const list = root.querySelector<HTMLElement>("#type-list");
+  const list = root.querySelector<HTMLElement>("[data-nav-scope]");
   list?.focus({ preventScroll: true });
-  root.querySelector<HTMLElement>("#type-list .selected")
+  root.querySelector<HTMLElement>("[data-nav-scope] .selected")
     ?.scrollIntoView({ block: "nearest" });
 }
 
