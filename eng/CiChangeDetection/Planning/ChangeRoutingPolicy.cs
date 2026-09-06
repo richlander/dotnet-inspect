@@ -342,7 +342,10 @@ internal sealed class ChangeRoutingPolicy
             // Documentation and text fixtures under the harness stay off the
             // code lane.
         }
-        else if (BytePattern.Matches(path, "tools/DecompilerHarness/*"))
+        else if (BytePattern.MatchesAny(
+            path,
+            "tools/DecompilerHarness/*",
+            "tools/CatalogChangeBenchmark.cs"))
         {
             state.Code = true;
         }
