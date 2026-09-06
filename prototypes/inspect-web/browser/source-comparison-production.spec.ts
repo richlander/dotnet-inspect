@@ -201,6 +201,12 @@ test.describe("published authored Source comparison", () => {
       }).first().click({ timeout: 90_000 });
       const dialog = page.locator("#source-diff-modal");
 
+      async function capture(name: string): Promise<void> {
+        const path = testInfo.outputPath(`${name}.png`);
+        await dialog.screenshot({ path });
+        await testInfo.attach(name, { path, contentType: "image/png" });
+      }
+
       async function compareMember(name: string): Promise<void> {
         await page.locator("button.api-row[data-member]").filter({
           hasText: new RegExp(`\\b${name}\\b`),
@@ -220,7 +226,8 @@ test.describe("published authored Source comparison", () => {
         await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
         await expect(page.locator("#compare-authored-source")).toBeFocused();
-        await page.getByRole("tab", { name: "Type", exact: true }).click();
+        await page.locator("[data-subject-tab]:not([hidden])").first().press("End");
+        await page.getByRole("tab", { name: "Member", exact: true }).press("ArrowLeft");
         await expect(page.locator("button.api-row[data-member]").first()).toBeVisible();
       }
 
@@ -230,9 +237,7 @@ test.describe("published authored Source comparison", () => {
         "data-source-diff-exact", "false");
       await expect(dialog.locator('[data-source-diff-kind="Removed"]')).toContainText("1 + 2");
       await expect(dialog.locator('[data-source-diff-kind="Added"]')).toContainText("=> 3");
-      await testInfo.attach("source-only-dialog", {
-        body: await dialog.screenshot(), contentType: "image/png",
-      });
+      await capture("source-only-dialog");
       await leaveMember();
 
       await compareMember("Unchanged");
@@ -254,9 +259,7 @@ test.describe("published authored Source comparison", () => {
           await expect(dialog.locator('[data-source-diff-kind="Removed"]')).toHaveCount(1);
           await expect(dialog.locator('[data-source-diff-kind="Added"]')).toHaveCount(1);
         }
-        await testInfo.attach(`${member}-dialog`, {
-          body: await dialog.screenshot(), contentType: "image/png",
-        });
+        await capture(`${member}-dialog`);
         await leaveMember();
       }
 
@@ -270,8 +273,6 @@ test.describe("published authored Source comparison", () => {
       await expect(after).toContainText("No authored declaration is available");
       await expect(dialog).toContainText("Not compared");
       await expect(dialog.locator("[data-source-diff-kind]")).toHaveCount(0);
-      await testInfo.attach("unavailable-source-dialog", {
-        body: await dialog.screenshot(), contentType: "image/png",
-      });
+      await capture("unavailable-source-dialog");
     });
 });
