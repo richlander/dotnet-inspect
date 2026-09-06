@@ -1008,6 +1008,8 @@ kbd {
 .detail-scroll.metadata-working-surface,
 .detail-scroll.member-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 .detail-scroll.overview-working-surface,
+.detail-scroll.library-references-working-surface,
+.detail-scroll.library-integrations-working-surface,
 .detail-scroll.package-dependencies-working-surface,
 .detail-scroll.package-metadata-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 
@@ -1090,8 +1092,14 @@ kbd {
 .metadata-surface-head p { min-width: 0; flex: 0 1 auto; overflow: hidden; margin: 0; color: var(--dim); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .api-surface-head p span,
 .metadata-surface-head p span { margin-left: 6px; }
+.library-integrations-surface,
+.library-references-surface,
 .metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; background: var(--bg); }
+.library-integrations-scroll,
+.library-references-scroll,
 .metadata-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
+.library-integrations-scroll > .document-section,
+.library-references-scroll > .document-section,
 .metadata-surface-scroll > .document-section,
 .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding: 24px 16px 0; }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
@@ -1432,27 +1440,31 @@ kbd {
 .facts-metadata-identity { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 0; font-size: 12px; }
 .facts-metadata-identity > span { color: var(--muted); }
 .facts-metadata-identity code { min-width: 0; color: var(--text); font: 12px var(--mono); overflow-wrap: anywhere; }
-.allocation-facts, .call-facts, .safety-facts { max-width: 900px; margin-top: 20px; font-size: 13px; line-height: 1.5; }
-.allocation-facts > header, .call-facts > header, .safety-facts > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.allocation-facts h2, .call-facts h2, .safety-facts h2 { margin: 0; font-size: 14px; font-weight: 600; }
-.allocation-facts > header > span, .call-facts > header > span, .safety-facts > header > span { color: var(--muted); font-size: 12px; }
-.allocation-rows, .call-rows, .safety-rows { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
-.allocation-row, .call-row, .safety-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.allocation-location, .call-location, .safety-location { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.allocation-facts, .call-facts, .safety-facts, .exception-regions { max-width: 900px; margin-top: 20px; font-size: 13px; line-height: 1.5; }
+.allocation-facts > header, .call-facts > header, .safety-facts > header, .exception-regions > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.allocation-facts h2, .call-facts h2, .safety-facts h2, .exception-regions h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.allocation-facts > header > span, .call-facts > header > span, .safety-facts > header > span, .exception-regions > header > span { color: var(--muted); font-size: 12px; }
+.allocation-rows, .call-rows, .safety-rows, .exception-rows { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.allocation-row, .call-row, .safety-row, .exception-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.allocation-location, .call-location, .safety-location, .exception-identity { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
 .allocation-location code, .call-location code, .safety-location code { color: var(--muted); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
-.allocation-location > span, .safety-location > span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-.allocation-main, .call-main, .safety-main { min-width: 0; }
+.allocation-location > span, .safety-location > span, .exception-identity > span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.allocation-main, .call-main, .safety-main, .exception-main { min-width: 0; }
 .allocation-type { margin-bottom: 7px; overflow-wrap: anywhere; }
-.allocation-type code, .call-callee code, .safety-operation code { color: var(--text); font: 13px/1.5 var(--mono); }
+.allocation-type code, .call-callee code, .safety-operation code, .exception-type code { color: var(--text); font: 13px/1.5 var(--mono); }
 .allocation-properties { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 16px; margin: 0; }
-.allocation-properties > div, .call-properties > div, .safety-properties > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; min-width: 0; }
-.allocation-properties dt, .call-properties dt, .safety-properties dt { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.allocation-properties > div, .call-properties > div, .safety-properties > div, .exception-type > div, .exception-ranges > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; min-width: 0; }
+.allocation-properties dt, .call-properties dt, .safety-properties dt, .exception-type dt, .exception-ranges dt { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .allocation-properties dd, .call-properties dd, .safety-properties dd { min-width: 0; margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.allocation-properties code, .call-properties code, .safety-properties code { color: var(--text); font: 12px/1.5 var(--mono); }
-.allocation-unavailable { color: var(--muted); font-size: 12px; }
-.allocation-empty, .call-empty, .safety-empty { margin: 0; padding: 10px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.allocation-properties code, .call-properties code, .safety-properties code, .exception-ranges code { color: var(--text); font: 12px/1.5 var(--mono); }
+.allocation-unavailable, .exception-unavailable { color: var(--muted); font-size: 12px; }
+.allocation-empty, .call-empty, .safety-empty, .exception-empty { margin: 0; padding: 10px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 .call-callee, .safety-operation { margin-bottom: 5px; overflow-wrap: anywhere; }
-.call-properties, .safety-properties { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
+.call-properties, .safety-properties, .exception-ranges { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
+.exception-identity code { font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+.exception-clause { color: var(--text); }
+.exception-type { margin: 0 0 5px; }
+.exception-type dd, .exception-ranges dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 @container member-surface (max-width: 760px) {
   .allocation-properties { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 14px; }
 }
@@ -1460,8 +1472,8 @@ kbd {
   .facts-summary-list > div { grid-template-columns: minmax(0, 48%) minmax(0, 1fr); gap: 12px; }
   .facts-summary-list dd { flex-direction: column; gap: 4px; }
   .facts-summary-value { flex-basis: auto; max-width: 100%; }
-  .allocation-row, .call-row, .safety-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .allocation-location, .call-location, .safety-location { flex-direction: row; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .allocation-row, .call-row, .safety-row, .exception-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .allocation-location, .call-location, .safety-location, .exception-identity { flex-direction: row; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
 }
 .assembly-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .assembly-grid .assembly-cell { display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; background: var(--panel); min-width: 0; }
@@ -1501,6 +1513,11 @@ kbd {
 .dep-name.as-link { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; color: var(--blue); }
 .dep-name.as-link:hover { text-decoration: underline; }
 .dep-version { flex: 0 0 auto; font: 13px var(--mono); color: var(--dim); white-space: nowrap; }
+.library-references-scroll { overflow-wrap: anywhere; }
+.library-references-scroll > .dep-list { border-top: 0; }
+.library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; }
+.library-references-scroll .dep-name { overflow: visible; white-space: normal; }
+.library-references-scroll .dep-version { min-width: 0; white-space: normal; text-align: right; }
 .graph-empty { color: var(--muted); font-size: 12px; padding: 24px 12px; text-align: center; }
 .fact-rows .dim { color: var(--muted); }
 .perf-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1525,6 +1542,18 @@ kbd {
 .signal-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-ns { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-kind { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+.library-integrations-with-controls { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
+.library-integrations-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.library-integrations-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
+.library-integrations-scroll { overflow-wrap: anywhere; }
+.integration-category > .section-title { min-width: 0; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.integration-category > .section-title h2 { min-width: 0; }
+.library-integrations-scroll .signal-list { gap: 0; padding: 0; border-top: 0; }
+.library-integrations-scroll .signal-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(0, auto); align-items: start; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.library-integrations-scroll .signal-name,
+.library-integrations-scroll .signal-ns { overflow: visible; white-space: normal; }
+.library-integrations-scroll .signal-kind { min-width: 0; max-width: 24ch; justify-self: end; padding: 0; border: 0; border-radius: 0; }
+.library-integrations-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
 .opp-list { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
 .opp-row { display: flex; align-items: flex-start; gap: 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .opp-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -1945,6 +1974,15 @@ kbd {
   .member-nav { grid-template-rows: 40px 34px auto minmax(0, 1fr); }
   .detail-scroll { padding: 22px 18px 60px; }
   .api-surface-head { min-height: 40px; padding-inline: 12px; }
+  .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; padding-inline: 12px; }
+  .library-references-scroll .dep-version { text-align: left; }
+  .library-references-scroll > .document-section { padding-inline: 12px; }
+  .library-integrations-controls,
+  .integration-category > .section-title,
+  .library-integrations-scroll > .document-section { padding-inline: 12px; }
+  .library-integrations-scroll .signal-row { grid-template-columns: 24px minmax(0, 1fr); gap: 4px 12px; padding-inline: 12px; }
+  .library-integrations-scroll .signal-badge { grid-row: 1 / span 2; }
+  .library-integrations-scroll .signal-kind { grid-column: 2; justify-self: start; max-width: 100%; }
   .metadata-surface-head { padding-inline: 12px; }
   .metadata-surface-scroll > .document-section,
   .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }

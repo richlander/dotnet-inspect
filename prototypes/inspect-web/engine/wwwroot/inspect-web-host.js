@@ -55,6 +55,30 @@ function $validateManagedExports(exports) {
             throw new Error("Managed export \u0027InspectionEngine.ConfigureHost.92020726\u0027 is not callable.");
         }
     }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "DrainEpochWorkReporter.1731052262");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.DrainEpochWorkReporter.1731052262\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "RegisterEpochWorkReporter.1170383003");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.RegisterEpochWorkReporter.1170383003\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "UnregisterEpochWorkReporter.19325221");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.UnregisterEpochWorkReporter.19325221\u0027 is not callable.");
+        }
+    }
 }
 async function $initializeRuntimeCore(runtime) {
     const exports = await runtime.getAssemblyExports("InspectWeb.Engine");
@@ -90,4 +114,13 @@ export function buildIdentity() {
 }
 export function configureHost(origin) {
     return $requireManagedExports()["InspectionEngine"]["ConfigureHost.92020726"](origin);
+}
+export async function drainEpochWorkReporter() {
+    return await $requireManagedExports()["InspectionEngine"]["DrainEpochWorkReporter.1731052262"]();
+}
+export function registerEpochWorkReporter(allowance, started, finished) {
+    return $requireManagedExports()["InspectionEngine"]["RegisterEpochWorkReporter.1170383003"](allowance, started, finished);
+}
+export function unregisterEpochWorkReporter() {
+    return $requireManagedExports()["InspectionEngine"]["UnregisterEpochWorkReporter.19325221"]();
 }

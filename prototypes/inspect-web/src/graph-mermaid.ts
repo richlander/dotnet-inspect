@@ -90,17 +90,17 @@ type UniqueCompatiblePackage = (
   packages: readonly DependencyGraphPackage[],
   packageId: string,
   versionRange: string | undefined,
-) => DependencyGraphPackage | null;
+) => DependencyGraphPackage | null | Promise<DependencyGraphPackage | null>;
 
 interface MermaidGraphNodeInfo extends DependencyGraphNodeInfo {
   key: string;
   label: string;
 }
 
-export function buildDependencyGraphMermaid(
+export async function buildDependencyGraphMermaid(
   model: DependencyGraphModel,
   uniqueCompatiblePackage: UniqueCompatiblePackage,
-): DependencyGraphResult | null {
+): Promise<DependencyGraphResult | null> {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
   const nodeInfo = new Map<string, MermaidGraphNodeInfo>();
@@ -132,8 +132,8 @@ export function buildDependencyGraphMermaid(
       };
     });
   };
-  const dependencyNode = (dependency: DependencyGraphWorkspaceDependency): MermaidGraphNodeInfo | null => {
-    const open = uniqueCompatiblePackage(
+  const dependencyNode = async (dependency: DependencyGraphWorkspaceDependency): Promise<MermaidGraphNodeInfo | null> => {
+    const open = await uniqueCompatiblePackage(
       model.packages,
       dependency.id,
       dependency.versionRange);
@@ -205,7 +205,7 @@ export function buildDependencyGraphMermaid(
           : "open");
       if (!source) continue;
       for (const dependency of group.dependencies || []) {
-        const target = dependencyNode(dependency);
+        const target = await dependencyNode(dependency);
         if (!target) break;
         addEdge(source, target);
         if (target.packageKey && !downVisited.has(target.packageKey)) {
@@ -237,11 +237,17 @@ export function buildDependencyGraphMermaid(
         if (pkgKey === target.packageKey) continue;
         const group = groupFor(pkg);
         if (!group) continue;
-        if ((group.dependencies || []).some(dependency =>
-          packageIdentityKey(uniqueCompatiblePackage(
+        let dependsOnTarget = false;
+        for (const dependency of group.dependencies || []) {
+          if (packageIdentityKey(await uniqueCompatiblePackage(
             model.packages,
             dependency.id,
-            dependency.versionRange)) === target.packageKey)) {
+            dependency.versionRange)) === target.packageKey) {
+            dependsOnTarget = true;
+            break;
+          }
+        }
+        if (dependsOnTarget) {
           const caller = openPackageNode(pkg);
           if (!caller) break;
           addEdge(caller, target);

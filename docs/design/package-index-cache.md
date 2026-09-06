@@ -4,10 +4,12 @@
 
 Target design for the `PackageIndexCache` slice of
 [#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
-The current `pkg-index-v16` implementation supplies format fencing, source
-producer separation, inert-description persistence, malformed-entry rejection,
-and request-time RID reverification. It does not yet carry the package-owned
-authority and retained-content identity required by this contract.
+The current `pkg-index-v16` implementation supplies format fencing,
+configured-authority key routing on adopted acquisition paths, legacy producer
+separation on unbound paths, inert-description persistence, malformed-entry
+rejection, and request-time RID reverification. The extraction result now
+carries the configured authority and acquired payload, but the cache still
+lacks the retained-content subject and complete projection required here.
 [Issue #5484](https://github.com/richlander/dotnet-inspect/issues/5484) tracks
 the acquisition-owned durable content prerequisite. The complete contract is
 therefore **unverified**.
@@ -41,9 +43,11 @@ end-to-end tracker for that consumer's adoption. The browser/Wasm host does not
 participate in the changed surface: both the owner and consumer are existing
 types under `src/dotnet-inspect`, and the target changes that existing call
 path without introducing a shared API. No browser enablement plan or
-single-host substrate exception is therefore created here. Any shared
-acquisition capability proposed by #5484 must make its own consumer and host
-classification before implementation.
+single-host substrate exception is therefore created here. The shared
+acquisition capability proposed by #5484 has its own
+[approved CLI-first adoption scope](artifact-acquisition-and-workspaces.md#durable-package-content-identity-adoption);
+that exception does not change this cache owner's contract or waive the
+acquisition layer's Browser/Wasm compatibility requirements.
 
 Rendering is unchanged. The cache continues to return the existing typed
 `InspectionResult` data consumed by the existing Markout-backed package
@@ -414,12 +418,19 @@ keeps that broader reuse honest without turning the cache into an authority.
 
 ## Current implementation gap
 
-`pkg-index-v16` keys entries by NuGetFetch producer key, lowercased package ID,
-and version. `PackageExtractionResult` does not carry a package-owned durable
-authority key, `PackageContentGenerationIdentity`, or durable identity for the
-exact inspected tree into `PackageInspector`. It also permits a global-packages
-foreign tree to seed or consume the cache, persists `Snupkg`, `Msdl`, and
-`Other` PDB observations plus aggregates that can include them, omits
+`pkg-index-v16` keys entries by a caller-supplied cache scope, lowercased package
+ID, and version. Following #5971 and #6090, configured acquisition supplies
+`PackageExtractionResult.Authority` and `AcquiredPayload`.
+`PackageInspector` uses `CacheScopeKey`: the authority's persistent key when an
+authority exists, or the producer key on unbound legacy paths. An authority
+without a persistent key skips lookup and publication.
+
+The acquired payload exposes content and its process-local
+`PackageContentGenerationIdentity`, but `PackageInspector` still scans
+`ExtractPath`; lookup, cold production, and publication are not bound to the
+durable retained-content subject required above. The cache has no
+content-origin eligibility check for the inspected tree. It persists `Snupkg`,
+`Msdl`, and `Other` PDB observations plus aggregates that can include them, omits
 `RuntimeDependencies` entirely, persists the process-time-zone interpretation
 of `BuiltDate`, and has neither an explicit complete-entry record nor a
 production-success receipt. A per-DLL binary scan failure can therefore publish
@@ -427,29 +438,32 @@ partial counters, while a warm hit can silently lose the complete Runtime
 Dependencies section. The current namespace cannot satisfy the target subject
 or projection and must be fenced rather than relabeled when adoption lands.
 
-Adoption depends on #3738 carrying package authority and provenance through
-derived inspection and #5484 issuing exact durable package-content identity.
-Until both inputs exist, the correct successor behavior is cold-path-only
-rather than fallback to `pkg-index-v16`.
+The configured-authority and acquired-payload bridge is therefore existing
+mechanism to reuse, not a missing wrapper to recreate. Remaining adoption
+depends on #5484 issuing exact durable package-content identity and #3738's
+package-index workstream binding the CLI producer and successor cache to the
+complete subject. Until all required inputs exist, the correct successor
+behavior is cold-path-only rather than fallback to `pkg-index-v16`.
 
 The existing `pkg-index-v16` behavior ships unchanged until that implementation
-slice. It remains a legacy producer-scoped namespace, and no existing Release
-gate proves configured-authority separation. The package source model's target
-`LegacyProducerScopedCache_IsNotReinterpretedAsAuthorityScoped` gate is not
-implemented, so interim authority containment is **unverified**. Existing tests
-prove only predecessor-category fencing and separation between distinct
-producer keys; neither makes producer identity an authority.
+slice. Authority-key routing does not certify its content identity or
+projection. On configured acquisition paths, legacy producer-key entries are
+not reinterpreted as authority-key entries, and producer identity does not
+become authority.
 
 Existing tests establish useful partial properties:
 
 - `EqualCoordinatesFromDifferentProducersDoNotShareInspectionResults`;
+- `InspectAsync_ConfiguredAuthoritiesDoNotShareProducerIndexes`, covering
+  distinct local-authority keys, noncacheable HTTP authorities, and exclusion
+  of the seeded legacy producer entry on those configured paths;
 - `RidAvailability_IsNotPersisted`;
 - `Description_RoundTripsAsContainedProse`;
 - `Description_MalformedEnvelopeRejectsTheWholeCacheEntry`;
 - `Description_NullAndEmptyRemainDistinct`.
 
-They do not prove package authority, retained-content identity, projection
-completeness, or current-subject wiring.
+They do not prove the complete authority/content subject, retained-content
+identity, projection completeness, or current-subject wiring.
 `Description_TruncatedValueRequiresHigherProvenancePersistence` instead records
 the current exception that target adoption must replace with nonpublication.
 

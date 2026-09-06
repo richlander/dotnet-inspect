@@ -741,6 +741,9 @@ public static class ApiSurfaceExtractor
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),
+                LayoutDetails = typesOnly
+                    ? null
+                    : ApiTypeLayoutFacts.Read(reader, moduleVersionId, typeDefHandle),
                 MemorySafety = typesOnly
                     ? null
                     : new ApiModuleMemorySafetyFacts(
@@ -1577,6 +1580,8 @@ public static class ApiSurfaceExtractor
                     Kind = "field",
                     DeclarationMetadataToken =
                         MetadataTokens.GetToken(fieldHandle),
+                    FieldLayout = ApiFieldLayoutFacts.Read(
+                        reader, moduleVersionId, typeDefHandle, fieldHandle),
                     ReturnType = fieldType,
                     SignatureModel = fieldType is null ? null : new ApiSignature
                     {

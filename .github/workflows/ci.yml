@@ -579,6 +579,9 @@ jobs:
       - name: Validate dependency policy
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
+      - name: Test CLI runtime flavor across publish modes
+        run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}
+
       - name: Run MethodSemantics NativeAOT probe
         run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
 
@@ -669,6 +672,9 @@ jobs:
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
+      - name: Run CSharp snapshot preservation tests
+        run: dotnet run --project src/ILInspector.CSharp.Tests -c Release -- -method '*SnapshotTypeForRendering_*'
+
       - name: Run artifact contract tests
         run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
@@ -691,10 +697,10 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
       - name: Run instruction-substrate tests
-        run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Instructions.Tests -c Release
 
       - name: Run IL diff tests
-        run: dotnet run --project src/ILInspector.ILDiff.Tests -c Release
+        run: dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
 
       - name: Run metadata tests
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
@@ -718,6 +724,9 @@ jobs:
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+
+      - name: Exercise Catalog research probe (offline)
+        run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a

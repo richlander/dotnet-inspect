@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SlideStripPolicy } from "../src/slide-strip.ts";
-import { callFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { callFactsFixture, exceptionRegionsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 
 async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
@@ -543,11 +543,17 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".safety-empty"))
         .toHaveText("No unsafe operations or declaration evidence were found.");
       await expect(page.locator(".safety-row")).toHaveCount(0);
+      await expect(page.locator(".exception-regions > header > span"))
+        .toHaveText("0 regions");
+      await expect(page.locator(".exception-empty"))
+        .toHaveText("No exception regions were found in this method.");
+      await expect(page.locator(".exception-row")).toHaveCount(0);
     } else {
       await expect(page.locator(".facts-summary")).toHaveCount(0);
       await expect(page.locator(".allocation-facts")).toHaveCount(0);
       await expect(page.locator(".call-facts")).toHaveCount(0);
       await expect(page.locator(".safety-facts")).toHaveCount(0);
+      await expect(page.locator(".exception-regions")).toHaveCount(0);
       await expect(page.locator(".member-surface-scroll h2"))
         .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
       if (mode === "error") {
@@ -614,7 +620,7 @@ test("Member Facts allocation rows preserve all nine fields in occurrence order"
   }
   await expect(page.locator(".allocation-facts a, .allocation-facts button, .allocation-facts details"))
     .toHaveCount(0);
-  await expect(page.locator(".call-facts h2, .safety-facts h2, .fact-group h2"))
+  await expect(page.locator(".call-facts h2, .safety-facts h2, .exception-regions h2"))
     .toHaveText(["Calls", "Safety facts", "Exception regions"]);
   const section = await box(page, ".allocation-facts");
   const summary = await box(page, ".facts-summary");
@@ -673,7 +679,7 @@ test("Member Facts call rows preserve all five fields and repeated callees", asy
   }
   await expect(page.locator(".call-facts a, .call-facts button, .call-facts details"))
     .toHaveCount(0);
-  await expect(page.locator(".safety-facts h2, .fact-group h2"))
+  await expect(page.locator(".safety-facts h2, .exception-regions h2"))
     .toHaveText(["Safety facts", "Exception regions"]);
   const calls = await box(page, ".call-facts");
   const allocations = await box(page, ".allocation-facts");
@@ -735,7 +741,7 @@ test("Member Facts safety rows preserve all five fields and explicit absent offs
   }
   await expect(page.locator(".safety-facts a, .safety-facts button, .safety-facts details"))
     .toHaveCount(0);
-  await expect(page.locator(".fact-group h2")).toHaveText("Exception regions");
+  await expect(page.locator(".exception-regions h2")).toHaveText("Exception regions");
   const safety = await box(page, ".safety-facts");
   const calls = await box(page, ".call-facts");
   expect(safety.width).toBeCloseTo(calls.width, 0);
@@ -770,6 +776,71 @@ test("Member Facts safety rows reflow by pane width without hiding long values",
     await expect(page.locator(".safety-operation")).toHaveText(facts.safety.map(fact => fact.operation));
     await expect(page.locator(".safety-location code").last()).toHaveText("IL_12345678");
     await expect(page.locator(".safety-no-offset")).toHaveCount(2);
+  }
+});
+
+test("Member Facts exception rows preserve all six fields and nullable values", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&exception-regions=populated");
+  const facts = exceptionRegionsFixture();
+  await expect(page.locator(".exception-regions > header > span")).toHaveText("4 regions");
+  await expect(page.locator(".exception-row")).toHaveCount(4);
+  for (const [index, region] of facts.exceptionRegions.entries()) {
+    const row = page.locator(".exception-row").nth(index);
+    await expect(row.locator(".exception-identity > span")).toHaveText(`Region ${region.region}`);
+    await expect(row.locator(".exception-clause")).toHaveText(region.clause);
+    await expect(row.locator("dt")).toHaveText(["Caught type", "Try", "Handler", "Filter"]);
+    await expect(row.locator("dd")).toHaveText([
+      region.caughtType ?? "not supplied", region.tryRange, region.handlerRange,
+      region.filterRange ?? "not supplied",
+    ]);
+  }
+  await expect(page.locator(".exception-regions a, .exception-regions button, .exception-regions details"))
+    .toHaveCount(0);
+  await expect(page.locator(".safety-facts h2")).toHaveText("Safety facts");
+  await expect(page.locator(".performance-facts h2")).toHaveText("Performance opportunities");
+  const regions = await box(page, ".exception-regions");
+  const safety = await box(page, ".safety-facts");
+  expect(regions.width).toBeCloseTo(safety.width, 0);
+  expect(regions.height).toBeLessThanOrEqual(300);
+  expect(regions.y - (safety.y + safety.height)).toBeCloseTo(20, 0);
+});
+
+test("Member Facts exception rows reflow by pane width without hiding long values", async ({
+  page,
+}) => {
+  const facts = exceptionRegionsFixture("long");
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1100 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&exception-regions=long");
+    const identity = await box(page, ".exception-row:first-child .exception-identity");
+    const type = await box(page, ".exception-row:first-child .exception-type");
+    if (width === 900 || width === 360) {
+      expect(type.y).toBeGreaterThanOrEqual(identity.y + identity.height);
+      expect(type.x).toBeCloseTo(identity.x, 0);
+    } else {
+      expect(type.x).toBeGreaterThan(identity.x + identity.width);
+    }
+    for (const selector of [
+      ".exception-regions", ".exception-row", ".exception-identity",
+      ".exception-identity > *", ".exception-main", ".exception-type",
+      ".exception-type dd", ".exception-ranges", ".exception-ranges > div",
+      ".exception-ranges dd", ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".exception-identity > span").first())
+      .toHaveText("Region 123456789");
+    for (const [index, region] of facts.exceptionRegions.entries()) {
+      await expect(page.locator(".exception-row").nth(index).locator("dd")).toHaveText([
+        region.caughtType ?? "not supplied", region.tryRange, region.handlerRange,
+        region.filterRange ?? "not supplied",
+      ]);
+    }
   }
 });
 

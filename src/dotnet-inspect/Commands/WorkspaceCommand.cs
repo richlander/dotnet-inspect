@@ -78,19 +78,19 @@ public static class WorkspaceCommand
                     ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome).Root);
             }
 
-            WorkspaceScopeOperationResult replacement =
-                await workspace.ReplaceScopeAsync(
+            WorkspaceScopeOperationResult addition =
+                await workspace.AddRootsAsync(
                     snapshot.Revision,
                     [.. packageRoots],
                     DateTimeOffset.UtcNow.AddMinutes(5),
                     cancellationToken).ConfigureAwait(false);
-            if (replacement is not WorkspaceScopeOperationResult.Committed committed)
+            if (addition is not WorkspaceScopeOperationResult.Committed committed)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 CommandError.Write(
                     "The Workspace package inventory could not be committed.",
                     [
-                        replacement switch
+                        addition switch
                         {
                             WorkspaceScopeOperationResult.Rejected rejected =>
                                 $"Rejected: {rejected.Reason}",
@@ -99,13 +99,13 @@ public static class WorkspaceCommand
                             WorkspaceScopeOperationResult.Cancelled =>
                                 "Package preparation was cancelled or reached its deadline.",
                             WorkspaceScopeOperationResult.Superseded =>
-                                "The requested replacement was superseded.",
+                                "The requested addition was superseded.",
                             WorkspaceScopeOperationResult.Unavailable missing =>
                                 $"Unavailable: {missing.RuntimeFailure}",
                             WorkspaceScopeOperationResult.NoEffect =>
-                                "The requested replacement did not commit.",
+                                "The requested addition did not commit.",
                             _ => throw new InvalidOperationException(
-                                "Workspace replacement returned an unsupported result."),
+                                "Workspace addition returned an unsupported result."),
                         },
                     ]);
                 return 1;
