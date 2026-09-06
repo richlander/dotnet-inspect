@@ -203,6 +203,7 @@ internal static class LibraryMetadataService
                         FindingSubjectFor(path)),
                 PerformanceTriageOptions = options.PerformanceTriage,
                 BodyKindQueryOptions = options.BodyKindQuery,
+                BodyShapeSections = options.IncludeSections,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();

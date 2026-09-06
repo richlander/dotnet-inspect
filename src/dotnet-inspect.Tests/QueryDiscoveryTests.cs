@@ -324,7 +324,7 @@ public class QueryDiscoveryTests
         Assert.Equal("2", result.Output.Trim());
         var bare = await Run("type", "-Q", "--count");
         Assert.Equal(0, bare.ExitCode);
-        Assert.Equal("2", bare.Output.Trim());
+        Assert.Equal("3", bare.Output.Trim());
     }
 
     [Fact]

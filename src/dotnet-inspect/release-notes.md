@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
+  grouping identical rendered Kind/Match values with occurrence counts.
+  `Body Shapes` retains individual member/token/rendered-C# locations.
+  Column projection remains presentational; summary row limits select groups
+  without truncating their counts. Type `--member` filters now bound both
+  summary and occurrence evidence before rendering (#6186).
 - **Breaking:** Renames `match --implementation` to `match --body`, with
   a `Method Body Diff` view. Body comparison now consumes the shared Queries
   designated-pair path and retains native endpoint and failure outcomes.

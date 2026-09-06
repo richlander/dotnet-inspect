@@ -47,9 +47,9 @@ public class LibraryCommand
                 MetadataSectionNames.Heap,
                 StringComparison.OrdinalIgnoreCase)
                 ? StructuralSectionInput.HeapCoordinate
-                : section.Equals(
-                    SectionNames.BodyShapes,
-                    StringComparison.OrdinalIgnoreCase)
+                : BodyKindQueryOptions.Sections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase)
                     ? StructuralSectionInput.BodyKindFilter
                     : StructuralSectionInput.None;
 
@@ -282,8 +282,7 @@ public class LibraryCommand
 
         if (options.Discover is null || fullEffectiveDiscovery)
         {
-            bool bodyShapesSelected =
-                options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
+            bool bodyShapesSelected = BodyKindQueryOptions.IsSelected(options.IncludeSections);
             if (options.BodyKindQuery.HasFilter
                 && options.PerformanceTriage.HasRanking)
             {
@@ -311,14 +310,15 @@ public class LibraryCommand
             if (options.BodyKindQuery.HasFilter && !bodyShapesSelected)
             {
                 CommandError.Write(
-                    $"--where Kind=... targets section '{SectionNames.BodyShapes}'. "
-                    + $"Omit -S or include -S \"{SectionNames.BodyShapes}\".");
+                    $"--where Kind=... targets section '{SectionNames.BodyShapes}' "
+                    + $"or '{SectionNames.BodyShapeSummary}'. Omit -S or select one of these sections.");
                 return 1;
             }
             if (bodyShapesSelected && !options.BodyKindQuery.HasFilter)
             {
                 CommandError.Write(
-                    $"Section '{SectionNames.BodyShapes}' requires "
+                    $"Section '{options.IncludeSections!.First(section => BodyKindQueryOptions.Sections.Contains(
+                        section, StringComparer.OrdinalIgnoreCase))}' requires "
                     + "--where \"Kind=<C# Body Kinds ID>\".");
                 return 1;
             }
@@ -1590,7 +1590,9 @@ public class LibraryCommand
         var heapCoordinateRequired =
             $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
         var bodyKindRequired =
-            $"\"{SectionNames.BodyShapes}\" requires --where \"Kind=<C# Body Kinds ID>\".";
+            $"\"{sections.FirstOrDefault(section => BodyKindQueryOptions.Sections.Contains(
+                section, StringComparer.OrdinalIgnoreCase)) ?? SectionNames.BodyShapes}\" "
+            + "requires --where \"Kind=<C# Body Kinds ID>\".";
         var removedILCoordinateSections = false;
         var removedHeapSection = false;
         var removedBodyShapesSection = false;
@@ -1628,12 +1630,13 @@ public class LibraryCommand
             }
         }
 
-        if (sections.Contains(SectionNames.BodyShapes)
+        if (BodyKindQueryOptions.IsSelected(sections)
             && !options.BodyKindQuery.HasFilter)
         {
-            if (!selectResult.ExactSections.Contains(SectionNames.BodyShapes))
+            if (!BodyKindQueryOptions.IsSelected(selectResult.ExactSections))
             {
-                removedBodyShapesSection = sections.Remove(SectionNames.BodyShapes);
+                sections.ExceptWith(BodyKindQueryOptions.Sections);
+                removedBodyShapesSection = true;
             }
             else if (options.Discover == null)
             {
@@ -2949,6 +2952,12 @@ public class LibraryCommand
     {
         if (failureSection.Equals(section, StringComparison.OrdinalIgnoreCase))
             return true;
+
+        if (failureSection.Equals(SectionNames.BodyShapes, StringComparison.OrdinalIgnoreCase)
+            && section.Equals(SectionNames.BodyShapeSummary, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
 
         if (failureSection.Equals(MetadataSectionNames.Image, StringComparison.Ordinal)
             && MetadataSectionNames.IsMetadataSection(section))

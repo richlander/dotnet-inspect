@@ -60,8 +60,10 @@ only a candidate; terminal evidence requires the same trusted framework
 identity as the full census. The reader is supplied through a synchronous
 capability callback whose contract forbids retention or disposal; it does not
 materialize that census. The
-explicit-only `Body Shapes` section is likewise uncategorized; its required
-`Kind=...` predicate supplies its scope.
+explicit-only `Body Shapes` and `Body Shape Summary` sections are likewise
+uncategorized; their required `Kind=...` predicate supplies their scope.
+[Body Shape views](body-shape-views.md) owns the occurrence-versus-summary
+presentation choice.
 
 `UnsafeEvidencePresenceTests.UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence`,
 `UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`,

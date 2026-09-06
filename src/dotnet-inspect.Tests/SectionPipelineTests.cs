@@ -391,7 +391,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(55 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(56 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -495,7 +495,9 @@ public class SectionPipelineTests
             .Where(name => !categorized.Contains(name))
             .ToArray();
 
-        Assert.Equal([SectionNames.UnsafeMembers, SectionNames.BodyShapes], uncategorized);
+        Assert.Equal(
+            [SectionNames.UnsafeMembers, SectionNames.BodyShapes, SectionNames.BodyShapeSummary],
+            uncategorized);
     }
 
     [Fact]
@@ -5249,6 +5251,7 @@ public class SectionPipelineTests
         [
             SectionNames.ArrayPoolEscapes,
             SectionNames.BodyShapes,
+            SectionNames.BodyShapeSummary,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -7616,7 +7619,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(32, pipeline.AllSectionNames.Length);
+        Assert.Equal(33, pipeline.AllSectionNames.Length);
     }
 
     [Fact]

@@ -845,6 +845,14 @@ public class LibraryInspectionView
             .Select(BodyShapeRow.FromMatch)
             .ToList();
 
+    [MarkoutSection(
+        Name = SectionNames.BodyShapeSummary,
+        EmptyText = "No matching body shapes found.")]
+    public List<BodyShapeSummaryRow>? BodyShapeSummarySection =>
+        _data.EffectiveBodyShapeSearchResult is { } result
+            ? BodyShapeSummaryRow.FromMatches(result.Matches)
+            : null;
+
     public bool HasTopLeverage =>
         _data.TopLeverageQueryResult is TopLeverageResult.Available
             { Methods.IsEmpty: false };

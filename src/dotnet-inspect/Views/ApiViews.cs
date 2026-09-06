@@ -288,6 +288,10 @@ public class TypeView
     [JsonIgnore]
     public List<ApiBodyShapeRow>? BodyShapeRows { get; set; }
 
+    [MarkoutSection(Name = SectionNames.BodyShapeSummary, EmptyText = "No matching body shapes found.")]
+    [JsonIgnore]
+    public List<ApiBodyShapeSummaryRow>? BodyShapeSummaryRows { get; set; }
+
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
@@ -1317,6 +1321,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
 [MarkoutContext(typeof(ApiBodyShapeRow))]
+[MarkoutContext(typeof(ApiBodyShapeSummaryRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -1332,6 +1337,16 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ApiInfoSection))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {
+}
+
+[MarkoutSerializable]
+public sealed record ApiBodyShapeSummaryRow(string Kind, string Match, int Count)
+{
+    public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
+    public string Match { get; init; } = MarkoutInline.Code(Match);
+
+    internal static ApiBodyShapeSummaryRow FromSummary(Output.BodyShapeSummary summary)
+        => new(summary.Kind, summary.Match, summary.Count);
 }
 
 [MarkoutSerializable]

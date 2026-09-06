@@ -2558,6 +2558,10 @@ public static class ApiOutputFormatter
         [
             .. result.Matches.Select(ApiBodyShapeRow.FromMatch),
         ];
+        view.BodyShapeSummaryRows =
+        [
+            .. BodyShapeSummary.FromMatches(result.Matches).Select(ApiBodyShapeSummaryRow.FromSummary),
+        ];
 
         if (result.Failures.Count == 0)
             return;
