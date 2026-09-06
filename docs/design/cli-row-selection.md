@@ -425,6 +425,9 @@ ranking from a field name, display label, or row order.
 Payload projections may impose additional combination rules. Those rules
 belong to their focused owner and command adoption, not this grammar.
 
+An adoption's format-compatibility rules apply before a line window is installed
+or any handler emits output, including acquisition-free disclosure handlers.
+
 Every L3 lowering failure:
 
 - returns nonzero;
@@ -608,6 +611,7 @@ The plural package-version adoption is enforced by:
 | `Versions_WithLimit_ProducesCompleteJsonRows` and `VersionsWithFeed_WithLimit_ProducesCompleteJsonRows` | JSON contains the selected complete row objects for merged and feed-attributed listings. |
 | `VersionFeed_JsonPreservesBooleanListedProperty` | Feed document JSON retains its established fields and Boolean listing values for both listed and unlisted rows. |
 | `VersionsWithFeed_LinesMakesRenderedClippingExplicit`, `Versions_LinesRejectsDocumentJsonBeforeAcquisition`, and `Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition` | Line intent opts into rendered-line selection where the format remains valid and rejects explicit or environment-selected document JSON before acquisition, including when Boolean-shaped input follows a line modifier. |
+| `Versions_QueryDiscoveryPreservesJsonFormatContract` and `Versions_QueryDiscoveryReportsConflictingFormats` | Query discovery cannot bypass either plural lens's line/JSON rejection, including environment-selected JSON; complete discovery JSON and explicit non-JSON overrides retain their behavior, and conflicting renderer flags still report a visible error. |
 | `Versions_ZeroArityFlagsPreserveFollowingPackageInput` | New plural selectors and line modifiers are zero-arity: following Boolean-shaped package input remains positional rather than disabling the flag. |
 | `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
 | `Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy` | Removed valued-direction syntax recommends `-n` rather than unsupported row counts for both explicit and implicit plural lenses, and the corrected command succeeds. |

@@ -342,6 +342,68 @@ public class PackageVersionTests
     }
 
     [Theory]
+    [InlineData("--versions", "--lines", false)]
+    [InlineData("--versions", "--tail-lines", false)]
+    [InlineData("--versions-with-feed", "--lines", false)]
+    [InlineData("--versions-with-feed", "--tail-lines", false)]
+    [InlineData("--versions", "--lines", true)]
+    [InlineData("--versions", "--tail-lines", true)]
+    [InlineData("--versions-with-feed", "--lines", true)]
+    [InlineData("--versions-with-feed", "--tail-lines", true)]
+    public async Task Versions_QueryDiscoveryPreservesJsonFormatContract(
+        string selector,
+        string modifier,
+        bool environmentJson)
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                environmentJson ? "json" : null);
+            string[] arguments =
+            [
+                "--offline", "package", selector, "-Q", "-n", "1",
+                .. environmentJson ? Array.Empty<string>() : ["--json"],
+            ];
+            var rejected = await RunAppAsync([.. arguments, modifier]);
+
+            Assert.Equal(1, rejected.Exit);
+            Assert.Empty(rejected.Output);
+            Assert.Contains("cannot be combined with JSON output", rejected.Error);
+
+            var complete = await RunAppAsync(arguments);
+            Assert.Equal(0, complete.Exit);
+            Assert.Empty(complete.Error);
+            using JsonDocument document = JsonDocument.Parse(complete.Output);
+            Assert.Equal("package", document.RootElement.GetProperty("command").GetString());
+
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "json");
+            var text = await RunAppAsync(
+                "--offline", "package", selector, "-Q", "-n", "1", modifier, "--markdown");
+            Assert.Equal(0, text.Exit);
+            Assert.Empty(text.Error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task Versions_QueryDiscoveryReportsConflictingFormats(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline", "package", selector, "-Q", "-n", "1", "--lines", "--json", "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--json cannot be combined with --table, --tsv, or --jsonl.", error);
+    }
+
+    [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
     [InlineData("--lines")]

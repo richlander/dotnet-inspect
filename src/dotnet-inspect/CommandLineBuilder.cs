@@ -209,10 +209,18 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
-        CliRowSelectionPreparation rowSelection =
-            CliRowSelectionCommandRegistry.Prepare(
+        CliRowSelectionPreparation rowSelection;
+        try
+        {
+            rowSelection = CliRowSelectionCommandRegistry.Prepare(
                 parseResult,
                 rawArgs);
+        }
+        catch (OperationCanceledException)
+        {
+            // Format validation reports its diagnostic before canceling preparation.
+            return 1;
+        }
         parseResult = rowSelection.ParseResult;
 
         if (WriteParseErrors(parseResult))

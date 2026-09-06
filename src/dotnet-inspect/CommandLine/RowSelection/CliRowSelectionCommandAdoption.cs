@@ -9,11 +9,13 @@ internal sealed class CliRowSelectionCommandAdoption
     public CliRowSelectionCommandAdoption(
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
-        Func<ParseResult, bool> isActive)
+        Func<ParseResult, bool> isActive,
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering)
     {
         Bindings = bindings;
         Capabilities = capabilities;
         IsActive = isActive;
+        ValidateLowering = validateLowering;
     }
 
     public CliRowSelectionOptionBindings Bindings { get; }
@@ -21,6 +23,8 @@ internal sealed class CliRowSelectionCommandAdoption
     public CliRowSelectionCapabilities Capabilities { get; }
 
     public Func<ParseResult, bool> IsActive { get; }
+
+    public Func<ParseResult, CliRowSelectionLowering<string>, string?>? ValidateLowering { get; }
 }
 
 internal sealed class CliRowSelectionPreparation
@@ -71,14 +75,15 @@ internal static class CliRowSelectionCommandRegistry
         Command command,
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
-        Func<ParseResult, bool> isActive)
+        Func<ParseResult, bool> isActive,
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering = null)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(isActive);
         Adoptions.Add(
             command,
-            new(bindings, capabilities, isActive));
+            new(bindings, capabilities, isActive, validateLowering));
     }
 
     public static bool OwnsShortLimit(
@@ -142,6 +147,9 @@ internal static class CliRowSelectionCommandRegistry
         }
 
         CliRowSelectionLowering<string> lowering = loweringResult.Value!;
+        if (adoption.ValidateLowering?.Invoke(result.ParseResult, lowering) is { } error)
+            return CliRowSelectionPreparation.Failed(result.ParseResult, error);
+
         Lowerings.Add(result.ParseResult, lowering);
         return CliRowSelectionPreparation.Success(
             result.ParseResult,

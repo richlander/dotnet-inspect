@@ -161,7 +161,13 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             result =>
                 result.GetValue(versionsOption)
-                || result.GetValue(versionsWithFeedOption));
+                || result.GetValue(versionsWithFeedOption),
+            validateLowering: (result, lowering) =>
+                lowering.LineIntent is not null
+                    && opts.ResolveFormat(result) == OutputFormat.Json
+                    ? "--lines and --tail-lines cannot be combined with JSON output; "
+                        + "use semantic -n to select complete JSON rows."
+                    : null);
 
         // Search subcommand
         var searchCommand = CreatePackageSearchCommand(
