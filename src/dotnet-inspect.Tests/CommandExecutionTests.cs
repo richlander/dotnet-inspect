@@ -21908,7 +21908,11 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[]
+            {
+                "@Audit", "@Context", "@Integrations", "@Library", "@Metadata",
+                "@Performance", "@ReadyToRun", "@SourceLink", "@Surface",
+            },
             categoryNames);
 
         var raw = SplitOutputLines(output);
