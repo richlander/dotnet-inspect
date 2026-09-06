@@ -3,9 +3,13 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
+using ILInspector.JsExportSurface.NestedContextFixtures.Contexts;
+using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
 
@@ -1262,6 +1266,43 @@ public sealed class DtsEmitterTests
         Assert.Contains("Value: unknown;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("Ignored", dts, StringComparison.Ordinal);
         Assert.Equal(2, diagnostics.UnmappedTypes.Count);
+    }
+
+    [Fact]
+    public void Emit_PreservesMemberConverterDiagnosticsWhenValueTypeIsNotDeclared()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(ConverterControlledAccessibleEnumFixture)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ConverterControlledAccessibleEnumFixture));
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = apiSurface.AssemblyIdentity,
+                Records = [record],
+                AllTypes = apiSurface.Types,
+            },
+            diagnostics);
+
+        Assert.Contains(
+            "  readonly ConvertedField: unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "ConverterControlledAccessibleEnumFixture.ConvertedField"
+                && diagnostic.CSharpType
+                    == "unsupported custom JsonConverter");
     }
 
     [Fact]
@@ -2612,7 +2653,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_UsesGetterAccessibilityForCompiledProperties()
+    public void Emit_UsesJsonIncludeToReachNonPublicCompiledMembers()
     {
         using FileStream stream = File.OpenRead(
             typeof(GetterAccessibilityFixture).Assembly.Location);
@@ -2636,13 +2677,13 @@ public sealed class DtsEmitterTests
 
         Assert.DoesNotContain("SetterOnlyAtWire", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("NoGetter", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedPrivateGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly PublicGetter: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers()
+    public void SourceGeneratedJson_IncludesJsonIncludedNonPublicMembers()
     {
         var value = new SourceGeneratedJsonIncludeAccessibilityFixture
         {
@@ -2655,8 +2696,14 @@ public sealed class DtsEmitterTests
             ControlPropertyNameFixtureJsonContext.Default
                 .SourceGeneratedJsonIncludeAccessibilityFixture);
 
-        Assert.DoesNotContain("IncludedPrivateGetter", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("IncludedPrivateField", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"IncludedPrivateGetter\":\"private-getter\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"IncludedPrivateField\":\"private-field\"",
+            json,
+            StringComparison.Ordinal);
         Assert.Contains(
             "\"IncludedInternalGetter\":\"internal-getter\"",
             json,
@@ -2668,7 +2715,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_MatchesSourceGeneratedJsonIncludeAccessibility()
+    public void Emit_MatchesSourceGeneratedJsonIncludedNonPublicMembers()
     {
         using FileStream stream = File.OpenRead(
             typeof(SourceGeneratedJsonIncludeAccessibilityFixture)
@@ -2692,10 +2739,79 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface);
 
-        Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("IncludedPrivateField", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedPrivateGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedPrivateField: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly IncludedInternalField: string;", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_OmitsJsonIncludedMembersWithInaccessibleValueTypes()
+    {
+        string json = JsonSerializer.Serialize(
+            new SourceGeneratedJsonIncludeHiddenTypeFixture(),
+            ControlPropertyNameFixtureJsonContext.Default
+                .SourceGeneratedJsonIncludeHiddenTypeFixture);
+
+        Assert.Contains(
+            "\"Public\":\"public\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("hiddenProperty", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("hiddenField", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_IncludesPrivateValueTypesWhenContextIsNested()
+    {
+        string json =
+            NestedContextJsonIncludeHiddenTypeFixture.SerializeValue();
+
+        Assert.Contains(
+            "\"HiddenField\":0",
+            json,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_IncludesProtectedValueTypesThroughDerivedNestedContext()
+    {
+        string json =
+            NestedContextProtectedValueDto.GetProtectedValues();
+
+        Assert.Contains(
+            "\"ProtectedField\":0",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"PrivateProtectedField\":0",
+            json,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_BindsConstructorOnlyNestedContextValueTypes()
+    {
+        int value = NestedContextConstructorBoundDto.ReadHidden(
+            """{"Hidden":1}""");
+
+        Assert.Equal(1, value);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_OmitsPartiallyAccessibleCompoundValueTypes()
+    {
+        string json =
+            PartiallyAccessibleDerivedOwner.SerializeValue();
+
+        Assert.Contains(
+            "\"Public\":\"public\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Mixed", json, StringComparison.Ordinal);
     }
 
     [Theory]
