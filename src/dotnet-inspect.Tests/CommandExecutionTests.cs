@@ -76,6 +76,18 @@ public partial class CommandExecutionTests
         Assert.True(File.Exists(path), $"Expected the acquired asset to exist: {path}");
     }
 
+    private static void AssertPlatformTypeInfo(string output, string assemblyName)
+    {
+        Assert.Contains("## Type Info", output);
+        string[] rows = output.Split('\n');
+        string libraryRow = Assert.Single(
+            rows, row => row.StartsWith("| Library | ", StringComparison.Ordinal));
+        AssertLibraryAssetPath(libraryRow.Split('|')[2].Trim(), assemblyName);
+        Assert.Single(rows, row => row.StartsWith("| TFM | ", StringComparison.Ordinal));
+        Assert.Single(rows, row => row.StartsWith("| Version | ", StringComparison.Ordinal));
+        Assert.Contains("| Source | Platform |", output);
+    }
+
     private static int CountRenderedMarkdownTableRows(string markdown) =>
         MarkdownTableTestOracle.CountRows(markdown);
 
@@ -4335,19 +4347,29 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Router_GenericPlatformType_UserFrameworkIsNotDuplicated()
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] args =
+        [
             "System.Collections.Generic.List<T>",
             "--framework",
             "runtime",
             "-S",
             "Type Info",
-            "--count",
             "--tips",
-            "q");
+            "q"
+        ];
 
+        var (exit, output, error) = await RunAppAsync(args);
         Assert.Equal(0, exit);
-        Assert.Equal("7", output.Trim());
         Assert.Empty(error);
+        AssertPlatformTypeInfo(output, "System.Collections");
+
+        var count = await RunAppAsync([.. args, "--count"]);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.Equal(
+            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
+                .ToString(CultureInfo.InvariantCulture),
+            count.Output.Trim());
     }
 
     [Theory]
@@ -5261,20 +5283,30 @@ public partial class CommandExecutionTests
             "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
             + ".ArrayPoolBufferAdapter<T1,T2,T3>";
 
-        var (exit, output, error) = await RunAppAsync(
+        string[] args =
+        [
             target,
             "-t",
             "5",
             "--all",
             "-S",
             "Type Info",
-            "--count",
             "--tips",
-            "q");
+            "q"
+        ];
 
+        var (exit, output, error) = await RunAppAsync(args);
         Assert.Equal(0, exit);
-        Assert.Equal("8", output.Trim());
         Assert.Empty(error);
+        AssertPlatformTypeInfo(output, "Microsoft.AspNetCore.Components.Endpoints");
+
+        var count = await RunAppAsync([.. args, "--count"]);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.Equal(
+            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
+                .ToString(CultureInfo.InvariantCulture),
+            count.Output.Trim());
     }
 
     [Fact]
@@ -8421,13 +8453,9 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Type Info", output);
+        AssertPlatformTypeInfo(output, "System.Text.Json");
         Assert.Contains("| Type | System.Text.Json.JsonSerializer |", output);
         Assert.Contains("| Kind | class |", output);
-        string libraryRow = Assert.Single(
-            output.Split('\n'),
-            row => row.StartsWith("| Library | ", StringComparison.Ordinal));
-        AssertLibraryAssetPath(libraryRow.Split('|')[2].Trim(), "System.Text.Json");
         // Identity, not inventory: the member sections stay out.
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Method Groups", output);
