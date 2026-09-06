@@ -394,7 +394,8 @@ constraint and inert source spellings, plus the exact resolution and source
 evidence supplied by #5765. It also retains one emission authority:
 
 - `ResolvedCandidate`, produced by recursive source authorization; or
-- `DirectBoundary`, produced for one exact direct-only root occurrence.
+- `DirectBoundary`, with the non-empty ordered set of exact direct-only root
+  occurrences that issued the coalesced boundary edge.
 
 Every distinct directed declaration edge remains present. Shared targets,
 cycles, and revisits never justify deleting an edge. A recursively authorized
@@ -425,7 +426,7 @@ An edge is admitted for root occurrence `R` only when both conditions hold:
 1. its source manifest projection is reachable from `R` within the depth rule;
 2. its emission authority matches `R`: `RecursiveSources` admits only
    `ResolvedCandidate` edges, while `DirectDeclarationsOnly` admits only
-   `DirectBoundary` edges issued for `R` itself.
+   `DirectBoundary` edges whose issuer set contains `R`.
 
 Projection correspondence can reuse manifest facts; it never transfers one
 root occurrence's expansion authority to another.
@@ -518,7 +519,9 @@ The query never substitutes `VersionRange.MinVersion`, treats an omitted
 version as latest, or selects from partial source evidence.
 
 For a direct-only root, the query schedules no candidate resolution and emits
-its boundary edges in normalized declaration order.
+its boundary edges in normalized declaration order. When another direct-only
+root occurrence produces the same semantic boundary edge, the result retains
+one edge and adds that occurrence to the ordered issuer set.
 
 ### Shared nodes and expansion caching
 
@@ -745,6 +748,15 @@ only `ResolvedCandidate` edges and may traverse their target projections.
 Neither root inherits the other's authority through shared node or projection
 identity.
 
+### Repeated direct root
+
+When the same direct nuspec root is supplied twice, the two gestures remain
+distinct root occurrences but share semantic package, projection, boundary
+node, and edge identity when their owner-issued provenance corresponds. The
+single `DirectBoundary` edge retains both occurrences in issuer order, and each
+root admits that edge independently. Count and graph projections therefore do
+not duplicate the semantic edge or lose either root's reachability.
+
 ## Evidence
 
 The implementation adds focused Release gates for:
@@ -761,6 +773,7 @@ The implementation adds focused Release gates for:
 | Same-coordinate source projections retain distinct adjacency without changing node identity. | `Traversal_SourceRelativeProjectionPreservesDistinctContent` |
 | Direct-only roots emit unresolved boundary edges without source work. | `Traversal_DirectOnlyRootsAreSourceBounded` |
 | Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
+| Repeated direct roots share one boundary edge with both issuers. | `Traversal_RepeatedDirectRootSharesBoundaryEdge` |
 | Typed framework mode, never inert text, controls every group selection. | `Traversal_FrameworkModeIsStructuralCurrency` |
 | Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
 | Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |
