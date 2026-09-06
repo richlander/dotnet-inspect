@@ -1,6 +1,7 @@
 import type { OperationCancelReason } from "./operation-authority.ts";
 
-export const WORKER_RUNTIME_PROTOCOL_VERSION = 1;
+export const WORKER_RUNTIME_PROTOCOL_VERSION = 2;
+export const WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE = 64;
 
 export type WorkerWireEpochToken = number;
 
@@ -144,6 +145,20 @@ export interface RawProgressWorkerToMainEnvelope
   readonly payload: unknown;
 }
 
+export type WorkerNonterminalEvent<TProgress, TDurable> =
+  | { readonly kind: "progress"; readonly payload: TProgress }
+  | { readonly kind: "durable"; readonly payload: TDurable };
+
+export interface EventsWorkerToMainEnvelope<TProgress, TDurable>
+  extends WorkerWireEnvelopeHeader {
+  readonly kind: "events";
+  readonly operation: WorkerWireOperationReference;
+  readonly entries: readonly WorkerNonterminalEvent<TProgress, TDurable>[];
+}
+
+export type RawEventsWorkerToMainEnvelope =
+  EventsWorkerToMainEnvelope<unknown, unknown>;
+
 export interface RawSettledWorkerToMainEnvelope
   extends WorkerWireEnvelopeHeader {
   readonly kind: "settled";
@@ -188,6 +203,7 @@ export type RawWorkerToMainEnvelope =
   | RawRejectedWorkerToMainEnvelope
   | CancelAcknowledgedWorkerToMainEnvelope
   | RawProgressWorkerToMainEnvelope
+  | RawEventsWorkerToMainEnvelope
   | RawSettledWorkerToMainEnvelope
   | HeartbeatWorkerToMainEnvelope
   | ProbeAcknowledgedWorkerToMainEnvelope
@@ -238,6 +254,7 @@ export type WorkerToMainEnvelope<
   TError,
   TDiagnostic,
   TProgress,
+  TDurable = never,
 > =
   | ReadyWorkerToMainEnvelope
   | StartupFailedWorkerToMainEnvelope<TDiagnostic>
@@ -245,6 +262,7 @@ export type WorkerToMainEnvelope<
   | RejectedWorkerToMainEnvelope<TError, TDiagnostic>
   | CancelAcknowledgedWorkerToMainEnvelope
   | ProgressWorkerToMainEnvelope<TProgress>
+  | EventsWorkerToMainEnvelope<TProgress, TDurable>
   | SettledWorkerToMainEnvelope<TValue, TError, TDiagnostic>
   | HeartbeatWorkerToMainEnvelope
   | ProbeAcknowledgedWorkerToMainEnvelope
@@ -291,6 +309,7 @@ export type WorkerEnvelopeDecodeFailureCategory =
 
 export type WorkerEnvelopeDecodeFailureCode =
   | "not-record"
+  | "not-array"
   | "missing-property"
   | "unexpected-property"
   | "accessor-property"
@@ -709,6 +728,61 @@ function decodeRawSettlement(
   );
 }
 
+export function decodeWorkerEventEntries(
+  value: unknown,
+): DecodeResult<readonly WorkerNonterminalEvent<unknown, unknown>[]> {
+  const path = "$.entries";
+  if (!Array.isArray(value)) {
+    return failure("shape", "not-array", path, "Expected an event array.");
+  }
+  const length = readOwnDataProperty(value, "length", path);
+  if (length.kind === "failure") return length;
+  const count = decodePositiveSafeInteger(length.value, `${path}.length`);
+  if (count.kind === "failure") return count;
+  if (count.value > WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE) {
+    return failure(
+      "payload-budget",
+      "payload-oversized",
+      path,
+      `Event batches cannot exceed ${WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE} entries.`,
+    );
+  }
+
+  const expectedKeys = new Set([
+    "length",
+    ...Array.from({ length: count.value }, (_, index) => String(index)),
+  ]);
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string" || !expectedKeys.has(key)) {
+      return failure(
+        "property",
+        "unexpected-property",
+        typeof key === "string" ? propertyPath(path, key) : `${path}[symbol]`,
+        "Unexpected event array property.",
+      );
+    }
+  }
+  const entries: WorkerNonterminalEvent<unknown, unknown>[] = [];
+  for (let index = 0; index < count.value; index++) {
+    const element = readOwnDataProperty(value, String(index), path);
+    if (element.kind === "failure") return element;
+    const entryPath = `${path}[${index}]`;
+    const record = decodeClosedRecord(element.value, ["kind", "payload"], entryPath);
+    if (record.kind === "failure") return record;
+    const kind = record.value.get("kind");
+    if (kind !== "progress" && kind !== "durable") {
+      return failure(
+        "value",
+        "invalid-discriminator",
+        `${entryPath}.kind`,
+        "Expected a progress or durable nonterminal event.",
+      );
+    }
+    entries.push({ kind, payload: record.value.get("payload") });
+  }
+  return success(entries);
+}
+
 function decodePayload<T>(
   value: unknown,
   decoder: BoundedPayloadDecoder<T>,
@@ -854,6 +928,35 @@ export function decodeProgressPayload<TProgress>(
   const payload = decodePayload(envelope.payload, decoder, "$.payload");
   if (payload.kind === "failure") return payload;
   return success({ ...envelope, payload: payload.value });
+}
+
+export function decodeEventsPayload<TProgress, TDurable>(
+  envelope: RawEventsWorkerToMainEnvelope,
+  progressDecoder: BoundedPayloadDecoder<TProgress>,
+  durableDecoder: BoundedPayloadDecoder<TDurable> | undefined,
+): WorkerEnvelopeDecodeResult<EventsWorkerToMainEnvelope<TProgress, TDurable>> {
+  const entries: WorkerNonterminalEvent<TProgress, TDurable>[] = [];
+  for (const [index, entry] of envelope.entries.entries()) {
+    const path = `$.entries[${index}].payload`;
+    if (entry.kind === "progress") {
+      const payload = decodePayload(entry.payload, progressDecoder, path);
+      if (payload.kind === "failure") return payload;
+      entries.push({ kind: "progress", payload: payload.value });
+    } else {
+      if (durableDecoder === undefined) {
+        return failure(
+          "payload-codec",
+          "payload-rejected",
+          path,
+          "This operation does not register durable event payloads.",
+        );
+      }
+      const payload = decodePayload(entry.payload, durableDecoder, path);
+      if (payload.kind === "failure") return payload;
+      entries.push({ kind: "durable", payload: payload.value });
+    }
+  }
+  return success({ ...envelope, entries });
 }
 
 export function decodeSettledPayload<TValue, TError, TDiagnostic>(
@@ -1234,6 +1337,33 @@ export function decodeWorkerToMainEnvelope(
       kind: "cancel-acknowledged",
       operation: operation.value,
       status: status.value,
+    });
+  }
+
+  if (discriminator.value === "events") {
+    const record = decodeClosedRecord(
+      value,
+      ["protocolVersion", "epochToken", "kind", "operation", "entries"],
+      path,
+    );
+    if (record.kind === "failure") return record;
+    const header = decodeHeader(record.value, path);
+    if (header.kind === "failure") return header;
+    const expectedHeader = requireExpectedEpoch(
+      header.value,
+      expectedEpochToken,
+      path,
+    );
+    if (expectedHeader.kind === "failure") return expectedHeader;
+    const operation = decodeOperationReference(record.value.get("operation"), "$.operation");
+    if (operation.kind === "failure") return operation;
+    const entries = decodeWorkerEventEntries(record.value.get("entries"));
+    if (entries.kind === "failure") return entries;
+    return success({
+      ...expectedHeader.value,
+      kind: "events",
+      operation: operation.value,
+      entries: entries.value,
     });
   }
 
