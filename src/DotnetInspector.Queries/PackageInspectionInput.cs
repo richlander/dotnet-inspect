@@ -4,6 +4,8 @@ using DotnetInspector.Artifacts;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
+using PackageSourceCoordinate = NuGetFetch.PackageSourceCoordinate;
+
 namespace DotnetInspector.Queries;
 
 /// <summary>
@@ -16,12 +18,15 @@ public sealed class PackageInspectionInput
         IPackageContent content,
         string? packageId,
         string? packageVersion,
-        RealizedMemberCoordinate.Package? coordinate)
+        RealizedMemberCoordinate.Package? coordinate,
+        PackageSourceCoordinate? sourceCoordinate = null)
     {
         Content = content;
         PackageId = packageId;
         PackageVersion = packageVersion;
         Coordinate = coordinate;
+        SourceCoordinate = sourceCoordinate;
+        ProducerKey = content.ProducerKey;
         ContentGenerationIdentity = content.GenerationIdentity;
     }
 
@@ -29,7 +34,26 @@ public sealed class PackageInspectionInput
     public string? PackageId { get; }
     public string? PackageVersion { get; }
     public RealizedMemberCoordinate.Package? Coordinate { get; }
+    public PackageSourceCoordinate? SourceCoordinate { get; }
+    public string ProducerKey { get; }
     public PackageContentGenerationIdentity ContentGenerationIdentity { get; }
+
+    /// <summary>
+    /// Consumes an admitted source payload without requiring a portable Root
+    /// coordinate or interpreting its producer as cache authority.
+    /// </summary>
+    public static PackageInspectionInput CreateFromPayload(AcquiredPackageSourcePayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        if (!payload.ProducerKey.Equals(payload.Content.ProducerKey, StringComparison.Ordinal))
+            throw new ArgumentException(
+                "The acquired payload and retained content name different producers.",
+                nameof(payload));
+
+        return new PackageInspectionInput(
+            payload.Content, payload.Coordinate.PackageId, payload.Coordinate.Version,
+            coordinate: null, sourceCoordinate: payload.Coordinate);
+    }
 
     /// <summary>Retains the exact content and producer of an acquisition-issued binding.</summary>
     public static PackageInspectionInput CreateFromBinding(PackageRootBinding binding)
@@ -140,6 +164,8 @@ public sealed class PackageInspectionSelection
 
 internal sealed record PackageInspectionArtifactProvenance(
     RealizedMemberCoordinate.Package? Coordinate,
+    PackageSourceCoordinate? SourceCoordinate,
+    string ProducerKey,
     PackageContentGenerationIdentity ContentGenerationIdentity,
     PackageInspectionSelectionIdentity SelectionIdentity,
     PackageInspectionAssembly Assembly) : IArtifactProvenance;

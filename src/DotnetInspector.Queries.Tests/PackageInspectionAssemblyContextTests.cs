@@ -12,6 +12,32 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageInspectionAssemblyContextTests
 {
     [Fact]
+    public async Task ExplicitSelection_PreservesAcquiredSourceWithoutInventingRootCoordinate()
+    {
+        var content = new Content(("lib/Sample.dll", Image()));
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("Selected.Source", "1.0.0"),
+            content, content.ProducerKey, PackagePayloadOrigin.Download);
+        PackageInspectionInput input = PackageInspectionInput.CreateFromPayload(payload);
+        PackageInspectionSelection selection = input.SelectAssemblies([new("lib/Sample.dll", null)]);
+        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
+            selection, cancellationToken: TestContext.Current.CancellationToken);
+        var available = Assert.IsType<PackageInspectionAssemblyOutcome.Available>(
+            Assert.Single(result.Assemblies));
+        var provenance = Assert.IsType<PackageInspectionArtifactProvenance>(
+            available.Participant.Assembly.Registration.ArtifactRegistration!.Provenance);
+
+        Assert.Null(input.Coordinate);
+        Assert.Null(provenance.Coordinate);
+        Assert.Same(payload.Coordinate, provenance.SourceCoordinate);
+        Assert.Equal(payload.ProducerKey, provenance.ProducerKey);
+        Assert.Same(payload.Content.GenerationIdentity, provenance.ContentGenerationIdentity);
+        Assert.Same(selection.Identity, provenance.SelectionIdentity);
+        Assert.Single(content.Opened);
+    }
+
+    [Fact]
     public async Task ExplicitSelection_PreservesOrderContextsAndAcquiredIdentityWithoutCompileAuthority()
     {
         byte[] image = Image();

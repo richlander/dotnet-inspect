@@ -4803,11 +4803,7 @@ public class PackageCommand
             }
             else if (extraction.AcquiredPayload is { } acquired)
             {
-                packageRoot = PackageRootBinding.CreateFromSource(
-                    acquired,
-                    selectionResult.TargetFramework,
-                    displayPackageId: extraction.PackageName ?? packageName);
-                input = PackageInspectionInput.CreateFromBinding(packageRoot);
+                input = PackageInspectionInput.CreateFromPayload(acquired);
             }
             else
             {

@@ -155,6 +155,8 @@ public sealed partial class InspectionWorkspace
                             [new PackageArtifactSource(
                                 new PackageInspectionArtifactProvenance(
                                     selection.Input.Coordinate,
+                                    selection.Input.SourceCoordinate,
+                                    selection.Input.ProducerKey,
                                     selection.Input.ContentGenerationIdentity,
                                     selection.Identity,
                                     entry),

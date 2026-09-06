@@ -2458,7 +2458,10 @@ caller-owned extraction cleanup; it must not be reacquired by treating producer
 identity as source authority. Older extraction results without a configured
 authority reacquire the same immutable payload through the authorized
 `FileSystemPackageStore`. The CLI creates the `PackageRootBinding` from the
-acquisition result and realizes it in an asynchronous `InspectionWorkspace`.
+legacy acquisition result for compile-role realization. Configured-authority
+payloads retain their actual producer and use explicit inspection selection
+below, rather than being relabeled as legacy content-cache coordinates.
+Both paths realize their input in an asynchronous `InspectionWorkspace`.
 `PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload` gates the
 configured HTTP and local-source handoff through the real command, including
 one HTTP payload acquisition and no local-source HTTP transport.
@@ -2495,9 +2498,14 @@ spellings, or implementation entries beside an `EmptyCompileGroup`. None of
 these inputs changes the compile selector's outcome or issues a
 `PackageCompileAsset` occurrence.
 
-`PackageInspectionInput` retains the actual `IPackageContent` and its
+`PackageInspectionInput` retains the actual `IPackageContent`, producer, and
 generation identity. Remote construction consumes an acquisition-issued
-`PackageRootBinding`, preserving its exact producer/content correspondence.
+source payload or `PackageRootBinding`, preserving exact producer/content
+correspondence. A source payload retains its owner-issued source coordinate;
+it does not need or invent a portable Root coordinate. In particular, a
+configured-authority producer is not relabeled to fit the older content-cache
+producer grammar. Artifact provenance carries the issued source coordinate and
+actual producer alongside the generation and frozen inspection selection.
 Local construction consumes explicitly supplied package content and optional
 nuspec identity. A valid nuspec ID and normalized version provide descriptive
 package provenance; missing or invalid identity provides local-archive
@@ -2557,7 +2565,8 @@ retains each artifact session until its dependent group is quiescent.
 Cancellation and unexpected failures propagate after cleanup, preserving
 secondary release failures.
 
-The CLI first keeps compatible compile-role behavior: ordinary inspection uses
+The CLI keeps compatible compile-role behavior for existing Root bindings:
+ordinary inspection uses
 the selected surface, and Integration queries use its exact implementation
 participant. A non-exact surface selection or identity-correspondence mismatch
 instead realizes the original inspection selection through the same artifact

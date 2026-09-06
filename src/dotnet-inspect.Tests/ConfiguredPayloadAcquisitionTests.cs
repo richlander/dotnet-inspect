@@ -114,54 +114,54 @@ public sealed class ConfiguredPayloadAcquisitionTests : IDisposable
             selectedRoot = result.Authority.LocalIdentity!.CanonicalPath;
         }
 
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public async Task PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload(bool localSource)
+        Assert.Empty(requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload(bool localSource)
+    {
+        string id = $"Pinned.Integrations.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id, "Retained package input",
+            library: File.ReadAllBytes(typeof(Npgsql.NpgsqlConnection).Assembly.Location));
+        var requests = new ConcurrentQueue<string>();
+        int transports = 0;
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(source =>
         {
-            string id = $"Pinned.Integrations.{Guid.NewGuid():N}";
-            byte[] archive = CreatePackage(
-                id, "Retained package input",
-                library: File.ReadAllBytes(typeof(Npgsql.NpgsqlConnection).Assembly.Location));
-            var requests = new ConcurrentQueue<string>();
-            int transports = 0;
-            CoreHttpClientFactory.SetPackageSourceHandlerForTesting(source =>
-            {
-                transports++;
-                return new PayloadFeedHandler(source, id,
-                    () => new ByteArrayContent(archive), requests);
-            });
-            string source = FirstFeed;
-            if (localSource)
-            {
-                source = Path.Combine(_root, "integration-feed");
-                Directory.CreateDirectory(source);
-                File.WriteAllBytes(Path.Combine(source, $"{id}.{Version}.nupkg"), archive);
-            }
-
-            var (exit, output, error) = await RunCommandAsync(
-                ["package", $"{id}@{Version}", "--source", source,
-                    "--all-libraries", "--tfm", "net11.0",
-                    "-S", "Integration: Opportunities", "--markdown", "--verbose", "--tips", "q"]);
-
-            Assert.True(exit == 0, $"Exit {exit}: {error}");
-            Assert.Contains("Using artifact-backed package Integrations for net11.0.", error);
-            Assert.Contains("Aspire", output);
-            Assert.Contains("Health Checks", output);
-            Assert.Contains("Npgsql.NpgsqlConnection", output);
-            if (localSource)
-            {
-                Assert.Equal(0, transports);
-                Assert.Empty(requests);
-            }
-            else
-            {
-                Assert.Single(requests.Where(request =>
-                    request.EndsWith(".nupkg", StringComparison.Ordinal)));
-            }
+            transports++;
+            return new PayloadFeedHandler(source, id,
+                () => new ByteArrayContent(archive), requests);
+        });
+        string source = FirstFeed;
+        if (localSource)
+        {
+            source = Path.Combine(_root, "integration-feed");
+            Directory.CreateDirectory(source);
+            File.WriteAllBytes(Path.Combine(source, $"{id}.{Version}.nupkg"), archive);
         }
 
-        Assert.Empty(requests);
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", source,
+                "--all-libraries", "--tfm", "net11.0",
+                "-S", "Integration: Opportunities", "--markdown", "--verbose", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
+        Assert.Contains("Aspire", output);
+        Assert.Contains("Health Checks", output);
+        Assert.Contains("Npgsql.NpgsqlConnection", output);
+        if (localSource)
+        {
+            Assert.Equal(0, transports);
+            Assert.Empty(requests);
+        }
+        else
+        {
+            Assert.Single(requests, request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal));
+        }
     }
 
     [Theory]
