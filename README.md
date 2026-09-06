@@ -134,6 +134,7 @@ stderr rather than mixed into structured output.
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace package occurrences | `workspace --package X --tfm TFM` | Render the exact ordered package occurrences of one runtime Workspace through the same product-owned view used by Inspect Web. Repeat `--package` to compose the Workspace. |
+| Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 explicitly named packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -146,7 +147,7 @@ stderr rather than mixed into structured output.
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests, or with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
@@ -157,7 +158,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `workspace` | Render an ordered runtime Workspace package-occurrence view for packages with selected managed assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. |
+| `workspace` | Render an ordered runtime Workspace package-occurrence view for packages with selected managed assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -305,6 +306,37 @@ keeps API-search behavior and may acquire package archives:
 ```bash
 dotnet-inspect find JsonSerializer --package-prefix System.Text
 ```
+
+### Package Queries over explicit packages
+
+`find --literal TEXT` runs a Package Query: it acquires 1-5 explicitly named
+`ID@VERSION` packages, selects the primary implementation assembly of each for
+an explicit `--tfm`, and reports which candidates contain decoded `ldstr`
+literals matching `TEXT`. Add `-v:n` for the individual literal-use rows.
+
+```bash
+dotnet-inspect find --literal "Unexpected end when reading JSON" \
+  --package Newtonsoft.Json@13.0.3 --tfm net6.0
+```
+
+`TEXT` is a raw ordinal substring, not a type pattern: it is case-sensitive,
+matches no wildcards, and preserves whitespace and Unicode spelling exactly.
+The query covers selected primary implementation assemblies only, not every
+assembly in a package, and it reports each candidate's own outcome — `matched`,
+`no-match`, `not-applicable`, or `failed` — rather than collapsing them.
+Candidate packages are disposable: they are never added to the package cache.
+
+Each evaluated candidate carries a `Root` reopening token. Hand that token back
+to reopen exactly the Root the result came from:
+
+```bash
+dotnet-inspect workspace --root-request TOKEN
+```
+
+The token is opaque, credential-free, and exact. `workspace --root-request`
+rejects a token this tool did not issue, and reports an unauthorized producer
+or unavailable content instead of opening a different Root that happens to
+share the package id and version.
 
 ### Projects and local assets
 

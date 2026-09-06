@@ -33,7 +33,8 @@ public static class FindOptionsParser
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
-        Option<bool> MembersOption);
+        Option<bool> MembersOption,
+        Option<string?> LiteralOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -59,17 +60,19 @@ public static class FindOptionsParser
         FindCommandArgs args)
     {
         var pattern = parseResult.GetValue(args.PatternArg);
+        var literal = parseResult.GetValue(args.LiteralOption);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
 
         if (string.IsNullOrEmpty(pattern)
-            && !packagePrefixSpecified)
+            && !packagePrefixSpecified
+            && literal is null)
             return new ShowHelpWithTips();
 
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
-        var packages = string.IsNullOrEmpty(pattern)
+        var packages = literal is not null || string.IsNullOrEmpty(pattern)
             ? parseResult.GetValue(args.PackageOption) ?? []
             : await CommandLineHelpers.MergeWithPrefixPackagesAsync(
                 parseResult.GetValue(args.PackageOption) ?? [],
@@ -90,12 +93,18 @@ public static class FindOptionsParser
             Platform: allPlatformFrameworks,
             Extensions: parseResult.GetValue(args.ExtensionsOption),
             AspNetCore: parseResult.GetValue(args.AspNetCoreOption));
-        var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
-            hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0 || platformAssemblies.Length > 0);
+        // Assembly queries retain the caller's exact ordered selection, including
+        // duplicates for the shared planner to reject rather than silently remove.
+        var scope = literal is not null
+            ? new ScopeResolver.ResolvedScope([], packages)
+            : ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
+                hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0 || platformAssemblies.Length > 0);
 
+        var verbosity = opts.ParseVerbosity(parseResult);
         var options = new FindOptions
         {
             Pattern = pattern ?? "",
+            Literal = literal,
             Packages = scope.Packages,
             Assemblies = assemblies,
             PlatformAssemblies = platformAssemblies,
@@ -120,6 +129,7 @@ public static class FindOptionsParser
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = verbosity,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Discover = opts.ParseDiscover(parseResult),
@@ -129,8 +139,7 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsPackageProfile || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.Literal is not null || options.IsPackageProfile || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

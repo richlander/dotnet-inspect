@@ -31,10 +31,17 @@ public static class WorkspaceCommandDefinitions
                 "Allow prerelease versions when an unversioned package floats",
         };
         prereleaseOption.Aliases.Add("--prerelease");
+        var rootRequestOption = new Option<string?>("--root-request")
+        {
+            Description =
+                "Reopen the exact package Root named by a reopening token from the Root column of 'find --literal'",
+            Arity = ArgumentArity.ExactlyOne,
+        };
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
         command.Options.Add(prereleaseOption);
+        command.Options.Add(rootRequestOption);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
@@ -48,6 +55,18 @@ public static class WorkspaceCommandDefinitions
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
+            string? rootRequest = parseResult.GetValue(rootRequestOption);
+            if (rootRequest is not null
+                && (packages.Length > 0
+                    || !string.IsNullOrWhiteSpace(tfm)))
+            {
+                CommandError.Write(
+                    "--root-request opens the exact Root its token names and cannot be combined with --package or --tfm.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect workspace --help' for usage.");
+                return 1;
+            }
+
             if (packages.Length > 0
                 && string.IsNullOrWhiteSpace(tfm))
             {
@@ -63,6 +82,7 @@ public static class WorkspaceCommandDefinitions
                 {
                     Packages = packages,
                     Tfm = tfm,
+                    RootRequest = rootRequest,
                     IncludePrerelease =
                         parseResult.GetValue(prereleaseOption),
                     Format = opts.ResolveFormat(parseResult),

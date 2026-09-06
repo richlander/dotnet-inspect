@@ -14,7 +14,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 
 | Goal | Command |
 | ---- | ------- |
-| Find an API | `find Pattern` includes platform/BCL types; add `--project path/to/project` when project references should be in scope. |
+| Find an API | `find Pattern` includes platform/BCL types; add `--project path/to/project` when project references should be in scope. Use `find --literal "TEXT" --package Foo@version --tfm net10.0` instead to query 1-5 named packages' selected primary implementation assemblies; add `-v:n` for decoded `ldstr` use rows. `TEXT` is a case-sensitive ordinal substring, not a pattern. |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
@@ -25,7 +25,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 | Compare APIs or method bodies | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions); `match Type.MethodA Type.MethodB --package Foo --body` adds C#/IL body differences to the structural result; `match Type.Method --similar --package Foo` ranks structural candidates for discovery. |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo`; use `-D` to discover sections and `-S "Signals,Audit: Findings"` to audit text-bearing files and SourceLink mappings. Load `skill private-feeds` for custom/authenticated sources. |
-| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to preserve an ordered package occurrence set. |
+| Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to preserve an ordered package occurrence set. Use `--root-request TOKEN` instead to reopen the exact Root a `find --literal` result names; it is refused rather than approximated by package id and version. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Dependencies and relationships | `dependency-evidence --package Foo --tfm net10.0` for direct declarations; `depends Type`, `extensions Type`, or `implements Interface` for traversed relationships. Load `skill relationships` for scopes and semantics. |
 

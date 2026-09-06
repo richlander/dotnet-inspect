@@ -1,3 +1,4 @@
+using System.CommandLine;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
@@ -29,6 +30,108 @@ public class FindOptionsParserTests
                 Pattern = "JsonSerializer",
                 PackagePrefix = "Microsoft.",
             }.IsPackageProfile);
+    }
+
+    [Fact]
+    public void Literal_PreservesRawOperandAndExactPackageSelection()
+    {
+        const string operand = " leading\tliteral\r\n ";
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", operand,
+             "--package", "Example@1.0.0", "--tfm", "net10.0"]);
+
+        Assert.Empty(result.Errors);
+        var option = Assert.IsType<Option<string?>>(
+            result.CommandResult.Command.Options.Single(option => option.Name == "--literal"));
+        Assert.Equal(operand, result.GetValue(option));
+    }
+
+    [Theory]
+    [InlineData("Json*", null)]
+    [InlineData("--package-prefix", "Example.")]
+    [InlineData("--library", "Example.dll")]
+    [InlineData("--platform", null)]
+    [InlineData("--extensions", null)]
+    [InlineData("--aspnetcore", null)]
+    [InlineData("--project", "Example.csproj")]
+    [InlineData("--bin", "bin")]
+    [InlineData("--members", null)]
+    [InlineData("--all", null)]
+    [InlineData("-t", "1")]
+    public void Literal_RejectsOtherSearchModesBeforeAcquisition(string option, string? value)
+    {
+        string[] extra = value is null ? [option] : [option, value];
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", "literal",
+             "--package", "Example@1.0.0", "--tfm", "net10.0", .. extra]);
+
+        Assert.Contains(result.Errors,
+            error => error.Message.Contains("cannot be combined", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Example")]
+    [InlineData("Example@latest")]
+    [InlineData("Example@[1.0,2.0)")]
+    public void Literal_RequiresAnExactPackageVersion(string coordinate)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", "literal", "--package", coordinate, "--tfm", "net10.0"]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
+    public void Literal_RejectsNormalizedDuplicatesBeforeScopeDeduplication()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", "literal",
+             "--package", "Example@1.0.0", "--package", "example@1.0",
+             "--tfm", "net10.0"]);
+
+        Assert.Contains(result.Errors,
+            error => error.Message.Contains("duplicate", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Literal_RequiresAnExplicitTargetFramework()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", "literal", "--package", "Example@1.0.0"]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
+    public void Literal_DoesNotAcquireAnImplicitPlatformScope()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", "literal", "--tfm", "net10.0"]);
+
+        Assert.Contains(result.Errors,
+            error => error.Message.Contains("explicit ID@VERSION packages", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Literal_DoesNotExposeUnsupportedHostRuntimeSelection()
+    {
+        Command find = Assert.Single(
+            CommandLineBuilder.CreateRootCommand().Subcommands,
+            command => command.Name == FindCommand.Name);
+
+        // Browser navigation cannot preserve a runtime identifier, so no host
+        // exposes one for this query even though the shared evaluator can bind
+        // one for its own contract.
+        Assert.DoesNotContain(
+            find.Options,
+            option => option.Name == "--rid"
+                || option.Aliases.Contains("--rid"));
+
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "--literal", "literal", "--package", "Example@1.0.0",
+             "--tfm", "net10.0", "--rid", "linux-x64"]);
+
+        Assert.NotEmpty(result.Errors);
     }
 
     [Fact]
