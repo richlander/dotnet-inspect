@@ -103,6 +103,10 @@ public readonly record struct ConsumedMemberEvidence(
                 foreach (var method in awaitExpression.ConsumedMemberRefs)
                     evidence.Add(new(Method: method));
                 break;
+            case InterpolatedStringExpression interpolation:
+                foreach (var method in interpolation.ConsumedMemberRefs)
+                    evidence.Add(new(Method: method) { IncludeInCompileBackClosure = false });
+                break;
             case PositionalPattern positionalPattern:
                 if (positionalPattern.ConsumedDeconstructMethod is { } positionalDeconstruct)
                     evidence.Add(new(Method: positionalDeconstruct));

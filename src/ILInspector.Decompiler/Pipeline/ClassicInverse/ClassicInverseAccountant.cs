@@ -158,7 +158,7 @@ internal sealed partial class ClassicInverseAccountant
             return Decline(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
                 "the inlined receiver has no realization of its exact awaited value");
         }
-        if (!ProveStackallocs())
+        if (!ProveStackallocs() || !ProveInterpolations())
             return _terminal!;
 
         if (!AccountKickoff())
@@ -718,6 +718,17 @@ internal sealed partial class ClassicInverseAccountant
                 values.Add(node);
                 return;
             }
+            if (_interpolationRawResults.ContainsKey(node))
+            {
+                values.Add(node);
+                return;
+            }
+            if (_interpolationRawParts.TryGetValue(node, out IrExpression? hole))
+            {
+                if (hole is not null)
+                    Visit(hole);
+                return;
+            }
             if (node is NewObject creation
                 && _stackallocs.TryGetValue(node.SourceOffset, out StackallocBinding? allocation)
                 && ReferenceEquals(allocation.Creation, creation))
@@ -820,6 +831,7 @@ internal sealed partial class ClassicInverseAccountant
             or SizeOf
             or DefaultValue
             or StackAllocArray
+            or InterpolatedStringExpression
             || node is LoadLocal localValue
                 && !IsShellLocal(localValue.Index)
             || node is LoadLocalAddress localAddress
@@ -856,6 +868,8 @@ internal sealed partial class ClassicInverseAccountant
     {
         if (_rawDefaultInitializers.TryGetValue(raw, out DefaultValue? defaultValue))
             return ReferenceEquals(defaultValue, planning);
+        if (_interpolationRawResults.TryGetValue(raw, out var interpolation))
+            return ReferenceEquals(interpolation, planning);
         if (planning is StackAllocArray array && _stackallocs.TryGetValue(raw.SourceOffset, out var allocation))
             return ReferenceEquals(allocation.Creation, raw) && ReferenceEquals(allocation.Planning, array);
         if (_rawBooleanFolds.TryGetValue(raw, out IrNode? replacement))
@@ -2044,7 +2058,8 @@ internal sealed partial class ClassicInverseAccountant
                     return;
             }
 
-            if (VisitStackalloc(node, Visit, effects, bindOutputTypes: bindOutputTypes)
+            if (VisitInterpolation(node, Visit, effects, bindOutputTypes: bindOutputTypes)
+                || VisitStackalloc(node, Visit, effects, bindOutputTypes: bindOutputTypes)
                 || VisitInitializer(node, Visit, effects, bindOutputTypes: bindOutputTypes))
                 return;
 
@@ -2097,7 +2112,9 @@ internal sealed partial class ClassicInverseAccountant
                 return;
             }
 
-            if (VisitStackalloc(node, Visit, claim is null ? null : effects,
+            if (VisitInterpolation(node, Visit, claim is null ? null : effects,
+                    claim is null ? null : effect => effect + $"@claim:{ClaimToken(claim)}")
+                || VisitStackalloc(node, Visit, claim is null ? null : effects,
                     claim is null ? null : effect => effect + $"@claim:{ClaimToken(claim)}")
                 || VisitInitializer(
                     node,
@@ -2410,6 +2427,8 @@ internal sealed partial class ClassicInverseAccountant
                 _planningDefaults.Add(value);
             if (ReferenceEquals(index, _executionPaths) && node is StackAllocArray array)
                 _planningStackallocs.Add(array);
+            if (ReferenceEquals(index, _executionPaths) && node is InterpolatedStringExpression interpolation)
+                _planningInterpolations.Add(interpolation);
             for (int i = 0; i < node.Children.Count; i++)
                 Visit(node.Children[i], path.Add(i));
         }

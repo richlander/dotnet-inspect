@@ -27,6 +27,11 @@ public class StringInterpolationPassTests
         var interpolation = Assert.Single(function.Descendants.OfType<InterpolatedStringExpression>());
         Assert.Equal(5, interpolation.Parts.Length);
         Assert.Equal(2, interpolation.FormattedValues.Count);
+        Assert.Equal(interpolation.Parts.Length + 2, interpolation.ConsumedMemberRefs.Length);
+        var evidence = new List<ConsumedMemberEvidence>();
+        ConsumedMemberEvidence.AddFrom(interpolation, evidence);
+        Assert.Equal(interpolation.ConsumedMemberRefs, evidence.Select(item => item.Method));
+        Assert.All(evidence, item => Assert.False(item.IncludeInCompileBackClosure));
         Assert.DoesNotContain(function.Descendants.OfType<NewObject>(),
             n => n.Constructor.DeclaringType.Name == "DefaultInterpolatedStringHandler");
     }

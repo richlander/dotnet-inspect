@@ -3,6 +3,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>Closed representation changes shared by value and coalescing correspondence.</summary>
 internal static partial class ClassicInverseExpressionRules
 {
+    internal static bool IsKnownValueType(TypeRef type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => type.DeclaredValueTypeHint == ValueTypeHint.ValueType
+            || TypeFamilies.Of(type) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F
+            || shapes.GetValueOrDefault(type) is TypeShape.ValueType or TypeShape.Enum
+            || TypeFamilies.IsNullableType(type);
+
     internal static bool IsTypeOf(Call call, TypeOf expression)
         => MemberIdentity.IsTypeGetTypeFromHandle(call)
             && call.ConstrainedTo is null

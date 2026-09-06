@@ -9,7 +9,11 @@ internal sealed partial class ClassicInverseAccountant
     readonly List<DefaultValue> _planningDefaults = [];
 
     ClassicInverseProtocolRule ClassifyRaw(IrNode node)
-        => _stackallocCountStores.Contains(node)
+        => _interpolationStores.Contains(node)
+            ? ClassicInverseProtocolRule.Frame("interpolation-handler-store", 0)
+            : _interpolationAddresses.Contains(node)
+                ? ClassicInverseProtocolRule.Owned("interpolation-handler-address")
+            : _stackallocCountStores.Contains(node)
             ? ClassicInverseProtocolRule.Frame("stackalloc-count-store", 0)
             : _stackallocCountReads.Contains(node)
                 ? ClassicInverseProtocolRule.Owned("stackalloc-count-read")

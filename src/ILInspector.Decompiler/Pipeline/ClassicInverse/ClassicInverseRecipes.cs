@@ -540,7 +540,7 @@ internal static class ClassicInverseRecipes
                     || rawUse is not LoadLocalAddress rawAddress
                     || rawReceiver.Index < rawExecution.LocalNames.Length
                         && rawExecution.LocalNames[rawReceiver.Index] is not null
-                    || !IsKnownValueReceiver(rawReceiver.Type, rawExecution.TypeShapes)
+                    || !ClassicInverseExpressionRules.IsKnownValueType(rawReceiver.Type, rawExecution.TypeShapes)
                     || !ClassicInverseExpressionRules.SameTree(rawReceiver.Value, getResults[0], budget)
                     || !ClassicInverseExpressionRules.SameTree(rawProjection.Value, store.Value, budget,
                         rawAddress, getResults[0]))
@@ -782,12 +782,6 @@ internal static class ClassicInverseRecipes
                 && ReferenceEquals(call.Arguments[0], node),
             _ => false,
         };
-
-    static bool IsKnownValueReceiver(TypeRef type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => type.DeclaredValueTypeHint == ValueTypeHint.ValueType
-            || TypeFamilies.Of(type) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F
-            || shapes.GetValueOrDefault(type) is TypeShape.ValueType or TypeShape.Enum
-            || TypeFamilies.IsNullableType(type);
 
     // ---- Recipe: await a void-returning operation -----------------------
 

@@ -356,6 +356,7 @@ internal sealed partial class ClassicInverseLoweringProof
 
         var awaiterBinds = ImmutableArray.CreateBuilder<AwaiterBindIdentity>();
         var boundAwaiterLocals = new HashSet<int>();
+        var verifiedRvalueSlots = new HashSet<int>();
         foreach (StoreLocal bind in index.AwaiterBinds)
         {
             if (!budget.Charge())
@@ -374,7 +375,7 @@ internal sealed partial class ClassicInverseLoweringProof
                 || getAwaiter.Arguments is not [IrExpression receiver]
                 || getAwaiter.ConstrainedTo is not null
                 || receiver.ResultType is not { } receiverType
-                || !IsSourceAwaitDispatch(getAwaiter, receiver, receiverType, isRawImport)
+                || !IsSourceAwaitDispatch(getAwaiter, receiver, receiverType, isRawImport, body.TypeShapes)
                 || !bind.Type.Equals(getAwaiter.Callee.ReturnType))
             {
                 failure = "an awaiter bind does not preserve source dispatch "
@@ -398,6 +399,12 @@ internal sealed partial class ClassicInverseLoweringProof
                 && store.Value.ResultType is { } valueType
                 && valueType.Equals(address.Type))
             {
+                if (verifiedRvalueSlots.Add(store.Index)
+                    && !ProvesRvalueReceiverSlot(index, body, store.Index, store.Type, budget))
+                {
+                    failure = "a value-type await operand temporary has an unproven name, use, or reaching definition";
+                    return null;
+                }
                 operand = store.Value;
                 roles[store] = AwaitOperandStore;
                 roles[address] = AwaitOperandAddress;
@@ -700,29 +707,57 @@ internal sealed partial class ClassicInverseLoweringProof
         => MemberIdentity.IsCoreLibraryType(type, "System", "Void");
 
     static bool IsSourceAwaitDispatch(
-        Call getAwaiter, IrExpression receiver, TypeRef receiverType, bool isRawImport)
+        Call getAwaiter, IrExpression receiver, TypeRef receiverType, bool isRawImport,
+        IReadOnlyDictionary<TypeRef, TypeShape> typeShapes)
     {
         if (getAwaiter.IsVirtual)
             return receiverType.Equals(getAwaiter.Callee.DeclaringType);
 
         TypeRef declared = getAwaiter.Callee.DeclaringType;
-        TypeRef definition = ClassicInverseNodeFacts.Definition(declared);
-        string? typeNamespace = definition.Name switch
-        {
-            "ValueTask" or "ValueTask`1" => "System.Threading.Tasks",
-            "ConfiguredTaskAwaitable" or "ConfiguredTaskAwaitable`1"
-                or "ConfiguredValueTaskAwaitable" or "ConfiguredValueTaskAwaitable`1"
-                => "System.Runtime.CompilerServices",
-            _ => null,
-        };
         bool exactReceiver = receiverType is
             { Kind: TypeRefKind.ByRef, ElementType: { } element }
                 && element.Equals(declared);
         if (!isRawImport && receiver is Call or LoadProperty)
             exactReceiver |= receiverType.Equals(declared);
-        return exactReceiver && typeNamespace is not null
-            && MemberIdentity.IsCoreLibraryType(
-                definition, typeNamespace, definition.Name);
+        TypeRef storageType = receiverType.Kind == TypeRefKind.ByRef ? receiverType.ElementType! : receiverType;
+        return exactReceiver && ClassicInverseExpressionRules.IsKnownValueType(storageType, typeShapes);
+    }
+
+    static bool ProvesRvalueReceiverSlot(
+        BodyIndex index, IrFunction body, int slot, TypeRef type, ClassicInverseBudget budget)
+    {
+        if (!budget.Charge() || slot < body.LocalNames.Length && body.LocalNames[slot] is not null)
+            return false;
+        var statements = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
+        foreach (IrNode read in index.LocalReadsFor(slot))
+        {
+            if (!budget.Charge() || read is not LoadLocalAddress address || !Equals(address.Type, type))
+                return false;
+            bool receiver = address.Parent switch
+            {
+                Call { Callee.HasThis: true } call => ReferenceEquals(call.Arguments[0], address),
+                LoadProperty property => ReferenceEquals(property.Instance, address),
+                LoadField field => ReferenceEquals(field.Instance, address),
+                _ => false,
+            };
+            if (!receiver)
+                return false;
+            IrNode statement = address;
+            while (statement.Parent is not null and not Block)
+            {
+                if (!budget.Charge())
+                    return false;
+                statement = statement.Parent;
+            }
+            int position = index.PositionOf(statement);
+            if (statement.Parent is not Block block || position < 1
+                || !statements.Add(statement)
+                || block.Children[position - 1] is not StoreLocal store
+                || store.Index != slot || !Equals(store.Type, type)
+                || store.Value is not (Call or LoadProperty) || !Equals(store.Value.ResultType, type))
+                return false;
+        }
+        return statements.Count != 0;
     }
 
     /// <summary>
@@ -1639,6 +1674,7 @@ internal sealed partial class ClassicInverseLoweringProof
         readonly Dictionary<int, List<ConditionalBranch>> _stateTests = [];
         readonly Dictionary<int, List<StoreStackSlot>> _slotStores = [];
         readonly Dictionary<int, List<LoadStackSlot>> _slotLoads = [];
+        readonly Dictionary<int, List<IrNode>> _localReads = [];
         readonly Dictionary<IrNode, List<LoadStackSlot>> _slotLoadsByBlock =
             new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<IrNode, Block?> _containingBlocks =
@@ -1748,6 +1784,9 @@ internal sealed partial class ClassicInverseLoweringProof
 
         internal IReadOnlyList<LoadStackSlot> SlotLoadsFor(int slot)
             => _slotLoads.TryGetValue(slot, out var loads) ? loads : [];
+
+        internal IReadOnlyList<IrNode> LocalReadsFor(int slot)
+            => _localReads.TryGetValue(slot, out var reads) ? reads : [];
 
         internal IReadOnlyList<LoadStackSlot> SlotLoadsIn(Block block)
             => _slotLoadsByBlock.TryGetValue(block, out var loads) ? loads : [];
@@ -2064,6 +2103,10 @@ internal sealed partial class ClassicInverseLoweringProof
 
         void Add(IrNode node, int stateLocal, ImmutableHashSet<int> awaiterLocals)
         {
+            if (node is LoadLocal indexedRead)
+                Group(_localReads, indexedRead.Index, node);
+            else if (node is LoadLocalAddress indexedAddress)
+                Group(_localReads, indexedAddress.Index, node);
             switch (node)
             {
                 case BlockContainer container:

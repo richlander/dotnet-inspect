@@ -586,16 +586,19 @@ effect rather than realize it one-to-one:
   exact instance, parameterless member declared by the operand type, returns
   the proven suspension awaiter type, and has the same typed member and
   call-site identity in raw and planning spaces. Reference operands require
-  `callvirt`; the existing core-library `ValueTask`/`ValueTask<T>` and configured
-  Task/ValueTask awaitable families instead use a direct call on an address of
-  that exact value type. This includes the generic and non-generic
-  `ConfiguredTaskAwaitable` and `ConfiguredValueTaskAwaitable` types.
+  `callvirt`; a positively known value type instead uses a direct call on its
+  exact typed storage address. This includes ordinary struct parameters,
+  `Task.Yield()`, and the existing ValueTask/configured awaitables without a
+  framework-name allow list.
   `ConfigureAwait` itself remains an ordinary realized call with its exact
-  receiver and option argument. When planning inlines a configured-value
+  receiver and option argument. When planning inlines a call/property rvalue
   temporary, the raw bind must immediately follow its exact typed store in the
   same block; the store's rvalue and planning receiver retain the same import
   offset. Only that proven address use and store frame become protocol; other
-  uses remain in raw accounting. A same-named static helper, direct reference
+  uses remain in raw accounting. Every read of a reused temporary slot must
+  independently have one adjacent typed definition and one receiver use; a
+  source-named slot, value copy, or escaped address cannot acquire this role.
+  A same-named static helper, direct reference
   call, or mismatched address remains outside the source-faithful dispatch
   boundary.
 - **an awaited result.** `awaiter.GetResult()` is the input spelling of
@@ -673,6 +676,24 @@ unsafe-await decline. `ClassicInverseInitializedStackallocRemainsSupported`,
 `ClassicInverseStackallocCannotBeHealedByPlanning`,
 `ClassicInverseStackallocKeepsPrimitiveEffects`, and the focused stackalloc
 compile-back/budget gates enforce this adoption.
+
+An interpolated operand retains the existing straight-line default-handler
+grammar: exact construction, ordered literal/format parts and typed holes,
+alignment presence (including explicit zero), format strings, and final
+conversion. The handler local is private to that sequence, and moving the
+raised value into its final use must not cross earlier work or control.
+Only local traffic is protocol. Construction, each literal/formatted append,
+hole effects, and conversion remain separately ordered semantic effects with
+their exact members, dispatch and origins. The detached value carries the
+same immutable parts and typed values; custom or ambiguous handler flows
+remain outside this closed correspondence.
+`ClassicInversePreservesInterpolationAndValueBinds`,
+`ClassicInverseInterpolationCannotBeHealedByPlanning`,
+`ClassicInverseInterpolationOutputKeepsItsParts`,
+`ClassicInverseInterpolationRequiresAndRetainsOrigins`, and
+`ClassicInverseValueBindCannotBeHealedByPlanning` enforce these boundaries.
+The companion detachment, Exact compile-back, and exhaustive budget-cut
+gates preserve publication and failure behavior.
 
 The realization relation preserves:
 

@@ -231,6 +231,22 @@ internal sealed record ClassicInverseStackallocNode(TypeRef ElementType, TypeRef
     internal override string Signature => $"stackalloc[{TypeText(ElementType)}:{TypeText(ResultType)}]({Count.Signature})";
 }
 
+internal sealed record ClassicInverseInterpolationNode(ImmutableArray<InterpolatedStringPart> Parts,
+    ImmutableArray<ClassicInverseBodyNode> Values, ImmutableArray<MethodRef> Members) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new InterpolatedStringExpression(Parts, Values.Select(Expr), Members);
+
+    internal override string Signature => "interpolation["
+        + string.Join(";", Parts.Select(part =>
+            $"{Text(part.Literal)}:{part.ExpressionIndex}:"
+            + (part.Format is { } format
+                ? $"{format.HasAlignment}:{format.Alignment}:{Text(format.FormatString)}" : "none")))
+        + $":{ClassicInverseSignature.Sequence(Members.Select(MethodText))}]({Children(Values)})";
+
+    static string Text(string? value) => value is null ? "null" : $"{value.Length}:{value}";
+}
+
 internal sealed record ClassicInverseLogicalBinaryNode(
     LogicalKind Kind,
     ClassicInverseBodyNode Left,
@@ -877,6 +893,23 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                 var count = TryCapture(array.Count, budget);
                 return count is null ? null : new ClassicInverseStackallocNode(
                     binding.Type(array.ElementType, budget), binding.OptionalType(array.ResultType, budget), count);
+            }
+
+            case InterpolatedStringExpression interpolation:
+            {
+                foreach (InterpolatedStringPart _ in interpolation.Parts)
+                    if (!budget.Charge())
+                        return null;
+                var values = TryCaptureAll(interpolation.Children, budget);
+                var members = ImmutableArray.CreateBuilder<MethodRef>();
+                foreach (MethodRef member in interpolation.ConsumedMemberRefs)
+                {
+                    if (!budget.Charge())
+                        return null;
+                    members.Add(Detach(member, budget));
+                }
+                return values is null ? null
+                    : new ClassicInverseInterpolationNode(interpolation.Parts, values.Value, members.ToImmutable());
             }
 
             case Call call:

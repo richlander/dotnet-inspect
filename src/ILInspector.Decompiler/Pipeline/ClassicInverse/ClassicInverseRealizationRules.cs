@@ -618,6 +618,9 @@ internal static class ClassicInverseRealizationRules
                 Equals(left.ElementType, right.ElementType)
                 && Equals(left.ResultType, right.ResultType)
                 && left.HasInitializer == right.HasInitializer,
+            (InterpolatedStringExpression left, InterpolatedStringExpression right) =>
+                left.Parts.SequenceEqual(right.Parts)
+                && left.ConsumedMemberRefs.SequenceEqual(right.ConsumedMemberRefs),
             (Call left, Call right) =>
                 left.Callee == right.Callee
                 && left.IsVirtual == right.IsVirtual

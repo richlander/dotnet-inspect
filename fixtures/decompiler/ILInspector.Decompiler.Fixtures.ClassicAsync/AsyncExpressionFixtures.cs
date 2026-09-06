@@ -359,6 +359,37 @@ public static class AsyncExpressionFixtures
     public static async Task<int> AwaitUninitializedStackalloc(int length)
         => await TaskForSpan(unsafe(stackalloc int[length]));
 
+    public static async Task<int> InterpolatedOperand(int value)
+        => await TextAsync($"value={value}");
+
+    public static async Task<int> InterpolatedFormats(double value)
+        => await TextAsync($"[{value,8:N2}]");
+
+    public static async Task<int> InterpolatedZeroAlignment(int value)
+        => await TextAsync($"{value,0}");
+
+    public static async Task<int> InterpolatedNegativeAlignment(string value)
+        => await TextAsync($"[{value,-4}]");
+
+    public static async Task<int> InterpolatedEffects(int value)
+        => await TextAsync($"[{PositiveChoice()},{WithCharacter(value, 'x'):D4}]");
+
+    public static async Task<int> InterpolatedGeneric<T>(T value)
+        => await TextAsync($"value={value}");
+
+    public static async Task<int> InterpolatedEscapedFormat(TimeSpan value)
+        => await TextAsync($"{value:hh\\:mm}");
+
+    public static async Task YieldOnce() => await Task.Yield();
+
+    public static async Task<int> StructOperand(StructAwaitable value) => await value;
+    public static async Task<int> MutableStructOperand(MutableStructAwaitable value) => await value;
+    public static async Task<int> StructFactoryOperand(Task<int> value) => await MakeAwaitable(value);
+    public static async Task<int> ClassAwaitableOperand(ClassAwaitable value) => await value;
+
+    static Task<int> TextAsync(string value) => Task.FromResult(value.Length);
+    static StructAwaitable MakeAwaitable(Task<int> value) => new(value);
+
     static Task<int> TaskForSpan(Span<int> value) => Task.FromResult(value.Length);
     static Task<int> TaskForByteSpan(Span<byte> value) => Task.FromResult(value.Length);
 
@@ -419,6 +450,27 @@ public static class AsyncExpressionFixtures
     {
         public T Value { get; }
         public GenericBox(T value) => Value = value;
+    }
+
+    public readonly struct StructAwaitable
+    {
+        readonly Task<int> _task;
+        public StructAwaitable(Task<int> task) => _task = task;
+        public System.Runtime.CompilerServices.TaskAwaiter<int> GetAwaiter() => _task.GetAwaiter();
+    }
+
+    public struct MutableStructAwaitable
+    {
+        int _uses;
+        public System.Runtime.CompilerServices.TaskAwaiter<int> GetAwaiter()
+            => Task.FromResult(++_uses).GetAwaiter();
+    }
+
+    public sealed class ClassAwaitable
+    {
+        readonly Task<int> _task;
+        public ClassAwaitable(Task<int> task) => _task = task;
+        public System.Runtime.CompilerServices.TaskAwaiter<int> GetAwaiter() => _task.GetAwaiter();
     }
 }
 

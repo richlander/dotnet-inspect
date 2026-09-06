@@ -105,6 +105,7 @@ internal static partial class ClassicInverseExpressionRules
             Call call => ParameterType(call.Callee, node.ChildIndex - (call.Callee.HasThis ? 1 : 0)),
             NewObject creation => ParameterType(creation.Constructor, node.ChildIndex),
             TupleExpression tuple => TupleSink(tuple.TupleType, node.ChildIndex, budget),
+            InterpolatedStringExpression interpolation => InterpolationSink(interpolation, node.ChildIndex, budget),
             StoreLocal store when ReferenceEquals(store.Value, node) => store.Type,
             StoreArgument store when ReferenceEquals(store.Value, node) => store.Type,
             StoreField store when ReferenceEquals(store.Value, node) => store.Field.Type,
@@ -159,6 +160,20 @@ internal static partial class ClassicInverseExpressionRules
     static TypeRef? ParameterType(MethodRef method, int index)
         => !method.ParameterTypes.IsDefault && index >= 0 && index < method.ParameterTypes.Length
             ? method.ParameterTypes[index] : null;
+
+    static TypeRef? InterpolationSink(InterpolatedStringExpression interpolation, int index, ClassicInverseBudget budget)
+    {
+        if (interpolation.ConsumedMemberRefs.Length != interpolation.Parts.Length + 2)
+            return null;
+        for (int i = 0; i < interpolation.Parts.Length; i++)
+        {
+            if (!budget.Charge())
+                return null;
+            if (interpolation.Parts[i] is { IsLiteral: false } part && part.ExpressionIndex == index)
+                return ParameterType(interpolation.ConsumedMemberRefs[i + 1], 0);
+        }
+        return null;
+    }
 
     static TypeRef? TupleSink(TypeRef type, int index, ClassicInverseBudget budget)
     {

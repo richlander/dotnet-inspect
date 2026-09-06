@@ -2710,14 +2710,18 @@ public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex
     witness: "StringInterpolationPassTests, corpus compile-back")]
 public sealed class InterpolatedStringExpression : IrExpression
 {
-    public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts, IEnumerable<IrExpression> formattedValues)
+    public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts,
+        IEnumerable<IrExpression> formattedValues, ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         Parts = [.. parts];
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
         foreach (var value in formattedValues)
             AddChild(value);
     }
 
     public ImmutableArray<InterpolatedStringPart> Parts { get; }
+    /// <summary>The constructor, one append per part, and final conversion, in source order.</summary>
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IReadOnlyList<IrExpression> FormattedValues => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => TypeRef.CoreLib("System", "String");
 
