@@ -176,9 +176,34 @@ public sealed record AssemblyMemberSourceRequest
                 nameof(member));
         }
 
+        MetadataTypeDefinitionName requestType =
+            AssemblyTypeSourceRequest.GetDefinitionName(type);
+        MemberAnchor requestMember =
+            ApiMemberIdentity.GetMemberAnchor(type, member);
+        if (member.Kind == "extension-method")
+        {
+            if (member.DeclaringTypeDefinitionName is not { } declaringType
+                || string.IsNullOrWhiteSpace(
+                    member.DeclaringTypeCanonicalName))
+            {
+                throw new ArgumentException(
+                    "A projected extension method must retain its exact declaring type identity.",
+                    nameof(member));
+            }
+
+            requestType = declaringType;
+            requestMember = requestMember with
+            {
+                StableSelector =
+                    $"{ApiMemberIdentity.GetMemberSelectorName(member.Name)}"
+                    + $"~{requestMember.Fingerprint}",
+                TypeFullName = member.DeclaringTypeCanonicalName,
+            };
+        }
+
         return new AssemblyMemberSourceRequest(
-            AssemblyTypeSourceRequest.GetDefinitionName(type),
-            ApiMemberIdentity.GetMemberAnchor(type, member),
+            requestType,
+            requestMember,
             metadataToken,
             printerOptions);
     }
@@ -1197,7 +1222,30 @@ public static class AssemblyContextSourceQuery
             match = candidate;
         }
 
-        return match is null ? null : (type, match);
+        if (match is not null)
+            return (type, match);
+
+        foreach (ApiMember accessor in type.Members.SelectMany(
+            owner => ApiMemberAccessors.Create(owner, type)))
+        {
+            if ((metadataToken is { } expectedToken
+                    && accessor.MetadataToken != expectedToken)
+                || ApiMemberIdentity.GetMemberAnchor(type, accessor)
+                    != member)
+            {
+                continue;
+            }
+
+            if (match is not null)
+                return null;
+            match = accessor;
+        }
+
+        if (match is null)
+            return null;
+
+        type.Members = [match];
+        return (type, match);
     }
 
     static AssemblyPdbSourceProvenance PdbProvenance(

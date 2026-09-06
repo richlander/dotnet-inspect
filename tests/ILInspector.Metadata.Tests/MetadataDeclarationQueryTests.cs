@@ -42,6 +42,19 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void InitOnlySetter_PreservesReturnModifierDistinction()
+    {
+        var type = GetTypeDefinition(typeof(ApiSignatureFixtures));
+
+        Assert.True(MetadataDeclarationQuery.IsInitOnlySetter(
+            Reader, type, GetMethod(type, "set_InitValue")));
+        Assert.False(MetadataDeclarationQuery.IsInitOnlySetter(
+            Reader, type, GetMethod(type, "set_Item")));
+        Assert.False(MetadataDeclarationQuery.IsInitOnlySetter(
+            Reader, type, GetMethod(type, "get_InitValue")));
+    }
+
+    [Fact]
     public void MethodDeclaration_ExposesAttributedDecimalDefaults()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
