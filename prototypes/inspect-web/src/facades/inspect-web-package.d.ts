@@ -224,6 +224,11 @@ export interface BrowserPackageSurface {
     readonly inspectionErrors: ReadonlyArray<string>;
     readonly inspectionError: string | null;
 }
+export interface BrowserPackageVersions {
+    readonly versions: ReadonlyArray<string>;
+    readonly previousVersion: string | null;
+    readonly previousVersionUnavailableReason: string | null;
+}
 export interface BrowserParameterSurface {
     readonly name: string;
     readonly type: string;
@@ -300,7 +305,7 @@ export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
-export declare function queryPackageVersions(packageId: string): Promise<ReadonlyArray<string>>;
+export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(additionalMatchCredit: number): boolean;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;

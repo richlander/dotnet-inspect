@@ -1,296 +1,170 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import {
   createCatalogRequests,
+  type CatalogPackage,
   type CatalogRequestDependencies,
   type CatalogRequestState,
-  type DotnetRelease,
 } from "../src/catalog-requests.ts";
+import type { BrowserPackageVersions } from "../src/facades/inspect-web-package.d.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, reject, resolve };
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
 }
 
-function createState(): CatalogRequestState {
-  return {
-    package: null,
-    packages: [],
+const pkg = (id = "Example.Package"): CatalogPackage => ({ id, version: "2.0.0" });
+const inventory = (): BrowserPackageVersions => ({
+  versions: ["2.0.0", "1.0.0"],
+  previousVersion: "1.0.0",
+  previousVersionUnavailableReason: null,
+});
+
+function harness(overrides: Partial<CatalogRequestDependencies> = {}) {
+  const current = pkg();
+  const state: CatalogRequestState = {
+    package: current,
+    packages: [current],
     dotnetReleases: null,
     dotnetReleasesLoading: false,
-    packageVersions: {},
-    packageVersionsLoading: {},
   };
-}
-
-function createHarness(
-  state = createState(),
-  overrides: Partial<Omit<CatalogRequestDependencies, "state">> = {},
-) {
+  const updated: CatalogPackage[] = [];
   let platformUpdates = 0;
-  const packageUpdates: string[] = [];
-  const platformUpdateSnapshots: Array<DotnetRelease[] | null> = [];
-  const packageUpdateSnapshots: Array<{
-    packageId: string;
-    versions: string[] | undefined;
-  }> = [];
-  let releaseQueries = 0;
-  const versionQueries: string[] = [];
-  const dependencies: CatalogRequestDependencies = {
+  const requests = createCatalogRequests({
     state,
-    queryDotnetReleases: async () => {
-      releaseQueries++;
-      return [];
-    },
-    queryPackageVersions: async packageId => {
-      versionQueries.push(packageId);
-      return [];
-    },
-    updatePlatformVersionSelect: () => {
-      platformUpdates++;
-      platformUpdateSnapshots.push(state.dotnetReleases);
-    },
-    updatePackageVersionSelect: packageId => {
-      packageUpdates.push(packageId);
-      packageUpdateSnapshots.push({
-        packageId,
-        versions: state.packageVersions[packageId],
-      });
-    },
+    queryDotnetReleases: async () => [{ major: 10, tfm: "net10.0", version: "10.0.0" }],
+    queryPackageVersions: async () => inventory(),
+    updatePlatformVersionSelect: () => { platformUpdates++; },
+    updatePackageVersionSelect: item => updated.push(item),
     ...overrides,
-  };
-  return {
-    requests: createCatalogRequests(dependencies),
-    state,
-    get packageUpdates() {
-      return packageUpdates;
-    },
-    get packageUpdateSnapshots() {
-      return packageUpdateSnapshots;
-    },
-    get platformUpdates() {
-      return platformUpdates;
-    },
-    get platformUpdateSnapshots() {
-      return platformUpdateSnapshots;
-    },
-    get releaseQueries() {
-      return releaseQueries;
-    },
-    get versionQueries() {
-      return versionQueries;
-    },
-  };
+  });
+  return { requests, state, current, updated, platformUpdates: () => platformUpdates };
 }
 
-test("release requests cache rows and refresh the resident Platform selector", async () => {
-  const state = createState();
-  const runtime = { id: ".NET Platform", isRuntimePack: true };
-  state.package = runtime;
-  state.packages = [runtime];
-  const rows: DotnetRelease[] = [
-    { major: 10, tfm: "net10.0", version: "10.0.4" },
-    { major: 9, tfm: "net9.0", version: "9.0.9" },
-  ];
-  const harness = createHarness(state, {
-    queryDotnetReleases: async () => rows,
-  });
-
-  await harness.requests.ensureDotnetReleases();
-
-  assert.deepEqual(state.dotnetReleases, rows);
-  assert.notEqual(state.dotnetReleases, rows);
-  assert.equal(state.dotnetReleasesLoading, false);
-  assert.equal(harness.platformUpdates, 1);
-  assert.deepEqual(harness.platformUpdateSnapshots, [rows]);
+test("release requests cache rows and refresh only a selected Platform", async () => {
+  const h = harness();
+  h.current.isRuntimePack = true;
+  await h.requests.ensureDotnetReleases();
+  await h.requests.ensureDotnetReleases();
+  assert.deepEqual(h.state.dotnetReleases, [{ major: 10, tfm: "net10.0", version: "10.0.0" }]);
+  assert.equal(h.platformUpdates(), 1);
+  assert.equal(h.state.dotnetReleasesLoading, false);
+  const other = harness();
+  await other.requests.ensureDotnetReleases();
+  assert.equal(other.platformUpdates(), 0);
 });
 
-test("release completion does not refresh a non-Platform selector", async () => {
-  const state = createState();
-  state.package = { id: "Example.Package" };
-  const harness = createHarness(state, {
-    queryDotnetReleases: async () => [
-      { major: 9, tfm: "net9.0", version: "9.0.9" },
-    ],
-  });
-
-  await harness.requests.ensureDotnetReleases();
-
-  assert.equal(harness.platformUpdates, 0);
-  assert.equal(state.dotnetReleases?.length, 1);
-});
-
-test("release requests deduplicate in-flight work and reuse cached rows", async () => {
-  const pending = deferred<readonly DotnetRelease[]>();
-  let queryCount = 0;
-  const harness = createHarness(createState(), {
-    queryDotnetReleases: () => {
-      queryCount++;
-      return pending.promise;
-    },
-  });
-
-  const first = harness.requests.ensureDotnetReleases();
-  const second = harness.requests.ensureDotnetReleases();
-  assert.equal(harness.state.dotnetReleasesLoading, true);
-  assert.equal(queryCount, 1);
-
-  pending.resolve([]);
-  await Promise.all([first, second]);
-  await harness.requests.ensureDotnetReleases();
-
-  assert.equal(queryCount, 1);
-});
-
-test("release failures remain silent, clear loading, and allow retry", async () => {
-  const state = createState();
-  const runtime = { id: ".NET Platform", isRuntimePack: true };
-  state.package = runtime;
-  state.packages = [runtime];
-  let queryCount = 0;
-  const harness = createHarness(state, {
-    queryDotnetReleases: async () => {
-      queryCount++;
-      if (queryCount === 1) throw new Error("offline");
-      return [{ major: 8, tfm: "net8.0", version: "8.0.20" }];
-    },
-  });
-
-  await harness.requests.ensureDotnetReleases();
-  assert.equal(harness.state.dotnetReleases, null);
-  assert.equal(harness.state.dotnetReleasesLoading, false);
-  assert.equal(harness.platformUpdates, 0);
-
-  await harness.requests.ensureDotnetReleases();
-  assert.equal(queryCount, 2);
-  assert.deepEqual(harness.state.dotnetReleases, [
-    { major: 8, tfm: "net8.0", version: "8.0.20" },
-  ]);
-  assert.equal(harness.platformUpdates, 1);
-});
-
-test("package requests ignore missing and Platform packages", async () => {
-  const harness = createHarness();
-
-  await harness.requests.ensurePackageVersions(null);
-  await harness.requests.ensurePackageVersions({
-    id: ".NET Platform",
-    isRuntimePack: true,
-  });
-
-  assert.deepEqual(harness.versionQueries, []);
-});
-
-test("package requests normalize identity, sort versions, and refresh by identity", async () => {
-  const state = createState();
-  state.packages = [{ id: "Example.Package" }];
-  const harness = createHarness(state, {
-    queryPackageVersions: async packageId => {
-      assert.equal(packageId, "example.package");
-      return ["2.0.0", "10.0.0", "1.9.0", "2.1.0"];
-    },
-  });
-
-  await harness.requests.ensurePackageVersions({ id: "EXAMPLE.PACKAGE" });
-
-  assert.deepEqual(
-    state.packageVersions["example.package"],
-    ["10.0.0", "2.1.0", "2.0.0", "1.9.0"],
-  );
-  assert.equal(state.packageVersionsLoading["example.package"], false);
-  assert.deepEqual(harness.packageUpdates, ["example.package"]);
-  assert.deepEqual(harness.packageUpdateSnapshots, [{
-    packageId: "example.package",
-    versions: ["10.0.0", "2.1.0", "2.0.0", "1.9.0"],
-  }]);
-});
-
-test("package requests deduplicate in-flight work and reuse cached versions", async () => {
-  const state = createState();
-  const pkg = { id: "Example.Package" };
-  state.packages = [pkg];
-  const pending = deferred<readonly string[]>();
-  let queryCount = 0;
-  const harness = createHarness(state, {
-    queryPackageVersions: () => {
-      queryCount++;
-      return pending.promise;
-    },
-  });
-
-  const first = harness.requests.ensurePackageVersions(pkg);
-  const second = harness.requests.ensurePackageVersions(pkg);
-  assert.equal(state.packageVersionsLoading["example.package"], true);
-  assert.equal(queryCount, 1);
-
-  pending.resolve(["1.0.0"]);
-  await Promise.all([first, second]);
-  await harness.requests.ensurePackageVersions(pkg);
-
-  assert.equal(queryCount, 1);
-  assert.deepEqual(harness.packageUpdates, ["example.package"]);
-});
-
-test("package success is discarded when its package is no longer resident", async () => {
-  const state = createState();
-  const pkg = { id: "Example.Package" };
-  state.packages = [pkg];
-  const pending = deferred<readonly string[]>();
-  const harness = createHarness(state, {
-    queryPackageVersions: () => pending.promise,
-  });
-
-  const request = harness.requests.ensurePackageVersions(pkg);
-  state.packages = [];
-  pending.resolve(["1.0.0"]);
-  await request;
-
-  assert.equal(state.packageVersions["example.package"], undefined);
-  assert.equal(state.packageVersionsLoading["example.package"], undefined);
-  assert.deepEqual(harness.packageUpdates, []);
-});
-
-test("package failures stay silent and keep loading state for resident packages", async () => {
-  const state = createState();
-  const pkg = { id: "Example.Package" };
-  state.packages = [pkg];
-  let queryCount = 0;
-  const harness = createHarness(state, {
-    queryPackageVersions: async () => {
-      queryCount++;
-      throw new Error("offline");
-    },
-  });
-
-  await harness.requests.ensurePackageVersions(pkg);
-  assert.equal(state.packageVersions["example.package"], undefined);
-  assert.equal(state.packageVersionsLoading["example.package"], false);
-  assert.deepEqual(harness.packageUpdates, []);
-
-  await harness.requests.ensurePackageVersions(pkg);
-  assert.equal(queryCount, 2);
-});
-
-test("package rejection removes loading state after resident removal", async () => {
-  const state = createState();
-  const pkg = { id: "Example.Package" };
-  state.packages = [pkg];
-  const pending = deferred<readonly string[]>();
-  const harness = createHarness(state, {
-    queryPackageVersions: () => pending.promise,
-  });
-
-  const request = harness.requests.ensurePackageVersions(pkg);
-  state.packages = [];
+test("release requests deduplicate pending work and preserve retry on failure", async () => {
+  const pending = deferred<never>();
+  let calls = 0;
+  const h = harness({ queryDotnetReleases: () => { calls++; return pending.promise; } });
+  const first = h.requests.ensureDotnetReleases();
+  await h.requests.ensureDotnetReleases();
+  assert.equal(calls, 1);
   pending.reject(new Error("offline"));
-  await request;
+  await first;
+  assert.equal(h.state.dotnetReleasesLoading, false);
+  assert.equal(h.state.dotnetReleases, null);
+  await h.requests.ensureDotnetReleases();
+  assert.equal(calls, 2);
+});
 
-  assert.equal(state.packageVersionsLoading["example.package"], undefined);
-  assert.deepEqual(harness.packageUpdates, []);
+test("version requests retain native order and default for the exact resident model", async () => {
+  const h = harness();
+  await h.requests.ensurePackageVersions(h.current);
+  assert.deepEqual(h.requests.packageVersions(h.current), {
+    status: "available", inventory: inventory(),
+  });
+  assert.deepEqual(h.updated, [h.current]);
+  const sameCoordinate = pkg();
+  assert.deepEqual(h.requests.packageVersions(sameCoordinate), { status: "idle" });
+});
+
+test("version requests ignore missing, unretained, and Platform models", async () => {
+  const h = harness({ queryPackageVersions: async () => { throw new Error("must not query"); } });
+  await h.requests.ensurePackageVersions(null);
+  await h.requests.ensurePackageVersions(pkg());
+  h.current.isRuntimePack = true;
+  await h.requests.ensurePackageVersions(h.current);
+  assert.deepEqual(h.updated, []);
+});
+
+test("version requests deduplicate pending work and reuse a completed inventory", async () => {
+  const pending = deferred<BrowserPackageVersions>();
+  let calls = 0;
+  const h = harness({ queryPackageVersions: () => { calls++; return pending.promise; } });
+  const first = h.requests.ensurePackageVersions(h.current);
+  await h.requests.ensurePackageVersions(h.current);
+  assert.equal(calls, 1);
+  assert.deepEqual(h.requests.packageVersions(h.current), { status: "loading" });
+  pending.resolve(inventory());
+  await first;
+  await h.requests.ensurePackageVersions(h.current);
+  assert.equal(calls, 1);
+});
+
+test("failure is visible and retries only when explicitly invalidated", async () => {
+  let calls = 0;
+  const h = harness({ queryPackageVersions: async () => { calls++; throw new Error("offline"); } });
+  await h.requests.ensurePackageVersions(h.current);
+  assert.deepEqual(h.requests.packageVersions(h.current), { status: "failed", message: "offline" });
+  await h.requests.ensurePackageVersions(h.current);
+  assert.equal(calls, 1);
+  h.requests.forgetPackage(h.current);
+  await h.requests.ensurePackageVersions(h.current);
+  assert.equal(calls, 2);
+  assert.deepEqual(h.updated, [h.current, h.current]);
+});
+
+for (const reject of [false, true]) {
+  test(`late ${reject ? "failure" : "success"} cannot publish after same-coordinate replacement`, async () => {
+    const pending = deferred<BrowserPackageVersions>();
+    const h = harness({ queryPackageVersions: () => pending.promise });
+    const first = h.requests.ensurePackageVersions(h.current);
+    const replacement = pkg();
+    h.state.packages = [replacement];
+    h.requests.forgetPackage(h.current);
+    if (reject) pending.reject(new Error("late"));
+    else pending.resolve(inventory());
+    await first;
+    assert.deepEqual(h.requests.packageVersions(replacement), { status: "idle" });
+    assert.deepEqual(h.updated, []);
+  });
+}
+
+test("a replaced pending request cannot overwrite an explicit retry on the same model", async () => {
+  const pending = deferred<BrowserPackageVersions>();
+  let calls = 0;
+  const h = harness({
+    queryPackageVersions: () => ++calls === 1 ? pending.promise : Promise.resolve(inventory()),
+  });
+  const first = h.requests.ensurePackageVersions(h.current);
+  h.requests.forgetPackage(h.current);
+  await h.requests.ensurePackageVersions(h.current);
+  pending.reject(new Error("superseded"));
+  await first;
+  assert.deepEqual(h.requests.packageVersions(h.current), { status: "available", inventory: inventory() });
+  assert.deepEqual(h.updated, [h.current]);
+});
+
+test("rollback copies completed inventories but never copies a pending request", async () => {
+  const h = harness();
+  await h.requests.ensurePackageVersions(h.current);
+  const copy = pkg();
+  h.requests.copyPackage(h.current, copy);
+  assert.deepEqual(h.requests.packageVersions(copy), h.requests.packageVersions(h.current));
+  const pending = deferred<BrowserPackageVersions>();
+  const other = harness({ queryPackageVersions: () => pending.promise });
+  const first = other.requests.ensurePackageVersions(other.current);
+  other.requests.copyPackage(other.current, copy);
+  assert.deepEqual(other.requests.packageVersions(copy), { status: "idle" });
+  pending.resolve(inventory());
+  await first;
+});
+
+test("publication callback errors are not swallowed as acquisition failures", async () => {
+  const h = harness({ updatePackageVersionSelect: () => { throw new Error("render failed"); } });
+  await assert.rejects(h.requests.ensurePackageVersions(h.current), /render failed/);
 });

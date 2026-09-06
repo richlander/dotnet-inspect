@@ -386,10 +386,15 @@ import {
 import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
 import { createPackageRemoval } from "./package-removal.ts";
 import {
-  compareVersionsDesc,
   createCatalogRequests,
+  type CatalogPackage,
   type DotnetRelease,
 } from "./catalog-requests.ts";
+import {
+  bindPackageComparisonTargets,
+  createPackageComparisonTargets,
+  renderPackageComparisonTargets,
+} from "./package-comparison-targets.ts";
 import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
 import {
   bindCreditsPanel,
@@ -912,8 +917,6 @@ const initialState = {
   spotlightPkgLoading: false,
   spotlightPkgError: "",
   spotlightPkgQuery: "",
-  packageVersions: {},
-  packageVersionsLoading: {},
   runtimePackLoading: false,
   runtimePackError: "",
   selectedBodyTarget: null,
@@ -994,8 +997,6 @@ interface StateOverrides {
   lens: TypeLens;
   packageLens: PackageLens;
   libraryLens: LibraryLens;
-  packageVersions: Record<string, string[]>;
-  packageVersionsLoading: Record<string, boolean>;
   platformRecent: PlatformRecent[];
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
@@ -1050,6 +1051,14 @@ CanonicalWorkspaceRestoreSnapshot {
   cancelAnnotatedSourceRequest(state);
   methodBodyComparison.dispose();
   const packages = structuredClone(state.packages);
+  const copies = new Map<AppPackage, AppPackage>();
+  for (const [index, original] of state.packages.entries()) {
+    const copy = packages[index];
+    if (!copy) throw new Error("Workspace snapshot lost a Package.");
+    copies.set(original, copy);
+    catalogRequests.copyPackage(original, copy);
+  }
+  packageComparisonTargets.copyPackages(copies);
   const activeKey = state.package
     ? packageIdentityKey(state.package)
     : null;
@@ -1064,9 +1073,6 @@ CanonicalWorkspaceRestoreSnapshot {
       workspaceDependencyErrors:
         structuredClone(state.workspaceDependencyErrors),
       workspaceDependencyLoads: new Set(state.workspaceDependencyLoads),
-      packageVersions: structuredClone(state.packageVersions),
-      packageVersionsLoading:
-        structuredClone(state.packageVersionsLoading),
       libraryScope: state.libraryScope
         ? new Set(state.libraryScope)
         : null,
@@ -1839,10 +1845,12 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
 const catalogRequests = createCatalogRequests({
   state,
   queryDotnetReleases,
-  queryPackageVersions: packageId => inspectPackageVersions(packageId),
+  queryPackageVersions: pkg => inspectPackageVersions(pkg.id, pkg.version),
   updatePlatformVersionSelect,
   updatePackageVersionSelect: updateVersionSelect,
 });
+const packageComparisonTargets =
+  createPackageComparisonTargets(() => state.packages);
 const packageRemoval = createPackageRemoval({
   state,
   persistRecent: entries =>
@@ -2344,11 +2352,8 @@ function releasePackageModelCaches(packageModel: AppPackage) {
   delete state.workspaceDependencyErrors[dependencyKey];
   state.workspaceDependencyLoads.delete(dependencyKey);
 
-  const id = packageModel.id.toLowerCase();
-  if (!state.packages.some(item => item.id.toLowerCase() === id)) {
-    delete state.packageVersions[id];
-    delete state.packageVersionsLoading[id];
-  }
+  catalogRequests.forgetPackage(packageModel);
+  packageComparisonTargets.forget(packageModel);
 }
 
 function activateAfterPackageRemoval(next: AppPackage | null): void {
@@ -5272,6 +5277,9 @@ function renderPackageOverview() {
       <div class="section-title"><h2>Libraries</h2><span>${libraries.length} admitted</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
       <div class="library-list">${libraryRows || '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>'}</div>
+    </section>
+    <section id="package-comparison-targets" class="document-section">
+      ${packageComparisonControlsHtml(pkg)}
     </section>${documentsSection}`;
 
   return renderOverviewSurface({
@@ -6799,6 +6807,7 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindMethodBodyDiffEvents();
   bindPackageViewEvents();
+  bindPackageComparisonControls();
   bindLibraryControlsEvents();
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
@@ -7394,12 +7403,11 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
 // version (even before the flatcontainer index has been fetched) so the control is never empty.
 function versionOptionsHtml(pkg: AppPackage) {
   if (pkg.isRuntimePack) return platformVersionOptionsHtml(pkg);
-  const idLower = pkg.id.toLowerCase();
-  const fetched = state.packageVersions[idLower] ?? [];
+  const entry = catalogRequests.packageVersions(pkg);
+  const fetched = entry.status === "available" ? entry.inventory.versions : [];
   const versions = fetched.length ? fetched.slice() : [pkg.version];
   if (!versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
     versions.unshift(pkg.version);
-    versions.sort(compareVersionsDesc);
   }
   return versions
     .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
@@ -7538,15 +7546,67 @@ async function switchPlatformVersion(
 }
 
 function ensurePackageVersions(pkg: AppPackage | null) {
+  if (pkg?.source.kind !== "nuget.org") return Promise.resolve();
   return catalogRequests.ensurePackageVersions(pkg);
+}
+
+function packageComparisonControlsHtml(pkg: AppPackage) {
+  return renderPackageComparisonTargets({
+    package: pkg,
+    packages: state.packages,
+    ...packageComparisonTargets.get(pkg),
+    versions: catalogRequests.packageVersions(pkg),
+  }, escapeHtml);
+}
+
+function updatePackageComparisonControls() {
+  const pkg = state.package;
+  const controls = document.querySelector("#package-comparison-targets");
+  if (!pkg || !controls) return;
+  const focused = document.activeElement instanceof HTMLElement
+    && controls.contains(document.activeElement) ? document.activeElement.id : "";
+  controls.innerHTML = packageComparisonControlsHtml(pkg);
+  bindPackageComparisonControls();
+  if (focused) {
+    const next = document.getElementById(focused)
+      ?? controls.querySelector<HTMLElement>("#package-diff-target");
+    next?.focus();
+  }
+}
+
+function bindPackageComparisonControls() {
+  const pkg = state.package;
+  const controls = document.querySelector("#package-comparison-targets");
+  if (!pkg || !controls) return;
+  const apply = (change: () => void) => {
+    try {
+      change();
+      updatePackageComparisonControls();
+    } catch (error: unknown) {
+      showToast(errorMessage(error));
+    }
+  };
+  bindPackageComparisonTargets(controls, [...state.packages], {
+    selectDiff: target => apply(() =>
+      packageComparisonTargets.selectDiff(
+        pkg, target, catalogRequests.packageVersions(pkg))),
+    selectClone: target => apply(() =>
+      packageComparisonTargets.selectClone(pkg, target)),
+    retry: () => {
+      catalogRequests.forgetPackage(pkg);
+      observeAsync(ensurePackageVersions(pkg), "Loading package versions");
+      updatePackageComparisonControls();
+    },
+  });
 }
 
 // Repaint just the version <select> options without a full re-render, so an async index
 // fetch never disturbs focus, scroll, or the rest of the workbench.
-function updateVersionSelect(idLower: string) {
-  if (!state.package || state.package.id.toLowerCase() !== idLower) return;
+function updateVersionSelect(pkg: CatalogPackage) {
+  if (!state.package || state.package !== pkg) return;
   const select = document.querySelector("#package-version");
   if (select) select.innerHTML = versionOptionsHtml(state.package);
+  updatePackageComparisonControls();
 }
 
 // Switch the current package to a different published version. Replaces the current tab in

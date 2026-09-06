@@ -352,10 +352,19 @@ public static partial class PackageExports
     /// reader. The JavaScript host does not fetch or parse the untrusted index independently.
     /// </summary>
     [JSExport]
-    public static async Task<string> QueryPackageVersions(string packageId) =>
-        JsonSerializer.Serialize(
-            await BrowserPackageWorkspace.GetVersionsAsync(packageId),
-            BrowserPackageJsonContext.Default.StringArray);
+    public static async Task<string> QueryPackageVersions(
+        string packageId,
+        string currentVersion)
+    {
+        BrowserPackageVersionInventory inventory =
+            await BrowserPackageWorkspace.GetVersionInventoryAsync(packageId, currentVersion);
+        return JsonSerializer.Serialize(
+            new BrowserPackageVersions(
+                inventory.Versions,
+                inventory.PreviousVersion,
+                inventory.PreviousVersionUnavailableReason),
+            BrowserPackageJsonContext.Default.BrowserPackageVersions);
+    }
 
     [JSExport]
     public static Task<string> ResolvePackageDependencyVersion(

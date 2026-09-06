@@ -411,7 +411,13 @@ public sealed record BrowserDependencyCoordinateMatch(
     BrowserDependencyCoordinateMatchOutcome Outcome,
     string? CandidateKey);
 
+public sealed record BrowserPackageVersions(
+    string[] Versions,
+    string? PreviousVersion,
+    string? PreviousVersionUnavailableReason);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
