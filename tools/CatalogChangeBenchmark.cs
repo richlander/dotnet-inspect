@@ -17,20 +17,23 @@ if (args is ["--self-test"])
     await ProbeTests.RunAsync();
     return 0;
 }
-if (args.Length != 5 || args[0] is not ("events" or "snapshots")
+if (args.Length is not (5 or 6) || args[0] is not ("events" or "snapshots")
     || !DateTimeOffset.TryParse(args[1], out var from)
     || !DateTimeOffset.TryParse(args[2], out var through)
     || from.Offset != TimeSpan.Zero || through.Offset != TimeSpan.Zero
-    || through <= from || through - from > TimeSpan.FromDays(1)
+    || through <= from || through - from > TimeSpan.FromDays(42)
     || !int.TryParse(args[3], out int take) || take is < 1 or > 100_000
-    || !int.TryParse(args[4], out int trials) || trials is < 1 or > 10)
+    || !int.TryParse(args[4], out int trials) || trials is < 1 or > 10
+    || (args.Length == 6 && string.IsNullOrWhiteSpace(args[5])))
 {
     Console.Error.WriteLine("Usage: dotnet run tools/CatalogChangeBenchmark.cs -c Release --"
         + " <events|snapshots> <exclusive-start-UTC> <inclusive-end-UTC>"
-        + " <take:1..100000> <trials:1..10> (window at most 24h)");
+        + " <take:1..100000> <trials:1..10> [literal-id-prefix] (window at most 42 days)");
     return 1;
 }
 
+bool wideWindow = through - from > TimeSpan.FromDays(1);
+string prefix = args.Length == 6 ? args[5] : "";
 for (int trial = 1; trial <= trials; trial++)
 {
     using var handler = new SocketsHttpHandler
@@ -45,9 +48,13 @@ for (int trial = 1; trial <= trials; trial++)
     client.DefaultRequestHeaders.UserAgent.ParseAdd("dotnet-inspect-catalog-experiment");
     foreach (string cache in new[] { "cold-client", "warm-connection" })
     {
-        var probe = new CatalogProbe(client);
+        var probe = new CatalogProbe(client,
+            maxPages: wideWindow ? 512 : 128,
+            maxRequests: wideWindow ? 1024 : 512,
+            maxBytes: (wideWindow ? 512L : 64L) * 1024 * 1024,
+            timeoutSeconds: wideWindow ? 300 : 120);
         Summary result = await probe.RunAsync(from, through, take, args[0] == "snapshots",
-            row => Console.WriteLine(JsonSerializer.Serialize(row, ProbeJson.Default.ChangeRow)));
+            row => Console.WriteLine(JsonSerializer.Serialize(row, ProbeJson.Default.ChangeRow)), prefix);
         result = result with { Trial = trial, Cache = cache };
         Console.WriteLine(JsonSerializer.Serialize(result, ProbeJson.Default.Summary));
         if (result.Completion == "failed")
@@ -56,7 +63,9 @@ for (int trial = 1; trial <= trials; trial++)
 }
 return 0;
 
-sealed class CatalogProbe(HttpClient client, int maxPages = 128, int maxRequests = 512)
+sealed class CatalogProbe(
+    HttpClient client, int maxPages = 128, int maxRequests = 512,
+    long maxBytes = 64L * 1024 * 1024, int timeoutSeconds = 120)
 {
     public const string Service = "https://api.nuget.org/v3/index.json";
     private readonly Dictionary<string, Cost> _costs = new(StringComparer.Ordinal);
@@ -65,14 +74,16 @@ sealed class CatalogProbe(HttpClient client, int maxPages = 128, int maxRequests
 
     public async Task<Summary> RunAsync(
         DateTimeOffset from, DateTimeOffset through, int take, bool snapshots,
-        Action<ChangeRow> observe)
+        Action<ChangeRow> observe, string prefix = "")
     {
         var result = new Summary
         {
             FromExclusive = from, ThroughInclusive = through,
             Take = take, Mode = snapshots ? "snapshots" : "events",
+            Prefix = prefix, PageBudget = maxPages, RequestBudget = maxRequests,
+            DecodedByteBudget = maxBytes, TimeoutSeconds = timeoutSeconds,
         };
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
         using var projection = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var coordinates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         long started = Stopwatch.GetTimestamp();
@@ -111,7 +122,9 @@ sealed class CatalogProbe(HttpClient client, int maxPages = 128, int maxRequests
                     .OrderBy(item => item.Commit).ThenBy(item => item.Url, StringComparer.Ordinal)
                     .ToArray();
                 result.PageItems += entries.Length;
-                foreach (Entry entry in entries.Where(item => item.Commit > from && item.Commit <= through))
+                result.WindowEventsSeen += entries.Count(item => item.Commit > from && item.Commit <= through);
+                foreach (Entry entry in entries.Where(item => item.Commit > from && item.Commit <= through
+                    && item.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
                     deadline.Token.ThrowIfCancellationRequested();
                     if (entry.Kind is not ("nuget:PackageDetails" or "nuget:PackageDelete"))
@@ -203,7 +216,7 @@ sealed class CatalogProbe(HttpClient client, int maxPages = 128, int maxRequests
             {
                 cost.DecodedBytes += read;
                 _bytes += read;
-                if (buffer.Length + read > 16 * 1024 * 1024 || _bytes > 64 * 1024 * 1024)
+                if (buffer.Length + read > 16 * 1024 * 1024 || _bytes > maxBytes)
                     throw new InvalidDataException("Catalog decoded-body budget exhausted.");
                 buffer.Write(chunk, 0, read);
             }
@@ -254,6 +267,11 @@ sealed record Summary
     public string Os { get; init; } = RuntimeInformation.OSDescription;
     public string Framework { get; init; } = RuntimeInformation.FrameworkDescription;
     public string Mode { get; init; } = "";
+    public string Prefix { get; init; } = "";
+    public int PageBudget { get; init; }
+    public int RequestBudget { get; init; }
+    public long DecodedByteBudget { get; init; }
+    public int TimeoutSeconds { get; init; }
     public string Cache { get; init; } = "";
     public int Trial { get; init; }
     public DateTimeOffset FromExclusive { get; init; }
@@ -263,6 +281,7 @@ sealed record Summary
     public int IndexPages { get; set; }
     public int Pages { get; set; }
     public int PageItems { get; set; }
+    public int WindowEventsSeen { get; set; }
     public int Returned { get; set; }
     public int UniqueCoordinates { get; set; }
     public int Details { get; set; }
@@ -330,12 +349,12 @@ static class ProbeTests
         };
         async Task<(Summary Result, List<ChangeRow> Rows)> Run(
             bool snapshots = false, int take = 10, int pages = 128, int requests = 512,
-            DateTimeOffset? lower = null, DateTimeOffset? upper = null)
+            DateTimeOffset? lower = null, DateTimeOffset? upper = null, string prefix = "")
         {
             using var client = new HttpClient(new FixtureHandler(documents));
             var rows = new List<ChangeRow>();
             var result = await new CatalogProbe(client, pages, requests)
-                .RunAsync(lower ?? start, upper ?? end, take, snapshots, rows.Add);
+                .RunAsync(lower ?? start, upper ?? end, take, snapshots, rows.Add, prefix);
             return (result, rows);
         }
         var all = await Run();
@@ -349,6 +368,13 @@ static class ProbeTests
         Require(enriched.Result is { Completion: "window-exhausted", UnlistedSnapshots: 1 }
             && enriched.Rows[1].Listed is null && enriched.Rows[0].Published!.Value.Year == 1900,
             "unlisted snapshot and separate deletion, not publication inference");
+        var matchedPrefix = await Run(snapshots: true, prefix: "eXaMp");
+        Require(matchedPrefix.Result is { Completion: "window-exhausted", Returned: 2, WindowEventsSeen: 2 },
+            "literal ID prefix uses NuGet case-insensitive matching");
+        var missingPrefix = await Run(snapshots: true, prefix: "Not.Example");
+        Require(missingPrefix.Result is { Completion: "window-exhausted", Returned: 0, WindowEventsSeen: 2,
+            FirstMs: null, NthMs: null } && !missingPrefix.Result.Costs.ContainsKey("leaf"),
+            "nonmatching prefix still reads pages but does not fetch leaves");
         var empty = await Run(lower: start.AddMinutes(31), upper: end.AddMinutes(-1));
         Require(empty.Result is { Completion: "window-exhausted", Returned: 0,
             FirstMs: null, NthMs: null, LastMs: null }, "empty window");
@@ -369,6 +395,9 @@ static class ProbeTests
         var tied = await Run();
         Require(tied.Result is { Completion: "window-exhausted", Returned: 3, Deletes: 1 },
             "upper-bound commit ties across pages");
+        var selectedPrefix = await Run(take: 1, prefix: "Other");
+        Require(selectedPrefix.Result is { Completion: "result-limit", Returned: 1 }
+            && selectedPrefix.Rows[0].Id == "Other", "take counts prefix matches, not earlier candidates");
         documents[prefix + "catalog"] = originalIndex;
         documents[prefix + "lower"] = originalLower;
         documents[prefix + "details"] = new string(' ', 16 * 1024 * 1024 + 1);
@@ -383,7 +412,7 @@ static class ProbeTests
         documents[prefix + "catalog"] = """{"count":0,"count":1,"items":[]}""";
         var malformed = await Run();
         Require(malformed.Result is { Completion: "failed", Returned: 0 }, "duplicate JSON properties");
-        Console.WriteLine("Catalog probe: 12 offline boundary/failure cases passed.");
+        Console.WriteLine("Catalog probe: 15 offline boundary/failure cases passed.");
     }
 
     private static string Entry(string name, DateTimeOffset stamp, string type) => $$"""
