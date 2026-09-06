@@ -12,6 +12,7 @@ public sealed class BrowserManagedEpochWorkRegistrationTests
     {
         var registration = new BrowserManagedEpochWorkRegistration();
 
+        Assert.Null(registration.SourceForAcquisition);
         Assert.Throws<InvalidOperationException>(() => registration.Source);
         Assert.Throws<InvalidOperationException>(() => { _ = registration.StopAndDrainAsync(); });
         Assert.Throws<InvalidOperationException>(registration.Unregister);
@@ -23,6 +24,7 @@ public sealed class BrowserManagedEpochWorkRegistrationTests
         var registration = new BrowserManagedEpochWorkRegistration();
         registration.Register("first", (_, _) => { }, _ => { });
         BrowserManagedEpochWorkSource source = registration.Source;
+        Assert.Same(source, registration.SourceForAcquisition);
 
         Assert.Throws<InvalidOperationException>(
             () => registration.Register("replacement", (_, _) => { }, _ => { }));
@@ -34,6 +36,7 @@ public sealed class BrowserManagedEpochWorkRegistrationTests
         Assert.Same(source, registration.Source);
         registration.Unregister();
 
+        Assert.Throws<InvalidOperationException>(() => registration.SourceForAcquisition);
         Assert.Throws<InvalidOperationException>(() => registration.Source);
         Assert.Throws<InvalidOperationException>(() => { _ = registration.StopAndDrainAsync(); });
         Assert.Throws<InvalidOperationException>(registration.Unregister);

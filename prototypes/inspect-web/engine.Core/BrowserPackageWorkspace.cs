@@ -41,8 +41,8 @@ internal sealed record BrowserPackageIconPayload(
 /// Product package realization mints typed <see cref="ResolvedAssemblyReference"/> participants
 /// from Browser-acquired content. Inspection happens only inside a
 /// <see cref="BrowserInspectionScope"/>, and only through a public product query that takes the
-/// scope's <see cref="AssemblyContextGroup"/>. Browser/Wasm is single-threaded, so both caches are
-/// deliberately lock-free.
+/// scope's <see cref="AssemblyContextGroup"/>. Browser/Wasm serializes cache access; the pending
+/// acquisition registry also guards selection against asynchronous completion observation.
 /// </para>
 /// <para>
 /// A workspace is keyed by its <em>complete</em> exact coordinate set, so the package surface, a
@@ -150,7 +150,7 @@ internal static class BrowserPackageWorkspace
     static readonly Dictionary<string, PackageDownloadReservation> Reservations =
         new(StringComparer.Ordinal);
     static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
-    static readonly Dictionary<PendingAcquisitionKey, Task<AcquiredPackageSourcePayload>>
+    static readonly Dictionary<PendingAcquisitionKey, BrowserSharedPackageAcquisition>
         PendingAcquisitions = [];
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
@@ -234,6 +234,17 @@ internal static class BrowserPackageWorkspace
         IPackageSourceClient source,
         PackageSourceIdentity configuredSourceIdentity,
         TimeSpan operationTimeout) =>
+        AcquireAsync(packageId, version, source, configuredSourceIdentity, operationTimeout,
+            CancellationToken.None, epochWork: null);
+
+    internal static Task<BrowserPackage> AcquireAsync(
+        string packageId,
+        string? version,
+        IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken,
+        BrowserManagedEpochWorkSource? epochWork) =>
         RunPackageOperationAsync(
             deadline => AcquireCoreAsync(
                 packageId,
@@ -241,8 +252,10 @@ internal static class BrowserPackageWorkspace
                 source,
                 configuredSourceIdentity,
                 deadline,
-                CancellationToken.None),
-            operationTimeout);
+                cancellationToken,
+                epochWork),
+            operationTimeout,
+            cancellationToken);
 
     static async Task<BrowserPackage> AcquireCoreAsync(
         string packageId,
@@ -250,7 +263,8 @@ internal static class BrowserPackageWorkspace
         IPackageSourceClient source,
         PackageSourceIdentity configuredSourceIdentity,
         BrowserPackageOperationDeadline deadline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BrowserManagedEpochWorkSource? epochWork = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         cancellationToken.ThrowIfCancellationRequested();
@@ -274,26 +288,30 @@ internal static class BrowserPackageWorkspace
         var pendingKey = new PendingAcquisitionKey(
             CoordinateKey(coordinate.PackageId, coordinate.Version),
             source);
-        if (!PendingAcquisitions.TryGetValue(
-                pendingKey,
-                out Task<AcquiredPackageSourcePayload>? pending))
+        BrowserSharedPackageAcquisition pending;
+        lock (PendingAcquisitions)
         {
-            pending = AcquirePayloadWithinOperationAsync(
-                coordinate,
-                source,
-                configuredSourceIdentity,
-                deadline.Remaining);
-            PendingAcquisitions.Add(pendingKey, pending);
-            ObserveAndRemovePendingAcquisition(pendingKey, pending);
+            if (PendingAcquisitions.TryGetValue(pendingKey, out var existing)
+                && !existing.IsCompleted)
+                pending = existing;
+            else
+            {
+                TimeSpan remaining = deadline.Remaining;
+                pending = new BrowserSharedPackageAcquisition(
+                    () => AcquirePayloadWithinOperationAsync(
+                        coordinate, source, configuredSourceIdentity, remaining),
+                    epochWork ?? BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition);
+                PendingAcquisitions[pendingKey] = pending;
+                ObserveAndRemovePendingAcquisition(pendingKey, pending);
+            }
         }
 
         using var waitCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 deadline.Token,
                 cancellationToken);
-        AcquiredPackageSourcePayload payload = await WaitForSharedAcquisitionAsync(
-            pending,
-            waitCancellation.Token).ConfigureAwait(false);
+        AcquiredPackageSourcePayload payload =
+            await pending.WaitAsync(waitCancellation.Token).ConfigureAwait(false);
 
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
             || !cached.ProducerKey.Equals(
@@ -1242,27 +1260,20 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    internal static Task<T> WaitForSharedAcquisitionAsync<T>(
-        Task<T> acquisition,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(acquisition);
-        return acquisition.WaitAsync(cancellationToken);
-    }
-
     static void ObserveAndRemovePendingAcquisition(
         PendingAcquisitionKey key,
-        Task<AcquiredPackageSourcePayload> acquisition)
+        BrowserSharedPackageAcquisition acquisition)
     {
-        _ = acquisition.ContinueWith(
+        _ = acquisition.Completion.ContinueWith(
             completed =>
             {
-                if (PendingAcquisitions.TryGetValue(
-                        key,
-                        out Task<AcquiredPackageSourcePayload>? current)
-                    && ReferenceEquals(current, completed))
+                lock (PendingAcquisitions)
                 {
-                    PendingAcquisitions.Remove(key);
+                    if (PendingAcquisitions.TryGetValue(key, out var current)
+                        && ReferenceEquals(current, acquisition))
+                    {
+                        PendingAcquisitions.Remove(key);
+                    }
                 }
 
                 _ = completed.Exception;

@@ -87,6 +87,8 @@ internal sealed class BrowserManagedSharedProducer<
         }
     }
 
+    internal bool IsCompleted => _completion.Task.IsCompleted;
+
     internal async Task<BrowserManagedOperationBodyResult<TValue, TError, TDiagnostic>>
         ObserveCompletionAsync()
     {
@@ -98,16 +100,18 @@ internal sealed class BrowserManagedSharedProducer<
     }
 
     internal Subscription Attach(IBrowserManagedOperationEvents<TEvent> events)
+        => TryAttach(events)
+            ?? throw new InvalidOperationException(
+                "The shared producer no longer accepts waiters after its final detach begins.");
+
+    internal Subscription? TryAttach(IBrowserManagedOperationEvents<TEvent>? events = null)
     {
         Subscription subscription;
         bool start;
         lock (_sync)
         {
             if (_closed)
-            {
-                throw new InvalidOperationException(
-                    "The shared producer no longer accepts waiters after its final detach begins.");
-            }
+                return null;
 
             subscription = new Subscription(this, events);
             _waiters.Add(subscription);
@@ -418,7 +422,7 @@ internal sealed class BrowserManagedSharedProducer<
 
         internal Subscription(
             BrowserManagedSharedProducer<TValue, TError, TDiagnostic, TEvent> owner,
-            IBrowserManagedOperationEvents<TEvent> events)
+            IBrowserManagedOperationEvents<TEvent>? events)
         {
             _owner = owner;
             _events = events;

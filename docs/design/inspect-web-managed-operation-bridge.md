@@ -530,9 +530,11 @@ The disposition is one of:
 The operation token cancels only `Await` and the waiter subscription. It is not
 the shared producer token. A producer may be canceled after the last waiter
 leaves only when its feature-owned policy permits that transition. Existing
-`BrowserPackageWorkspace.WaitForSharedAcquisitionAsync` behavior is migration
-evidence: `Task.WaitAsync(cancellationToken)` releases a canceled waiter while
-the shared acquisition task continues.
+`BrowserPackageWorkspace` formerly used a bare
+`Task.WaitAsync(cancellationToken)` that released a canceled waiter while the
+shared acquisition task continued. Its
+[package-acquisition adoption](#shared-package-acquisition-adoption) now
+supplies the required producer disposition.
 
 Detachment closes operation events before the broker can acknowledge release
 of the subscription. A broker never retains the raw JavaScript callback. It
@@ -588,8 +590,10 @@ operation also received cancellation. Classification preserves the original
 producer exception for feature diagnostics.
 
 Final detach seals this producer's waiter admission before invoking feature code.
-A feature broker must choose a new producer instance for later requests; key
-selection and cache-result reuse stay feature-owned. Events are scoped to current
+A feature broker must choose an accepting producer for a new attachment. It
+may instead observe an already-retained sealed producer's completion without
+reopening its waiter admission; sharing and result reuse stay feature-owned.
+Events are scoped to current
 attachments, with no bridge-owned replay of events emitted before attachment.
 `BrowserManagedSharedProducerTests` gates this restricted contract through the
 real managed bridge in Release, alongside the existing lifecycle tests.
@@ -875,6 +879,41 @@ The end-to-end Worker adoption scenario is
 [#5095](https://github.com/richlander/dotnet-inspect/issues/5095). This direct
 facade adoption does not move work off the DOM thread or establish a
 responsiveness or prompt physical-cancellation claim.
+
+### Shared package acquisition adoption
+
+`BrowserPackageWorkspace` consumes `BrowserManagedSharedProducer` for its
+existing shared payload acquisition. The key remains exact coordinate plus
+source-client reference; deadlines, cache publication, and natural producer
+completion remain acquisition-owner policy. This producer has no nonterminal
+events and no last-waiter stop policy. Operation IDs do not enter the cache.
+
+Without a registered epoch reporter, the last canceled waiter remains
+represented until physical acquisition finishes. Another waiter may leave
+independently. A late caller may await that sealed producer's completion,
+which is already retained by its final draining waiter, rather than start a
+duplicate download. This is a deliberate strengthening of physical release;
+logical Source cancellation remains immediate.
+
+With the registered reporter, final detachment consumes its opaque source
+and the existing lease/fault-record handoff. Later waiters reuse that same
+producer and lease. The registry independently observes completion, including
+producer finalization and lease release, before removing the pending entry.
+Registration is single-use: after unregister, acquisition cannot silently
+revert to the unregistered mode.
+
+`BrowserEngineBoundaryTests.AcquisitionLifetime.cs` gates the actual shared
+package path, canceled and healthy neighbors, final-detach reporting, later
+waiters, and reporting failures. The terminal-bounded cases and existing
+`BrowserManagedEpochWorkTests` cover retained completion and asynchronous
+finalization. These are Release engine cases; they do not claim Source Worker
+placement or DOM responsiveness.
+
+This supplies the shared-payload portion of step 4 of the shared-waiter
+adoption above and a prerequisite to #5420's typed Worker adapter. It serves
+all browser callers of the same acquisition registry. The five-milestone
+consumer plan in #5987 still requires typed bindings and one atomic production
+cutover; this slice changes neither runtime placement nor source rendering.
 
 ## Checked abstract model
 
