@@ -2,7 +2,6 @@ using DotnetInspector.Queries;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
-using NuGet.Versioning;
 
 namespace DotnetInspector.Inspectors;
 
@@ -11,135 +10,33 @@ internal sealed record PackageIntegrationAssembly(
     string? TargetFramework,
     string? ContextKey = null);
 
-internal sealed class PackageIntegrationAcquisition
-{
-    readonly string? _packageId;
-    readonly string? _packageVersion;
-
-    PackageIntegrationAcquisition(
-        string? packageId,
-        string? packageVersion)
-    {
-        _packageId = packageId;
-        _packageVersion = packageVersion;
-    }
-
-    internal static PackageIntegrationAcquisition Remote(
-        string packageId,
-        string packageVersion)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
-        return new PackageIntegrationAcquisition(
-            packageId.Trim(),
-            packageVersion.Trim());
-    }
-
-    internal static PackageIntegrationAcquisition Remote(
-        PackageExtractionResult resolution,
-        string fallbackPackageId,
-        string fallbackPackageVersion)
-    {
-        ArgumentNullException.ThrowIfNull(resolution);
-        return Remote(
-            resolution.PackageName ?? fallbackPackageId,
-            resolution.Version ?? fallbackPackageVersion);
-    }
-
-    internal static PackageIntegrationAcquisition Local(
-        string? packageId,
-        string? packageVersion)
-    {
-        string? normalizedId = NormalizePackageId(packageId);
-        string? normalizedVersion =
-            NuGetVersion.TryParse(packageVersion?.Trim(), out var parsed)
-                ? parsed.ToNormalizedString()
-                : null;
-        return normalizedId is not null && normalizedVersion is not null
-            ? new PackageIntegrationAcquisition(
-                normalizedId,
-                normalizedVersion)
-            : new PackageIntegrationAcquisition(null, null);
-    }
-
-    internal AssemblyResolutionProvenance CreateProvenance(
-        string? targetFramework) =>
-        _packageId is not null && _packageVersion is not null
-            ? AssemblyResolutionProvenance.Package(
-                _packageId,
-                _packageVersion,
-                targetFramework,
-                rid: null)
-            : AssemblyResolutionProvenance.Local(
-                "local package archive");
-
-    static string? NormalizePackageId(string? packageId)
-    {
-        string? candidate = packageId?.Trim();
-        if (candidate is not { Length: > 0 and <= 100 })
-            return null;
-
-        bool previousWasSeparator = false;
-        for (int index = 0; index < candidate.Length; index++)
-        {
-            char character = candidate[index];
-            bool asciiAlphaNumeric =
-                character is >= 'a' and <= 'z'
-                or >= 'A' and <= 'Z'
-                or >= '0' and <= '9';
-            bool word = asciiAlphaNumeric || character == '_';
-            bool separator = character is '.' or '-';
-            if (!word && !separator)
-            {
-                return null;
-            }
-
-            if (separator
-                && (index == 0
-                    || index == candidate.Length - 1
-                    || previousWasSeparator))
-            {
-                return null;
-            }
-
-            previousWasSeparator = separator;
-        }
-
-        return candidate;
-    }
-}
-
 /// <summary>
 /// Owns the binding-consistent package groups used by one all-library
 /// Integrations request.
 /// </summary>
-internal sealed class PackageIntegrationsWorkspace :
-    IDisposable,
-    IAsyncDisposable
+internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace;
-    readonly PackageAssemblyContextRealization? _packageRealization;
+    readonly IDisposable _realization;
     readonly Dictionary<string, ParticipantResult> _participants;
     readonly Dictionary<string, string> _preflightFailures;
+    readonly HashSet<string> _withoutAssembly = new(StringComparer.Ordinal);
     readonly bool _includeIntegrationOpportunities;
-    readonly bool _asynchronous;
 
     PackageIntegrationsWorkspace(
         InspectionWorkspace workspace,
-        PackageAssemblyContextRealization? packageRealization,
+        IDisposable realization,
         Dictionary<string, ParticipantResult> participants,
         Dictionary<string, string> preflightFailures,
         int contextGroupCount,
-        bool includeIntegrationOpportunities,
-        bool asynchronous)
+        bool includeIntegrationOpportunities)
     {
         _workspace = workspace;
-        _packageRealization = packageRealization;
+        _realization = realization;
         _participants = participants;
         _preflightFailures = preflightFailures;
         _includeIntegrationOpportunities =
             includeIntegrationOpportunities;
-        _asynchronous = asynchronous;
         ContextGroupCount = contextGroupCount;
     }
 
@@ -156,145 +53,75 @@ internal sealed class PackageIntegrationsWorkspace :
             .Distinct()
             .Sum(static group => group.RetainedImageBytes);
 
-    internal static PackageIntegrationsWorkspace Create(
+    internal static async ValueTask<PackageIntegrationsWorkspace> CreateSelectedAsync(
         IEnumerable<PackageIntegrationAssembly> assemblies,
-        string packageName,
-        string packageVersion,
-        bool includeIntegrationOpportunities = false) =>
-        Create(
-            assemblies,
-            PackageIntegrationAcquisition.Remote(
-                packageName,
-                packageVersion),
-            includeIntegrationOpportunities:
-                includeIntegrationOpportunities);
-
-    internal static PackageIntegrationsWorkspace Create(
-        IEnumerable<PackageIntegrationAssembly> assemblies,
-        PackageIntegrationAcquisition acquisition,
+        string extractionRoot,
+        PackageInspectionInput input,
         long? maxRetainedImageBytes = null,
-        bool includeIntegrationOpportunities = false)
+        bool includeIntegrationOpportunities = false,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
-        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentException.ThrowIfNullOrWhiteSpace(extractionRoot);
+        ArgumentNullException.ThrowIfNull(input);
 
-        var workspace = new InspectionWorkspace();
+        PackageIntegrationAssembly[] requested = [.. assemblies];
+        PackageInspectionSelection selection = input.SelectAssemblies(
+            requested.Select(assembly => new PackageInspectionAssembly(
+                Path.GetRelativePath(extractionRoot, Path.GetFullPath(assembly.Path))
+                    .Replace('\\', '/'),
+                assembly.TargetFramework,
+                assembly.ContextKey)));
+        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
         try
         {
-            var results = new Dictionary<string, ParticipantResult>(
-                StringComparer.Ordinal);
-            var preflightFailures = new Dictionary<string, string>(
-                StringComparer.Ordinal);
-            int contextGroupCount = 0;
-            foreach (IGrouping<string, PackageIntegrationAssembly> context
-                in assemblies.GroupBy(
-                    static assembly =>
-                        assembly.ContextKey
-                        ?? assembly.TargetFramework
-                        ?? "",
-                    StringComparer.OrdinalIgnoreCase))
+            PackageInspectionAssemblyContext realization =
+                await workspace.RealizePackageInspectionAsync(
+                    selection,
+                    references => new SourceRelativeAssemblyGroupBindingPolicy(
+                        references.Select(reference =>
+                            (reference.Assembly,
+                                (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
+                                    new AssemblyDependencyResolutionOptions(
+                                        Path.Combine(extractionRoot, reference.Selection.Path))
+                                    {
+                                        TargetFramework = reference.Selection.TargetFramework,
+                                    })))),
+                    groupOptions: maxRetainedImageBytes is long maxBytes
+                        ? new AssemblyContextGroupOptions { MaxRetainedImageBytes = maxBytes }
+                        : null,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            var results = new Dictionary<string, ParticipantResult>(StringComparer.Ordinal);
+            var failures = new Dictionary<string, string>(StringComparer.Ordinal);
+            var withoutAssembly = new List<string>();
+            for (int index = 0; index < requested.Length; index++)
             {
-                List<Root> roots = [];
-                foreach (PackageIntegrationAssembly assembly in context)
+                string path = Path.GetFullPath(requested[index].Path);
+                switch (realization.Assemblies[index])
                 {
-                    var provenance = acquisition.CreateProvenance(
-                        assembly.TargetFramework);
-                    ResolvedAssemblyReference? reference;
-                    try
-                    {
-                        reference =
-                            ResolvedAssemblyReference
-                                .CreateFromPathIfManaged(
-                                    assembly.Path,
-                                    provenance);
-                    }
-                    catch (Exception ex) when (
-                        ex is BadImageFormatException
-                            or ArgumentOutOfRangeException
-                            or OverflowException)
-                    {
-                        preflightFailures.Add(
-                            Path.GetFullPath(assembly.Path),
-                            "The selected image contains invalid metadata.");
-                        continue;
-                    }
-                    catch (Exception ex) when (
-                        ex is IOException
-                            or UnauthorizedAccessException
-                            or NotSupportedException
-                            or ObjectDisposedException)
-                    {
-                        preflightFailures.Add(
-                            Path.GetFullPath(assembly.Path),
-                            "The selected image could not be read.");
-                        continue;
-                    }
-
-                    if (reference is null)
-                        continue;
-
-                    var policy = new AssemblyDependencyResolver(
-                        new AssemblyDependencyResolutionOptions(
-                            reference.Path!)
-                        {
-                            TargetFramework =
-                                assembly.TargetFramework,
-                        });
-                    roots.Add(new Root(assembly, reference, policy));
+                    case PackageInspectionAssemblyOutcome.Available available:
+                        results.Add(path, new ParticipantResult(
+                            available.Group, available.Participant,
+                            available.Group, available.Participant));
+                        break;
+                    case PackageInspectionAssemblyOutcome.Unavailable unavailable:
+                        failures.Add(path, unavailable.Reason);
+                        break;
+                    case PackageInspectionAssemblyOutcome.WithoutAssembly:
+                        withoutAssembly.Add(path);
+                        break;
                 }
-
-                if (roots.Count == 0)
-                    continue;
-
-                var groupPolicy =
-                    new SourceRelativeAssemblyGroupBindingPolicy(
-                        roots.Select(static root =>
-                            (root.Reference,
-                                (IAssemblyBindingPolicy)root.Policy)));
-                List<AssemblyContextParticipant> participants =
-                [
-                    .. roots.Select(root =>
-                        new AssemblyContextParticipant(
-                            root.Reference,
-                            groupPolicy)),
-                ];
-                AssemblyContextGroup group =
-                    workspace.CreateAssemblyContextGroup(
-                        participants,
-                        maxRetainedImageBytes is long maxBytes
-                            ? new AssemblyContextGroupOptions
-                            {
-                                MaxRetainedImageBytes = maxBytes,
-                            }
-                            : null);
-
-                for (int index = 0; index < roots.Count; index++)
-                {
-                    Root root = roots[index];
-                    results.Add(
-                        Path.GetFullPath(root.Input.Path),
-                        new ParticipantResult(
-                            group,
-                            participants[index],
-                            group,
-                            participants[index]));
-                }
-
-                contextGroupCount++;
             }
 
-            return new PackageIntegrationsWorkspace(
-                workspace,
-                packageRealization: null,
-                results,
-                preflightFailures,
-                contextGroupCount,
-                includeIntegrationOpportunities,
-                asynchronous: false);
+            var result = new PackageIntegrationsWorkspace(
+                workspace, realization, results, failures,
+                realization.Groups.Length, includeIntegrationOpportunities);
+            result._withoutAssembly.UnionWith(withoutAssembly);
+            return result;
         }
-        catch
+        catch (Exception failure)
         {
-            workspace.Dispose();
+            await CloseAfterFailureAsync(workspace, failure).ConfigureAwait(false);
             throw;
         }
     }
@@ -340,8 +167,7 @@ internal sealed class PackageIntegrationsWorkspace :
                     results,
                     preflightFailures,
                     contextGroupCount: 0,
-                    includeIntegrationOpportunities,
-                    asynchronous: true);
+                    includeIntegrationOpportunities);
             }
 
             Dictionary<string, ParticipantResult> roles =
@@ -382,22 +208,11 @@ internal sealed class PackageIntegrationsWorkspace :
                 results,
                 preflightFailures,
                 contextGroupCount,
-                includeIntegrationOpportunities,
-                asynchronous: true);
+                includeIntegrationOpportunities);
         }
         catch (Exception failure)
         {
-            try
-            {
-                await workspace.CloseAsync().ConfigureAwait(false);
-            }
-            catch (Exception cleanupFailure)
-            {
-                throw new AggregateException(
-                    failure,
-                    cleanupFailure);
-            }
-
+            await CloseAfterFailureAsync(workspace, failure).ConfigureAwait(false);
             throw;
         }
     }
@@ -436,7 +251,9 @@ internal sealed class PackageIntegrationsWorkspace :
                     cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (PackageAssemblyRoleCorrespondenceException)
+        catch (PackageAssemblyRoleCorrespondenceException failure) when (
+            !failure.Data.Contains("DotnetInspector.Artifacts.Workspaces.CleanupFailures")
+            && !failure.Data.Contains("DotnetInspector.Queries.WorkspaceCleanupFailure"))
         {
             return null;
         }
@@ -593,29 +410,15 @@ internal sealed class PackageIntegrationsWorkspace :
         return false;
     }
 
-    public void Dispose()
-    {
-        if (_asynchronous)
-        {
-            throw new InvalidOperationException(
-                "An artifact-backed package Integrations workspace must be disposed asynchronously.");
-        }
-
-        _workspace.Dispose();
-    }
+    internal bool HasNoAssembly(string path) =>
+        _withoutAssembly.Contains(Path.GetFullPath(path));
 
     public async ValueTask DisposeAsync()
     {
-        if (!_asynchronous)
-        {
-            Dispose();
-            return;
-        }
-
         List<Exception>? failures = null;
         try
         {
-            _packageRealization!.Dispose();
+            _realization.Dispose();
         }
         catch (Exception failure)
         {
@@ -643,10 +446,23 @@ internal sealed class PackageIntegrationsWorkspace :
         }
     }
 
-    sealed record Root(
-        PackageIntegrationAssembly Input,
-        ResolvedAssemblyReference Reference,
-        AssemblyDependencyResolver Policy);
+    static async Task CloseAfterFailureAsync(
+        InspectionWorkspace workspace,
+        Exception failure)
+    {
+        try
+        {
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+                failure.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
+                    report.ArtifactSessionCleanupFailures;
+        }
+        catch (Exception cleanupFailure)
+        {
+            failure.Data["DotnetInspector.Queries.WorkspaceCleanupFailure"] = cleanupFailure;
+        }
+    }
 
     sealed record ParticipantResult(
         AssemblyContextGroup SelectedGroup,

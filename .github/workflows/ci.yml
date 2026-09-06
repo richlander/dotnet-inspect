@@ -673,7 +673,7 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
-        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
 
       - name: Run ecosystem consumer tests
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release

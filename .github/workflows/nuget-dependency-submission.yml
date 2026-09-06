@@ -1,0 +1,47 @@
+name: NuGet dependency submission
+
+on:
+  schedule:
+    - cron: '43 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Restore the dependency roots configured in Dependabot
+        run: |
+          dotnet --list-sdks
+          dotnet --version
+          dotnet restore dotnet-inspect.slnx -p:Configuration=Release
+          dotnet restore eng/CiChangeDetection/CiChangeDetection.csproj -p:Configuration=Release
+          dotnet restore prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj -p:Configuration=Release
+
+      - name: Submit the resolved NuGet graph
+        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
+        with:
+          detectorsCategories: NuGet
+          correlator: nuget-explicit-restore
+
+      - name: Preserve the detector report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-dependency-detection
+          path: output.json
+          if-no-files-found: ignore
+          retention-days: 14

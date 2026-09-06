@@ -416,10 +416,8 @@ diff evidence:
 - `Unavailable` retains the endpoint's `Absent` or `Failed` inspection, identity
   failure, or decompilation/diff failure reason.
 
-This target arbiter is **unverified** until
-`CSharpRoundTripChangedRejectsFailureRows` runs in Release. The shipping
-round-trip envelope currently maps any non-exact diff with complete endpoint
-inspections to `Changed`, including a diff whose only rows are failures.
+`CSharpRoundTripChangedRejectsFailureRows` gates producer failure rows and
+identity failures, both alone and alongside change rows, in Release.
 
 This precondition is deliberate: `CSharpBodyDiffResult.IsExact` alone is not the
 arbiter because an empty native diff can also arise when a body fingerprint is
@@ -428,6 +426,36 @@ and preserves all producer-owned rows and failures.
 
 C# equality is useful for spelling and decompiler stability. It does not prove
 that authored source, reconstructed source, or compiled behavior is equivalent.
+
+### Comparison query consumption
+
+`DotnetInspector.RoundTripCompilation` owns this consumer envelope.
+`RoundTripComparison` and `RoundTripScopeComparison` consume the public
+`DirectMemberComparisonQuery` for each pair admitted by their existing
+correspondence and context checks. The
+[direct-member contract](direct-member-comparison.md) supplies exact input
+association; [local publication](local-comparison-publication.md) supplies
+terminal and native evidence. Neither dependency establishes donor
+correspondence or a harness fidelity verdict.
+
+The tools retain the exact `LocalComparisonQueryResult` in the non-serialized
+`Evidence` property. Their materialized rows and independent C#/IL statuses
+come from its native outcomes. Query-origin non-success, non-completed Research
+execution, and unavailable producer evidence stay unavailable, with the
+owner-issued result retained. They do not become an exact or changed result
+because rows are absent. Endpoint inspections are consumed from that result,
+not repeated by the tool.
+
+Original-to-donor correspondence and hashes, compilation-context eligibility,
+and the separate direct cluster-to-all comparison remain required.
+`RoundTripComparisonTests` gates exact and changed pairs, bodyless and malformed
+body evidence, failed correspondence, query designation rejection, retained
+physical addresses and native rows, and direct donor-pair association in
+Release. This is the focused two-helper adoption slice of
+[#6134](https://github.com/richlander/dotnet-inspect/issues/6134), within
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706) step 10.
+ReturnToSender's separate comparison path and fidelity oracle, supported Source
+composition, and final Research retirement are not changed by this adoption.
 
 ### IL arbiter
 

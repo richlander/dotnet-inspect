@@ -1183,7 +1183,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                 Assert.Single(result.Assemblies))
             .Value;
 
-    static byte[] BuildPartialSurfaceImage(int cyclicTypeCount = 1)
+    // Internal (not private) so AssemblyContextApiComparisonQueryTests can reuse this synthetic
+    // partial-surface image instead of duplicating this builder.
+    internal static byte[] BuildPartialSurfaceImage(int cyclicTypeCount = 1)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

@@ -186,7 +186,7 @@ this update. These are outcomes, not a promise of eight PRs:
 | 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Complete: #5967 |
 | 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Complete: #5990 |
 | 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | #6044 retires the unconsumed body-signal population profile |
-| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining; retained tool/Source callers and #5125 still constrain deletion |
+| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining; retained tool/Source callers still constrain deletion; #5125 identity cleanup landed in #6099 |
 
 Each host path contains **5 milestones, all complete**:
 1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
@@ -219,11 +219,17 @@ implementation profile consumed by both hosts. Existing body-signal and
 whole-assembly query input/result shapes still serve `DiffCommand` and
 `DiffSections`, so they remain until their actual callers migrate.
 
-Research `CompareMembers` still serves `ReturnToSender`, both round-trip
-comparison helpers, and the supported PDB-source composition. Native result
+The two `RoundTripCompilation` helpers now consume the public query and its
+retained native outcomes (#6134). Their tools-owned
+[consumer envelope](csharp-member-recompilation.md#comparison-query-consumption)
+preserves correspondence, hashes, context checks, and independent verdicts.
+
+Research `CompareMembers` still serves `ReturnToSender` and the supported
+PDB-source composition. Native result
 translations still serve CLI or harness presentation. These are retained
-caller obligations, not unused placeholders; #5125 remains the focused
-Research body-index association retirement issue.
+caller obligations, not unused placeholders. The focused Research body-index
+association cleanup #5125 landed in #6099; neither that cleanup nor this
+two-helper migration completes broader retirement.
 
 ### Broader migration snapshot
 
@@ -247,12 +253,12 @@ and deletion commits to the tracker.
 | Current consumer or surface | Adoption milestone | Replacement and retirement condition |
 | --- | --- | --- |
 | `MatchCommand.BuildImplementationDiffView` | CLI step 8 after adapter step 6 | Consume the public direct-member query; remove its direct `ImplementationDiff.CompareMembers` call and type-satisfying synthetic `ResearchComparison` wrapper when the presentation consumer moves. Preserve the separate structural-match verdict. |
-| `RoundTripComparison.Compare` and `RoundTripScopeComparison.Compare` | Comparison tools step 10 | Consume the public query and retained native outcomes; remove direct Research dispatch and redundant `CSharpFindings.Inspect` calls. Preserve product-issued original/donor correspondence, hashes, and independent harness verdicts. |
+| `RoundTripComparison.Compare` and `RoundTripScopeComparison.Compare` | Comparison tools step 10, two-helper slice implemented in #6134 | Consume the public query and retained native outcomes; remove direct Research dispatch and redundant `CSharpFindings.Inspect` calls. Preserve product-issued original/donor correspondence, hashes, and independent harness verdicts. |
 | `ReturnToSender.BuildImplementationDiff`, including `AuthoredRebuildFidelity` | Comparison tools step 10 | Migrate every helper caller and its result consumption; remove replaced dispatch and obsolete nullable-result translation. Do not alter compilation, repair generated C#, or replace the harness oracle. |
 | Browser managed facade and explicit two-member workspace comparison | Browser step 9, coordinated with #5083 | Expose the same public query as observable browser behavior. Inventory actual routes then; this plan does not invent a currently existing legacy browser caller. Remove a replaced route if one exists. |
 | `ImplementationComparisonQuery.Execute`, `DiffCommand`, and `DiffSections` assembly-wide paths | Steps 7-9; Source tail 13-15 | Separate from rank 5. Their public execution and result/output adoption precede final shared-shape retirement. |
 | `ImplementationDiff.CompareMembersWithPdbSource` | Source steps 12-15 and Research retirement step 17 | Its call to `CompareMembers` is an explicit deletion blocker even if its present direct callers are tests. Migrate its supported Source composition or record an explicit owner/user decision to remove that behavior; do not keep a hidden legacy C#/IL route. |
-| `ImplementationDiff.CompareMembers`, dependent legacy member-result shapes, and independent old/new query forms | Queries step 16 and Research step 17 | Delete superseded orchestration and shapes after the refreshed caller inventory, including Source and tests, has a disposition. Preserve only APIs justified by a current owner-local contract. Reconcile #5125 separately rather than closing it because a replacement exists. |
+| `ImplementationDiff.CompareMembers`, dependent legacy member-result shapes, and independent old/new query forms | Queries step 16 and Research step 17 | Delete superseded orchestration and shapes after the refreshed caller inventory, including Source and tests, has a disposition. Preserve only APIs justified by a current owner-local contract. #5125 was reconciled independently by the identity cleanup in #6099. |
 
 Native `CSharpBodyDiff`, `IlAssemblyDiff`, Findings payloads, and useful aligned
 hunks are not deletion targets merely because they are below Queries.

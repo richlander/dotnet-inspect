@@ -102,7 +102,6 @@
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
-    <Project Path="src/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
@@ -158,6 +157,7 @@
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />

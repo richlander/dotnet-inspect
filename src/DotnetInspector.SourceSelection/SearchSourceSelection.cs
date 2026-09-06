@@ -1,5 +1,3 @@
-using DotnetInspector.Packages;
-
 namespace DotnetInspector.SourceSelection;
 
 public enum SearchPlatformFramework
@@ -15,7 +13,7 @@ public sealed class SearchSourceSelection
         SourceIntent intent,
         bool usesImplicitPlatform,
         SearchPlatformFramework[] frameworks,
-        PackageCoordinate[] packages,
+        SourceSelector.PackageSource[] packages,
         SourceSelector[] otherSources)
     {
         Intent = intent;
@@ -28,6 +26,6 @@ public sealed class SearchSourceSelection
     public SourceIntent Intent { get; }
     public bool UsesImplicitPlatform { get; }
     public IReadOnlyList<SearchPlatformFramework> Frameworks { get; }
-    public IReadOnlyList<PackageCoordinate> Packages { get; }
+    public IReadOnlyList<SourceSelector.PackageSource> Packages { get; }
     public IReadOnlyList<SourceSelector> OtherSources { get; }
 }

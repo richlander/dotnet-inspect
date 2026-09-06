@@ -17,7 +17,6 @@
     <RootNamespace></RootNamespace>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- EnablePreviewFeatures (repo root) sets LangVersion=Preview, which vbc rejects. -->
     <LangVersion>latest</LangVersion>
     <EnablePreviewFeatures>false</EnablePreviewFeatures>

@@ -106,47 +106,36 @@ public sealed partial class InspectionWorkspace
         PackageAssemblyContextRealization? realization = null;
         try
         {
-            ImmutableArray<AcquiredRoleArtifact> acquired =
-                await AcquirePackageArtifactsAsync(
+            PackageArtifactPublication publication =
+                await PublishPackageArtifactsAsync(
                         session,
-                        package,
-                        artifacts,
-                        preparation.Options,
+                        [.. artifacts.Select(artifact =>
+                            new PackageArtifactSource(
+                                new PackageAssemblyArtifactProvenance(
+                                    package.Coordinate,
+                                    package.ContentGenerationIdentity,
+                                    package.SelectionIdentity,
+                                    artifact.Asset),
+                                token => OpenEntry(
+                                    artifact,
+                                    preparation.Options.MaxAssemblyEntryBytes,
+                                    token)))],
                         cancellationToken)
                     .ConfigureAwait(false);
-            var admissionByArtifact =
-                new Dictionary<ArtifactIdentity, ArtifactAssemblyProjectionOutcome>();
-            ArtifactSetPublicationOutcome publication =
-                await session.SealWithProjectionAsync(
-                        (view, token) =>
-                        {
-                            admissionByArtifact.Add(
-                                view.Artifact,
-                                ArtifactAssemblyInspection.Project(view, token));
-                            // Non-projectable images still publish as compatibility carriers.
-                            return null;
-                        },
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            if (publication
-                is ArtifactSetPublicationOutcome.NotPublished rejected)
+            if (publication.Rejection is { } rejected)
             {
                 throw PublicationFailure(rejected);
             }
 
-            ArtifactQueryAuthorization authorization =
-                session.CreateQueryAuthorization();
-            queryLease = session.IssueLease(authorization);
-            Dictionary<RoleAsset, ArtifactContentReference> contentByAsset =
-                PublishedContentByAsset(
-                    session,
-                    queryLease,
-                    acquired);
+            queryLease = publication.Lease!;
+            var contentByAsset = new Dictionary<RoleAsset, ProjectedPackageArtifact>(
+                RoleAssetIdentityComparer.Instance);
+            for (int index = 0; index < artifacts.Length; index++)
+                contentByAsset.Add(artifacts[index], publication.Artifacts[index]);
             ImmutableArray<RoleAssembly> surfaceRole =
                 CreateArtifactRole(
                     preparation.SurfaceAssets,
                     contentByAsset,
-                    admissionByArtifact,
                     cancellationToken);
             ImmutableArray<RoleAssembly> implementationRole =
                 preparation.Shared
@@ -154,7 +143,6 @@ public sealed partial class InspectionWorkspace
                     : CreateArtifactRole(
                         preparation.ImplementationAssets,
                         contentByAsset,
-                        admissionByArtifact,
                         cancellationToken);
             realization = CreatePackageAssemblyContextRealization(
                 preparation,
@@ -163,7 +151,7 @@ public sealed partial class InspectionWorkspace
                 cancellationToken,
                 provisional);
             return new ArtifactPackageRootResources(
-                realization, session, queryLease, authorization);
+                realization, session, queryLease, publication.Authorization);
         }
         catch (Exception failure)
         {
@@ -253,80 +241,75 @@ public sealed partial class InspectionWorkspace
         };
     }
 
-    static async ValueTask<ImmutableArray<AcquiredRoleArtifact>>
-        AcquirePackageArtifactsAsync(
+    static async ValueTask<PackageArtifactPublication>
+        PublishPackageArtifactsAsync(
             ArtifactSetSession session,
-            PackageRootBinding package,
-            ImmutableArray<RoleAsset> artifacts,
-            PackageAssemblyContextRealizationOptions options,
+            ImmutableArray<PackageArtifactSource> artifacts,
             CancellationToken cancellationToken)
     {
-        ImmutableArray<AcquiredRoleArtifact> acquired = [];
+        ImmutableArray<ArtifactContribution> acquired = [];
         await session.AddRequiredAcquisitionAsync(
                 (scope, generationEnd) =>
                 {
                     var result =
-                        ImmutableArray.CreateBuilder<AcquiredRoleArtifact>(
+                        ImmutableArray.CreateBuilder<ArtifactContribution>(
                             artifacts.Length);
-                    foreach (RoleAsset artifact in artifacts)
+                    foreach (PackageArtifactSource artifact in artifacts)
                     {
                         generationEnd.ThrowIfCancellationRequested();
-                        var provenance =
-                            new PackageAssemblyArtifactProvenance(
-                                package.Coordinate,
-                                package.ContentGenerationIdentity,
-                                package.SelectionIdentity,
-                                artifact.Asset);
-                        ArtifactContribution contribution = scope.Register(
-                            provenance,
-                            token => OpenEntry(
-                                artifact,
-                                options.MaxAssemblyEntryBytes,
-                                token),
-                            kind: "package-assembly");
-                        result.Add(new AcquiredRoleArtifact(
-                            artifact,
-                            contribution));
+                        result.Add(scope.Register(
+                            artifact.Provenance,
+                            artifact.OpenRead,
+                            kind: "package-assembly"));
                     }
 
                     acquired = result.MoveToImmutable();
                     return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                         new ArtifactAcquisitionOutcome.Acquired(
-                            acquired.Select(entry => entry.Contribution),
+                            acquired,
                             ArtifactAcquisitionLeases.None));
                 },
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        return acquired;
-    }
+        var admissions =
+            new Dictionary<ArtifactIdentity, ArtifactAssemblyProjectionOutcome>();
+        ArtifactSetPublicationOutcome publication =
+            await session.SealWithProjectionAsync(
+                (view, token) =>
+                {
+                    admissions.Add(
+                        view.Artifact,
+                        ArtifactAssemblyInspection.Project(view, token));
+                    // Non-projectable images still publish as compatibility carriers.
+                    return null;
+                },
+                cancellationToken).ConfigureAwait(false);
+        if (publication is ArtifactSetPublicationOutcome.NotPublished rejected)
+            return new PackageArtifactPublication(null, null, [], rejected);
 
-    static Dictionary<RoleAsset, ArtifactContentReference>
-        PublishedContentByAsset(
-            ArtifactSetSession session,
-            ArtifactQueryLease queryLease,
-            ImmutableArray<AcquiredRoleArtifact> acquired)
-    {
-        var result = new Dictionary<RoleAsset, ArtifactContentReference>(
-            acquired.Length,
-            RoleAssetIdentityComparer.Instance);
-        foreach (AcquiredRoleArtifact artifact in acquired)
+        ArtifactQueryAuthorization authorization = session.CreateQueryAuthorization();
+        ArtifactQueryLease lease = session.IssueLease(authorization);
+        try
         {
-            result.Add(
-                artifact.Asset,
-                session.GetContentReference(
-                    artifact.Contribution.Descriptor.Identity,
-                    queryLease));
+            return new PackageArtifactPublication(
+                authorization,
+                lease,
+                [.. acquired.Select(artifact => new ProjectedPackageArtifact(
+                    session.GetContentReference(artifact.Descriptor.Identity, lease),
+                    admissions[artifact.Descriptor.Identity]))],
+                null);
         }
-
-        return result;
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
     }
 
     static ImmutableArray<RoleAssembly> CreateArtifactRole(
         ImmutableArray<RoleAsset> assets,
-        IReadOnlyDictionary<RoleAsset, ArtifactContentReference>
+        IReadOnlyDictionary<RoleAsset, ProjectedPackageArtifact>
             contentByAsset,
-        IReadOnlyDictionary<ArtifactIdentity, ArtifactAssemblyProjectionOutcome>
-            admissionByArtifact,
         CancellationToken cancellationToken)
     {
         var result =
@@ -335,40 +318,44 @@ public sealed partial class InspectionWorkspace
         {
             cancellationToken.ThrowIfCancellationRequested();
             RoleAsset asset = assets[index];
-            ArtifactContentReference content = contentByAsset[asset];
-            ResolvedAssemblyReference assembly;
-            bool usedFallbackIdentity;
-            if (admissionByArtifact[content.Registration.Artifact]
-                is ArtifactAssemblyProjectionOutcome.Projected projected
-                && !string.IsNullOrWhiteSpace(projected.Value.Identity.Name))
-            {
-                assembly = ResolvedAssemblyReference.CreateFromArtifactProjection(
-                    content.Registration,
-                    projected.Value,
-                    content.OpenRead,
-                    PackageProvenance(asset));
-                usedFallbackIdentity = false;
-            }
-            else
-            {
-                // Compatibility carriers can retain partially decoded identity,
-                // including an assembly name whose MVID was empty or unreadable.
-                assembly = ResolvedAssemblyReference.CreateFromArtifactWithFallbackIdentity(
-                    content.Registration,
-                    content.OpenRead,
-                    RejectionCarrierIdentity(index),
-                    PackageProvenance(asset),
-                    out usedFallbackIdentity);
-            }
+            ResolvedAssemblyReference assembly = CreatePackageArtifactAssembly(
+                contentByAsset[asset],
+                PackageProvenance(asset),
+                index,
+                out bool identityDecoded);
             result.Add(new RoleAssembly(
                 asset.PackageIndex,
                 asset.Package,
                 asset.Asset,
                 assembly,
-                IdentityDecoded: !usedFallbackIdentity));
+                identityDecoded));
         }
 
         return result.MoveToImmutable();
+    }
+
+    static ResolvedAssemblyReference CreatePackageArtifactAssembly(
+        ProjectedPackageArtifact artifact,
+        AssemblyResolutionProvenance provenance,
+        int index,
+        out bool identityDecoded)
+    {
+        ArtifactContentReference content = artifact.Content;
+        if (artifact.Projection is ArtifactAssemblyProjectionOutcome.Projected projected
+            && !string.IsNullOrWhiteSpace(projected.Value.Identity.Name))
+        {
+            identityDecoded = true;
+            return ResolvedAssemblyReference.CreateFromArtifactProjection(
+                content.Registration, projected.Value, content.OpenRead, provenance);
+        }
+
+        // Preserve partially decoded identity as well as Metadata's rejection carrier.
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromArtifactWithFallbackIdentity(
+                content.Registration, content.OpenRead, RejectionCarrierIdentity(index),
+                provenance, out bool usedFallbackIdentity);
+        identityDecoded = !usedFallbackIdentity;
+        return assembly;
     }
 
     static ImmutableArray<RoleAsset> DistinctSelectedAssets(
@@ -421,7 +408,7 @@ public sealed partial class InspectionWorkspace
     }
 
     static async ValueTask CleanupFailedArtifactRealizationAsync(
-        PackageAssemblyContextRealization? realization,
+        IDisposable? realization,
         ArtifactQueryLease? queryLease,
         ArtifactSetSession session,
         Exception primary)
@@ -457,15 +444,29 @@ public sealed partial class InspectionWorkspace
         failures.AddRange(session.CleanupFailures);
         if (failures.Count > 0)
         {
+            if (primary.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]
+                is IEnumerable<Exception> previous)
+                failures.InsertRange(0, previous);
             primary.Data[
                 "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
                 failures.AsReadOnly();
         }
     }
 
-    sealed record AcquiredRoleArtifact(
-        RoleAsset Asset,
-        ArtifactContribution Contribution);
+    sealed record PackageArtifactSource(
+        IArtifactProvenance Provenance,
+        Func<CancellationToken, Stream> OpenRead);
+
+    sealed record ProjectedPackageArtifact(
+        ArtifactContentReference Content,
+        ArtifactAssemblyProjectionOutcome Projection);
+
+    sealed record PackageArtifactPublication(
+        ArtifactQueryAuthorization? Authorization,
+        ArtifactQueryLease? Lease,
+        ImmutableArray<ProjectedPackageArtifact> Artifacts,
+        ArtifactSetPublicationOutcome.NotPublished? Rejection);
 
     readonly record struct ArtifactBackedBudgets(
         long ArtifactBudget,

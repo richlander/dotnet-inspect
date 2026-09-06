@@ -28,6 +28,40 @@ the production release does not yet contain. Do not cite the production tool as
 evidence for worktree behavior, and do not pay the source-build startup cost for
 routine development queries that the production tool can answer.
 
+## Build warnings and dependency auditing
+
+Warnings-as-errors is the repository default for normal builds and tests. A
+test may suppress a specific diagnostic only when its intended input cannot be
+produced with that diagnostic enabled; document the reason at the suppression.
+Prefer that narrow exception to disabling warnings-as-errors for a project.
+
+`NU1507` (multiple package sources without source mapping under central package
+management) stays enabled and is an error. Configure package-source mapping or
+use an explicit source for the restore; do not hide it with `NoWarn`.
+
+NuGet Audit is different: vulnerability advisories can change without a source
+change. It is off for ordinary local, PR, and release builds. The separate
+`nuget-audit-scheduled.yml` workflow runs nightly at 05:37 UTC and supports manual
+reruns. It audits direct and transitive dependencies at every severity; findings
+fail that workflow rather than `ci-required`.
+
+The audit restores the solution and the separately hosted inspect-web engine
+tests, MSDL proxy tests, and IL round-trip tests, including each root's project
+references. It audits the tooling's restored dependencies, not the package
+contents acquired as inspection or corpus inputs. Standalone projects outside
+those restore graphs are not covered by this scheduled audit.
+
+To reproduce one audit root locally:
+
+```bash
+dotnet restore dotnet-inspect.slnx --force-evaluate \
+  -p:Configuration=Release -p:NuGetAudit=true \
+  -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
+```
+
+The root build properties own these defaults. Corpus scripts and test launchers
+inherit them instead of supplying their own warning or audit overrides.
+
 ## Package acquisition when nuget.org is disabled
 
 If a machine-level proxy lacks an exact pinned version and restore reports
@@ -47,7 +81,9 @@ dotnet tool install -g dotnet-inspect --source https://api.nuget.org/v3/index.js
 dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
 ```
 
-## Text-library tests
+## Additional library suites
+
+### Text-library tests
 
 Run the complete text-library suites from the repository root:
 
@@ -60,6 +96,20 @@ Both are xUnit in-process executables. Their source lives under `tests/`, while
 their built outputs remain under `artifacts/`. The in-process corpus data stays
 with its test host; it is not an independently compiled inspected fixture.
 See [repository layout](fixture-governance.md#repository-layout).
+
+### Ecosystem tests
+
+Run both the dedicated catalog suite and the separate public consumer suite:
+
+```bash
+dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
+dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+```
+
+Both are xUnit in-process executables. Keep the consumer project separately
+compiled without friend access; only the dedicated catalog suite is an assembly
+friend. See the [ecosystem boundary](design/ecosystem-packs.md#dependency-boundary) and
+[package-set registry gates](design/package-set-registry.md#required-gates).
 
 ## Test tooling activation
 
