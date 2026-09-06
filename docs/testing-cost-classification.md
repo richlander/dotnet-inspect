@@ -75,6 +75,10 @@ public void SomeExpensiveTheory(string assemblyName)
   — a newly tagged test is automatically excluded.
 - `deep-inspect.yml`'s nightly `dotnet-inspect.Tests` step runs fully
   unfiltered — a newly tagged test automatically keeps running nightly.
+- The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
+  selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
+  its full suite, including the pinned custom-attribute package gate, and
+  retains that gate's per-platform evidence report.
 - The decompiler suite uses the same trait, but its native xUnit console
   runner takes a different flag spelling than the CLI suite's Microsoft
   Testing Platform runner: `dotnet run --project

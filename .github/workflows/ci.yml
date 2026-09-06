@@ -700,7 +700,7 @@ jobs:
         run: dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
 
       - name: Run metadata tests
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run fixture catalog tests
         run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
