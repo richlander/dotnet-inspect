@@ -10,7 +10,7 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Services.Tests;
 
 [Collection(ManifestPathEnvironmentCollection.Name)]
-public class AssemblyDependencyResolverTests
+public partial class AssemblyDependencyResolverTests
 {
     [Fact]
     public void ResolveAll_DepsJsonLocalPathCannotEscapeTargetDirectory()
@@ -3045,7 +3045,8 @@ public class AssemblyDependencyResolverTests
         byte[] publicKey,
         Version? version = null,
         string? culture = null,
-        IReadOnlyList<string>? assemblyReferences = null)
+        IReadOnlyList<string>? assemblyReferences = null,
+        bool isModule = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -3054,15 +3055,16 @@ public class AssemblyDependencyResolverTests
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
             encId: default,
             encBaseId: default);
-        metadata.AddAssembly(
-            metadata.GetOrAddString(assemblyName),
-            version ?? new Version(1, 0, 0, 0),
-            culture is null
-                ? default
-                : metadata.GetOrAddString(culture),
-            publicKey: metadata.GetOrAddBlob(publicKey),
-            flags: AssemblyFlags.PublicKey,
-            hashAlgorithm: default);
+        if (!isModule)
+            metadata.AddAssembly(
+                metadata.GetOrAddString(assemblyName),
+                version ?? new Version(1, 0, 0, 0),
+                culture is null
+                    ? default
+                    : metadata.GetOrAddString(culture),
+                publicKey: metadata.GetOrAddBlob(publicKey),
+                flags: AssemblyFlags.PublicKey,
+                hashAlgorithm: default);
         metadata.AddTypeDefinition(
             default,
             default,

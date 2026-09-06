@@ -91,10 +91,7 @@ public static class NuspecParser
         XElement root = doc.Root
             ?? throw new InvalidDataException(
                 "The package manifest is missing its document root.");
-        if (!root.Name.LocalName.Equals(
-                "package",
-                StringComparison.Ordinal)
-            || !IsNuspecNamespace(root.Name.Namespace))
+        if (!IsPackageRoot(root))
         {
             throw new InvalidDataException(
                 "The package manifest has an invalid document root.");
@@ -266,6 +263,10 @@ public static class NuspecParser
         const string suffix = "/nuspec.xsd";
         return uri[prefix.Length..^suffix.Length];
     }
+
+    internal static bool IsPackageRoot(XElement root) =>
+        root.Name.LocalName.Equals("package", StringComparison.Ordinal)
+        && IsNuspecNamespace(root.Name.Namespace);
 
     private static bool IsNuspecNamespace(XNamespace ns)
     {
