@@ -8,6 +8,7 @@ import type {
   PreparedOperationProducer,
 } from "./operation-authority.ts";
 import {
+  decodeEventsPayload,
   decodeEpochFailedPayload,
   decodeProgressPayload,
   decodeRejectedPayload,
@@ -124,6 +125,7 @@ export interface WorkerRuntimeOperationRegistration<
   TOperationDiagnostic,
   TProgress,
   TPreparationError,
+  TDurable = never,
 > {
   readonly kind: string;
   readonly allowance: WorkerLivenessAllowance;
@@ -134,6 +136,7 @@ export interface WorkerRuntimeOperationRegistration<
   readonly error: BoundedPayloadDecoder<TError>;
   readonly diagnostic: BoundedPayloadDecoder<TOperationDiagnostic>;
   readonly progress: BoundedPayloadDecoder<TProgress>;
+  readonly durable?: BoundedPayloadDecoder<TDurable>;
   readonly mapPreparationError: (
     error: WorkerRuntimePreparationError,
   ) => TPreparationError;
@@ -311,6 +314,12 @@ interface MainOperationRecord<TDiagnostic> {
     envelope: Extract<
       RawWorkerToMainEnvelope,
       { readonly kind: "progress" }
+    >,
+  ) => OperationMessageReceiveResult;
+  readonly receiveEvents: (
+    envelope: Extract<
+      RawWorkerToMainEnvelope,
+      { readonly kind: "events" }
     >,
   ) => OperationMessageReceiveResult;
   readonly receiveSettled: (
@@ -733,6 +742,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TOperationDiagnostic,
     TProgress,
     TPreparationError,
+    TDurable = never,
   >(
     registration: WorkerRuntimeOperationRegistration<
       TInput,
@@ -740,14 +750,16 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TOperationDiagnostic,
       TProgress,
-      TPreparationError
+      TPreparationError,
+      TDurable
     >,
   ): OperationProducerAdapter<
     TInput,
     TValue,
     TError,
     TProgress,
-    TPreparationError
+    TPreparationError,
+    TDurable
   > {
     if (this.#registrations.has(registration.kind)) {
       return {
@@ -1164,6 +1176,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TOperationDiagnostic,
     TProgress,
     TPreparationError,
+    TDurable,
   >(
     registration: WorkerRuntimeOperationRegistration<
       TInput,
@@ -1171,11 +1184,12 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TOperationDiagnostic,
       TProgress,
-      TPreparationError
+      TPreparationError,
+      TDurable
     >,
     identity: OperationIdentity,
     input: TInput,
-    sink: OperationProducerSink<TValue, TError, TProgress>,
+    sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
   ): OperationPreparation<TPreparationError> {
     const reject = (
       error: WorkerRuntimePreparationError,
@@ -1247,7 +1261,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     let retainedSink: OperationProducerSink<
       TValue,
       TError,
-      TProgress
+      TProgress,
+      TDurable
     > | null = sink;
     let retainedPayload: unknown = encoded.value;
     let activatedRecord: MainOperationRecord<TDiagnostic> | null = null;
@@ -1353,6 +1368,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TOperationDiagnostic,
     TProgress,
     TPreparationError,
+    TDurable,
   >(
     epoch: MainEpoch<TDiagnostic>,
     registration: WorkerRuntimeOperationRegistration<
@@ -1361,22 +1377,29 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TOperationDiagnostic,
       TProgress,
-      TPreparationError
+      TPreparationError,
+      TDurable
     >,
     identity: OperationIdentity,
     payload: unknown,
-    sink: OperationProducerSink<TValue, TError, TProgress>,
+    sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
   ): MainOperationRecord<TDiagnostic> {
     let retainedSink: OperationProducerSink<
       TValue,
       TError,
-      TProgress
+      TProgress,
+      TDurable
     > | null = sink;
     let sealedClosure: WorkerEpochClosure<TDiagnostic> | null = null;
     let closurePublication: OperationTerminalPublication | null = null;
     const invoke = <TResult>(
       call: (
-        current: OperationProducerSink<TValue, TError, TProgress>,
+        current: OperationProducerSink<
+          TValue,
+          TError,
+          TProgress,
+          TDurable
+        >,
       ) => TResult,
     ): TResult | null => {
       const current = retainedSink;
@@ -1435,6 +1458,23 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         if (decoded.kind === "failure") return decoded;
         invoke(current => {
           current.reportProgress(decoded.value.payload);
+        });
+        return { kind: "success" };
+      },
+      receiveEvents: envelope => {
+        const decoded = decodeEventsPayload(
+          envelope,
+          registration.progress,
+          registration.durable,
+        );
+        if (decoded.kind === "failure") return decoded;
+        invoke(current => {
+          for (const entry of decoded.value.entries) {
+            if (entry.kind === "progress")
+              current.reportProgress(entry.payload);
+            else
+              current.reportDurable(entry.payload);
+          }
         });
         return { kind: "success" };
       },
@@ -1777,6 +1817,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       case "progress":
         this.#receiveProgress(epoch, envelope);
         return;
+      case "events":
+        this.#receiveEvents(epoch, envelope);
+        return;
       case "settled":
         this.#receiveSettled(epoch, envelope);
         return;
@@ -1851,6 +1894,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       case "heartbeat":
       case "probe-acknowledged":
       case "progress":
+      case "events":
       case "ready":
       case "startup-failed":
       case "epoch-failed":
@@ -1967,6 +2011,22 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
     const received = record.receiveProgress(envelope);
+    if (received.kind === "failure") {
+      this.#protocolFailure(epoch, received.failure);
+      return;
+    }
+  }
+
+  #receiveEvents(
+    epoch: MainEpoch<TDiagnostic>,
+    envelope: Extract<RawWorkerToMainEnvelope, { readonly kind: "events" }>,
+  ): void {
+    const record = this.#findOperation(epoch, envelope.operation);
+    if (record === null || record.phase !== "accepted") {
+      this.#protocolFailure(epoch, envelope);
+      return;
+    }
+    const received = record.receiveEvents(envelope);
     if (received.kind === "failure") {
       this.#protocolFailure(epoch, received.failure);
       return;

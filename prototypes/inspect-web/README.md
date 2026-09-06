@@ -990,6 +990,16 @@ diagnostic probe drives the existing managed async-lowering canary through the
 Worker core and operation authority. It does not move current UI features off
 the main thread.
 
+Worker protocol version 2 additionally carries nonempty batches of at most 64
+progress or durable events. Each operation registers its own bounded payload
+decoders; the whole batch is validated before any entry reaches operation
+authority. Batches are posted immediately and preserve order before managed
+settlement, while authority still decides whether each entry can update the
+current view. The Worker does not buffer partial batches or implement feature
+credit policy. `npm run inspect-web-worker-protocol` covers this transport.
+Package Query's production adapter and the single-runtime cutover remain
+separate adoption work under #5987 and #5420.
+
 After a Release publish, run the native binding gate:
 
 ```bash

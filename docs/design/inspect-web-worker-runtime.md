@@ -18,12 +18,15 @@ registration, full lifecycle coverage, responsiveness evidence, and the
 remaining browser gates named below are still required.
 
 Its finite state models establish only the abstract properties recorded with
-those models. The engine-to-browser event-stream contract is now defined by
-[the async event-stream owner](engine-browser-async-event-stream.md). Durable
-worker event batches remain an implementation residual under #5418. They must
-consume the implemented publication path from
-[#5570](https://github.com/richlander/dotnet-inspect/issues/5570) and the relevant
-[#5419](https://github.com/richlander/dotnet-inspect/issues/5419) managed handoff.
+those models. The engine-to-browser event-stream contract is defined by
+[the async event-stream owner](engine-browser-async-event-stream.md). The
+Worker's bounded `Events` handoff supplies transport to the implemented
+publication path from
+[#5570](https://github.com/richlander/dotnet-inspect/issues/5570).
+Feature adapters can compose it with the complete managed nonterminal
+callback from [#5419](https://github.com/richlander/dotnet-inspect/issues/5419).
+Concrete feature adoption remains separate; transport support does not move
+Package Query or Source into the Worker.
 
 ## Decision
 
@@ -397,7 +400,7 @@ preparation contract.
 
 The runtime host is generic only in bootstrap and runtime diagnostic data.
 Each operation registration is independently generic in its input, value,
-error, operation diagnostic, progress, and preparation-error types, and owns
+error, operation diagnostic, progress, durable event, and preparation-error types, and owns
 one closed, total boundary-error table keyed by every
 `WorkerRuntimeFailureKind`. Runtime diagnostic detail remains on the one epoch
 failure callback rather than requiring a fallible per-operation conversion
@@ -500,6 +503,10 @@ decode requires the exact expected epoch token, including a duplicate
 decode likewise performs no global cross-operation payload selection: the
 operation reference selects the active record and its result, error,
 diagnostic, or progress codecs.
+
+Protocol version 2 adds the closed `Events` variant. Peers must agree on the
+exact version; an older peer is not silently treated as supporting durable
+delivery.
 
 The main-to-worker inventory is:
 
@@ -636,9 +643,9 @@ a later valid settlement can still release the realm naturally; it never
 silently narrows the liveness set or erases evidence that managed execution was
 admitted.
 
-`Progress` and `Settled` are legal only after `Accepted`. `Rejected` is legal
+`Progress`, `Events`, and `Settled` are legal only after `Accepted`. `Rejected` is legal
 only before acceptance. Duplicate acceptance, rejection after acceptance,
-progress before acceptance, duplicate settlement, and any current-epoch
+progress or events before acceptance, duplicate settlement, and any current-epoch
 operation message for an absent record fail the epoch. These are explicit
 receive outcomes, not absent transitions that an implementation may treat as
 ignored input.
@@ -1251,6 +1258,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   realm release during failed draining for both warm admission and synchronous
   held-start flushing;
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
+- bounded mixed progress/durable batches, complete payload validation before
+  publication, ordered handoff before settlement, per-event authority
+  suppression, and callback revocation after physical settlement or realm loss;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
 - running cancellation, `not-active` race validation, one acknowledgment,
@@ -1415,9 +1425,9 @@ into the runtime host:
    `inspect-web-worker-protocol` gate (**implemented**);
 3. adapt the current generated facade bootstrap behind the consumer-owned
    bootstrap operation (**implemented** with the browser-binding sub-gate);
-4. add durable event batches after #5570 and the relevant #5419 handoff supply
-   their prerequisite contracts, before moving the existing Package Query
-   stream; #5566 and #5570 are merged;
+4. add durable event batches (**implemented**) consuming #5570 and the
+   complete managed nonterminal handoff in #5826 under #5419, before moving the
+   existing Package Query stream;
 5. prepare the existing source operation's typed worker adapter for the
    [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client);
 6. connect keyed cancellation, progress, managed settlement, and epoch-work
