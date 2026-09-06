@@ -150,6 +150,35 @@ internal static class BrowserPlatformWorkspace
         new(StringComparer.Ordinal);
     static long _targetClock;
 
+    internal static BrowserPlatformScopeResolution LeaseRetainedAssembly(
+        string framework, string version, string assembly)
+    {
+        string name = AssemblySimpleName(assembly);
+        BrowserPlatformScope[] scopes = Targets.Values
+            .Select(state => state.Scope)
+            .OfType<BrowserPlatformScope>()
+            .Distinct()
+            .Where(scope => BrowserPackageWorkspace.IsScopeRetained(scope)
+                && scope.Framework.Equals(framework, StringComparison.OrdinalIgnoreCase)
+                && scope.Coordinates.Any(coordinate =>
+                    coordinate.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(coordinate.Assembly, name, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (scopes.Length != 1)
+            throw new InvalidOperationException(
+                $"ContextUnavailable: no unique retained platform workspace contains {name} {version} / {framework}.");
+        BrowserPlatformScope retained = scopes[0];
+        RealizedMemberCoordinate.Platform[] coordinates = retained.Coordinates.Where(coordinate =>
+            coordinate.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(coordinate.Assembly, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (coordinates.Length != 1)
+            throw new InvalidOperationException(
+                "ContextUnavailable: the retained platform assembly selection is ambiguous.");
+        RealizedMemberCoordinate.Platform selected = coordinates[0];
+        return new(retained, retained.Participant(selected.Family, name),
+            selected, BrowserPackageWorkspace.LeaseScope(retained));
+    }
+
     internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
         string targetFramework,
         CancellationToken cancellationToken = default) =>

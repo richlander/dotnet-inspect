@@ -34,6 +34,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "CancelMethodBodyComparison.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.CancelMethodBodyComparison.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
         value = $ownDataProperty(value, "CancelSourceQuery.19325221");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027SourceExports.CancelSourceQuery.19325221\u0027 is not callable.");
@@ -61,6 +69,22 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "QueryMemberSource.641907440");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027SourceExports.QueryMemberSource.641907440\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "QueryMethodBodyComparison.451505237");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.QueryMethodBodyComparison.451505237\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "QueryMethodBodyComparisonTargets.642387634");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.QueryMethodBodyComparisonTargets.642387634\u0027 is not callable.");
         }
     }
     {
@@ -104,6 +128,11 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+export function cancelMethodBodyComparison(operationId, reason) {
+    const $result = $requireManagedExports()["SourceExports"]["CancelMethodBodyComparison.271973316"](operationId, reason);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export function cancelSourceQuery() {
     return $requireManagedExports()["SourceExports"]["CancelSourceQuery.19325221"]();
 }
@@ -119,6 +148,16 @@ export async function queryMemberAnnotatedSource(packageId, version, targetFrame
 }
 export async function queryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
     const $result = await $requireManagedExports()["SourceExports"]["QueryMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryMethodBodyComparison(operationId, requestJson) {
+    const $result = await $requireManagedExports()["SourceExports"]["QueryMethodBodyComparison.451505237"](operationId, requestJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryMethodBodyComparisonTargets(operationId, packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
+    const $result = await $requireManagedExports()["SourceExports"]["QueryMethodBodyComparisonTargets.642387634"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

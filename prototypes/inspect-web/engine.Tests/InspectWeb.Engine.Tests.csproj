@@ -18,5 +18,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
     <ProjectReference Include="..\engine\InspectWeb.Engine.csproj" />
+    <ProjectReference Include="..\..\..\fixtures\inspect-web\InspectWeb.MethodBodyFixtures\InspectWeb.MethodBodyFixtures.csproj" />
+    <ProjectReference Include="..\..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 </Project>

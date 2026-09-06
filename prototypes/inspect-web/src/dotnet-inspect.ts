@@ -181,6 +181,24 @@ import { renderMemberContractSections } from "./member-overview.ts";
 import { renderMemberFacts } from "./member-facts.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
+  createMethodBodyComparisonCoordinator,
+  createMethodBodyDiffState,
+  isMethodBodyToken,
+  methodBodyComparisonPackageId,
+  type MethodBodyComparisonContext,
+  type MethodBodyDiffState,
+} from "./method-body-comparison.ts";
+import {
+  bindMethodBodyDiff,
+  METHOD_BODY_DIFF_ACTION_SELECTOR,
+  METHOD_BODY_DIFF_CHOOSER_SELECTOR,
+  METHOD_BODY_DIFF_FILTER_SELECTOR,
+  renderMethodBodyComparisonAction,
+  renderMethodBodyDiffModal,
+  type MethodBodyComparisonAvailability,
+  type MethodBodyDiffAction,
+} from "./method-body-diff-view.ts";
+import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
 } from "./metadata-inspection.ts";
@@ -487,6 +505,11 @@ let inspectPlatformOpportunities: AnalysisFacade["queryPlatformOpportunities"];
 let inspectPlatformPerformance: AnalysisFacade["queryPlatformPerformance"];
 let cancelSourceInspection: SourceFacade["cancelSourceQuery"];
 let cancelTypeSourceInspection: SourceFacade["cancelTypeSourceQuery"];
+let cancelMethodBodyComparisonQuery:
+  SourceFacade["cancelMethodBodyComparison"];
+let inspectMethodBodyComparison: SourceFacade["queryMethodBodyComparison"];
+let inspectMethodBodyComparisonTargets:
+  SourceFacade["queryMethodBodyComparisonTargets"];
 let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
 let inspectMemberSource: SourceFacade["queryMemberSource"];
 let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
@@ -572,6 +595,9 @@ async function loadEngineModule() {
   ({
     cancelSourceQuery: cancelSourceInspection,
     cancelTypeSourceQuery: cancelTypeSourceInspection,
+    cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
+    queryMethodBodyComparison: inspectMethodBodyComparison,
+    queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
     queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
@@ -799,6 +825,7 @@ const initialState = {
   memberAnnotatedKey: "",
   memberAnnotatedEmbedded: null,
   memberAnnotatedModal: null,
+  methodBodyDiff: createMethodBodyDiffState(),
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -935,6 +962,7 @@ interface StateOverrides {
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
+  methodBodyDiff: MethodBodyDiffState;
   typeSource: BrowserSource | null;
   typeMetadata: BrowserTypeMetadata | null;
   packageDependencies: BrowserPackageDependencies | null;
@@ -1014,6 +1042,7 @@ function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
   cancelAnnotatedSourceRequest(state);
+  methodBodyComparison.dispose();
   const packages = structuredClone(state.packages);
   const activeKey = state.package
     ? packageIdentityKey(state.package)
@@ -1122,6 +1151,31 @@ const sourceInspection = createSourceInspectionCoordinator({
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
+});
+const methodBodyComparison = createMethodBodyComparisonCoordinator({
+  state: state.methodBodyDiff,
+  operationAuthority,
+  queryTargets: (operationId, context) => inspectMethodBodyComparisonTargets(
+    operationId,
+    context.packageId,
+    context.version,
+    context.framework,
+    context.assembly,
+    context.typeIdentity,
+    context.memberName,
+    context.selectorKey,
+    context.metadataToken),
+  queryComparison: (operationId, requestJson) =>
+    inspectMethodBodyComparison(operationId, requestJson),
+  cancelMethodBodyComparison: (operationId, reason) => {
+    cancelMethodBodyComparisonQuery(operationId, reason);
+  },
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Method Body Diff operation authority failure.", diagnostic);
+    return undefined;
+  },
+  describeError: errorMessage,
+  render,
 });
 const packageQueryController = createPackageQueryController(
   state.packageQueryState,
@@ -2877,6 +2931,9 @@ function currentSourceReloadKind() {
 }
 
 function clearMemberContentCache() {
+  // A member navigation replaces the launching context, so its dialog operations are
+  // released rather than left to publish into a different member.
+  methodBodyComparison.dispose();
   invalidateMemberDestinationWork(state);
   state.memberSource = null;
   state.memberSourceError = "";
@@ -3355,6 +3412,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const activeScope = scope();
+  const methodBodyPageContext = activeScope === "member";
   const sourcePageKind =
     activeScope === "type" && state.lens === "source"
       ? "type"
@@ -3428,15 +3486,19 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     app.focus({ preventScroll: true });
   }
   const applicationModalOpen = state.settings || state.keyboardHelp;
+  const methodBodyFocusedId = document.activeElement instanceof HTMLElement
+    && document.activeElement.closest("#method-body-diff-modal")
+    ? document.activeElement.id
+    : "";
   app.innerHTML = `
-    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
+    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen || state.methodBodyDiff.open ? " inert" : ""}>
       ${workbenchShellHtml({
         applicationScopeHtml: renderApplicationScopeBar(
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface
-          ? `<div class="working-surface-actions" role="group" aria-label="${packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+        contextualActionsHtml: methodBodyPageContext || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface
+          ? `<div class="working-surface-actions" role="group" aria-label="${packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
@@ -3454,6 +3516,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
                       : "copy-type-source",
                     escapeHtml,
                   })
+                : ""}
+              ${methodBodyPageContext
+                ? renderMethodBodyComparisonAction(
+                    methodBodyComparisonAvailability(),
+                    escapeHtml)
                 : ""}
             </div>`
           : "",
@@ -3518,7 +3585,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}
-    ${renderAnnotatedSourceModal()}`;
+    ${renderAnnotatedSourceModal()}
+    ${renderMethodBodyDiffModal({
+      state: state.methodBodyDiff,
+      escapeHtml,
+      highlightCSharp,
+    })}`;
 
   const packageIcon =
     document.querySelector<HTMLImageElement>("[data-package-icon]");
@@ -3558,6 +3630,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
+  restoreMethodBodyDiffFocus(methodBodyFocusedId);
   graphExplorer.afterRender(graphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
@@ -6299,6 +6372,191 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
   }
 }
 
+// Method Body Diff is a session-local dialog over the current member: it names why it is
+// unavailable instead of hiding, never picks an accessor on the person's behalf, and never
+// rewrites the canonical location or member navigation.
+function methodBodyComparisonAvailability(): MethodBodyComparisonAvailability {
+  if (!state.package || state.atPackageRoot || scope() !== "member") {
+    return {
+      available: false,
+      reason: "Select a member before comparing method bodies.",
+    };
+  }
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!type || !member) {
+    return {
+      available: false,
+      reason: "Select a member before comparing method bodies.",
+    };
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
+    return {
+      available: false,
+      reason: "Select one overload before comparing method bodies.",
+    };
+  }
+  const implementationBody = graphOnlyImplementationBody(overload);
+  const bodyTarget = state.selectedBodyTarget;
+  if (overload.bodySelectors.length > 1 && !implementationBody && !bodyTarget) {
+    return {
+      available: false,
+      reason:
+        "Select one accessor or body of this member before comparing method bodies.",
+    };
+  }
+  const metadataToken = implementationBody?.token
+    ?? bodyTarget?.metadataToken
+    ?? overload.metadataToken
+    ?? 0;
+  if (!isMethodBodyToken(metadataToken)) {
+    return {
+      available: false,
+      reason:
+        "This selection has no implementation method body to compare.",
+    };
+  }
+  return { available: true, reason: "" };
+}
+
+function methodBodyComparisonContext(): MethodBodyComparisonContext | null {
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!type || !member) return null;
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) return null;
+  const implementationBody = graphOnlyImplementationBody(overload);
+  const bodyTarget = state.selectedBodyTarget;
+  const metadataToken = implementationBody?.token
+    ?? bodyTarget?.metadataToken
+    ?? overload.metadataToken
+    ?? 0;
+  if (!isMethodBodyToken(metadataToken)) return null;
+  const pkg = currentPackage();
+  return {
+    packageId: methodBodyComparisonPackageId(pkg),
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    typeIdentity: type.definitionId ?? type.id,
+    memberName: implementationBody?.memberName
+      ?? bodyTarget?.memberName
+      ?? overload.name,
+    selectorKey: implementationBody?.selectorKey
+      ?? bodyTarget?.selectorKey
+      ?? overload.graphSelectorKey,
+    metadataToken,
+    label: overload.signature || overload.name,
+  };
+}
+
+let methodBodyDiffFocusIntent: "chooser" | "none" = "none";
+let methodBodyDiffFilterCaret: number | null = null;
+
+function restoreMethodBodyDiffFocus(previousId = "") {
+  if (!state.methodBodyDiff.open) {
+    methodBodyDiffFocusIntent = "none";
+    methodBodyDiffFilterCaret = null;
+    return;
+  }
+  if (methodBodyDiffFilterCaret !== null) {
+    const filter = document.querySelector<HTMLInputElement>(
+      METHOD_BODY_DIFF_FILTER_SELECTOR);
+    if (filter) {
+      const caret = Math.min(methodBodyDiffFilterCaret, filter.value.length);
+      filter.focus({ preventScroll: true });
+      filter.setSelectionRange(caret, caret);
+    }
+    methodBodyDiffFilterCaret = null;
+    return;
+  }
+  if (methodBodyDiffFocusIntent !== "chooser") {
+    const previous = document.getElementById(previousId);
+    const target = previous?.matches(":disabled")
+      ? document.getElementById("method-body-diff-title")
+      : previous;
+    target?.focus({ preventScroll: true });
+    return;
+  }
+  const chooser = document.querySelector<HTMLElement>(
+    METHOD_BODY_DIFF_CHOOSER_SELECTOR);
+  if (chooser) {
+    methodBodyDiffFocusIntent = "none";
+    chooser.focus({ preventScroll: true });
+    return;
+  }
+  document.querySelector<HTMLElement>("#method-body-diff-title")
+    ?.focus({ preventScroll: true });
+}
+
+function openMethodBodyDiff() {
+  const availability = methodBodyComparisonAvailability();
+  const context = availability.available
+    ? methodBodyComparisonContext()
+    : null;
+  methodBodyDiffFocusIntent = "chooser";
+  methodBodyDiffFilterCaret = null;
+  if (!context) {
+    methodBodyComparison.openUnavailable(
+      availability.reason
+        || "This selection has no implementation method body to compare.",
+      METHOD_BODY_DIFF_ACTION_SELECTOR);
+    return;
+  }
+  observeAsync(
+    methodBodyComparison.open(context, METHOD_BODY_DIFF_ACTION_SELECTOR),
+    "Preparing the method body comparison");
+  render();
+}
+
+function closeMethodBodyDiff(restoreLaunchFocus: boolean) {
+  if (!methodBodyComparison.isOpen()) return false;
+  const dismissal = methodBodyComparison.close();
+  methodBodyDiffFocusIntent = "none";
+  methodBodyDiffFilterCaret = null;
+  render();
+  if (restoreLaunchFocus && dismissal.returnFocusSelector) {
+    const selector = dismissal.returnFocusSelector;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(selector)
+        ?.focus({ preventScroll: true });
+    });
+  }
+  return dismissal.handled;
+}
+
+function applyMethodBodyDiffAction(action: MethodBodyDiffAction) {
+  switch (action.kind) {
+    case "open":
+      openMethodBodyDiff();
+      return;
+    case "close":
+      closeMethodBodyDiff(true);
+      return;
+    case "select":
+      methodBodyComparison.selectCandidate(action.key);
+      return;
+    case "filter":
+      methodBodyDiffFilterCaret = action.caret;
+      methodBodyComparison.setFilter(action.value);
+      return;
+    case "compare":
+      observeAsync(
+        methodBodyComparison.compare(),
+        "Comparing the selected method bodies");
+      return;
+    default:
+      assertNever(action, "method body diff action");
+  }
+}
+
+function bindMethodBodyDiffEvents() {
+  bindMethodBodyDiff(document, { onAction: applyMethodBodyDiffAction });
+}
+
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
     onAction: applyAnnotatedSourceAction,
@@ -6359,6 +6617,7 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindAnnotatedSourceEvents();
+  bindMethodBodyDiffEvents();
   bindPackageViewEvents();
   bindLibraryControlsEvents();
   workbenchShellBinding =
@@ -7602,6 +7861,7 @@ function workbenchModalOwnsFocus() {
     || state.graphSourceOpen
     || state.docViewerOpen
     || state.memberAnnotatedModal !== null
+    || state.methodBodyDiff.open
     || graphExplorer.isOpen;
 }
 
@@ -12501,6 +12761,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.graphSourceOpen
     && !state.docViewerOpen
     && state.memberAnnotatedModal === null
+    && !state.methodBodyDiff.open
     && !state.spotlightOpen;
 }
 
@@ -12666,6 +12927,22 @@ registerContainedShortcuts(
   "annotated-source.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.annotatedSource,
   annotatedSourceContextIsActive,
+);
+
+const methodBodyDiffContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.methodBodyDiff.open;
+keybindings.register({
+  id: "method-body-diff.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
+  when: methodBodyDiffContextIsActive,
+  run: () => closeMethodBodyDiff(true),
+});
+registerContainedShortcuts(
+  "method-body-diff.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
+  methodBodyDiffContextIsActive,
 );
 
 keybindings.register({
@@ -12931,6 +13208,7 @@ function clearNavigationError() {
 
 function dismissModalsForRoutedNavigation() {
   closeGraphExplorerForNavigation();
+  methodBodyComparison.dispose();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
