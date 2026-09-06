@@ -31079,6 +31079,129 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageSkillDestinations_ApplyLineWindowsToSelectedText()
+    {
+        const string bidi = "\u202E";
+        const string safe = "safe-first\nsafe-second";
+        string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.SkillWindows",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/safe/SKILL.md", safe),
+            ("skills/contained/SKILL.md", $"contained{bidi}skill"));
+        try
+        {
+            (string Name, string[] Arguments, string Stdout, string File)[] cases =
+            [
+                (
+                    "print-safe",
+                    ["-S", "Package skill files", "--print", "--row", "2", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "content-safe",
+                    ["--content", "--path", "skills/safe/SKILL.md", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "print-contained",
+                    ["-S", "Package skill files", "--print", "--row", "1", "--bare", "-n1"],
+                    placeholder,
+                    placeholder),
+                (
+                    "content-contained",
+                    ["--content", "--path", "skills/contained/SKILL.md", "--bare", "-n1"],
+                    placeholder + "\n",
+                    placeholder),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
+                var stdout = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package", packagePath, .. testCase.Arguments,
+                        "--out", outputPath, "--tips", "q",
+                    ]);
+
+                Assert.Equal(0, stdout.Exit);
+                Assert.Equal(0, redirected.Exit);
+                Assert.Empty(stdout.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(testCase.Stdout, stdout.Output);
+                Assert.Equal(testCase.File, File.ReadAllText(outputPath));
+                Assert.DoesNotContain(bidi, stdout.Output, StringComparison.Ordinal);
+                Assert.DoesNotContain(bidi, File.ReadAllText(outputPath), StringComparison.Ordinal);
+            }
+
+            var wildcardPath = Path.Combine(tempDir, "wildcard.md");
+            var wildcard = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "skills/safe/*.md", "--bare", "-n1",
+                "--out", wildcardPath, "--tips", "q");
+
+            Assert.Equal(1, wildcard.Exit);
+            Assert.Empty(wildcard.Output);
+            Assert.Contains(
+                "a rendered line limit cannot be combined with exact --out transfer",
+                wildcard.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(wildcardPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageOutputPath_RejectsExplicitEmptyValuesWithoutStdoutFallback()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.EmptyOutputPath",
+            "README.md",
+            "must-not-reach-stdout");
+        try
+        {
+            foreach (string option in new[] { "--out", "--output", "-o" })
+            {
+                foreach (string[] prefix in new[]
+                {
+                    new[] { "package", packagePath },
+                    new[] { packagePath },
+                })
+                {
+                    var result = await RunAppAsync(
+                        [
+                            .. prefix,
+                            "-S", "Package README file", "--print", "--bare",
+                            option, "",
+                        ]);
+
+                    Assert.Equal(1, result.Exit);
+                    Assert.Empty(result.Output);
+                    Assert.Contains(
+                        "--out requires a non-empty path.",
+                        result.Error,
+                        StringComparison.Ordinal);
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageExactTransferLineWindows_PreserveAbsentAndExistingDestinations()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(

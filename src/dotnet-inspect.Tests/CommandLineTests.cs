@@ -33,6 +33,25 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    [Theory]
+    [InlineData("package", "Newtonsoft.Json", "--out")]
+    [InlineData("package", "Newtonsoft.Json", "--output")]
+    [InlineData("package", "Newtonsoft.Json", "-o")]
+    [InlineData("project", ".", "--out")]
+    [InlineData("project", ".", "--output")]
+    [InlineData("project", ".", "-o")]
+    public void ProjectionOutputPath_RejectsExplicitEmptyValues(
+        string command,
+        string target,
+        string option)
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse([command, target, option, ""]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("--out requires a non-empty path.", error.Message);
+    }
+
     [Fact]
     public void RootCommand_WithVerbosityQuiet_ParsesCorrectly()
     {

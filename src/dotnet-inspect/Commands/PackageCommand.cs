@@ -3732,13 +3732,34 @@ public class PackageCommand
             && !options.Jsonl
             && !options.JsonArray;
 
+    private static bool IsGuaranteedSkillPayload(InspectionOptions options)
+    {
+        if (options.Print
+            && options.IncludeSections is { Count: 1 } sections
+            && sections.Single().Equals(
+                PackageSections.FilesSkills,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string[] selectors = PathSelectors(options);
+        return options.ShowContent
+            && selectors.Length > 0
+            && selectors.All(static selector =>
+                !selector.Contains('*')
+                && !selector.Contains('?')
+                && PackageFileFamily.IsSkillDocumentPath(selector));
+    }
+
     private static ProjectionDestination PackagePayloadDestination(InspectionOptions options)
         => new(
             options.OutputPath,
             options.Rows,
             ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
                 && HasUnstructuredOutputPath(options)
-                && options.ContentScope == PackageFileContentScope.Full);
+                && options.ContentScope == PackageFileContentScope.Full
+                && !IsGuaranteedSkillPayload(options));
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
