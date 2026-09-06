@@ -205,6 +205,7 @@ internal static class LibraryMetadataService
                         FindingSubjectFor(path)),
                 PerformanceTriageOptions = options.PerformanceTriage,
                 BodyKindQueryOptions = options.BodyKindQuery,
+                IntegrationQuery = options.IntegrationQuery,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
@@ -3089,10 +3090,13 @@ internal static class LibraryMetadataService
         switch (entry)
         {
             case AssemblyIntegrationOpportunitiesEntry.Available available:
+                List<IntegrationOpportunityInfo> opportunities = available.Opportunities.IsDefaultOrEmpty
+                    ? []
+                    : available.Opportunities
+                        .Where(opportunity => inspection.IntegrationQuery.Matches(opportunity.GetConcept()))
+                        .ToList();
                 inspection.IntegrationOpportunities =
-                    available.Opportunities.IsDefaultOrEmpty
-                        ? null
-                        : [.. available.Opportunities];
+                    opportunities.Count == 0 ? null : opportunities;
                 break;
 
             case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:

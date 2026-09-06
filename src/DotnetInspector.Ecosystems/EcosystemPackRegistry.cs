@@ -23,6 +23,8 @@ internal sealed record EcosystemPackRegistration(
     public IReadOnlyList<string> NamespaceRoots { get; init; } = [];
 
     public IReadOnlyList<PackageCoordinate> CorePackages { get; init; } = [];
+
+    public IReadOnlyList<PackageCoordinate> ToolPackages { get; init; } = [];
 }
 
 internal sealed class EcosystemPackRegistry
@@ -89,7 +91,11 @@ internal sealed class EcosystemPackRegistry
             ImmutableArray<string> namespaceRoots =
                 SnapshotNamespaceRoots(registration, nameof(registrations));
             ImmutableArray<PackageCoordinate> corePackages =
-                SnapshotCorePackages(registration, nameof(registrations));
+                SnapshotPackageReferences(
+                    registration.Id, registration.CorePackages, "core", nameof(registrations));
+            ImmutableArray<PackageCoordinate> toolPackages =
+                SnapshotPackageReferences(
+                    registration.Id, registration.ToolPackages, "tool", nameof(registrations));
             EcosystemDemoRegistration[] demos =
             [
                 .. registration.Demos
@@ -167,7 +173,8 @@ internal sealed class EcosystemPackRegistry
                 descriptors.MoveToImmutable(),
                 registration.Scanner is not null,
                 namespaceRoots,
-                corePackages);
+                corePackages,
+                toolPackages);
             _packsById.Add(
                 packDescriptor.Id,
                 new PackEntry(packDescriptor, registration.Scanner));
@@ -256,15 +263,17 @@ internal sealed class EcosystemPackRegistry
         return roots;
     }
 
-    private static ImmutableArray<PackageCoordinate> SnapshotCorePackages(
-        EcosystemPackRegistration registration,
+    private static ImmutableArray<PackageCoordinate> SnapshotPackageReferences(
+        EcosystemPackId packId,
+        IReadOnlyList<PackageCoordinate> references,
+        string role,
         string parameterName)
     {
         ImmutableArray<PackageCoordinate> packages =
         [
-            .. registration.CorePackages
+            .. references
                 ?? throw new ArgumentException(
-                    $"Ecosystem pack '{registration.Id}' has no core-package sequence.",
+                    $"Ecosystem pack '{packId}' has no {role}-package sequence.",
                     parameterName),
         ];
         var packageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -273,7 +282,7 @@ internal sealed class EcosystemPackRegistry
             if (package is null)
             {
                 throw new ArgumentException(
-                    $"Ecosystem pack '{registration.Id}' contains a null core package.",
+                    $"Ecosystem pack '{packId}' contains a null {role} package.",
                     parameterName);
             }
 
@@ -282,7 +291,7 @@ internal sealed class EcosystemPackRegistry
             if (invalid is not null)
             {
                 throw new ArgumentException(
-                    $"Ecosystem pack '{registration.Id}' contains invalid core package"
+                    $"Ecosystem pack '{packId}' contains invalid {role} package"
                     + $" coordinate '{package.PackageId}': {invalid.Message}",
                     parameterName);
             }
@@ -292,15 +301,15 @@ internal sealed class EcosystemPackRegistry
                 || package.RuntimeIdentifier is not null)
             {
                 throw new ArgumentException(
-                    $"Ecosystem pack '{registration.Id}' contains a versioned or"
-                    + " target-specific core-package coordinate.",
+                    $"Ecosystem pack '{packId}' contains a versioned or"
+                    + $" target-specific {role}-package coordinate.",
                     parameterName);
             }
 
             if (!packageIds.Add(package.PackageId))
             {
                 throw new ArgumentException(
-                    $"Ecosystem pack '{registration.Id}' contains duplicate core-package"
+                    $"Ecosystem pack '{packId}' contains duplicate {role}-package"
                     + $" ID '{package.PackageId}'.",
                     parameterName);
             }
