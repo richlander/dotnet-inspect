@@ -43,7 +43,7 @@ import {
 } from "../src/type-panel.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
-import { renderPackageOverviewSurface } from "../src/package-overview.ts";
+import { renderOverviewSurface } from "../src/overview-surface.ts";
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
 import { allocationFactsFixture, callFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
@@ -103,10 +103,12 @@ let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageOverviewMode = params.has("package-overview");
+const libraryOverviewMode = params.has("library-overview");
+const overviewMode = packageOverviewMode || libraryOverviewMode;
 const packageDependenciesMode = params.has("package-dependencies");
 const packageMetadataMode = params.has("package-metadata");
 const packageMode =
-  params.has("package") || packageOverviewMode
+  params.has("package") || overviewMode
   || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
 const memberFactsMode = params.get("member-facts");
@@ -133,7 +135,7 @@ const packageIcon = params.has("fallback")
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
   ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
-  : packageMetadataMode
+  : packageMetadataMode || libraryOverviewMode
     ? [
         { kind: "package", label: "System.Text.Json", copyable: true },
         { kind: "library", label: "System.Text.Json", copyable: true },
@@ -226,7 +228,7 @@ function workspaceDetailHtml(): string {
 
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
-  : packageMetadataMode
+  : packageMetadataMode || libraryOverviewMode
     ? "library"
     : packageMode
     ? "package"
@@ -386,7 +388,7 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
-  if (packageOverviewMode) {
+  if (overviewMode) {
     const name = longMode
       ? `Example.${"LongNamespace.".repeat(12)}Library`
       : "Example.Library";
@@ -400,16 +402,25 @@ function detailHtml() {
         <span class="library-asset">lib/net10.0/${name}${index}.dll</span>
       </button>`,
     ).join("");
-    return renderPackageOverviewSurface({
+    return renderOverviewSurface({
+      subject: packageOverviewMode ? "package" : "library",
+      subjectLabel: packageOverviewMode ? "Package" : "Library",
+      displayName: longMode ? name : packageOverviewMode ? "System.Text.Json" : name,
+      iconHtml: packageOverviewMode
+        ? `<span class="subject-icon" aria-hidden="true"><img src="${escapeHtml(packageIcon)}" alt=""></span>`
+        : '<span class="subject-icon" aria-hidden="true">◫</span>',
+      details: libraryOverviewMode
+        ? [`lib/net10.0/${name}.dll`, `${name}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null`]
+        : [],
       packageId: "System.Text.Json",
       packageVersion: "10.0.0",
       activeFramework: "net10.0",
       totalTypes: emptyMode ? 0 : 32,
       totalMembers: emptyMode ? 0 : 1234,
-      coordinateFieldsHtml: `
+      coordinateFieldsHtml: packageOverviewMode ? `
         <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
-        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>`,
-      contentHtml: `
+        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>` : "",
+      contentHtml: packageOverviewMode ? `
         <section class="document-section">
           <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} admitted</span></div>
           <div class="library-list">${libraries}</div>
@@ -419,7 +430,16 @@ function detailHtml() {
           name: longMode ? `${name}.README.md` : "README.md",
           path: "README.md",
           size: 1024,
-        }], escapeHtml)}`,
+        }], escapeHtml)}` : `
+        <section class="document-section">
+          <div class="section-title"><h2>Public surface</h2></div>
+          <div class="type-chip-list"><button class="type-chip" data-kind-jump="class">32 classes</button></div>
+        </section>
+        <section class="document-section">
+          <div class="section-title"><h2>Namespaces</h2></div>
+          <div class="type-chip-list">${Array.from({ length: longMode ? 30 : 1 },
+            (_, index) => `<button class="type-chip" data-namespace-jump="${name}${index}">${name}${index}</button>`).join("")}</div>
+        </section>`,
       escapeHtml,
     });
   }
@@ -775,13 +795,13 @@ app.innerHTML = `
         ? ""
         : sourceMode
           || (packageMode
-            && !packageOverviewMode
+            && !overviewMode
             && !packageDependenciesMode
             && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageOverviewMode ? " package-overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>

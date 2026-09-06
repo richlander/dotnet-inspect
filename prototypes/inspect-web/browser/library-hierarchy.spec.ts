@@ -219,8 +219,11 @@ for (const width of [1440, 390]) {
     expect(await overview.boundingBox()).toEqual(
       await page.locator("#inspector-panel").boundingBox());
     await expect(page.locator(".type-heading, .package-coordinate-editor")).toHaveCount(0);
-    await expect(page.locator(".package-overview-surface-head p")).toHaveText("2 types · 2 members");
-    await expect(page.locator(".package-overview-surface-footer span")).toHaveText([
+    await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
+    expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
+    await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
+    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
+    await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
     ]);
     await expect(overview.locator(".library-row")).toHaveCount(3);
@@ -236,11 +239,42 @@ for (const width of [1440, 390]) {
     await overview.locator('[data-lib-scope="asset:other"]').click();
     await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
+    const libraryOverview = page.locator(".library-overview-surface");
+    expect(await libraryOverview.boundingBox()).toEqual(
+      await page.locator("#inspector-panel").boundingBox());
+    expect((await libraryOverview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
+    await expect(libraryOverview.locator(".overview-identity .subject-icon")).toHaveText("◫");
+    await expect(libraryOverview.locator(".overview-identity-detail")).toHaveText([
+      "lib/net10.0/Example.Other.dll",
+      "Example.Other, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+    ]);
+    await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("1 type · 1 member");
+    await expect(libraryOverview.locator(".overview-controls")).toHaveCount(0);
     await expect(overview).toHaveCount(0);
     await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
     await expect(overview).toBeVisible();
+    await overview.locator('[data-lib-scope="asset:empty"]').click();
+    await expect(libraryOverview.getByRole("heading", { level: 1 })).toHaveText("Example.Empty");
+    await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+    await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
   });
 }
+
+test("both Package icons retain the existing image fallback", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  const icons = page.locator("[data-package-icon]");
+  await expect(icons).toHaveCount(2);
+  await icons.evaluateAll(images => {
+    for (const image of images) {
+      image.setAttribute("src", "data:image/png;base64,broken");
+      image.dispatchEvent(new Event("error"));
+    }
+  });
+  for (const image of await icons.all()) {
+    await expect(image).toHaveAttribute("src", "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
+  }
+});
 
 for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"]] as const) {
   test(`narrow Library navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {

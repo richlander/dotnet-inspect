@@ -511,48 +511,62 @@ horizontal overflow.
 
 ### Package Overview
 
-Package Overview uses the complete package inspector area, following Library
-Metadata and Package Dependencies rather than repeating the package hero and inset
-coordinate editor. The persistent subject path supplies package identity.
+Package and Library Overview use the complete inspector area, following Library
+Metadata and Package Dependencies rather than enclosing their content in a second
+layer of chrome. Both use the same frame and retain a readable local subject name
+and icon; the small persistent subject path is navigation, not a replacement for
+Overview identity.
 
 ```text
 Overview                                      type and member totals
-Version · Framework
-admitted libraries, package documents
+Version · Framework                         (Package only)
+icon · subject name
+subject-specific identity details and content
 package@version                                    active framework
 ```
 
-The quiet header preserves the package's type and member totals. Existing
-Version and Framework controls occupy one compact row. One independently
-scrolling content region contains the admitted-library inventory and document
-links. The platform library picker remains with the Libraries section. Library
-rows enter the existing Library subject; kind and namespace navigation remain
-within that subject. Document opening, counts, and ordering retain their semantics.
+The quiet header preserves the current subject's type and member totals. Existing
+Package Version and Framework controls occupy one compact row; Library Overview
+does not gain coordinate controls. One independently scrolling content region
+starts with a larger icon and readable name, the surface's single visible
+level-one heading. Package reuses its existing icon selection and fallback;
+Library uses its established glyph and retains asset path and full assembly
+identity. The identity is part of the full-width content, not a new inset card.
+
+Package content retains the admitted-library inventory and document links. The
+platform library picker remains with the Libraries section. Library rows enter
+the existing Library subject, whose Overview retains kind and namespace
+navigation. Document opening, counts, and ordering retain their semantics.
 
 The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Libraries return control shares the quiet header,
-controls wrap within their row, and header/footer values may elide as complete
-strings. Long library names, asset paths, and document names remain contained without
+framework. At narrow widths the Libraries (Package) or Types (Library) return
+control shares the quiet header; the local name and icon remain visible in the
+content below it. Controls wrap within their row, and header/footer values may
+elide as complete strings. Local subject names wrap rather than disappearing.
+Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
-header, controls, and coordinates remain in place.
+header, any controls, and coordinates remain in place.
 
 Overview presents the already-loaded package. Existing acquisition loading,
 failure, and partial-package notices remain in their current host presentation;
 this placement change introduces no independent Overview query or state machine.
 Empty inventories retain their zero totals and any available package documents.
+Admitted libraries with no public types retain their named Library Overview.
 
 [The one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6073)
-connects the production browser Overview consumer to this frame and retires its
-generic hero/inset-coordinate composition. The user explicitly approved this
-browser-only presentation scope. Existing typed package data supplies the
+connects both production browser Overview consumers to this shared frame and
+retires their generic hero composition and Package's inset coordinate editor.
+The user explicitly approved this browser-only presentation scope and requested
+matching local name/icon treatment for Package and Library. Existing typed data supplies the
 content and counts; browser HTML rendering remains the lowering boundary rather
 than Markout because this slice arranges interactive controls and navigation.
 The frame reuses the current package-surface conventions, not a new general
-rendering architecture. Other package lenses remain separate consumers.
+rendering architecture. Other Package and Library lenses remain separate consumers.
 
-Browser coverage exercises the production frame, overflow, narrow navigation
-placement, and controls. Published-site evidence separately exercises the full
-production Library entry, coordinate, and document navigation. The production
+Browser coverage exercises both production consumers' local names and icons,
+full-area geometry, narrow navigation, long content, and empty libraries.
+Published-site evidence separately exercises actual Package and Library
+Overviews, coordinate changes, and document navigation. The production
 composition fixture also confirms that returning from Library restores Overview.
 
 ### Package Dependencies
