@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.CommandLine;
+using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Services;
 
@@ -59,6 +60,38 @@ public static class PackageOptionsParser
     /// Successfully parsed options ready for execution.
     /// </summary>
     public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
+
+    internal static int GetPositionalCapacity(
+        ParseResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        // Only mode facts are needed here; full option parsing owns format, projection,
+        // and row-selection validation and must not run during argv ownership checks.
+        var mode = new InspectionOptions
+        {
+            ExplicitVersion = result.GetValue(args.VersionOption),
+            ListVersions = result.GetResult(args.VersionOption) is { Implicit: false }
+                || result.GetValue(args.LatestVersionOption)
+                || result.GetValue(args.VersionsOption)
+                || result.GetValue(args.VersionsWithFeedOption),
+            ListLayout = result.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(result),
+            ListTfms = result.GetValue(args.TfmsOption),
+            Print = result.GetValue(opts.Print),
+            Value = result.GetValue(opts.Value),
+            Urls = result.GetValue(opts.Urls),
+            Paths = result.GetValue(opts.Paths),
+            ShowDependencies = result.GetValue(args.DependenciesOption),
+            Tree = result.GetValue(opts.Tree),
+            Discover = opts.ParseDiscover(result),
+            Count = result.GetValue(opts.Count),
+            PackageLibrary = result.GetResult(args.LibraryOption) is { Implicit: false } ? "" : null,
+            AllLibraries = result.GetValue(args.AllLibrariesOption)
+        };
+        return PackageCommand.GetMultiPackageConflicts(mode).Count > 0
+            ? 1
+            : args.PackageNameArg.Arity.MaximumNumberOfValues;
+    }
 
     /// <summary>
     /// Parses package command options.

@@ -144,7 +144,10 @@ System.CommandLine accepts a boolean attached value such as `--head=true` even
 when an option is declared zero-arity. The adapter records an attached-value
 failure for the four row-selection modifiers from the raw token so the grammar
 does not inherit that boolean convention. A following separate token remains
-independent input. It similarly records a missing-value failure when an exact
+independently parsed; the host's
+[common option-value validation](cli-option-value-validation.md) diagnoses
+surplus input after a zero-arity flag without rejecting valid positionals.
+The adapter similarly records a missing-value failure when an exact
 row value option is followed by end of argv, `--`, or a known option token;
 signed numeric text remains a value for common validation.
 
@@ -542,7 +545,9 @@ does not anticipate adoption.
 
 The plural package-version selectors use ordinary zero-arity parsing, without
 recognizing former count spellings or providing migration diagnostics.
-A following numeric token is ordinary positional package input, not a count.
+A following numeric token is ordinary positional package input when the
+package slot is available, not a count. Surplus input directly following the
+flag receives the host's common zero-arity error.
 
 ## Mock demo
 
@@ -614,10 +619,10 @@ The plural package-version adoption is enforced by:
 | `Versions_QueryDiscoveryPreservesJsonFormatContract` and `Versions_QueryDiscoveryReportsConflictingFormats` | Query discovery cannot bypass either plural lens's line/JSON rejection, including environment-selected JSON; complete discovery JSON and explicit non-JSON overrides retain their behavior, and conflicting renderer flags still report a visible error. |
 | `Versions_ZeroArityFlagsPreserveFollowingPackageInput` | New plural selectors and line modifiers are zero-arity: following Boolean-shaped package input remains positional rather than disabling the flag. |
 | `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
-| `Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy` | Removed valued-direction syntax recommends `-n` rather than unsupported row counts for both explicit and implicit plural lenses, and the corrected command succeeds. |
+| `Versions_ValuedDirectionWithRangeUsesZeroArityDiagnostic` | Surplus input after an adopted direction uses the common zero-arity diagnostic for both explicit and implicit plural lenses; the corrected `-n` command succeeds. |
 | `PackageVersionListing_DirectionPreservesBooleanPackageInput`, `PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection`, and `PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue` | Explicit and options-first implicit plural lenses preserve Boolean-shaped package names after either direction modifier and select the correct row; required selector-shaped values and explicit search retain legacy direction binding. |
 | `PreprocessArgs_ZeroArityVersionFlagsPreserveBooleanTarget` and `PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues` | Implicit routing leaves Boolean-shaped package input after presence-only flags while preserving separated Boolean values on ordinary options. |
-| `Versions_SelectorLeavesNumericInputAsPackageArgument` and `Versions_AdditionalPackageUsesMultiPackageValidation` | Both zero-arity selectors leave numeric input to normal package parsing; an additional package uses ordinary multi-package validation rather than a former-count diagnostic. |
+| `Versions_SelectorLeavesNumericInputAsPackageArgument` and `Versions_AdditionalPackageUsesMultiPackageValidation` | Both zero-arity selectors preserve a numeric package ID in the available slot; surplus input directly after the selector uses the common zero-arity diagnostic, not a former-count recognizer. |
 | `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
 | `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |

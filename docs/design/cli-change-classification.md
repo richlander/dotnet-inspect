@@ -185,10 +185,12 @@ one manifest:
 - visible library `--references` and `--dependencies`, plus package
   `--dependencies`, identify themselves as legacy aliases. Their independent
   current utility and removal status are likewise **unverified**;
-- valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
+- unadopted valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
   the current boolean option would otherwise leave the count to bind as a
   positional target. The `--tail N` outcome is gated; the symmetric `--head N`
-  outcome is implemented but **unverified**;
+  outcome is implemented but **unverified**. Adopted presence-only row
+  modifiers use [common option-value validation](cli-option-value-validation.md)
+  and its zero-arity diagnostic instead;
 - removed `package --readme` receives replacement guidance at the package parse
   boundary. No independent current-input ambiguity is recorded, so the special
   diagnostic's current-policy justification is **unverified**; and

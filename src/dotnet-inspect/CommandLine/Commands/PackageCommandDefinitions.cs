@@ -187,6 +187,10 @@ public static class PackageCommandDefinitions
             skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;
 
+        CliOptionValueValidation.RegisterCapacity(
+            packageNameArg,
+            result => PackageOptionsParser.GetPositionalCapacity(result, opts, commandArgs));
+
         packageCommand.SetAction(async (parseResult, ct) =>
         {
             var result = PackageOptionsParser.Parse(parseResult, opts, commandArgs);

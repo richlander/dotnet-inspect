@@ -447,7 +447,7 @@ public class PackageVersionTests
     [InlineData("--versions", "--tail", true)]
     [InlineData("--versions-with-feed", "--head", true)]
     [InlineData("--versions-with-feed", "--tail", true)]
-    public async Task Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy(
+    public async Task Versions_ValuedDirectionWithRangeUsesZeroArityDiagnostic(
         string selector,
         string modifier,
         bool implicitCommand)
@@ -465,26 +465,24 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains($"Use '-n 1 {modifier}'", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Use '--rows", error, StringComparison.Ordinal);
+        Assert.Equal($"Error: {modifier} does not accept a value.{Environment.NewLine}", error);
 
         var (correctedExit, correctedOutput, correctedError) = await RunAppAsync(
             [
                 .. implicitCommand ? Array.Empty<string>() : ["package"],
                 "System.CommandLine",
                 selector,
-                "--rows",
-                "1..2",
                 "-n",
                 "1",
                 modifier,
+                "-Q",
                 "--json"
             ]);
 
         Assert.Equal(0, correctedExit);
         Assert.Empty(correctedError);
         using JsonDocument document = JsonDocument.Parse(correctedOutput);
-        Assert.Equal(1, document.RootElement.GetArrayLength());
+        Assert.True(document.RootElement.TryGetProperty("sections", out _));
     }
 
     [Theory]
@@ -532,7 +530,8 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Multiple package inspection cannot be combined", error, StringComparison.Ordinal);
+        string selector = selectorArguments[0].Split('=', ':')[0];
+        Assert.Equal($"Error: {selector} does not accept a value.{Environment.NewLine}", error);
     }
 
     [Theory]
