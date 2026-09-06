@@ -112,6 +112,25 @@ export interface BrowserIlBodyRow {
   readonly message: string;
 }
 
+export interface BrowserMemberFindingCensus {
+  readonly factCensusReceipt: string;
+  readonly facts: ReadonlyArray<BrowserMemberFindingFact>;
+  readonly annotatedSource: BrowserAnnotatedSource;
+  readonly sourceFactInstances: ReadonlyArray<BrowserSourceFactInstance>;
+}
+
+export interface BrowserMemberFindingFact {
+  readonly member: string;
+  readonly ilOffset: number | null;
+  readonly cSharpLine: number | null;
+  readonly anchor: string;
+  readonly category: string;
+  readonly id: string;
+  readonly detail: string | null;
+  readonly conditionality: string;
+  readonly instanceKey: number | null;
+}
+
 export interface BrowserMethodBodyComparison {
   readonly request: BrowserMethodBodyComparisonRequest;
   readonly stage: string;
@@ -206,6 +225,11 @@ export interface BrowserSource {
   readonly text: string;
 }
 
+export interface BrowserSourceFactInstance {
+  readonly factId: number;
+  readonly instanceKey: number;
+}
+
 export interface BrowserTypeSourceCancellation {
   readonly kind: BrowserTypeSourceCancellationKind;
   readonly reason: string | null;
@@ -227,6 +251,7 @@ type $ManagedExports = {
     readonly "CancelSourceQuery.19325221": () => void;
     readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
     readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
+    readonly "QueryMemberFindingCensus.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
     readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
@@ -307,6 +332,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryMemberAnnotatedSource.1135530322");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027SourceExports.QueryMemberAnnotatedSource.1135530322\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryMemberFindingCensus.1135530322");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.QueryMemberFindingCensus.1135530322\u0027 is not callable.");
     }
   }
   {
@@ -406,6 +439,12 @@ export async function queryMemberAnnotatedSource(packageId: string, version: str
   const $result = await $requireManagedExports()["SourceExports"]["QueryMemberAnnotatedSource.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserAnnotatedSource;
+}
+
+export async function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberFindingCensus> {
+  const $result = await $requireManagedExports()["SourceExports"]["QueryMemberFindingCensus.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMemberFindingCensus;
 }
 
 export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource> {

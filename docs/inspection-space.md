@@ -43,10 +43,20 @@ until both participant groups settle. Ordinary presentation retains the
 selected extraction file's timestamp rather than manufacturing a timestamp
 from the artifact stream. The artifact-backed path requires the
 binding's frozen surface role to exactly cover the command's visible selection
-and to form exact assembly-identity correspondence; other package shapes
-retain the legacy grouped workspace. Local archives and explicit `--tfm` modes
-also keep that path because their visible selection can span tools or multiple
-package layout roles. Progressive member call
+and to form exact assembly-identity correspondence. Other package shapes use
+the Package adapter's distinct explicit inspection selection over retained
+content, sharing artifact materialization and Metadata projection without
+claiming compile-role authority. This includes local archives without nuspec
+identity, tools and nested entries, multiple frameworks, and legacy framework
+spellings. Per-entry publication failures remain visible while successful
+neighbors retain their asset-directory binding groups. Neither path reopens a
+selected source as a substitute for rejected artifact evidence. The focused
+contract lives in [explicit package inspection
+selection](design/artifact-acquisition-and-workspaces.md#explicit-package-inspection-selection).
+Descriptor-less images remain outside grouped Integration realization and
+continue through existing ordinary file inspection; this cutover does not
+replace that broader extraction consumer.
+Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization
@@ -1241,6 +1251,64 @@ demonstrates the network boundary: a local-PDB read may finish without
 acquisition, while a typed miss reaches a separately preflighted moderated PDB
 acquisition successor. Availability and integrity declare unbounded work and
 accept host-owned HTTP clients and an optional cache.
+
+### Selected-library API comparison
+
+Queries coordinates an ordered API comparison of two explicitly selected
+assembly-context participants. Each participant is projected inside its own
+existing binding group; selecting one library does not shrink that group's
+dependency-resolution context. The caller supplies the participants, visibility
+scope, and projection limits. Package-version choice, cross-version library
+selection, and presentation remain caller or adjacent-owner responsibilities.
+
+`AssemblyContextApiComparisonQuery` retains each side's
+`AssemblyContextSubject` and complete projection outcome, including a subject
+whose projection was omitted by a limit. Both sides are attempted independently.
+The same caller-declared budget applies separately to each endpoint, not to
+their combined population.
+
+The query compares only two fully projected surfaces. Rejection, failure,
+projection truncation, an API-row inspection failure, or a degraded member
+signature on either side prevents comparison, while retaining both endpoint
+outcomes and any available facts.
+In particular, a participant can be available while some API rows failed:
+`AssemblyContextApiSurfaceResult.IsComplete` alone does not establish that its
+surface is eligible for this comparison. Guarded signature substitution is
+also retained separately as `ApiMember.SignatureDecodeStatus`, without
+necessarily producing a row failure. The endpoint's completion consumes both
+signals; a substituted signature is not complete comparison evidence.
+
+A valid empty public surface is complete evidence and may be compared. An
+unavailable or incomplete surface is not an empty surface and must not produce
+apparent additions, removals, equality, or a negative compatibility conclusion.
+This stricter admission is deliberate: the Library Diff consumer in
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) needs an
+exhaustive result within its advertised API scope, not a comparison of two
+potentially different healthy subsets.
+
+When admitted, the query delegates to `ApiComparisonQuery`, retaining its
+Metadata-owned type/member Finding correspondence, signature compatibility
+classification, and exactness. Visibility scope does not add attribute,
+implementation, IL, or authored-source comparison. The existing raw-surface
+query and its CLI consumer remain unchanged.
+
+`AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
+selected-participant projection, complete and empty comparisons, independent
+budgets, unavailable neighbors, row-level failure admission, and degraded
+signature admission. `AssemblyContextApiSurfaceQueryTests` owns
+extraction-bound enforcement;
+`ApiComparisonQueryTests` owns the Metadata-comparison seam.
+
+[#6119](https://github.com/richlander/dotnet-inspect/issues/6119) is the
+selected-library slice of
+[#5104](https://github.com/richlander/dotnet-inspect/issues/5104), not its
+whole-package root/asset correspondence contract. The browser adoption path
+has three remaining deliveries: this query, Package-scoped comparison
+selection/defaults, and a feature facade with its immediate Library API Diff
+inventory/detail consumer. The existing CLI already consumes the shared
+Metadata comparison through `ApiComparisonQuery`; migrating its path-based
+acquisition to retained contexts remains separate. This query does not claim
+that the browser inspector or immersive comparison viewer is implemented.
 
 ### Executor
 

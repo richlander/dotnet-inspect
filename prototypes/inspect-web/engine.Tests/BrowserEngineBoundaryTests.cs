@@ -4949,6 +4949,99 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task MemberFindingCensus_TransportsOneReceiptAcrossBothProjections()
+    {
+        const string PackageId = "Browser.Member.FindingCensus";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await PackageExports.QueryPackage(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument = JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceBoxingProbe));
+
+        string censusJson = await SourceExports.QueryMemberFindingCensus(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            type.GetProperty("queryId").GetString()!,
+            member.GetProperty("name").GetString()!,
+            member.GetProperty("signature").GetString()!,
+            member.GetProperty("graphSelectorKey").GetString()!,
+            member.GetProperty("metadataToken").GetInt32(),
+            "[]");
+        using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
+        JsonElement root = censusDocument.RootElement;
+        Assert.True(
+            Guid.TryParse(
+                root.GetProperty("factCensusReceipt").GetString(),
+                out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+
+        int[] factKeys =
+        [
+            .. root.GetProperty("facts")
+                .EnumerateArray()
+                .Where(fact =>
+                    fact.GetProperty("instanceKey").ValueKind
+                        == JsonValueKind.Number)
+                .Select(fact =>
+                    fact.GetProperty("instanceKey").GetInt32())
+                .Order(),
+        ];
+        int[] sourceKeys =
+        [
+            .. root.GetProperty("sourceFactInstances")
+                .EnumerateArray()
+                .Select(identity =>
+                    identity.GetProperty("instanceKey").GetInt32())
+                .Order(),
+        ];
+        Assert.NotEmpty(factKeys);
+        Assert.Equal(factKeys.Length, factKeys.Distinct().Count());
+        Assert.Equal(factKeys, sourceKeys);
+
+        JsonElement annotatedSource = root.GetProperty("annotatedSource");
+        HashSet<int> documentFactIds =
+        [
+            .. annotatedSource
+                .GetProperty("document")
+                .GetProperty("facts")
+                .EnumerateArray()
+                .Select(fact => fact.GetProperty("id").GetInt32()),
+        ];
+        Assert.All(
+            root.GetProperty("sourceFactInstances").EnumerateArray(),
+            identity => Assert.Contains(
+                identity.GetProperty("factId").GetInt32(),
+                documentFactIds));
+    }
+
+    [Fact]
     public async Task GraphMemberSurface_UsesSurfaceAssetForImplementationOnlyType()
     {
         const string PackageId = "Browser.Graph.Internal.Pair";

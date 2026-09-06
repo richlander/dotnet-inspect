@@ -217,10 +217,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Dependencies, Package Metadata,
-Source, Annotated Source, and Diagnostics are working surfaces rather than
-documents inset inside a general page. The Metadata Explorer retains its
-separately owned full-bleed composition.
+Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
+Library Metadata, Source, Annotated Source, and Diagnostics are working surfaces
+rather than documents inset inside a general page. The Metadata Explorer retains
+its separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -508,6 +508,66 @@ successful empty projection.
 At narrow widths, header status and both context values may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
+
+### Package Overview
+
+Package and Library Overview use the complete inspector area, following Library
+Metadata and Package Dependencies rather than enclosing their content in a second
+layer of chrome. Both use the same frame and retain a readable local subject name
+and icon; the small persistent subject path is navigation, not a replacement for
+Overview identity.
+
+```text
+Overview                                      type and member totals
+Version · Framework                         (Package only)
+icon · subject name
+subject-specific identity details and content
+package@version                                    active framework
+```
+
+The quiet header preserves the current subject's type and member totals. Existing
+Package Version and Framework controls occupy one compact row; Library Overview
+does not gain coordinate controls. One independently scrolling content region
+starts with a larger icon and readable name, the surface's single visible
+level-one heading. Both subjects reuse the package's existing icon selection and
+fallback. Library retains its own name, asset path and full assembly identity.
+The identity is part of the full-width content, not a new inset card.
+
+Package content retains the admitted-library inventory and document links. The
+platform library picker remains with the Libraries section. Library rows enter
+the existing Library subject, whose Overview retains kind and namespace
+navigation. Document opening, counts, and ordering retain their semantics.
+
+The bottom context row preserves the exact package/version and active
+framework. At narrow widths the Libraries (Package) or Types (Library) return
+control shares the quiet header; the local name and icon remain visible in the
+content below it. Controls wrap within their row, and header/footer values may
+elide as complete strings. Local subject names wrap rather than disappearing.
+Long identifiers, asset paths, and document names remain contained without
+page-level horizontal overflow. Many rows scroll inside Overview while its
+header, any controls, and coordinates remain in place.
+
+Overview presents the already-loaded package. Existing acquisition loading,
+failure, and partial-package notices remain in their current host presentation;
+this placement change introduces no independent Overview query or state machine.
+Empty inventories retain their zero totals and any available package documents.
+Admitted libraries with no public types retain their named Library Overview.
+
+[The one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6073)
+connects both production browser Overview consumers to this shared frame and
+retires their generic hero composition and Package's inset coordinate editor.
+The user explicitly approved this browser-only presentation scope and requested
+matching local name/icon treatment for Package and Library. Existing typed data supplies the
+content and counts; browser HTML rendering remains the lowering boundary rather
+than Markout because this slice arranges interactive controls and navigation.
+The frame reuses the current package-surface conventions, not a new general
+rendering architecture. Other Package and Library lenses remain separate consumers.
+
+Browser coverage exercises both production consumers' local names and icons,
+full-area geometry, narrow navigation, long content, and empty libraries.
+Published-site evidence separately exercises actual Package and Library
+Overviews, coordinate changes, and document navigation. The production
+composition fixture also confirms that returning from Library restores Overview.
 
 ### Package Dependencies
 

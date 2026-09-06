@@ -21,6 +21,8 @@ public sealed class SourceIntentTests
         [
             new SourceSelector.PlatformGroup(),
             new SourceSelector.Package(coordinate),
+            new SourceSelector.PackageReference("Contoso.Core", "latest"),
+            new SourceSelector.PackageArchive("local/Contoso.nupkg"),
             new SourceSelector.PackageGroup([coordinate]),
             new SourceSelector.PackagePrefix(request),
             new SourceSelector.Library("relative path/library.dll"),
@@ -32,6 +34,8 @@ public sealed class SourceIntentTests
         Assert.Collection(intent.Selectors,
             source => Assert.IsType<SourceSelector.PlatformGroup>(source),
             source => Assert.Same(coordinate, Assert.IsType<SourceSelector.Package>(source).Coordinate),
+            source => Assert.Equal("latest", Assert.IsType<SourceSelector.PackageReference>(source).Version),
+            source => Assert.Equal("local/Contoso.nupkg", Assert.IsType<SourceSelector.PackageArchive>(source).Path),
             source => Assert.Same(coordinate,
                 Assert.Single(Assert.IsType<SourceSelector.PackageGroup>(source).Coordinates)),
             source => Assert.Same(request, Assert.IsType<SourceSelector.PackagePrefix>(source).Request),
@@ -87,6 +91,7 @@ public sealed class SourceIntentTests
     public void DirectSourceTextRejectsIntrinsicInvalidity(string? text)
     {
         Assert.ThrowsAny<ArgumentException>(() => new SourceSelector.Library(text!));
+        Assert.ThrowsAny<ArgumentException>(() => new SourceSelector.PackageArchive(text!));
         Assert.ThrowsAny<ArgumentException>(() => new SourceSelector.PlatformLibrary(text!));
         Assert.ThrowsAny<ArgumentException>(() => new SourceSelector.Project(text!));
         Assert.ThrowsAny<ArgumentException>(() => new SourceSelector.BinaryDirectory(text!));
