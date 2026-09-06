@@ -38,13 +38,15 @@ public record PackageExtractionResult(
     string? ProducerKey = null)
 {
     /// <summary>
-    /// Sources that reported a version selected from a floating or wildcard coordinate.
+    /// Configured-source spellings for a new CLI invocation replaying a selected version.
+    /// These URLs are not authority receipts and must not authorize in-process acquisition.
     /// </summary>
     public IReadOnlyList<string>? SelectedVersionSourceUrls { get; init; }
 
     /// <summary>
-    /// Whether the ambient package-specific source policy already names only the selected
-    /// version's reporting sources.
+    /// Whether a new CLI invocation can retain the original package-specific source policy
+    /// because every eligible authority reported the selected version. This is replay
+    /// metadata, not an in-process acquisition receipt.
     /// </summary>
     public bool SelectedVersionUsesOriginalSources { get; init; }
     public ConfiguredPackageAuthority? Authority { get; init; }
@@ -198,7 +200,8 @@ public static class PackageExtractor
     // consumers open by path, so it is intentionally bound to the filesystem
     // store. A host-neutral consumer reuses IPackageStore/IPackageContent
     // directly rather than this extractor.
-    private static readonly IPackageStore s_packageStore = new FileSystemPackageStore();
+    private static readonly Lazy<IPackageStore> s_packageStore =
+        new(static () => new FileSystemPackageStore());
 
     /// <summary>
     /// Selects the first exact cached package that the current source policy
@@ -348,7 +351,29 @@ public static class PackageExtractor
             session, selected).ConfigureAwait(false);
     }
 
-    private static async Task<PackageExtractionOutcome> ExtractPackageCoreAsync(
+    /// <summary>
+    /// Opens an online, listed-only range using one complete configured-authority discovery.
+    /// Opening acquires no payload. Dispose the range after its extractions; each successful
+    /// extraction transfers its temporary directory to the caller for separate cleanup.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// The package ID, source restrictions, or range endpoints are invalid.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// The host is offline or configured discovery is not authoritative.
+    /// </exception>
+    public static Task<PackageRangeExtraction> OpenPackageRangeAsync(
+        HttpClient client,
+        PackageVersionRange range,
+        Action<string>? log = null,
+        string tempDirPrefix = "inspect-pkg",
+        NuGetSourceOptions? sourceOptions = null,
+        bool includePrerelease = false,
+        Func<DesktopPackageSourceComposition>? createComposition = null) =>
+        PackageRangeExtraction.OpenAsync(
+            client, range, log, tempDirPrefix, sourceOptions, includePrerelease, createComposition);
+
+    internal static async Task<PackageExtractionOutcome> ExtractPackageCoreAsync(
         HttpClient client,
         string packageSource,
         Action<string>? log,
@@ -731,7 +756,7 @@ public static class PackageExtractor
         IReadOnlyList<string> producerKeys =
             NuGetSourceResolver.SourceKeys(sources);
         PackageContentAdmission.Outcome? lastCacheRejection = null;
-        foreach (IPackageContent cached in s_packageStore.EnumerateCached(
+        foreach (IPackageContent cached in s_packageStore.Value.EnumerateCached(
                      normalizedName,
                      normalizedVersion,
                      producerKeys,
@@ -867,7 +892,7 @@ public static class PackageExtractor
                         using var archiveStream = new MemoryStream(
                             archive,
                             writable: false);
-                        IPackageContent content = await s_packageStore.CommitAsync(
+                        IPackageContent content = await s_packageStore.Value.CommitAsync(
                                 packageName,
                                 version,
                                 NuGetCache.GetSourceKey(source.Url),

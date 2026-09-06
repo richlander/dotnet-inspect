@@ -10,16 +10,24 @@ public sealed class ConfiguredPackagePayloadResult
     internal ConfiguredPackagePayloadResult(
         ConfiguredPackageAuthority? authority,
         AcquiredPackageSourcePayload? payload,
-        IReadOnlyList<PackageAuthorityFailure> failures)
+        IReadOnlyList<PackageAuthorityFailure> failures,
+        IReadOnlyList<ConfiguredPackageAuthority>? reportingAuthorities = null,
+        bool selectionUsesOriginalSources = false)
     {
         Authority = authority;
         Payload = payload;
         Failures = new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
+        ReportingAuthorities = reportingAuthorities is null
+            ? null
+            : new ReadOnlyCollection<ConfiguredPackageAuthority>([.. reportingAuthorities]);
+        SelectionUsesOriginalSources = selectionUsesOriginalSources;
     }
 
     public ConfiguredPackageAuthority? Authority { get; }
     public AcquiredPackageSourcePayload? Payload { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
+    internal IReadOnlyList<ConfiguredPackageAuthority>? ReportingAuthorities { get; }
+    internal bool SelectionUsesOriginalSources { get; }
 }
 
 public sealed partial class DesktopPackageSourceComposition
@@ -81,20 +89,31 @@ public sealed partial class DesktopPackageSourceComposition
             IReadOnlyList<PackageSource> sources = ResolveEligibleSources(
                 packageId, sourceOptions, failures);
             List<(AuthorityEntry Entry, IPackageStore Store)> entries = [];
+            bool selectionUsesOriginalSources = reportingAuthorities is not null
+                && failures.Count == 0;
             foreach (PackageSource source in sources
                          .OrderBy(source => LocalPackageSourceIdentity.IsLocalSource(source.Url) ? 0 : 1)
                          .ThenBy(source => source.Url, StringComparer.Ordinal))
             {
                 operation.ThrowIfExpired();
                 if (TryGetEligibleAuthority(source, failures) is not { } entry)
+                {
+                    selectionUsesOriginalSources = false;
                     continue;
+                }
                 RequireAuthority(entry.Client.Source, entry);
                 if (reportingAuthorities is not null
                     && !reportingAuthorities.Contains(entry.Authority))
+                {
+                    selectionUsesOriginalSources = false;
                     continue;
+                }
                 IPackageStore store = createStore(entry.Authority, entry.Client.Source.Producer);
                 entries.Add((entry, store));
             }
+            ConfiguredPackageAuthority[]? selectedAuthorities = reportingAuthorities is null
+                ? null
+                : [.. entries.Select(item => item.Entry.Authority)];
 
             // Every authorized cache is consulted before cold acquisition.
             // Stable consultation order is not configured declaration precedence.
@@ -107,7 +126,8 @@ public sealed partial class DesktopPackageSourceComposition
                         limits, log, operation.OperationToken).ConfigureAwait(false);
                 operation.ThrowIfExpired();
                 if (cached is not null)
-                    return new(entry.Authority, cached, failures);
+                    return new(entry.Authority, cached, failures,
+                        selectedAuthorities, selectionUsesOriginalSources);
             }
 
             foreach (var (entry, store) in entries)
@@ -125,7 +145,8 @@ public sealed partial class DesktopPackageSourceComposition
                     operation.ThrowIfExpired();
                     RequireAuthority(entry.Client.Source, entry);
                     if (result is PackageSourcePayloadResult.Acquired acquired)
-                        return new(entry.Authority, acquired.Payload, failures);
+                        return new(entry.Authority, acquired.Payload, failures,
+                            selectedAuthorities, selectionUsesOriginalSources);
                     if (result is PackageSourcePayloadResult.Failed failed)
                     {
                         RequireAuthority(failed.Failure.Source, entry);

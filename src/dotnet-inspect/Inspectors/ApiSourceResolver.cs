@@ -32,377 +32,398 @@ internal static class ApiSourceResolver
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;
-        string? selectedTfm = null;
-
-        string searchPath;
-        string? runtimeAssemblyPath = null;
-        string? packageName = null;
-        string? packageVersion = null;
-        string? packageExtractPath = null;
-        string? apiSource = null;
-        string? apiVersion = null;
-        string? platformFramework = null;
-        string? projectAssetsPath = null;
-        NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
-        IReadOnlyList<string>? packageReplaySourceUrls = null;
-        string? packageReplaySourcePackageName = null;
-        bool packageReplayUsesOriginalSources = false;
-        var typeName = options.TypeName;
-        var packagePath = options.PackagePath;
-
-        if (!string.IsNullOrEmpty(packagePath) && !File.Exists(packagePath))
+        try
         {
-            bool isRange = PackageVersionRange.TryParse(packagePath, out var range, out var rangeError);
-            if (rangeError is not null)
-            {
-                CommandError.Write(rangeError);
-                return (null!, 1);
-            }
+            string? selectedTfm = null;
 
-            if (isRange)
+            string searchPath;
+            string? runtimeAssemblyPath = null;
+            string? packageName = null;
+            string? packageVersion = null;
+            string? packageExtractPath = null;
+            string? apiSource = null;
+            string? apiVersion = null;
+            string? platformFramework = null;
+            string? projectAssetsPath = null;
+            NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
+            IReadOnlyList<string>? packageReplaySourceUrls = null;
+            string? packageReplaySourcePackageName = null;
+            bool packageReplayUsesOriginalSources = false;
+            var typeName = options.TypeName;
+            var packagePath = options.PackagePath;
+            PackageExtractionOutcome? rangeOutcome = null;
+
+            if (!string.IsNullOrEmpty(packagePath) && !File.Exists(packagePath))
             {
-                if (string.IsNullOrWhiteSpace(options.PackageRangeAddress))
+                bool isRange = PackageVersionRange.TryParse(packagePath, out var range, out var rangeError);
+                if (rangeError is not null)
                 {
-                    CommandError.Write(
-                        $"Package range '{packagePath}' requires --at <version|#N|first|last>.");
-                    CommandError.WriteLine(
-                        $"List its addressable versions with 'dotnet-inspect package {packagePath} --versions'.");
+                    CommandError.Write(rangeError);
                     return (null!, 1);
                 }
 
-                try
+                if (isRange)
                 {
-                    var vector = await PackageVersionVector.ResolveAsync(
-                        context.HttpClient,
-                        range!,
-                        options.SourceOptions,
-                        context.Logger.Log);
-                    if (!vector.TrySelect(options.PackageRangeAddress, out var address, out var addressError))
+                    if (string.IsNullOrWhiteSpace(options.PackageRangeAddress))
                     {
-                        CommandError.Write($"{addressError}");
+                        CommandError.Write(
+                            $"Package range '{packagePath}' requires --at <version|#N|first|last>.");
+                        CommandError.WriteLine(
+                            $"List its addressable versions with 'dotnet-inspect package {packagePath} --versions'.");
                         return (null!, 1);
                     }
 
-                    packagePath = $"{range!.PackageId}@{address!.Version.ToNormalizedString()}";
-                    acquisitionSourceOptions =
-                        NuGetSourceResolver.RestrictToSources(
-                            options.SourceOptions,
-                            address.ReportingSourceUrls);
-                    packageReplaySourceUrls =
-                        [.. address.ReportingSourceUrls];
-                    packageReplaySourcePackageName =
-                        range!.PackageId;
-                    packageReplayUsesOriginalSources =
-                        NuGetSourceResolver.ResolveSourceKeysForPackage(
-                            options.SourceOptions,
-                            range!.PackageId)
-                        .SequenceEqual(
-                            address.ReportingSourceUrls.Select(
-                                NuGetCache.GetSourceKey));
-                    context.Logger.Log(
-                        $"Resolved {range.PackageId}@{range.Start}..{range.End} {options.PackageRangeAddress} "
-                        + $"to {address.Version} ({address.Selector} of #{vector.Addresses.Length})");
+                    try
+                    {
+                        await using PackageRangeExtraction? rangeExtraction = Core.HttpClientFactory.IsOffline
+                            ? null
+                            : await PackageExtractor.OpenPackageRangeAsync(
+                                context.HttpClient, range!, context.Logger.Log, "inspect-api",
+                                options.SourceOptions,
+                                createComposition: context.CreatePackageSourceComposition);
+                        var vector = rangeExtraction?.Vector ?? await PackageVersionVector.ResolveAsync(
+                            context.HttpClient, range!, options.SourceOptions, context.Logger.Log);
+                        if (!vector.TrySelect(options.PackageRangeAddress, out var address, out var addressError))
+                        {
+                            CommandError.Write($"{addressError}");
+                            return (null!, 1);
+                        }
+
+                        packagePath = $"{range!.PackageId}@{address!.Version.ToNormalizedString()}";
+                        context.Logger.Log(
+                            $"Resolved {range.PackageId}@{range.Start}..{range.End} {options.PackageRangeAddress} "
+                            + $"to {address.Version} ({address.Selector} of #{vector.Addresses.Length})");
+                        if (rangeExtraction is not null)
+                        {
+                            rangeOutcome = await rangeExtraction.ExtractAsync(address.Selector);
+                            tempDir = rangeOutcome.Value.Result?.TempDir;
+                        }
+                        else
+                        {
+                            acquisitionSourceOptions =
+                                NuGetSourceResolver.RestrictToSources(
+                                    options.SourceOptions,
+                                    address.ReportingSourceUrls);
+                            packageReplaySourceUrls = [.. address.ReportingSourceUrls];
+                            packageReplaySourcePackageName = range.PackageId;
+                            packageReplayUsesOriginalSources =
+                                NuGetSourceResolver.ResolveSourceKeysForPackage(
+                                    options.SourceOptions, range.PackageId)
+                                .SequenceEqual(address.ReportingSourceUrls.Select(NuGetCache.GetSourceKey));
+                        }
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException
+                        or IOException
+                        or InvalidOperationException
+                        or ArgumentException)
+                    {
+                        CommandError.Write($"{ex.Message}");
+                        return (null!, 1);
+                    }
                 }
-                catch (Exception ex) when (ex is HttpRequestException
-                    or IOException
-                    or InvalidOperationException
-                    or ArgumentException)
+                else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
                 {
-                    CommandError.Write($"{ex.Message}");
+                    CommandError.Write("--at requires a package version range such as Package@A..B.");
                     return (null!, 1);
                 }
             }
             else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
             {
-                CommandError.Write("--at requires a package version range such as Package@A..B.");
+                CommandError.Write("--at requires --package Package@A..B.");
                 return (null!, 1);
             }
-        }
-        else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
-        {
-            CommandError.Write("--at requires --package Package@A..B.");
-            return (null!, 1);
-        }
 
-        if (!string.IsNullOrEmpty(packagePath))
-        {
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                context.HttpClient,
-                packagePath,
-                context.Logger.Log,
-                "inspect-api",
-                acquisitionSourceOptions);
-            if (!outcome.IsSuccess)
+            if (!string.IsNullOrEmpty(packagePath))
             {
-                CommandError.Write($"{outcome.ErrorMessage}");
-                return (null!, 1);
-            }
-            var extracted = outcome.Result!;
-            if (extracted.SelectedVersionSourceUrls is not null)
-            {
-                packageReplaySourceUrls =
-                    extracted.SelectedVersionSourceUrls;
-                packageReplaySourcePackageName =
-                    extracted.PackageName;
-                packageReplayUsesOriginalSources =
-                    extracted.SelectedVersionUsesOriginalSources;
-            }
-            else if (packageReplaySourceUrls is not null
-                && !string.Equals(
-                    packageReplaySourcePackageName,
-                    extracted.PackageName,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                packageReplaySourceUrls = null;
-                packageReplaySourcePackageName = null;
-                packageReplayUsesOriginalSources = false;
-            }
-            (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
-            packageExtractPath = extracted.ExtractPath;
-            apiSource = SourceKind.NuGet;
-            apiVersion = packageVersion;
-
-            if (!string.IsNullOrEmpty(options.AssemblyPath))
-            {
-                var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
-                if (matchedAssembly == null)
+                var target = PackageExtractor.ParsePackageTarget(packagePath);
+                var outcome = rangeOutcome
+                    ?? (!target.IsLocalFile && !Core.HttpClientFactory.IsOffline
+                        && PackageExtractor.TryNormalizePackageVersion(target.Version, out string pinnedVersion)
+                        ? await PackageExtractor.ExtractPinnedPackageAsync(
+                            context.HttpClient, target.PackageName, pinnedVersion,
+                            context.Logger.Log, "inspect-api", acquisitionSourceOptions,
+                            context.CreatePackageSourceComposition)
+                        : await PackageExtractor.ExtractPackageAsync(
+                            context.HttpClient, packagePath, context.Logger.Log,
+                            "inspect-api", acquisitionSourceOptions));
+                if (!outcome.IsSuccess)
                 {
-                    CommandError.Write($"Library '{options.AssemblyPath}' not found in package.");
+                    CommandError.Write($"{outcome.ErrorMessage}");
                     return (null!, 1);
                 }
-                searchPath = matchedAssembly;
-                selectedTfm = matchedTfm;
-                if (selectedTfm != null)
+                var extracted = outcome.Result!;
+                if (extracted.SelectedVersionSourceUrls is not null)
                 {
-                    logger.Log($"Using TFM: {selectedTfm}");
+                    packageReplaySourceUrls =
+                        extracted.SelectedVersionSourceUrls;
+                    packageReplaySourcePackageName =
+                        extracted.PackageName;
+                    packageReplayUsesOriginalSources =
+                        extracted.SelectedVersionUsesOriginalSources;
                 }
-            }
-            else if (!string.IsNullOrEmpty(typeName))
-            {
-                var (typeAssembly, matchedTfm) = TfmSelector.FindAssemblyContainingType(searchPath, typeName, options.Tfm);
-                if (typeAssembly != null)
+                else if (packageReplaySourceUrls is not null
+                    && !string.Equals(
+                        packageReplaySourcePackageName,
+                        extracted.PackageName,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    searchPath = typeAssembly;
-                    selectedTfm = matchedTfm;
-                    logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
+                    packageReplaySourceUrls = null;
+                    packageReplaySourcePackageName = null;
+                    packageReplayUsesOriginalSources = false;
                 }
-            }
-            else if (!string.IsNullOrEmpty(options.Tfm))
-            {
-                var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
-                if (tfmAssembly == null)
+                (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+                packageExtractPath = extracted.ExtractPath;
+                apiSource = SourceKind.NuGet;
+                apiVersion = packageVersion;
+
+                if (!string.IsNullOrEmpty(options.AssemblyPath))
                 {
-                    CommandError.Write($"No library found for TFM '{options.Tfm}'.");
-                    return (null!, 1);
-                }
-                searchPath = tfmAssembly;
-                selectedTfm = options.Tfm;
-                logger.Log($"Using TFM: {options.Tfm}");
-            }
-        }
-        else if (!string.IsNullOrEmpty(options.AssemblyPath))
-        {
-            if (!File.Exists(options.AssemblyPath))
-            {
-                CommandError.Write($"File not found: {options.AssemblyPath}");
-                return (null!, 1);
-            }
-            searchPath = options.AssemblyPath;
-            apiSource = SourceKind.Library;
-        }
-        else if (!string.IsNullOrEmpty(options.ProjectPath))
-        {
-            if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out projectAssetsPath, out var assetsStatus))
-            {
-                CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
-                return (null!, 1);
-            }
-
-            if (string.IsNullOrWhiteSpace(typeName))
-            {
-                CommandError.Write("--project requires a type name for type/member resolution.");
-                return (null!, 1);
-            }
-
-            logger.Log($"Using assets: {projectAssetsPath}");
-            var assemblies = ProjectAssetsParser.Parse(projectAssetsPath, options.Tfm, logger.Log);
-            foreach (var (asmPath, projectPackageName, projectPackageVersion) in assemblies)
-            {
-                var (apiType, _, dllPath, _) = ApiServices.FindType(typeName, asmPath, logger, options.IncludeAll);
-                if (apiType is null || dllPath is null)
-                    continue;
-
-                searchPath = dllPath;
-                packageName = projectPackageName;
-                packageVersion = projectPackageVersion;
-                apiSource = SourceKind.Project;
-                apiVersion = projectPackageVersion;
-                selectedTfm = options.Tfm;
-                logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)} from {projectPackageName} {projectPackageVersion}");
-                goto ProjectResolved;
-            }
-
-            CommandError.Write($"Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
-            return (null!, 1);
-
-        ProjectResolved:
-            ;
-        }
-        else if (!string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            var (assemblyPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                options.PlatformAssembly,
-                context.HttpClient,
-                logger.Log,
-                options.PlatformFramework,
-                sourceOptions: options.SourceOptions);
-
-            if (error != null)
-            {
-                var frameworkShortName = TypeLookupService.TryMapFrameworkName(options.PlatformAssembly);
-                if (frameworkShortName != null && !string.IsNullOrEmpty(typeName))
-                {
-                    logger.Log($"'{options.PlatformAssembly}' is a framework name, searching for type '{typeName}' in {frameworkShortName}");
-                    var lookupResult = await TypeLookupService.FindTypeAsync(
-                        typeName,
-                        [frameworkShortName],
-                        context.HttpClient,
-                        logger,
-                        options.SourceOptions);
-
-                    if (lookupResult != null)
+                    var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
+                    if (matchedAssembly == null)
                     {
-                        searchPath = lookupResult.AssemblyPath;
-                        apiSource = SourceKind.Platform;
-                        apiVersion = lookupResult.Version;
-                        framework = lookupResult.Framework;
-                        typeName = lookupResult.FullTypeName;
-                        logger.Log($"Found type in {lookupResult.AssemblyName} ({lookupResult.Framework} {lookupResult.Version})");
-
-                        var (runtimePath2, _, _, runtimeError2) = PlatformResolver.ResolveAssembly(
-                            lookupResult.AssemblyName,
-                            frameworkShortName,
-                            packsDirectory: null,
-                            useRuntimeAssemblies: true);
-
-                        if (runtimeError2 == null && runtimePath2 != null)
-                        {
-                            runtimeAssemblyPath = runtimePath2;
-                            logger.Log($"Using runtime library for PDB lookup: {runtimePath2}");
-                        }
+                        CommandError.Write($"Library '{options.AssemblyPath}' not found in package.");
+                        return (null!, 1);
                     }
-                    else
+                    searchPath = matchedAssembly;
+                    selectedTfm = matchedTfm;
+                    if (selectedTfm != null)
                     {
-                        var allFrameworks = new[] { "runtime", "aspnetcore", "netstandard" };
-                        var otherFrameworks = allFrameworks.Where(f => f != frameworkShortName).ToArray();
-                        var foundElsewhere = await TypeLookupService.FindTypeAsync(
+                        logger.Log($"Using TFM: {selectedTfm}");
+                    }
+                }
+                else if (!string.IsNullOrEmpty(typeName))
+                {
+                    var (typeAssembly, matchedTfm) = TfmSelector.FindAssemblyContainingType(searchPath, typeName, options.Tfm);
+                    if (typeAssembly != null)
+                    {
+                        searchPath = typeAssembly;
+                        selectedTfm = matchedTfm;
+                        logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
+                    }
+                }
+                else if (!string.IsNullOrEmpty(options.Tfm))
+                {
+                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
+                    if (tfmAssembly == null)
+                    {
+                        CommandError.Write($"No library found for TFM '{options.Tfm}'.");
+                        return (null!, 1);
+                    }
+                    searchPath = tfmAssembly;
+                    selectedTfm = options.Tfm;
+                    logger.Log($"Using TFM: {options.Tfm}");
+                }
+            }
+            else if (!string.IsNullOrEmpty(options.AssemblyPath))
+            {
+                if (!File.Exists(options.AssemblyPath))
+                {
+                    CommandError.Write($"File not found: {options.AssemblyPath}");
+                    return (null!, 1);
+                }
+                searchPath = options.AssemblyPath;
+                apiSource = SourceKind.Library;
+            }
+            else if (!string.IsNullOrEmpty(options.ProjectPath))
+            {
+                if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out projectAssetsPath, out var assetsStatus))
+                {
+                    CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
+                    return (null!, 1);
+                }
+
+                if (string.IsNullOrWhiteSpace(typeName))
+                {
+                    CommandError.Write("--project requires a type name for type/member resolution.");
+                    return (null!, 1);
+                }
+
+                logger.Log($"Using assets: {projectAssetsPath}");
+                var assemblies = ProjectAssetsParser.Parse(projectAssetsPath, options.Tfm, logger.Log);
+                foreach (var (asmPath, projectPackageName, projectPackageVersion) in assemblies)
+                {
+                    var (apiType, _, dllPath, _) = ApiServices.FindType(typeName, asmPath, logger, options.IncludeAll);
+                    if (apiType is null || dllPath is null)
+                        continue;
+
+                    searchPath = dllPath;
+                    packageName = projectPackageName;
+                    packageVersion = projectPackageVersion;
+                    apiSource = SourceKind.Project;
+                    apiVersion = projectPackageVersion;
+                    selectedTfm = options.Tfm;
+                    logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)} from {projectPackageName} {projectPackageVersion}");
+                    goto ProjectResolved;
+                }
+
+                CommandError.Write($"Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
+                return (null!, 1);
+
+            ProjectResolved:
+                ;
+            }
+            else if (!string.IsNullOrEmpty(options.PlatformAssembly))
+            {
+                var (assemblyPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
+                    options.PlatformAssembly,
+                    context.HttpClient,
+                    logger.Log,
+                    options.PlatformFramework,
+                    sourceOptions: options.SourceOptions);
+
+                if (error != null)
+                {
+                    var frameworkShortName = TypeLookupService.TryMapFrameworkName(options.PlatformAssembly);
+                    if (frameworkShortName != null && !string.IsNullOrEmpty(typeName))
+                    {
+                        logger.Log($"'{options.PlatformAssembly}' is a framework name, searching for type '{typeName}' in {frameworkShortName}");
+                        var lookupResult = await TypeLookupService.FindTypeAsync(
                             typeName,
-                            otherFrameworks,
+                            [frameworkShortName],
                             context.HttpClient,
                             logger,
                             options.SourceOptions);
 
-                        if (foundElsewhere != null)
+                        if (lookupResult != null)
                         {
-                            CommandError.WriteNote($"'{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
-                            searchPath = foundElsewhere.AssemblyPath;
+                            searchPath = lookupResult.AssemblyPath;
                             apiSource = SourceKind.Platform;
-                            apiVersion = foundElsewhere.Version;
-                            framework = foundElsewhere.Framework;
-                            typeName = foundElsewhere.FullTypeName;
-                            logger.Log($"Found type in {foundElsewhere.AssemblyName} ({foundElsewhere.Framework} {foundElsewhere.Version})");
+                            apiVersion = lookupResult.Version;
+                            framework = lookupResult.Framework;
+                            typeName = lookupResult.FullTypeName;
+                            logger.Log($"Found type in {lookupResult.AssemblyName} ({lookupResult.Framework} {lookupResult.Version})");
 
-                            var (runtimePath3, _, _, runtimeError3) = PlatformResolver.ResolveAssembly(
-                                foundElsewhere.AssemblyName,
-                                foundElsewhere.Framework,
+                            var (runtimePath2, _, _, runtimeError2) = PlatformResolver.ResolveAssembly(
+                                lookupResult.AssemblyName,
+                                frameworkShortName,
                                 packsDirectory: null,
                                 useRuntimeAssemblies: true);
 
-                            if (runtimeError3 == null && runtimePath3 != null)
+                            if (runtimeError2 == null && runtimePath2 != null)
                             {
-                                runtimeAssemblyPath = runtimePath3;
-                                logger.Log($"Using runtime library for PDB lookup: {runtimePath3}");
+                                runtimeAssemblyPath = runtimePath2;
+                                logger.Log($"Using runtime library for PDB lookup: {runtimePath2}");
                             }
                         }
                         else
                         {
-                            CommandError.Write($"Type '{typeName}' not found in any platform framework.");
-                            return (null!, 1);
+                            var allFrameworks = new[] { "runtime", "aspnetcore", "netstandard" };
+                            var otherFrameworks = allFrameworks.Where(f => f != frameworkShortName).ToArray();
+                            var foundElsewhere = await TypeLookupService.FindTypeAsync(
+                                typeName,
+                                otherFrameworks,
+                                context.HttpClient,
+                                logger,
+                                options.SourceOptions);
+
+                            if (foundElsewhere != null)
+                            {
+                                CommandError.WriteNote($"'{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
+                                searchPath = foundElsewhere.AssemblyPath;
+                                apiSource = SourceKind.Platform;
+                                apiVersion = foundElsewhere.Version;
+                                framework = foundElsewhere.Framework;
+                                typeName = foundElsewhere.FullTypeName;
+                                logger.Log($"Found type in {foundElsewhere.AssemblyName} ({foundElsewhere.Framework} {foundElsewhere.Version})");
+
+                                var (runtimePath3, _, _, runtimeError3) = PlatformResolver.ResolveAssembly(
+                                    foundElsewhere.AssemblyName,
+                                    foundElsewhere.Framework,
+                                    packsDirectory: null,
+                                    useRuntimeAssemblies: true);
+
+                                if (runtimeError3 == null && runtimePath3 != null)
+                                {
+                                    runtimeAssemblyPath = runtimePath3;
+                                    logger.Log($"Using runtime library for PDB lookup: {runtimePath3}");
+                                }
+                            }
+                            else
+                            {
+                                CommandError.Write($"Type '{typeName}' not found in any platform framework.");
+                                return (null!, 1);
+                            }
                         }
+                    }
+                    else
+                    {
+                        CommandError.Write($"{error}");
+                        return (null!, 1);
                     }
                 }
                 else
                 {
-                    CommandError.Write($"{error}");
-                    return (null!, 1);
+                    searchPath = assemblyPath!;
+                    apiSource = SourceKind.Platform;
+                    apiVersion = version;
+                    logger.Log($"Using platform ref library: {framework} {version}");
+
+                    var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
+                        options.PlatformAssembly,
+                        options.PlatformFramework,
+                        packsDirectory: null,
+                        useRuntimeAssemblies: true);
+
+                    if (runtimeError == null && runtimePath != null)
+                    {
+                        runtimeAssemblyPath = runtimePath;
+                        logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
+                    }
                 }
+
+                platformFramework = framework;
             }
             else
             {
-                searchPath = assemblyPath!;
-                apiSource = SourceKind.Platform;
-                apiVersion = version;
-                logger.Log($"Using platform ref library: {framework} {version}");
-
-                var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
-                    options.PlatformAssembly,
-                    options.PlatformFramework,
-                    packsDirectory: null,
-                    useRuntimeAssemblies: true);
-
-                if (runtimeError == null && runtimePath != null)
-                {
-                    runtimeAssemblyPath = runtimePath;
-                    logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
-                }
+                CommandError.Write("No package, library, or platform specified.");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Examples:");
+                CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
+                CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
+                return (null!, 1);
             }
 
-            platformFramework = framework;
-        }
-        else
-        {
-            CommandError.Write("No package, library, or platform specified.");
-            CommandError.WriteBlankLine();
-            CommandError.WriteLine("Examples:");
-            CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
-            CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
-            return (null!, 1);
-        }
-
-        if (apiSource == SourceKind.Platform && apiVersion != null)
-        {
-            var dotIndex = apiVersion.IndexOf('.');
-            if (dotIndex > 0)
+            if (apiSource == SourceKind.Platform && apiVersion != null)
             {
-                var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
-                var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
-                selectedTfm = $"net{majorMinor}";
+                var dotIndex = apiVersion.IndexOf('.');
+                if (dotIndex > 0)
+                {
+                    var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
+                    var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
+                    selectedTfm = $"net{majorMinor}";
+                }
             }
-        }
 
-        if (Directory.Exists(searchPath))
-        {
-            var dlls = TfmSelector.GetPackageAssemblies(searchPath);
-            if (dlls.Count > 0)
+            if (Directory.Exists(searchPath))
             {
-                var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
-                if (selectedPath != null)
+                var dlls = TfmSelector.GetPackageAssemblies(searchPath);
+                if (dlls.Count > 0)
                 {
-                    searchPath = selectedPath;
-                    selectedTfm = tfm;
-                    if (tfm != null)
-                        logger.Log($"Auto-selected TFM: {tfm}");
-                }
-                else if (dlls.Count > 1)
-                {
-                    CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");
-                    return (null!, 1);
+                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
+                    if (selectedPath != null)
+                    {
+                        searchPath = selectedPath;
+                        selectedTfm = tfm;
+                        if (tfm != null)
+                            logger.Log($"Auto-selected TFM: {tfm}");
+                    }
+                    else if (dlls.Count > 1)
+                    {
+                        CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");
+                        return (null!, 1);
+                    }
                 }
             }
-        }
 
-        return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
-            packageExtractPath, apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath,
-            tempDir, typeName, packageReplaySourceUrls, packageReplayUsesOriginalSources, context), null);
+            var result = new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
+                packageExtractPath, apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath,
+                tempDir, typeName, packageReplaySourceUrls, packageReplayUsesOriginalSources, context);
+            tempDir = null;
+            return (result, null);
+        }
+        finally
+        {
+            PackageExtractor.Cleanup(tempDir);
+        }
     }
 }

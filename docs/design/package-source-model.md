@@ -543,9 +543,10 @@ filesystem registration or claim that offline local discovery is supported.
 
 ### Caller-pinned payload acquisition
 
-The production consumer is ordinary online single-package
-`package <id>@<version>` inspection, through
-`PackageExtractor.ExtractPinnedPackageAsync`. Its exact-pin path uses the same
+The production consumers are ordinary online single-package
+`package <id>@<version>` inspection and exact package pins in the API resolver
+used by `type`, `member`, and `match`, through
+`PackageExtractor.ExtractPinnedPackageAsync`. These exact-pin paths use the same
 configuration, mapping, client ownership, and association lookup as version
 queries. An eligible cache hit
 precedes cold acquisition; cold local sources precede HTTP sources regardless
@@ -580,10 +581,10 @@ inspection uses archive metadata instead. All-library Integration inspection
 uses its existing materialized-input path rather than reacquiring the root
 through the legacy producer-authorized artifact path.
 
-This slice does not migrate multi-package inspection, offline extraction,
-automatic payload selection, range-addressed payloads, package-scoped
-API/dependency commands, symbols, manifest-only requests, platform projection,
-or workspace artifact acquisition.
+The exact-pin slice does not migrate multi-package inspection, offline
+extraction, automatic payload selection, dependency commands, symbols,
+manifest-only requests, platform projection, or workspace artifact acquisition.
+Selected package and API/timeline range adoption are described below.
 Those callers retain `ExtractPackageAsync` and its producer-keyed single-flight
 registry until their own handoffs migrate. The new path does not join those
 legacy flights or share caller-owned temporary directories across extractions.
@@ -607,9 +608,9 @@ contracts.
 The production consumer in step 5 is ordinary online single-package inspection
 with an omitted version, `@latest`, `--preview`, or a wildcard version. The
 package layer also supplies an authority-preserving range-address acquisition
-seam. Its named CLI consumers, API inspection and timeline, adopt that seam in
-step 6 together with their remaining payload and replay paths. This slice does
-not add `package --at` or claim those hosts have migrated.
+seam. The API and timeline consumers described below adopt retained range
+discovery in the first focused part of step 6. Ordinary `package` payload
+inspection still does not accept a range or `--at`.
 
 Selection consumes complete, current candidate evidence from every eligible
 configured authority. Each retained observation preserves its configured
@@ -641,8 +642,9 @@ Authority-safe candidate caching remains deferred; local payload caching and
 HTTP temporary ownership reuse the caller-pinned path unchanged.
 
 The same six-step plan and recorded CLI-only approval apply. Multi-package
-inspection, API/timeline host adoption, offline behavior, and corresponding
-legacy retirement remain step 6. Existing Markout-backed package views and
+inspection, floating API selection, other consumers, offline behavior, and
+corresponding legacy retirement remain in step 6. Existing Markout-backed
+package views and
 file/content projection remain the rendering boundary; no new default output
 section is introduced.
 
@@ -659,6 +661,65 @@ The external-operation deadline, commit-lifetime, caller-cancellation, and
 selected-wrapper tests gate the shared operation and temporary ownership.
 Existing caller-pinned acquisition and authority-store gates remain applicable
 to their shared implementation.
+
+### API and timeline range consumers
+
+Online API range inspection (`type`, `member`, and `match` with `--at`) and
+`timeline` retain one complete configured-authority discovery together with
+their immutable version vector. Every selected address consumes that same
+evidence; an address is not converted into an unrestricted caller pin or a
+producer-key restriction. Sparse and dense timeline evaluation do not
+rediscover the vector between cells. Incomplete discovery prevents payload
+acquisition, even when a healthy peer or a non-reporter's cache has bytes.
+
+These vectors preserve the existing listed-only API/timeline policy. An
+unlisted observation does not admit an endpoint or authorize its acquisition;
+another authority's listed observation can independently admit it. Local and
+V3 authorities without Gallery listing semantics retain their existing visible
+listing convention. Metadata-only `package --versions` can include unlisted
+rows and is a different operation, so its ordinals need not match a listed-only
+vector. Caller-pinned API inspection can acquire an unlisted exact coordinate
+without candidate discovery.
+
+Opening a range is metadata-only. API inspection requires an explicit address;
+timeline without `--at` renders unevaluated cells, repeated `--at` selects sparse
+cells, and `--at all` explicitly requests dense evaluation. The existing
+operation ceiling spans discovery and acquisition. Each successful extraction
+owns independent temporary storage, valid after range disposal. Projection
+consumes the already acquired package through the existing assembly-selection
+policy rather than opening another package-acquisition path. Failed projection
+and completed inspection release their transferred temporary storage.
+
+Executable replay retains the source policy as well as the coordinate.
+`match --similar` projects reporter authorities' configured source spellings
+into a new exact-package invocation, retaining config and mapping context.
+When the original policy already names only reporters, it can be reused
+without disclosing endpoints. Those spellings are new invocation inputs,
+never in-process authority receipts. Redirected final packages use their own
+package policy, not the root's reporter set. Timeline recommendations retain
+the original range source policy, config-discovery directory, TFM, prerelease,
+and visibility options. Both use shared CLI quoting and disclosure checks;
+undisclosable source values require config-backed replay instead of a lossy or
+credential-bearing command.
+
+The observable rendering remains the existing Markout-backed API, match, and
+timeline views. This slice introduces no output section and does not migrate
+API floating/wildcard selection, offline behavior, dependency acquisition,
+multi-package commands, symbols, or workspace acquisition.
+
+Release gates in `ConfiguredPayloadAcquisitionTests` are
+`OpenRange_OneMetadataDiscoveryServesMultipleAddressesAndReporters`,
+`Range_NonReportingWarmLocalCacheCannotAnswer`,
+`OpenRange_GalleryUnlistedEndpointNeedsIndependentReporter`,
+`ApiRange_LocalFeedSelectsTheRequestedAddress`,
+`RangeConsumers_UnreadablePeerFailsBeforePayload`,
+`TimelineRange_OneDiscoveryAcquiresOnlyExplicitAddresses`,
+`TimelineRange_ProbeReplayRetainsWorkingDirectoryAndSelectionPolicy`, and
+`ApiRange_ProjectionFailureCleansTransferredTemporaryDirectory`.
+The range lifetime cases cover independent successful roots and wrapper
+policy. `MatchDiscoveryTests` covers exact replay with local, HTTP, mapped,
+ambient-config, and query-distinct sources. `AssemblySetResolverTests` covers
+the reused TFM selection and transferred ownership.
 
 ### Metadata-only version queries
 

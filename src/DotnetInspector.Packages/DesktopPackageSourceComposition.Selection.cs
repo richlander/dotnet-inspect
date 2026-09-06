@@ -107,15 +107,9 @@ public sealed partial class DesktopPackageSourceComposition
             if (coordinate is null)
                 return new(null, null, failures);
 
-            var reporters = new HashSet<ConfiguredPackageAuthority>(ReferenceEqualityComparer.Instance);
-            foreach (ConfiguredPackageCandidateObservation candidate in discovery.Candidates)
-            {
-                if (candidate.Observation.Coordinate == coordinate)
-                    reporters.Add(candidate.Authority);
-            }
-            return await AcquireCoordinateAsync(
-                packageId, coordinate, createStore, sourceOptions, log, operation,
-                limits, transferPolicy, failures, reporters).ConfigureAwait(false);
+            return await AcquireDiscoveredAsync(
+                discovery, coordinate, createStore, sourceOptions, log, operation,
+                limits, transferPolicy).ConfigureAwait(false);
         }
         catch (NuGetOperationTimeoutException)
         {
@@ -129,6 +123,37 @@ public sealed partial class DesktopPackageSourceComposition
         {
             return PayloadOperationTimedOut(operation, failures);
         }
+    }
+
+    internal Task<ConfiguredPackagePayloadResult> AcquireDiscoveredAsync(
+        PackageVersionDiscoveryResult discovery,
+        PackageSourceCoordinate coordinate,
+        Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ArgumentNullException.ThrowIfNull(createStore);
+        var failures = new List<PackageAuthorityFailure>(discovery.Failures);
+        if (discovery.State != PackageVersionDiscoveryState.Authoritative)
+            return Task.FromResult(new ConfiguredPackagePayloadResult(null, null, failures));
+        if (sourceOptions?.AuthorizedSourceKeys is not null
+            || sourceOptions?.ResolvedSources is not null)
+            return Task.FromResult(InvalidSelection(
+                "Selected payload acquisition requires configured sources, not legacy producer or resolved-source restrictions."));
+
+        var reporters = new HashSet<ConfiguredPackageAuthority>(ReferenceEqualityComparer.Instance);
+        foreach (ConfiguredPackageCandidateObservation candidate in discovery.Candidates)
+        {
+            if (candidate.Observation.Coordinate == coordinate)
+                reporters.Add(candidate.Authority);
+        }
+        return AcquireCoordinateAsync(
+            coordinate.PackageId, coordinate, createStore, sourceOptions, log, operation,
+            limits, transferPolicy, failures, reporters);
     }
 
     private static bool IsRangeAddressSyntaxValid(string? address) =>
