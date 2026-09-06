@@ -128,6 +128,10 @@ acquisition](design/local-repository-source-acquisition.md): checksum-backed
 substitution of Git blob bytes for one PDB source request. PDB acquisition
 retains the surrounding source-selection and fallback policy.
 
+`AssemblyDependencyResolver` owns [dependency candidate
+discovery](design/assembly-dependency-candidate-discovery.md), separate from
+its legacy resolved-path projection and from tools-owned compiler selection.
+
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
 the universal CLI acquisition path. The current package-free fixture consumes

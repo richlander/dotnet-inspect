@@ -2396,6 +2396,156 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void DiscoverCandidates_PreservesSameNameAlternativesAndLegacySelection(
+        bool discoverFirst,
+        bool identicalImages)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-candidate-discovery-").FullName;
+        try
+        {
+            string target = Path.Combine(root, "Target.dll");
+            string sibling = Path.Combine(root, "Shared.dll");
+            string corpus = Path.Combine(
+                Directory.CreateDirectory(Path.Combine(root, "corpus")).FullName,
+                "Shared.dll");
+            byte[] image = BuildAssembly("Shared", []);
+            File.WriteAllBytes(target, BuildAssembly("Target", []));
+            File.WriteAllBytes(sibling, image);
+            File.WriteAllBytes(corpus, identicalImages
+                ? image
+                : BuildAssembly("Shared", [], new Version(2, 0, 0, 0)));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(target)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [corpus],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    ExcludeTargetAssembly = true,
+                });
+
+            if (!discoverFirst)
+                Assert.Equal(sibling, Assert.Single(resolver.ResolveAll()).Path);
+
+            var candidates = resolver.DiscoverCandidates();
+            Assert.Equal(2, candidates.Count);
+            Assert.Equal(sibling, candidates[0].Path);
+            Assert.Equal(AssemblyDependencyProvenance.SiblingAssembly, candidates[0].Provenance);
+            Assert.Equal(corpus, candidates[1].Path);
+            Assert.Equal(AssemblyDependencyProvenance.CorpusAssembly, candidates[1].Provenance);
+            Assert.Same(candidates, resolver.DiscoverCandidates());
+            Assert.Equal(sibling, Assert.Single(resolver.ResolveAll()).Path);
+
+            var first = Assert.IsType<ResolvedAssemblyReference>(
+                resolver.Acquire(candidates[0]));
+            var second = Assert.IsType<ResolvedAssemblyReference>(
+                resolver.Acquire(candidates[1]));
+            Assert.NotSame(first.Registration, second.Registration);
+            Assert.Equal(new Version(1, 0, 0, 0), first.Identity.Version);
+            Assert.Equal(identicalImages ? first.Identity.Version : new Version(2, 0, 0, 0),
+                second.Identity.Version);
+            Assert.Same(first, resolver.Acquire(candidates[0]));
+            Assert.Same(first, resolver.Resolve(first.Identity, AssemblyResolutionScope.Any));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DiscoverCandidates_TargetExclusionPreservesOtherSameNamedPaths(
+        bool excludeTarget)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-candidate-discovery-").FullName;
+        try
+        {
+            string target = Path.Combine(root, "Shared.dll");
+            string other = Path.Combine(
+                Directory.CreateDirectory(Path.Combine(root, "other")).FullName,
+                "Shared.dll");
+            File.WriteAllBytes(target, BuildAssembly("Shared", []));
+            File.WriteAllBytes(other, BuildAssembly("Shared", [], new Version(2, 0, 0, 0)));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(target)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [Path.Combine(root, ".", "Shared.dll"), other],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    ExcludeTargetAssembly = excludeTarget,
+                });
+
+            var candidates = resolver.DiscoverCandidates();
+            Assert.Equal(excludeTarget ? 1 : 3, candidates.Count);
+            Assert.Contains(candidates, candidate => candidate.Path == other);
+            Assert.Equal(excludeTarget ? 0 : 2,
+                candidates.Count(candidate => candidate.Path == target));
+            Assert.Equal(excludeTarget ? 0 : 1, resolver.ResolveAll().Count);
+            var selected = resolver.Resolve(
+                new AssemblyReferenceIdentity("Shared", new Version(2, 0, 0, 0), null, null),
+                AssemblyResolutionScope.Any);
+            Assert.Null(selected);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiscoverCandidates_PreservesProvenanceAndInvalidImages()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-candidate-discovery-").FullName;
+        try
+        {
+            string target = Path.Combine(root, "Target.dll");
+            string sibling = Path.Combine(root, "Shared.dll");
+            string invalid = Path.Combine(
+                Directory.CreateDirectory(Path.Combine(root, "corpus")).FullName,
+                "Invalid.dll");
+            File.WriteAllBytes(target, BuildAssembly("Target", []));
+            File.WriteAllBytes(sibling, BuildAssembly("Shared", []));
+            File.WriteAllText(invalid, "not a managed image");
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(target)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [sibling, invalid],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    ExcludeTargetAssembly = true,
+                });
+
+            var candidates = resolver.DiscoverCandidates();
+            Assert.Equal(3, candidates.Count);
+            var repeated = candidates.Where(candidate => candidate.Path == sibling).ToArray();
+            Assert.Equal(
+                [AssemblyDependencyProvenance.SiblingAssembly, AssemblyDependencyProvenance.CorpusAssembly],
+                repeated.Select(candidate => candidate.Provenance));
+            Assert.All(repeated, candidate => Assert.NotNull(resolver.Acquire(candidate)));
+            Assert.Null(resolver.Acquire(
+                Assert.Single(candidates, candidate => candidate.Path == invalid)));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void ResolveAll_RecordsPackageProvenanceForRefAssets()
     {
