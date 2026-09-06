@@ -1007,6 +1007,16 @@ diagnostic probe drives the existing managed async-lowering canary through the
 Worker core and operation authority. It does not move current UI features off
 the main thread.
 
+That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
+the Worker-only adoption host. Its facade-grouped `client` provides Promise
+results for build identity, vocabulary, home demos, Package Query facets, and
+Gallery discovery. Concurrent reads share one bootstrap without replacing one
+another, and disposal rejects outstanding reads. Generated JSON-shaped results
+use a bounded transport string (1,048,576 UTF-16 code units per result) and
+generated-typed decoding; failures remain visible. The production application
+still uses its existing page client. Other bindings and the atomic runtime
+cutover remain separate steps under #5987.
+
 Before Worker `Ready`, bootstrap registers the managed epoch-work reporter
 through the generated host facade. Both Worker and receiver use the same
 conservative unbounded managed-producer class. Managed callbacks carry the
@@ -1039,7 +1049,8 @@ The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
 The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
-restart, bootstrap rejection, and input during stalled Wasm initialization.
+all five typed startup reads against their generated facade results, restart,
+bootstrap rejection, and input during stalled Wasm initialization.
 It does not yet prove responsiveness during managed CPU
 work or complete the Worker lifecycle gate; those and source-feature adoption
 remain focused follow-on slices under #5418 and #5420.

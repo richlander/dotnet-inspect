@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test, type Page, type Worker } from "@playwright/test";
-import type { createEngineWorkerProbe } from "../src/engine-worker-client.ts";
+import type { createEngineWorkerProbe, createEngineWorkerStartupClient } from "../src/engine-worker-client.ts";
 
 type WorkerProbe = ReturnType<typeof createEngineWorkerProbe>;
 type WorkerClient = typeof import("../src/engine-worker-client.ts");
@@ -11,10 +11,17 @@ declare global {
     typeof import("/inspect-web-host.js"),
     "registerEpochWorkReporter" | "drainEpochWorkReporter" | "unregisterEpochWorkReporter"
   >;
+  var engineWorkerStartupGate: {
+    host: Pick<typeof import("/inspect-web-host.js"), "buildIdentity">;
+    catalog: Pick<typeof import("/inspect-web-catalog.js"), "listVocabulary" | "listHomeDemos">;
+    package: Pick<typeof import("/inspect-web-package.js"), "listPackageQueryFacets" | "listGalleryDiscoveryCatalog">;
+  };
   interface Window {
     engineWorkerProbe: WorkerProbe;
     engineWorkerEvents: string[];
     engineWorkerPending: ReturnType<WorkerProbe["probe"]> | null;
+    engineWorkerStartup: ReturnType<typeof createEngineWorkerStartupClient>;
+    engineWorkerStartupPending: Promise<PromiseSettledResult<unknown>[]>;
   }
 }
 
@@ -81,6 +88,83 @@ async function canary(page: Page) {
     return outcome;
   });
 }
+
+async function startStartupClient(page: Page) {
+  await page.goto("/worker-runtime-gate.html");
+  await page.evaluate(async url => {
+    const imported: unknown = await import(url);
+    function isClient(value: unknown): value is WorkerClient {
+      return typeof value === "object" && value !== null
+        && "createEngineWorkerStartupClient" in value
+        && typeof value.createEngineWorkerStartupClient === "function";
+    }
+    if (!isClient(imported)) throw new Error("Published startup Worker client is missing.");
+    window.engineWorkerEvents = [];
+    window.engineWorkerStartup = imported.createEngineWorkerStartupClient(location.origin, {
+      callbacks: {
+        failure: failure => { window.engineWorkerEvents.push(`failure:${failure.kind}`); },
+        diagnostic: diagnostic => { window.engineWorkerEvents.push(`diagnostic:${diagnostic.kind}`); },
+        realmReleased: epoch => { window.engineWorkerEvents.push(`released:${epoch}`); },
+      },
+      operationDiagnostic: diagnostic => { window.engineWorkerEvents.push(`operation:${diagnostic.kind}`); },
+    });
+    const client = window.engineWorkerStartup.client;
+    window.engineWorkerStartupPending = Promise.allSettled([
+      client.host.buildIdentity(), client.catalog.listVocabulary(), client.catalog.listHomeDemos(),
+      client.package.listPackageQueryFacets(), client.package.listGalleryDiscoveryCatalog(),
+    ]);
+  }, clientUrl);
+}
+
+test("five concurrent startup reads preserve actual generated results in one Worker", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate", value: "observe-startup", url: "http://127.0.0.1:4186",
+  }]);
+  const workers: Worker[] = [];
+  page.on("worker", worker => workers.push(worker));
+  const workerReady = page.waitForEvent("worker");
+  await startStartupClient(page);
+  const outcomes = await page.evaluate(() => window.engineWorkerStartupPending);
+  const worker = await workerReady;
+  const expected = await worker.evaluate(() => {
+    const facades = globalThis.engineWorkerStartupGate;
+    return [
+      facades.host.buildIdentity(), facades.catalog.listVocabulary(), facades.catalog.listHomeDemos(),
+      facades.package.listPackageQueryFacets(), facades.package.listGalleryDiscoveryCatalog(),
+    ];
+  });
+  expect(outcomes).toEqual(expected.map(value => ({ status: "fulfilled", value })));
+  expect(workers).toHaveLength(1);
+  expect(await page.evaluate(() => window.engineWorkerStartup.client.host.buildIdentity())).toEqual(expected[0]);
+  await page.evaluate(() => window.engineWorkerStartup.dispose());
+  const afterDisposal = await page.evaluate(async () => {
+    try {
+      await window.engineWorkerStartup.client.host.buildIdentity();
+      return "unexpected success";
+    } catch (error: unknown) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  expect(afterDisposal).toContain("epoch-unavailable");
+  expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1"]);
+});
+
+test("startup client shares a visible bootstrap rejection across all five reads", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate", value: "reject-bootstrap", url: "http://127.0.0.1:4186",
+  }]);
+  const workers: Worker[] = [];
+  page.on("worker", worker => workers.push(worker));
+  await startStartupClient(page);
+  const outcomes = await page.evaluate(async () =>
+    (await window.engineWorkerStartupPending).map(outcome =>
+      outcome.status === "fulfilled" ? "unexpected success"
+        : outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)));
+  expect(outcomes).toEqual(Array.from({ length: 5 }, () => "Worker startup failed."));
+  expect(workers).toHaveLength(1);
+  expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["failure:startup", "released:1"]);
+  await page.evaluate(() => window.engineWorkerStartup.dispose());
+});
 
 test("published generated facades boot in a real Worker and serve cold and warm managed calls", async ({ page }) => {
   const workers: Worker[] = [];
