@@ -54,8 +54,8 @@ sections remain behind the category door.
 does not create another metadata section family or encode a root into section
 names. In render mode, a non-default root requires selection of `@Metadata` or
 at least one `Metadata: ...` section. In discovery mode it requires effective
-metadata discovery, because structural discovery has no image whose roots can
-be selected.
+metadata discovery and an input artifact, because structural discovery has no
+image whose roots can be selected.
 
 The accepted spellings are:
 

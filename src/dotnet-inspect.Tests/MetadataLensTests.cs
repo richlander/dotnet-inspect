@@ -194,6 +194,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task MetadataRoot_ImplicitRoutingAcceptsEveryOptionPlacement()
+    {
+        string path = typeof(object).Assembly.Location;
+        string[] selection =
+        [
+            "-S",
+            MetadataSectionNames.Image,
+            "--count",
+            "--tips",
+            "q",
+        ];
+
+        var leading = await RunAppAsync(
+            ["--metadata-root", "r2r-manifest", path, .. selection]);
+        var trailing = await RunAppAsync(
+            [path, "--metadata-root", "r2r-manifest", .. selection]);
+        var inline = await RunAppAsync(
+            ["--metadata-root=r2r-manifest", path, .. selection]);
+
+        Assert.Equal((0, trailing.Output, string.Empty), trailing);
+        Assert.Equal(trailing, leading);
+        Assert.Equal(trailing, inline);
+    }
+
+    [Fact]
     public async Task MetadataLens_ManifestRoot_ProjectsSelectedRootTables()
     {
         string path = typeof(object).Assembly.Location;
@@ -506,6 +531,31 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(MetadataSectionNames.Image, DiscoveryNames(output));
+    }
+
+    [Theory]
+    [InlineData("@Metadata")]
+    [InlineData("@ReadyToRun")]
+    public async Task MetadataRoot_EffectiveDiscoveryRequiresInput(
+        string category)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--metadata-root",
+            "r2r-manifest",
+            "-D",
+            category,
+            "--effective",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--metadata-root requires a library path, package, or --platform with -D",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

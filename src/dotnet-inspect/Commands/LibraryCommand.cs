@@ -187,7 +187,9 @@ public class LibraryCommand
             return 1;
         }
 
-        if (MetadataRootDiscoveryModeError(options) is { } metadataRootDiscoveryError)
+        if (MetadataRootDiscoveryModeError(
+                options,
+                hasInputSource) is { } metadataRootDiscoveryError)
         {
             CommandError.Write(metadataRootDiscoveryError);
             return 1;
@@ -1807,17 +1809,26 @@ public class LibraryCommand
         return "--metadata-root requires -S @Metadata or a Metadata: section.";
     }
 
-    private static string? MetadataRootDiscoveryModeError(LibraryOptions options)
+    private static string? MetadataRootDiscoveryModeError(
+        LibraryOptions options,
+        bool hasInputSource)
     {
         if (options.MetadataRoot == MetadataRootKind.Cli
-            || options.Discover is null
-            || options.Effective)
+            || options.Discover is null)
         {
             return null;
         }
 
-        return "--metadata-root requires --effective with -D because "
-            + "structural discovery does not inspect an image.";
+        if (!options.Effective)
+        {
+            return "--metadata-root requires --effective with -D because "
+                + "structural discovery does not inspect an image.";
+        }
+
+        return hasInputSource
+            ? null
+            : "--metadata-root requires a library path, package, or --platform "
+                + "with -D because effective discovery must inspect an image.";
     }
 
     private static bool RejectMissingMetadataRoot(LibraryInspection inspection)
