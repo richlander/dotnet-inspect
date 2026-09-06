@@ -94,7 +94,7 @@ jobs:
 
       - name: Run metadata tests
         if: inputs.suite == 'metadata'
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Check ilasm/ildasm/mdv result
         if: >-

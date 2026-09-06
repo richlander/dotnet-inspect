@@ -262,8 +262,19 @@ jobs:
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
+        id: metadata
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          DOTNET_INSPECT_D3_REPORT: artifacts/custom-attribute-d3/result.json
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
+
+      - name: Upload custom-attribute D3 evidence
+        if: ${{ !cancelled() && (steps.metadata.outcome == 'success' || steps.metadata.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-attribute-d3-${{ matrix.rid }}
+          path: artifacts/custom-attribute-d3/result.json
+          if-no-files-found: error
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
