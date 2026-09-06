@@ -61,15 +61,18 @@ internal sealed partial class ClassicInverseLoweringProof
 
     readonly Dictionary<IrNode, string> _roles;
     readonly SelectionBindings _selections;
+    readonly IReadOnlyDictionary<Call, MethodRef> _completionMethods;
 
     ClassicInverseLoweringProof(
         Dictionary<IrNode, string> roles,
         string? failure,
-        SelectionBindings? selections = null)
+        SelectionBindings? selections = null,
+        IReadOnlyDictionary<Call, MethodRef>? completionMethods = null)
     {
         _roles = roles;
         Failure = failure;
         _selections = selections ?? new();
+        _completionMethods = completionMethods ?? new Dictionary<Call, MethodRef>();
     }
 
     /// <summary>Why the lowering protocol is unproven, or <c>null</c> when it holds.</summary>
@@ -80,6 +83,19 @@ internal sealed partial class ClassicInverseLoweringProof
 
     internal bool Proves(IrNode node, string role)
         => _roles.TryGetValue(node, out string? actual) && actual == role;
+
+    internal ImmutableArray<MethodRef> AwaitMembers(
+        Call getResult, IrExpression operand, ClassicInverseBudget budget)
+    {
+        if (!budget.Charge()
+            || !_completionMethods.TryGetValue(getResult, out MethodRef? isCompleted)
+            || operand.Parent is not Call { Parent: StoreLocal bind } getAwaiter
+            || !Proves(getAwaiter, GetAwaiterCall)
+            || getResult.Arguments is not [LoadLocalAddress resultReceiver]
+            || bind.Index != resultReceiver.Index)
+            return [];
+        return [getAwaiter.Callee, isCompleted, getResult.Callee];
+    }
 
     internal static ClassicInverseLoweringProof Derive(
         IrFunction planning,
@@ -133,7 +149,7 @@ internal sealed partial class ClassicInverseLoweringProof
 
         foreach ((IrNode node, string role) in rawRoles)
             planningRoles[node] = role;
-        return new(planningRoles, null, selections);
+        return new(planningRoles, null, selections, planningProtocol.Index.CompletionMethods);
     }
 
     /// <summary>
@@ -1325,7 +1341,8 @@ internal sealed partial class ClassicInverseLoweringProof
                 results.Add(selection.GetResult);
                 index.SelectionContinuations.Add(selection);
             }
-            if (results is not [Call getResult])
+            if (results is not [Call getResult]
+                || !index.CompletionMethods.TryAdd(getResult, completionMethod))
             {
                 failure = $"state {state} does not join at exactly one "
                     + "GetResult on its proven awaiter";
@@ -1681,6 +1698,8 @@ internal sealed partial class ClassicInverseLoweringProof
         internal List<SelectionContinuation> SelectionContinuations { get; } = [];
 
         internal List<ConditionalBranch> AwaitCompletionBranches { get; } = [];
+        internal Dictionary<Call, MethodRef> CompletionMethods { get; } =
+            new(ReferenceEqualityComparer.Instance);
 
         /// <summary>Every awaiter cache, restore, and clear in the body.</summary>
         internal List<IrNode> AwaiterTransfers { get; } = [];

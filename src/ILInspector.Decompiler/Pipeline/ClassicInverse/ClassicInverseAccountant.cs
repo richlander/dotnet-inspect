@@ -115,6 +115,16 @@ internal sealed partial class ClassicInverseAccountant
                 ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
                 $"the lowering shell protocol is not proven: {protocolFailure}");
         }
+        foreach (IrNode statement in _candidate.Statements)
+        {
+            bool unsafeAwait = ClassicInverseAwaitRules.RequiresUnsafe(
+                statement, _planning.KickoffBody, _budget, onlyWithAwait: true);
+            if (_budget.Exhausted)
+                return Failure("unsafe-await admission exhausted the planning budget");
+            if (unsafeAwait)
+                return Decline(ClassicInverseDeclineReason.UnsafeAwaitContext,
+                    "the reconstructed statement requires unsafe context around await");
+        }
 
         _output = BuildOutputContainer();
         IndexPaths(_output, _outputPaths);
@@ -148,6 +158,8 @@ internal sealed partial class ClassicInverseAccountant
             return Decline(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
                 "the inlined receiver has no realization of its exact awaited value");
         }
+        if (!ProveStackallocs())
+            return _terminal!;
 
         if (!AccountKickoff())
             return _terminal!;
@@ -706,6 +718,15 @@ internal sealed partial class ClassicInverseAccountant
                 values.Add(node);
                 return;
             }
+            if (node is NewObject creation
+                && _stackallocs.TryGetValue(node.SourceOffset, out StackallocBinding? allocation)
+                && ReferenceEquals(allocation.Creation, creation))
+            {
+                if (creation.Arguments[1] is Constant count)
+                    Visit(count);
+                values.Add(creation);
+                return;
+            }
 
             if (node is Call typeCall
                 && planningByOffset.TryGetValue(typeCall.SourceOffset, out IrNode? typeReplacement)
@@ -798,6 +819,7 @@ internal sealed partial class ClassicInverseAccountant
             or TypeOf
             or SizeOf
             or DefaultValue
+            or StackAllocArray
             || node is LoadLocal localValue
                 && !IsShellLocal(localValue.Index)
             || node is LoadLocalAddress localAddress
@@ -834,6 +856,8 @@ internal sealed partial class ClassicInverseAccountant
     {
         if (_rawDefaultInitializers.TryGetValue(raw, out DefaultValue? defaultValue))
             return ReferenceEquals(defaultValue, planning);
+        if (planning is StackAllocArray array && _stackallocs.TryGetValue(raw.SourceOffset, out var allocation))
+            return ReferenceEquals(allocation.Creation, raw) && ReferenceEquals(allocation.Planning, array);
         if (_rawBooleanFolds.TryGetValue(raw, out IrNode? replacement))
             return ReferenceEquals(replacement, planning);
         if (_rawTypeOfCalls.TryGetValue(raw, out TypeOf? typeOf))
@@ -2020,7 +2044,8 @@ internal sealed partial class ClassicInverseAccountant
                     return;
             }
 
-            if (VisitInitializer(node, Visit, effects, bindOutputTypes: bindOutputTypes))
+            if (VisitStackalloc(node, Visit, effects, bindOutputTypes: bindOutputTypes)
+                || VisitInitializer(node, Visit, effects, bindOutputTypes: bindOutputTypes))
                 return;
 
             foreach (IrNode child in node.Children)
@@ -2072,7 +2097,9 @@ internal sealed partial class ClassicInverseAccountant
                 return;
             }
 
-            if (VisitInitializer(
+            if (VisitStackalloc(node, Visit, claim is null ? null : effects,
+                    claim is null ? null : effect => effect + $"@claim:{ClaimToken(claim)}")
+                || VisitInitializer(
                     node,
                     Visit,
                     claim is null ? null : effects,
@@ -2381,6 +2408,8 @@ internal sealed partial class ClassicInverseAccountant
             index[node] = path;
             if (ReferenceEquals(index, _executionPaths) && node is DefaultValue value)
                 _planningDefaults.Add(value);
+            if (ReferenceEquals(index, _executionPaths) && node is StackAllocArray array)
+                _planningStackallocs.Add(array);
             for (int i = 0; i < node.Children.Count; i++)
                 Visit(node.Children[i], path.Add(i));
         }

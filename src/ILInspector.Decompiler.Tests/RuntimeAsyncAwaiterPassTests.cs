@@ -6,7 +6,10 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Pass")]
 public class RuntimeAsyncAwaiterPassTests
 {
+    const string AsyncFixtureType =
+        "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef TaskType = TypeRef.CoreLib("System.Threading.Tasks", "Task");
     static readonly TypeRef AsyncHelpers = TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers");
@@ -99,6 +102,54 @@ public class RuntimeAsyncAwaiterPassTests
         Assert.Contains("await Task.Yield();", output);
     }
 
+    [Fact]
+    public void CompiledAwaitThenUnsafeConsumer_PreservesPreUnsafeSpill()
+    {
+        var function = RaisedAsyncFixture("AwaitThenConsumePointer");
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "runtime await"
+                && node.Reason.Contains(
+                    "unsafe context would contain await",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain("unsafe\n{\n    return ConsumePointer(await", result.Output);
+    }
+
+    [Fact]
+    public void CompiledLegacyAsyncLocalFunction_UsesUnsafeSignature()
+    {
+        var function = RaisedAsyncFixture("AwaitWithUnsafeLocalFunction");
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.False(function.UsesUpdatedMemorySafetyRules);
+        Assert.Contains("static unsafe int Read(int* pointer)", output);
+        Assert.DoesNotContain("int Read(int* pointer) => *pointer;", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompiledLegacyAsyncLocalFunction_CompilesBack()
+    {
+        string assembly = AsyncFixtureAssemblyPath();
+        var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            assembly,
+            [new ReturnToSender.RequestedTarget(
+                AsyncFixtureType,
+                "AwaitWithUnsafeLocalFunction",
+                Overload: 0)]));
+        Assert.Contains("static unsafe int Read(int* pointer)", compileBack.Source);
+        Assert.True(
+            compileBack.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
+            $"Expected compile-checkable runtime-async source, got "
+                + $"{compileBack.Status}: {compileBack.Detail}");
+    }
+
     [Theory]
     [InlineData(nameof(RuntimeAsyncAwaiterFixtures.YieldParameter))]
     [InlineData(nameof(RuntimeAsyncAwaiterFixtures.ClassAwaitableCall))]
@@ -126,10 +177,57 @@ public class RuntimeAsyncAwaiterPassTests
         new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        var awaitExpression = Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Equal(
+            ["GetAwaiter", "get_IsCompleted", "GetResult"],
+            awaitExpression.ConsumedMemberRefs.Select(method => method.Name));
         Assert.DoesNotContain(
             function.Descendants.OfType<Call>(),
             call => call.Callee.Name == helperName);
+    }
+
+    [Fact]
+    public void UnsafeAwaiterPatternMember_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = Synthetic(requiresUnsafeAwaiterMember: true);
+        function.UsesUpdatedMemorySafetyRules = true;
+
+        new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetAwaiter");
+    }
+
+    [Fact]
+    public void UnsafeAwaitOperand_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = Synthetic(requiresUnsafeOperand: true);
+        function.UsesUpdatedMemorySafetyRules = true;
+
+        new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetAwaiter");
+    }
+
+    [Fact]
+    public void UnsafeGetResultConsumer_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = Synthetic(unsafeGetResultConsumer: true);
+
+        new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetResult");
     }
 
     [Theory]
@@ -159,7 +257,10 @@ public class RuntimeAsyncAwaiterPassTests
 
     static IrFunction Synthetic(
         string helperName = "UnsafeAwaitAwaiter",
-        SyntheticBreak broken = SyntheticBreak.None)
+        SyntheticBreak broken = SyntheticBreak.None,
+        bool requiresUnsafeAwaiterMember = false,
+        bool requiresUnsafeOperand = false,
+        bool unsafeGetResultConsumer = false)
     {
         int helperLocal = broken == SyntheticBreak.DifferentHelperLocal ? 2 : 1;
         int completedLocal = broken == SyntheticBreak.DifferentIsCompletedLocal ? 2 : 1;
@@ -170,7 +271,21 @@ public class RuntimeAsyncAwaiterPassTests
         var helperParameter = broken == SyntheticBreak.WrongHelperSignature ? Awaitable : Awaiter;
 
         var head = new Block(0);
-        var awaitableStore = new StoreLocal(0, Awaitable, new LoadArgument(0, "awaitable", Awaitable));
+        IrExpression awaitable = requiresUnsafeOperand
+            ? new Call(
+                new MethodRef(
+                    TypeRef.Definition("Synthetic", "Samples", "Holder"),
+                    "GetAwaitable",
+                    Awaitable,
+                    [],
+                    HasThis: false)
+                {
+                    RequiresUnsafe = true,
+                },
+                isVirtual: false,
+                [])
+            : new LoadArgument(0, "awaitable", Awaitable);
+        var awaitableStore = new StoreLocal(0, Awaitable, awaitable);
         head.Add(awaitableStore);
         var getAwaiter = broken == SyntheticBreak.StaticGetAwaiterWithoutExtensionEvidence
             ? new Call(
@@ -186,7 +301,10 @@ public class RuntimeAsyncAwaiterPassTests
                 isVirtual: false,
                 [new LoadLocal(0, Awaitable)])
             : new Call(
-                new MethodRef(Awaitable, "GetAwaiter", Awaiter, [], HasThis: true),
+                new MethodRef(Awaitable, "GetAwaiter", Awaiter, [], HasThis: true)
+                {
+                    RequiresUnsafe = requiresUnsafeAwaiterMember,
+                },
                 isVirtual: false,
                 [new LoadLocalAddress(0, Awaitable)]);
         head.Add(new StoreLocal(
@@ -210,10 +328,26 @@ public class RuntimeAsyncAwaiterPassTests
             [new LoadLocal(helperLocal, Awaiter)])));
 
         var merge = new Block(20);
-        merge.Add(new ExpressionStatement(new Call(
-            new MethodRef(Awaiter, "GetResult", Void, [], HasThis: true),
+        var getResultCall = new Call(
+            new MethodRef(
+                Awaiter,
+                "GetResult",
+                unsafeGetResultConsumer ? Int32 : Void,
+                [],
+                HasThis: true),
             isVirtual: false,
-            [new LoadLocalAddress(resultLocal, Awaiter)])));
+            [new LoadLocalAddress(resultLocal, Awaiter)]);
+        if (unsafeGetResultConsumer)
+        {
+            merge.Add(new StoreIndirect(
+                Int32,
+                new LoadArgument(1, "pointer", TypeRef.Pointer(Int32)),
+                getResultCall));
+        }
+        else
+        {
+            merge.Add(new ExpressionStatement(getResultCall));
+        }
         if (broken == SyntheticBreak.EscapedAwaiterAfterGetResult)
             merge.Add(new ExpressionStatement(new LoadLocal(1, Awaiter)));
         if (broken == SyntheticBreak.EscapedAwaitableAfterGetResult)
@@ -228,6 +362,7 @@ public class RuntimeAsyncAwaiterPassTests
                 broken == SyntheticBreak.ExternalHelperEntry ? 10 : 20));
             body.Add(external);
         }
+
         body.Add(head);
         body.Add(helper);
         body.Add(merge);
@@ -237,7 +372,12 @@ public class RuntimeAsyncAwaiterPassTests
             TypeRef.Definition("Synthetic", "Samples", "Holder"),
             new MethodSignature(
                 TaskType,
-                [new Parameter("awaitable", Awaitable)],
+                unsafeGetResultConsumer
+                    ? [
+                        new Parameter("awaitable", Awaitable),
+                        new Parameter("pointer", TypeRef.Pointer(Int32)),
+                    ]
+                    : [new Parameter("awaitable", Awaitable)],
                 HasThis: false,
                 GenericParameterCount: 0),
             [Awaitable, Awaiter, Awaiter],
@@ -247,6 +387,34 @@ public class RuntimeAsyncAwaiterPassTests
                 ? MetadataFactState.No
                 : MetadataFactState.Yes,
         };
+    }
+
+    static IrFunction RaisedAsyncFixture(string methodName)
+    {
+        string path = AsyncFixtureAssemblyPath();
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, AsyncFixtureType, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        function.CheckInvariant();
+        return function;
+    }
+
+    static string AsyncFixtureAssemblyPath()
+    {
+        string configuration =
+            new DirectoryInfo(AppContext.BaseDirectory).Name;
+        return Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync",
+            configuration,
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync.dll"));
     }
 
     public enum SyntheticBreak

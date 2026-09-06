@@ -153,7 +153,8 @@ internal sealed class ClassicInverseRewriter
         var await = new AwaitExpression(
             operandOutput,
             getResult.Callee.ReturnType,
-            getResult.Callee.ReturnIsDynamic);
+            getResult.Callee.ReturnIsDynamic,
+            _shell.Protocol.AwaitMembers(getResult, operand, _budget));
         _candidate.Claim(
             _awaitClaimSources.TryGetValue(getResult, out IrNode? attributed)
                 ? attributed

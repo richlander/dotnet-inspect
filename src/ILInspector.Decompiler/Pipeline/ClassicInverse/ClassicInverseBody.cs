@@ -35,7 +35,10 @@ internal abstract record ClassicInverseBodyNode
         => type is null ? "<null>" : ClassicInverseTypedIdentity.Type(type);
 
     internal static string MethodText(MethodRef method)
-        => ClassicInverseTypedIdentity.Method(method);
+        => ClassicInverseTypedIdentity.Method(method)
+            + $":unsafe[{method.RequiresUnsafe}:{method.RequiresUnsafeFact}:"
+            + $"{method.MemorySafetyRulesState}:{method.MemorySafetyRulesUnavailable}:"
+            + $"{method.MemorySafetyContractUnavailable}]";
 
     internal static string FieldText(FieldRef field)
         => ClassicInverseTypedIdentity.Field(field);
@@ -151,14 +154,16 @@ internal sealed record ClassicInverseTryFinallyNode(
 internal sealed record ClassicInverseAwaitNode(
     ClassicInverseBodyNode Operand,
     TypeRef? ResultType,
-    MetadataFactState ResultIsDynamic)
+    MetadataFactState ResultIsDynamic,
+    ImmutableArray<MethodRef> ConsumedMembers)
     : ClassicInverseBodyNode
 {
     internal override IrNode Materialize()
-        => new AwaitExpression(Expr(Operand), ResultType, ResultIsDynamic);
+        => new AwaitExpression(Expr(Operand), ResultType, ResultIsDynamic, ConsumedMembers);
 
     internal override string Signature =>
-        $"await[{TypeText(ResultType)}:{ResultIsDynamic}]({Operand.Signature})";
+        $"await[{TypeText(ResultType)}:{ResultIsDynamic}:"
+        + $"{ClassicInverseSignature.Sequence(ConsumedMembers.Select(MethodText))}]({Operand.Signature})";
 }
 
 internal sealed record ClassicInverseLoadArgumentNode(
@@ -217,6 +222,13 @@ internal sealed record ClassicInverseDefaultValueNode(TypeRef Type) : ClassicInv
     internal override IrNode Materialize() => new DefaultValue(Type);
 
     internal override string Signature => $"default[{ClassicInverseTypedIdentity.Type(Type)}]";
+}
+
+internal sealed record ClassicInverseStackallocNode(TypeRef ElementType, TypeRef? ResultType,
+    ClassicInverseBodyNode Count) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new StackAllocArray(ElementType, Expr(Count), ResultType);
+    internal override string Signature => $"stackalloc[{TypeText(ElementType)}:{TypeText(ResultType)}]({Count.Signature})";
 }
 
 internal sealed record ClassicInverseLogicalBinaryNode(
@@ -679,12 +691,20 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
             case AwaitExpression await:
             {
                 var operand = TryCapture(await.Operand, budget);
+                var members = ImmutableArray.CreateBuilder<MethodRef>();
+                foreach (MethodRef member in await.ConsumedMemberRefs)
+                {
+                    if (!budget.Charge())
+                        return null;
+                    members.Add(Detach(member, budget));
+                }
                 return operand is null
                     ? null
                     : new ClassicInverseAwaitNode(
                         operand,
                         binding.OptionalType(await.ResultType, budget),
-                        await.ResultIsDynamic);
+                        await.ResultIsDynamic,
+                        members.ToImmutable());
             }
 
             case LoadArgument load:
@@ -850,6 +870,13 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                 return length is null
                     ? null
                     : new ClassicInverseNewArrayNode(binding.Type(array.ElementType, budget), length);
+            }
+
+            case StackAllocArray { HasInitializer: false } array:
+            {
+                var count = TryCapture(array.Count, budget);
+                return count is null ? null : new ClassicInverseStackallocNode(
+                    binding.Type(array.ElementType, budget), binding.OptionalType(array.ResultType, budget), count);
             }
 
             case Call call:

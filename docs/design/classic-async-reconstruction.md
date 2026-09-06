@@ -641,6 +641,39 @@ effect rather than realize it one-to-one:
   lowered. Initializers retain the compiler's actual dispatch fact; this slice
   does not redefine their separate raising contract.
 
+Reconstructed awaits retain the exact `GetAwaiter`, `IsCompleted`, and
+`GetResult` member evidence bound by the closed protocol, including normalized
+memory-safety facts. Publication detaches acquisition guards and applies the
+request's generic binding without losing those facts or adding another semantic
+realization for the implicit calls. A consumed record clone likewise remains
+one typed fact with its dispatch; excluding it from compile-back shell closure
+does not exclude it from semantic or fidelity evidence.
+
+The inverse consumes the existing
+[unsafe-context boundary](../decompiler.md#unsafe-contexts-under-the-updated-memory-safety-rules), rather
+than defining another caller policy. An operand, implicit await member, or
+proposed statement that would require unsafe context around await declines
+visibly while preserving the kickoff. It does not invent a reordered spill.
+Classifier work is admitted under the inverse budget; exhaustion remains a
+failure. `ClassicInverseAwaitRetainsDetachedPatternMembers`,
+`ClassicInverseAwaitRejectsChangedConsumedMembers`,
+`ClassicInverseUnsafeAwaitDeclinesThroughCore`, and
+`ClassicInverseAwaitRetainsInvalidMemberFacts` gate this integration alongside
+the compiler-produced unsafe-await and clone-provenance tests.
+
+The existing Span-over-stackalloc expression may appear in an awaited operand.
+Its non-initializer form retains the exact span constructor, element type,
+logical count, and proven byte-size calculation from `StackAllocSpanPass`.
+An inlined count local requires one adjacent definition and exactly the two
+typed reads used by allocation and construction, with no earlier effect moved
+across it. Count traffic alone is protocol; checked byte-size arithmetic,
+allocation, and span construction remain separately ordered semantic effects
+with their imported origins. `SkipLocalsInit` still invokes the existing
+unsafe-await decline. `ClassicInverseInitializedStackallocRemainsSupported`,
+`ClassicInverseStackallocCannotBeHealedByPlanning`,
+`ClassicInverseStackallocKeepsPrimitiveEffects`, and the focused stackalloc
+compile-back/budget gates enforce this adoption.
+
 The realization relation preserves:
 
 - evaluation order and multiplicity;

@@ -437,7 +437,7 @@ public sealed class ReadyToRunImageInspectorTests
 
     static PEReader Open(byte[] bytes) => new(new MemoryStream(bytes));
 
-    static SyntheticImage CreateImage(
+    internal static SyntheticImage CreateImage(
         bool managedNative,
         bool exported,
         bool setIlLibrary = true,
@@ -609,7 +609,7 @@ public sealed class ReadyToRunImageInspectorTests
     static void WriteUInt32(byte[] bytes, int offset, uint value)
         => BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset, sizeof(uint)), value);
 
-    sealed record SyntheticImage(
+    internal sealed record SyntheticImage(
         byte[] Bytes,
         int HeaderOffset,
         int HeaderRva,
@@ -620,7 +620,7 @@ public sealed class ReadyToRunImageInspectorTests
         int ExportFunctionOffset,
         int ExportOrdinalOffset);
 
-    readonly record struct SectionSpec(
+    internal readonly record struct SectionSpec(
         ReadyToRunSectionType Type,
         byte[] Content,
         int? RelativeVirtualAddress = null);

@@ -21,6 +21,16 @@ public static class ReferenceOwnership
     public static bool IsInsideAny(IrNode node, IEnumerable<IrNode> roots)
         => roots.Any(root => IsInside(node, root));
 
+    public static bool HasAncestor<T>(IrNode node) where T : IrNode
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is T)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// Whether the node sits inside a nested <see cref="Lambda"/> or
     /// <see cref="LocalFunctionStatement"/> body. Nested bodies carry their own

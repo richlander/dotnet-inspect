@@ -9,7 +9,11 @@ internal sealed partial class ClassicInverseAccountant
     readonly List<DefaultValue> _planningDefaults = [];
 
     ClassicInverseProtocolRule ClassifyRaw(IrNode node)
-        => _rawDefaultTransfers.Contains(node)
+        => _stackallocCountStores.Contains(node)
+            ? ClassicInverseProtocolRule.Frame("stackalloc-count-store", 0)
+            : _stackallocCountReads.Contains(node)
+                ? ClassicInverseProtocolRule.Owned("stackalloc-count-read")
+            : _rawDefaultTransfers.Contains(node)
             ? ClassicInverseProtocolRule.Owned("default-value-local-transfer")
             : ClassicInverseProtocol.Classify(node, _shell, _candidate);
 

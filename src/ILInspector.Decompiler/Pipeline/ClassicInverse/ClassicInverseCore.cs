@@ -76,13 +76,15 @@ internal static class ClassicInverseCore
         }
 
         List<ClassicInverseCandidate> candidates =
-            ClassicInverseRecipes.Match(request, planning, shell, budget);
+            ClassicInverseRecipes.Match(request, planning, shell, budget, out string? unsafeAwait);
         if (budget.Exhausted)
         {
             return ClassicInverseDecision.FailWith(
                 ClassicInverseFailureKind.BudgetExhausted,
                 "recipe matching exhausted the planning budget");
         }
+        if (unsafeAwait is not null)
+            return ClassicInverseDecision.DeclineWith(ClassicInverseDeclineReason.UnsafeAwaitContext, unsafeAwait);
 
         if (candidates.Count == 0)
         {

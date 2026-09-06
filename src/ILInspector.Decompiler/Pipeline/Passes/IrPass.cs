@@ -450,6 +450,11 @@ public static class IrPasses
         // (stack slot or hidden local); before coercion insertion so the tuple
         // elements are coerced at their sinks like any load (issue #3166).
         new SwapIdiomPass(),
+        // Earlier inlining or await recovery can erase the boundary between an
+        // unsafe operation and an await before the final statement shape exists.
+        // Decline any surviving unsafe-await statement rather than emit await
+        // inside unsafe.
+        new UnsafeAwaitBoundaryPass(),
         new CoercionInsertionPass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
         // missing-name fallbacks only after every raise has exposed the final

@@ -352,7 +352,16 @@ internal static class ClassicInverseRecipes
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         ClassicInverseBudget budget)
+        => Match(request, planning, shell, budget, out _);
+
+    internal static List<ClassicInverseCandidate> Match(
+        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
+        ClassicInverseShellFacts shell,
+        ClassicInverseBudget budget,
+        out string? unsafeAwait)
     {
+        unsafeAwait = null;
         var candidates = new List<ClassicInverseCandidate>();
         IrFunction execution = planning.ExecutionBody;
         RecipeIndex? recipeIndex = RecipeIndex.Build(execution, shell, budget);
@@ -366,6 +375,23 @@ internal static class ClassicInverseRecipes
                 setResult.Callee.DeclaringType))
         {
             return candidates;
+        }
+
+        foreach (Call result in recipeIndex.GetResults)
+        {
+            IrExpression? operand = recipeIndex.AwaitedOperand(result, budget);
+            if (operand is null)
+                continue;
+            var members = shell.Protocol.AwaitMembers(result, operand, budget);
+            if (!members.IsEmpty
+                && (ClassicInverseAwaitRules.RequiresUnsafe(operand, planning.KickoffBody, budget)
+                    || ClassicInverseAwaitRules.MembersRequireUnsafe(members, planning.KickoffBody, budget)))
+            {
+                unsafeAwait = "the awaited operand or its proven pattern members require unsafe context";
+                return candidates;
+            }
+            if (budget.Exhausted)
+                return candidates;
         }
 
         Add(candidates, TryTryFinally(
@@ -1803,7 +1829,8 @@ internal static class ClassicInverseRecipes
         var awaited = new AwaitExpression(
             new LoadLocal(taskIndex, taskType),
             getResult.Callee.ReturnType,
-            getResult.Callee.ReturnIsDynamic);
+            getResult.Callee.ReturnIsDynamic,
+            shell.Protocol.AwaitMembers(getResult, operand, budget));
         var accumulate = new StoreLocal(
             sumIndex,
             sumType,

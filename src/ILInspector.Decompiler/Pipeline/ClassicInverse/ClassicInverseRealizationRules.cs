@@ -163,6 +163,14 @@ internal static class ClassicInverseRealizationRules
             failure = "the await operand does not belong to this GetResult awaiter slot";
             return false;
         }
+        if (operandClaim.Source is not IrExpression operand
+            || !context.Shell.Protocol.AwaitMembers(getResult, operand, context.Budget)
+                .SequenceEqual(await.ConsumedMemberRefs)
+            || await.ConsumedMemberRefs.Length != 3)
+        {
+            failure = "the await does not retain its exact proven pattern members";
+            return false;
+        }
 
         failure = "";
         return true;
@@ -606,6 +614,10 @@ internal static class ClassicInverseRealizationRules
             (DefaultValue left, DefaultValue right) => Equals(left.Type, right.Type),
             (NewArray left, NewArray right) =>
                 Equals(left.ElementType, right.ElementType),
+            (StackAllocArray left, StackAllocArray right) =>
+                Equals(left.ElementType, right.ElementType)
+                && Equals(left.ResultType, right.ResultType)
+                && left.HasInitializer == right.HasInitializer,
             (Call left, Call right) =>
                 left.Callee == right.Callee
                 && left.IsVirtual == right.IsVirtual

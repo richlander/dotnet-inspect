@@ -37,6 +37,9 @@ internal enum ClassicInverseDeclineReason
 
     /// <summary>The proposed body contains a node form outside the closed output blueprint.</summary>
     UnsupportedOutputNode,
+
+    /// <summary>The proposed await would require an enclosing unsafe context.</summary>
+    UnsafeAwaitContext,
 }
 
 /// <summary>

@@ -349,6 +349,19 @@ public static class AsyncExpressionFixtures
     public static async Task<(int, char, bool, DayOfWeek)> AwaitTypedTuple(Task<int> a)
         => (await a, 'A', true, DayOfWeek.Monday);
 
+    public static async Task<int> AwaitInitializedStackalloc(int length)
+        => await TaskForSpan(stackalloc int[length]);
+
+    public static async Task<int> AwaitInitializedByteStackalloc(int length)
+        => await TaskForByteSpan(stackalloc byte[length]);
+
+    [System.Runtime.CompilerServices.SkipLocalsInit]
+    public static async Task<int> AwaitUninitializedStackalloc(int length)
+        => await TaskForSpan(unsafe(stackalloc int[length]));
+
+    static Task<int> TaskForSpan(Span<int> value) => Task.FromResult(value.Length);
+    static Task<int> TaskForByteSpan(Span<byte> value) => Task.FromResult(value.Length);
+
     static SinkShape KeepShape(int value, SinkShape shape) => shape;
     static List<char> KeepChars(int value, List<char> values) => values;
     static List<Guid> KeepGuids(int value, List<Guid> values) => values;

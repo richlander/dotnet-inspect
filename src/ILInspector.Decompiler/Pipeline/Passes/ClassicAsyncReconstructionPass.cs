@@ -107,10 +107,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
             case ClassicInverseDecision.Decline decline
                 when !decline.IsRecipeDomainMiss:
-                MarkUnconsumedExecutionRegion(
+                MarkDeclined(
                     function,
                     kickoff,
                     context,
+                    decline.Reason == ClassicInverseDeclineReason.UnsafeAwaitContext
+                        ? "await operand requires unsafe context"
+                        : "execution region contains unconsumed user effects",
                     decline.Detail);
                 return;
 
@@ -273,23 +276,23 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         TypeRef machine)
         => ClassicInverseNodeFacts.IsMachineField(store.Field, machine);
 
-    static void MarkUnconsumedExecutionRegion(
+    static void MarkDeclined(
         IrFunction function,
         Kickoff kickoff,
         PassContext context,
+        string reason,
         string detail)
     {
         context.Stepper.StepOver(
-            $"decline classic async '{function.Name}': execution region contains unconsumed user effects");
+            $"decline classic async '{function.Name}': {reason}");
 
         PreserveKickoff(
             function,
             kickoff,
-            "execution region contains unconsumed user effects; original kickoff preserved");
+            $"{reason}; original kickoff preserved");
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.UnsupportedConstruct,
-            "classic async reconstruction declined: execution region contains "
-                + $"unconsumed user effects ({detail})"));
+            $"classic async reconstruction declined: {reason} ({detail})"));
     }
 
     static void MarkPlanningFailure(

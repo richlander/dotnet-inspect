@@ -556,6 +556,8 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
+| `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
+| `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `PackageWorkspaceIntegrationsQuery.Execute(realization)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
@@ -797,6 +799,47 @@ graph focus remains deferred to [#4054].
 ambiguity and diagnostic cases gate these host behaviors.
 
 [#4054]: https://github.com/richlander/dotnet-inspect/issues/4054
+
+## Method Body Diff
+
+Choose **Compare method bodies** for an explicitly selected method or accessor.
+The session-local dialog keeps that method as Before and offers the same
+implementation assembly's methods as After. Filtering and selecting do not run
+a comparison: choose **Compare** explicitly. Selecting the same method twice is
+valid, and bodyless methods remain available for native classification.
+
+C# and IL have independent outcomes and typed evidence. A bodyless
+`NoApplicableInput` endpoint is not equality, and one unavailable mechanism
+does not erase the other's evidence. Changing After clears the old result;
+dismissal disposes the dialog's operation session. Ordinary member navigation
+and shared links do not acquire comparison state.
+
+The Source facade consumes the shared Queries result rather than CLI text or
+another comparison algorithm. Its Queries-owned address projection supplies
+the module association for a validated implementation token. A missing retained
+context, a wrong module, or a changed physical designation is visible
+non-success, not a request to reacquire or substitute another assembly.
+
+Execution follows the existing Source host and managed-operation bridge.
+The Worker binding remains a canary, not a migration of these retained
+workspaces. Logical cancellation suppresses stale publication; synchronous
+managed CPU work does not promise prompt physical cancellation.
+
+The focused contract and adoption boundaries live in
+[Inspect Web Method Body Comparison](../../docs/design/inspect-web-method-body-comparison.md).
+The compiled fixture is registered as `FixtureCatalog.InspectWebMethodBodies`.
+An opt-in production-facade Browser case runs against the complete published
+Wasm site, not Vite's frontend-only build:
+
+```bash
+INSPECT_WEB_METHOD_BODY_URL=http://127.0.0.1:5199 \
+  npm run test:browser -- browser/method-body-production.spec.ts
+```
+
+Set `INSPECT_WEB_METHOD_BODY_FIXTURE` to that catalog fixture's `package`
+asset to include its compiled reference/implementation and accessor case.
+Only package acquisition is supplied with fixture bytes; comparison uses the
+published generated facade and product query.
 
 ## Unsupported
 

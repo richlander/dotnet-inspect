@@ -680,6 +680,9 @@ jobs:
       - name: Run row-selection tests
         run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
 
+      - name: Run source-selection public contract tests
+        run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
+
       - name: Run section-row tests
         run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
 
@@ -707,7 +710,7 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a

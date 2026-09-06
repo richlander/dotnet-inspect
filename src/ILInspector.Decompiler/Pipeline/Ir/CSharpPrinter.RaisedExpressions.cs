@@ -127,7 +127,21 @@ public sealed partial class CSharpPrinter
             {
                 _ = LambdaBodyTextWithLocalScope(lambda);
             }
-            return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");
+            string expressionText = ExpressionTreeBodyText(lambda, expr);
+            if (!lambda.IsExpressionTree
+                && EmitsUnsafeBlocks
+                && HasRequiredUnsafeOperation(expr))
+            {
+                string statementText = lambda.ReturnsVoid
+                    ? $"{expressionText};"
+                    : $"return {expressionText};";
+                string bodyText =
+                    $"unsafe\n{{\n    {statementText}\n}}";
+                return LambdaConversionText(
+                    lambda,
+                    LambdaBlockText(parameters, bodyText));
+            }
+            return LambdaConversionText(lambda, $"{parameters} => {expressionText}");
         }
 
         var statementNodes = lambda.Body.Blocks

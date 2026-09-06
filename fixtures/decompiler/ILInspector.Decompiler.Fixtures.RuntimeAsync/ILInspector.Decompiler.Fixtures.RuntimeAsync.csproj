@@ -5,6 +5,7 @@
     <Features>runtime-async=on</Features>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>

@@ -284,6 +284,7 @@ internal static class ClassicInverseNodeFacts
             Unbox => "throw:unbox",
             UnboxAny => "throw:unbox-any",
             NewArray => "new:array",
+            StackAllocate => "alloc:stack",
             Convert { IsChecked: true } => "throw:checked-convert",
             Binary { IsChecked: true } binary =>
                 $"throw:checked-{binary.Kind}",

@@ -305,4 +305,113 @@ public static class UnsafeFixtures
 
         return sum;
     }
+
+    public static class UnsafeAsyncFixtures
+    {
+        public readonly struct PointerTarget
+        {
+            public Task<int> GetTask() => Task.FromResult(42);
+        }
+
+        public sealed class UnsafeHolder
+        {
+            public static unsafe PointerTarget* Pointer => null;
+            public unsafe int* Risky => null;
+        }
+
+        public static unsafe bool Risky(int value) => value == 0;
+
+        public static async Task<int> AwaitPointerReceiver()
+        {
+            Task<int> task;
+            unsafe
+            {
+                task = UnsafeHolder.Pointer->GetTask();
+            }
+            return await task;
+        }
+
+        public static async Task<int> IfUnsafeConditionAwaitBody(
+            Task<int> task,
+            int seed)
+        {
+            bool condition;
+            unsafe
+            {
+                condition = Risky(seed);
+            }
+            if (condition)
+                return await task;
+            return 0;
+        }
+
+        public static async Task<int> WhileUnsafeConditionAwaitBody(
+            Task<int> task,
+            UnsafeHolder holder)
+        {
+            bool go;
+            unsafe
+            {
+                go = *holder.Risky == 0;
+            }
+            int sum = 0;
+            while (go)
+            {
+                sum += await task;
+                go = false;
+            }
+            return sum;
+        }
+
+        public static async Task<int> DoWhileUnsafeConditionAwaitBody(
+            Task<int> task,
+            UnsafeHolder holder)
+        {
+            bool go;
+            int sum = 0;
+            do
+            {
+                sum += await task;
+                unsafe
+                {
+                    go = *holder.Risky > 0;
+                }
+            }
+            while (go);
+            return sum;
+        }
+
+        public static async Task<int> SwitchUnsafeSelectorAwaitArms(
+            Task<int> task,
+            UnsafeHolder holder)
+        {
+            int selector;
+            unsafe
+            {
+                selector = *holder.Risky;
+            }
+            switch (selector)
+            {
+                case 0:
+                    return await task;
+                case 1:
+                    return 1 + await task;
+                default:
+                    return 3 + await task;
+            }
+        }
+
+        public static async Task<int> UsingUnsafeResourceAwaitBody(
+            Task<int> task,
+            UnsafeHolder holder)
+        {
+            MemoryStream resource;
+            unsafe
+            {
+                resource = new MemoryStream(*holder.Risky);
+            }
+            using (resource)
+                return resource.Capacity + await task;
+        }
+    }
 }

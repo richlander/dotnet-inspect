@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -44,6 +45,42 @@ public class WithExpressionPassTests
         var output = CSharpPrinter.Print(function).Output;
         Assert.Contains("return point with { @else = dx };", output);
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void InvalidCloneMemorySafetyRules_RemainVisibleAfterRaise()
+    {
+        var function = FunctionWithField(
+            "X",
+            cloneRulesState: MemorySafetyRulesState.Unsupported);
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        var withExpression = Assert.Single(
+            function.Descendants.OfType<WithExpression>());
+        Assert.Equal(
+            MemorySafetyRulesState.Unsupported,
+            withExpression.CloneMethod?.MemorySafetyRulesState);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.Collect(function),
+            remark => remark.Code == DiagnosticIds.InvalidCalleeMemorySafetyRules);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CloneEvidence_IsSingleAndExcludedOnlyFromCompileBackClosure()
+    {
+        var function = FunctionWithField("X");
+        new WithExpressionPass().Run(function, PassContext.None);
+        WithExpression expression = Assert.Single(function.Descendants.OfType<WithExpression>());
+        Assert.Same(expression.CloneMethod, expression.ConsumedCloneMethod);
+        Assert.True(expression.ConsumedCloneIsVirtual);
+        var evidence = new List<ConsumedMemberEvidence>();
+        ConsumedMemberEvidence.AddFrom(expression, evidence);
+        ConsumedMemberEvidence clone = Assert.Single(evidence, item => item.Method == expression.CloneMethod);
+        Assert.False(clone.IncludeInCompileBackClosure);
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -313,11 +350,14 @@ public class WithExpressionPassTests
             body);
     }
 
-    static IrFunction FunctionWithField(string fieldName)
+    static IrFunction FunctionWithField(
+        string fieldName,
+        MemorySafetyRulesState? cloneRulesState = null)
     {
         var clone = new MethodRef(Point, "<Clone>$", Point, [], HasThis: true)
         {
             CompilerGenerated = MetadataFactState.Yes,
+            MemorySafetyRulesState = cloneRulesState,
         };
         var field = new FieldRef(Point, fieldName, Int32);
         const int slot = 256;
