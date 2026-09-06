@@ -78,12 +78,22 @@ second unified/side-by-side rendering algorithm.
 ## Admission and result boundary
 
 The request carries the existing browser's package/platform, assembly, exact
-type, and member coordinates. The worker resolves them through the existing
+type, and member coordinates, plus the selected decompiler style-option IDs.
+The worker resolves the coordinates through the existing
 managed member-resolution and workspace services; process-local registrations
 and page-owned workspace objects are not wire identities. It does not accept
 arbitrary Before/After strings, source-fetch URLs, or declarations reconstructed
 from display labels. The managed feature consumes the resulting
 `AssemblyMemberSourceRequest` and existing host source capabilities.
+
+The style IDs are the selection captured for this invocation, charged against
+the same 8 KiB encoded-request budget. The worker resolves them through the
+existing `BrowserStyleOptions` / product `StyleOptionCatalog` path and supplies
+the resulting `PrinterOptions` to `AssemblyMemberSourceRequest`. Existing
+catalog defaults, unknown-ID failures, and conflict semantics remain unchanged.
+The worker does not reread page preferences or silently substitute its own
+default options. This preserves the requested After endpoint; it does not make
+the separate Source section's text identical to canonical comparison text.
 
 One query result supplies both endpoint attempts. Only two complete attempts
 may enter the shared Presentation adapter. Feature preflight may decline their
@@ -186,6 +196,8 @@ the CLI or the underlying producers' limits.
 | Physical lines before projection, per endpoint | 1,024 |
 | Conservative projected After text bound | 256 KiB UTF-8 |
 | Canonical logical lines, per endpoint | 1,024 |
+| Canonical Before text | 128 KiB UTF-8 |
+| Canonical After text | 256 KiB UTF-8 |
 | Analytical relations | 2,048 |
 | Coordinate occurrences across all relations | 2,048 |
 | Mapped changes | 2,048 |
@@ -200,6 +212,14 @@ to each relation or change. A single long line cannot evade byte admission,
 and many empty lines cannot evade line admission. Arithmetic is checked before
 allocation or enumeration driven by a declared count.
 
+For raw admission, CRLF counts as one boundary, as does each CR or LF. Empty
+text has zero lines; nonempty text has one plus its boundary count, including
+a final empty raw line when present. This is the `TextFindings` boundary
+vocabulary, not the broader C# lexer newline vocabulary. Current endpoints are
+already LF-normalized. Canonical counts are the shared analysis sequence
+lengths; the repeated line cap is a receiver consistency check, not a new
+independent producer limit.
+
 The raw line bound keeps the present ordered matcher below
 `(1,024 + 1)^2 = 1,050,625` matrix cells, well below its existing
 64,000,000-cell limit. This is a structural input bound, not a claim that the
@@ -212,6 +232,14 @@ The maximum is over all raw PDB physical lines, so it bounds the prefix the
 shared declaration boundary could select without reproducing that boundary.
 This is a conservative admission calculation, not text normalization. It
 prevents a small raw pair from generating a large placement-expanded result.
+
+The canonical text byte limits name those same derived bounds for the
+receiver. Charge the UTF-8 bytes of every logical line plus one LF separator
+between adjacent lines, plus a final LF when termination is asserted. Current
+member comparisons have absent final terminators. The browser first enforces
+each side's line-count cap and checks each line's UTF-16 length against that
+side's byte ceiling. It then performs bounded aggregate UTF-8 accounting;
+it never allocates or walks an unrestricted line population.
 
 Admission happens before the expensive boundary it protects:
 
@@ -339,6 +367,7 @@ At the admission boundary:
 valid shape whose escaped result exceeds 1 MiB      -> Too complex: encoded bytes
 one endpoint unavailable                           -> Unavailable, no zero summary
 identical complete endpoints                       -> Complete, all six zeros
+style IDs ["explicit-object-creation"]              -> After uses that catalog selection
 old operation completes after cancellation          -> no publication to its sink
 ```
 
@@ -350,6 +379,7 @@ prose, mocked packets, or inherited runtime tests.
 
 | Required focused gate | Property |
 | --- | --- |
+| Request/style preservation | Empty and non-default catalog selections reach the query unchanged; selected-style results agree with the shared adapter at those options; unknown IDs remain visible failures and oversized selections consume the request budget |
 | Managed feature admission | Limit minus one, exact limit, and limit plus one at each admission boundary; byte-heavy and line-heavy endpoints; indentation expansion; refusal before projection and before oversized encoding |
 | Managed/worker/browser codec round trip | Exact text, labels, terminators, all relation cases/facets, six counts, empty and N:M populations, mapped ranges, inner mappings, annotation targets/severity, and Unicode span coordinates |
 | Closed codec rejection | Unknown fields/tags/versions, invalid scalar or coordinate shapes, and collection limits fail visibly without repairing a payload |
