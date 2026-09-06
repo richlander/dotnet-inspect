@@ -138,9 +138,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "QueryPackageVersions.976702342");
+        value = $ownDataProperty(value, "QueryPackageVersions.451505237");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.QueryPackageVersions.976702342\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.QueryPackageVersions.451505237\u0027 is not callable.");
         }
     }
     {
@@ -265,8 +265,8 @@ export async function queryPackageDependencies(packageId, version, targetFramewo
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackageVersions(packageId) {
-    const $result = await $requireManagedExports()["PackageExports"]["QueryPackageVersions.976702342"](packageId);
+export async function queryPackageVersions(packageId, currentVersion) {
+    const $result = await $requireManagedExports()["PackageExports"]["QueryPackageVersions.451505237"](packageId, currentVersion);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

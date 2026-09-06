@@ -1330,6 +1330,26 @@ internal static class BrowserPackageWorkspace
             Gallery,
             PackageOperationTimeout);
 
+    internal static Task<BrowserPackageVersionInventory> GetVersionInventoryAsync(
+        string packageId,
+        string currentVersion) =>
+        RunPackageOperationAsync(
+            async deadline =>
+            {
+                if (PackageCoordinateResolver.Validate(
+                        new PackageCoordinate(packageId, currentVersion)) is { } invalid)
+                {
+                    throw new InvalidOperationException(invalid.Message);
+                }
+
+                PackageVersionResult result = await GetVersionResultAsync(
+                    Gallery,
+                    packageId,
+                    deadline.Token).ConfigureAwait(false);
+                return BrowserPackageVersionInventory.Create(result, currentVersion);
+            },
+            PackageOperationTimeout);
+
     internal static Task<string[]> GetVersionsAsync(
         string packageId,
         IPackageSourceClient source,

@@ -817,6 +817,24 @@ ambiguity and diagnostic cases gate these host behaviors.
 
 [#4054]: https://github.com/richlander/dotnet-inspect/issues/4054
 
+## Comparison targets
+
+Package Overview contains session-local **Comparison targets**. Diff defaults
+to the preceding listed stable release, including earlier previews when the
+active version is a preview. An exact version can be selected instead.
+Clone defaults to the current Workspace, including self, or can be narrowed
+to another retained Package.
+
+Subject navigation preserves these settings. Replacing or removing the Package
+resets its settings; removing an explicit Clone target leaves that choice
+visibly unavailable. Settings are not included in shared links. The first
+version-selector adopter is the existing Gallery path, not custom sources or
+platform inputs.
+
+These controls prepare targets only: the Library Diff/Clone result inspectors
+remain follow-on work under #5083. The owner is
+[Browser comparison targets](../../docs/design/inspect-web-comparison-targets.md).
+
 ## Method Body Diff
 
 Choose **Compare method bodies** for an explicitly selected method or accessor.

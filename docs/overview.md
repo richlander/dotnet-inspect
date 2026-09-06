@@ -188,6 +188,10 @@ substrates, and inspection producers that will extend that space.
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Browser comparison targets](design/inspect-web-comparison-targets.md) owns
+  session-local Package Diff and Clone target intent, inheritance during
+  subject navigation, and target-setting controls. It does not own acquisition
+  authority, comparison execution, or portable Workspace fields.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,

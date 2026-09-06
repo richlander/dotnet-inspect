@@ -126,7 +126,9 @@ async function installFacades(
           activeFramework: framework || surface.activeFramework,
         };
       }
-      export async function queryPackageVersions() { return ["1.0.0"]; }
+      export async function queryPackageVersions() {
+        return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
+      }
       export function clearWorkspacePackageOccurrences() {}
       export function packageCacheStats() {
         return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
@@ -222,6 +224,28 @@ async function installFacades(
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+test("Package comparison targets survive Library, Type, and Member navigation", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await expect(page.locator("#package-diff-target-status"))
+    .toHaveText("Compare against 0.9.0 (previous version).");
+  await page.locator("#package-diff-target").focus();
+  await page.locator("#package-diff-target").selectOption("exact:1.0.0");
+  await expect(page.locator("#package-diff-target")).toBeFocused();
+  await page.locator("#package-clone-target").selectOption("package:0");
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
+  await page.locator("#type-list [data-type]").click();
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
+  await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await expect(page.locator("#package-diff-target")).toHaveValue("exact:1.0.0");
+  await expect(page.locator("#package-clone-target")).toHaveValue("package:0");
+  await page.locator("#package-diff-target").selectOption("previous");
+  await expect(page.locator("#package-diff-target-status"))
+    .toHaveText("Compare against 0.9.0 (previous version).");
+});
 
 async function openReferences(page: Page) {
   await page.goto(root);
