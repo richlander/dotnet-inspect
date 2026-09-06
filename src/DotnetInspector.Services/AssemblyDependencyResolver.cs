@@ -109,6 +109,7 @@ public sealed partial class AssemblyDependencyResolver :
             new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
+    IReadOnlyList<ResolvedAssemblyDependency>? _discoveredCandidates;
     readonly ConcurrentDictionary<
         AssemblyBindingRequestKey,
         Lazy<AssemblyBindingSelection>> _bindingSelections = [];
@@ -159,8 +160,18 @@ public sealed partial class AssemblyDependencyResolver :
     }
 
     /// <summary>
+    /// Discovers configured candidates without choosing by simple name or
+    /// admitting their images. Paths reached through multiple provenance
+    /// remain separate entries. Target exclusion removes only the target path.
+    /// </summary>
+    public IReadOnlyList<ResolvedAssemblyDependency> DiscoverCandidates() =>
+        _discoveredCandidates ??= CollectDependencies(
+            deduplicate: false,
+            excludeTargetByPath: true);
+
+    /// <summary>
     /// Acquires the structured descriptor for an entry returned by
-    /// <see cref="ResolveAll"/>.
+    /// <see cref="ResolveAll"/> or <see cref="DiscoverCandidates"/>.
     /// </summary>
     public ResolvedAssemblyReference? Acquire(
         ResolvedAssemblyDependency dependency)
@@ -180,7 +191,9 @@ public sealed partial class AssemblyDependencyResolver :
             Path.GetFullPath(_options.TargetAssemblyPath),
             AssemblyResolutionProvenance.Local("target assembly"));
 
-    IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(bool deduplicate)
+    IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(
+        bool deduplicate,
+        bool excludeTargetByPath = false)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolved = new List<ResolvedAssemblyDependency>();
@@ -193,14 +206,20 @@ public sealed partial class AssemblyDependencyResolver :
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
                 return;
 
+            string fullPath = Path.GetFullPath(path);
             string simpleName = Path.GetFileNameWithoutExtension(path);
-            if (_options.ExcludeTargetAssembly && simpleName.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+            bool isTarget = excludeTargetByPath
+                ? fullPath.Equals(targetPath, OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal)
+                : simpleName.Equals(targetName, StringComparison.OrdinalIgnoreCase);
+            if (_options.ExcludeTargetAssembly && isTarget)
                 return;
             if (deduplicate && !seen.Add(simpleName))
                 return;
 
             resolved.Add(new ResolvedAssemblyDependency(
-                Path.GetFullPath(path),
+                fullPath,
                 provenance,
                 packageId,
                 packageVersion,
