@@ -82,6 +82,18 @@ public sealed record BrowserPackageMetadata(
 
 public sealed record BrowserAssemblyMetadata(
     string Assembly,
+    BrowserMetadataImage[] MetadataRoots,
+    string? CliMetadataError,
+    string? ManifestMetadataError,
+    BrowserReadyToRunImage? ReadyToRun,
+    string? ReadyToRunError);
+
+public sealed record BrowserMetadataImage(
+    string RequestedRoot,
+    string? CanonicalRoot,
+    int? RootRelativeVirtualAddress,
+    int? RootSize,
+    bool AliasesCliMetadata,
     string MetadataVersion,
     bool MetadataVersionTruncated,
     string Kind,
@@ -91,6 +103,33 @@ public sealed record BrowserAssemblyMetadata(
     BrowserMetadataHeap[] Heaps,
     BrowserMetadataTable[] Tables,
     BrowserMetadataHeaders Headers);
+
+public sealed record BrowserReadyToRunImage(
+    string Role,
+    string Advertisements,
+    int MajorVersion,
+    int MinorVersion,
+    uint FlagsValue,
+    string Flags,
+    int HeaderRelativeVirtualAddress,
+    int HeaderSize,
+    int? ManagedNativeHeaderRelativeVirtualAddress,
+    int? ManagedNativeHeaderSize,
+    int? ExportHeaderRelativeVirtualAddress,
+    BrowserReadyToRunManifest? ManifestMetadata,
+    BrowserReadyToRunSection[] Sections);
+
+public sealed record BrowserReadyToRunManifest(
+    int RelativeVirtualAddress,
+    int Size,
+    bool AliasesCliMetadata);
+
+public sealed record BrowserReadyToRunSection(
+    string Type,
+    uint TypeValue,
+    int RelativeVirtualAddress,
+    int Size,
+    bool AliasesCliMetadata);
 
 public sealed record BrowserMetadataHeap(
     string Name,

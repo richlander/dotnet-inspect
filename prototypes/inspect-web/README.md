@@ -566,7 +566,7 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
-| `QueryPackageMetadata` | one exact library in a package/version/framework | `AssemblyContextMetadataImageQuery.ExecuteParticipant(...)` |
+| `QueryPackageMetadata` | one exact library in a package/version/framework | root-aware `AssemblyContextMetadataImageQuery.ExecuteParticipant(...)` plus `AssemblyContextReadyToRunImageQuery.ExecuteParticipant(...)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
@@ -869,12 +869,14 @@ rather than fixture results or success-shaped empty output.
 | --- | --- |
 | `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
 
-Package and Platform Metadata use
+Package and Platform Metadata use root-aware
 `AssemblyContextMetadataImageQuery`, `AssemblyContextMetadataTableQuery`, and
-`AssemblyContextMetadataHeapQuery`. The host selects a workspace participant;
-the product query owns session access and returns typed availability, rejection,
-or failure. Table windows and heap listings retain their bounds, coverage, and
-truncation instead of presenting partial data as complete.
+`AssemblyContextMetadataHeapQuery`, plus
+`AssemblyContextReadyToRunImageQuery`. The host selects a workspace participant
+and requests either the CLI or ReadyToRun manifest metadata root; the product
+query owns session access and returns typed availability, rejection, or failure.
+Table windows and heap listings retain their selected root, bounds, coverage,
+and truncation instead of presenting partial data as complete.
 
 Package-backed type Metadata/Source and member Source/Annotated Source exports
 do not accept platform coordinates. The Platform UI therefore withholds those
@@ -2040,11 +2042,13 @@ binding shape, the active scope segment, active lens/section marking,
 keyboard-shortcut indices, and label escaping.
 
 `src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
-assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
-headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
-it), including the explorer's rendered DOM bindings. Both describe the metadata
-image rather than the API surface within it, so they share one module the way
-`type-panel.ts` combines the type selector and the type viewer.
+assembly — selectable CLI and ReadyToRun manifest roots, format stamp, heap
+sizes, ECMA-335 table row counts, PE/CLI headers, and typed ReadyToRun envelope
+facts) and the Metadata Explorer (the root-preserving spatial table/heap
+drill-down laid over it), including the explorer's rendered DOM bindings. Both
+describe the metadata image rather than the API surface within it, so they share
+one module the way `type-panel.ts` combines the type selector and the type
+viewer.
 `package-inspection.ts` coordinates the package-level image request, while
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
@@ -2056,12 +2060,13 @@ well beyond these views
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.
 `test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
-stale-scope, partial-read, and empty-image states and its heap/table ordering;
-the Metadata-lens table/heap entry controls, the explorer's mutually exclusive
-overview/focus binding shapes, chips, history-button enablement, overview
-versus focus lightbox, lazy-load hooks, pager bounds, row highlight and
-selection, ref->def jump targets, cell escaping, heap addressing and coverage
-notes, and the row inspector.
+stale-scope, partial-read, empty-image, metadata-root, and ReadyToRun states and
+its heap/table ordering; the Metadata-lens table/heap entry controls, selected
+root preservation, the explorer's mutually exclusive overview/focus binding
+shapes, chips, history-button enablement, overview versus focus lightbox,
+lazy-load hooks, pager bounds, row highlight and selection, ref->def jump
+targets, cell escaping, heap addressing and coverage notes, and the row
+inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) and that list's markup, including its

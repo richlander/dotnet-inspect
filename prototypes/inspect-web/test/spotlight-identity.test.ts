@@ -2024,7 +2024,7 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
   assertIdentifierArgument(innerCall, 0, "document", "bindMetadataExplorer");
   assertIdentifierArgument(innerCall, 1, "ex", "bindMetadataExplorer");
   const actions = objectArgument(innerCall, 2, "bindMetadataExplorer");
-  assert.equal(actions.properties.length, 13);
+  assert.equal(actions.properties.length, 14);
   const rowFocus = callbackProperty(actions, "onRowFocus");
   assert.deepEqual(
     statementSignatures(rowFocus.body.body),
@@ -2055,11 +2055,12 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
     /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
   assert.match(
     metadataViewerSource,
-    /export function bindMetadataExplorer\([\s\S]*\[data-package-metadata-retry\][\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-explore\][\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
+    /export function bindMetadataExplorer\([\s\S]*\[data-package-metadata-retry\][\s\S]*\[data-metadata-root\][\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-explore\][\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
   for (const selector of [
     "#mde-exit",
     "#mde-hist-back",
     "#mde-hist-fwd",
+    "[data-metadata-root]",
     "[data-mde-explore]",
     "[data-mde-open]",
     "[data-mde-open-heap]",
@@ -5363,7 +5364,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
   assert.match(
     appSource,
-    /function openExplorerOverview\(assemblyFileName: string\)[\s\S]*?ex\.overview = true;[\s\S]*?state\.explorer = ex;[\s\S]*?render\(\);/);
+    /function openExplorerOverview\(\s*assemblyFileName: string,\s*metadataRoot: MetadataRootSelection,\s*\)[\s\S]*?buildBaseExplorer\(assemblyFileName, metadataRoot\)[\s\S]*?ex\.overview = true;[\s\S]*?state\.explorer = ex;[\s\S]*?render\(\);/);
   assert.match(
     appSource,
     /onOpenOverview: openExplorerOverview/);

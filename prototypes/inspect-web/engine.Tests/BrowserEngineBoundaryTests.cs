@@ -3675,6 +3675,7 @@ public sealed class BrowserEngineBoundaryTests
                     "1.0.0",
                     "net11.0",
                     assemblyFileName: "",
+                    metadataRoot: "cli",
                     tableIndex: 0,
                     startRowId: 1,
                     maxRows: 1));
@@ -4172,17 +4173,32 @@ public sealed class BrowserEngineBoundaryTests
         using JsonDocument metadata = JsonDocument.Parse(
             await MetadataExports.QueryPackageMetadata(
                 packageId, "1.0.0", "net11.0", surface.Asset.Id));
-        Assert.Equal(fileName, Assert.Single(
-            metadata.RootElement.GetProperty("assemblies").EnumerateArray())
-                .GetProperty("assembly").GetString());
+        JsonElement metadataAssembly = Assert.Single(
+            metadata.RootElement.GetProperty("assemblies").EnumerateArray());
+        Assert.Equal(
+            fileName,
+            metadataAssembly.GetProperty("assembly").GetString());
+        Assert.Equal(
+            nameof(MetadataRootKind.Cli),
+            Assert.Single(
+                metadataAssembly
+                    .GetProperty("metadataRoots")
+                    .EnumerateArray())
+                .GetProperty("requestedRoot")
+                .GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            metadataAssembly.GetProperty("readyToRun").ValueKind);
         using JsonDocument table = JsonDocument.Parse(
             await MetadataExports.QueryPackageMetadataTable(
                 packageId, "1.0.0", "net11.0", surface.Asset.Id,
+                "cli",
                 (int)TableIndex.TypeDef, 1, 10));
         Assert.True(table.RootElement.GetProperty("rowCount").GetInt32() > 1);
         using JsonDocument heap = JsonDocument.Parse(
             await MetadataExports.QueryPackageHeapEntries(
-                packageId, "1.0.0", "net11.0", surface.Asset.Id, "String"));
+                packageId, "1.0.0", "net11.0", surface.Asset.Id,
+                "cli", "String"));
         Assert.Contains(nameof(BrowserEngineBoundaryTests), heap.RootElement.GetRawText());
 
         BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(

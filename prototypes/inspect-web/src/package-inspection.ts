@@ -14,7 +14,10 @@ import type {
   BrowserPackagePerformance,
   BrowserPerformanceMember,
 } from "./facades/inspect-web-analysis.d.ts";
-import type { PackageMetadata } from "./metadata-viewer.ts";
+import type {
+  MetadataRootSelection,
+  PackageMetadata,
+} from "./metadata-viewer.ts";
 import type {
   AppMemberSurface,
   AppPackage,
@@ -72,6 +75,7 @@ export interface PackageInspectionState {
   packageMetadataLoading: boolean;
   packageMetadataError: string;
   packageMetadataKey: string;
+  packageMetadataRoot: MetadataRootSelection;
 }
 
 export interface PackageInspectionDependencies {
@@ -267,6 +271,7 @@ export function createPackageInspectionCoordinator(
       state.packageMetadataLoading = false;
       state.packageMetadataError = "";
       state.packageMetadataKey = "";
+      state.packageMetadataRoot = "cli";
     },
 
     async loadDependencies(packageModel, signature) {

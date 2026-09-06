@@ -4,15 +4,11 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export interface BrowserAssemblyMetadata {
   readonly assembly: string;
-  readonly metadataVersion: string;
-  readonly metadataVersionTruncated: boolean;
-  readonly kind: string;
-  readonly isAssembly: boolean;
-  readonly metadataSize: number;
-  readonly projectedTableTotal: number;
-  readonly heaps: ReadonlyArray<BrowserMetadataHeap>;
-  readonly tables: ReadonlyArray<BrowserMetadataTable>;
-  readonly headers: BrowserMetadataHeaders;
+  readonly metadataRoots: ReadonlyArray<BrowserMetadataImage>;
+  readonly cliMetadataError: string | null;
+  readonly manifestMetadataError: string | null;
+  readonly readyToRun: BrowserReadyToRunImage | null;
+  readonly readyToRunError: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {
@@ -126,6 +122,23 @@ export interface BrowserMetadataHeap {
   readonly addressing: string;
 }
 
+export interface BrowserMetadataImage {
+  readonly requestedRoot: string;
+  readonly canonicalRoot: string | null;
+  readonly rootRelativeVirtualAddress: number | null;
+  readonly rootSize: number | null;
+  readonly aliasesCliMetadata: boolean;
+  readonly metadataVersion: string;
+  readonly metadataVersionTruncated: boolean;
+  readonly kind: string;
+  readonly isAssembly: boolean;
+  readonly metadataSize: number;
+  readonly projectedTableTotal: number;
+  readonly heaps: ReadonlyArray<BrowserMetadataHeap>;
+  readonly tables: ReadonlyArray<BrowserMetadataTable>;
+  readonly headers: BrowserMetadataHeaders;
+}
+
 export interface BrowserMetadataRow {
   readonly rowId: number;
   readonly token: number;
@@ -164,6 +177,36 @@ export interface BrowserParameterSurface {
   readonly hasDefault: boolean;
   readonly defaultValue: string | null;
   readonly description: string | null;
+}
+
+export interface BrowserReadyToRunImage {
+  readonly role: string;
+  readonly advertisements: string;
+  readonly majorVersion: number;
+  readonly minorVersion: number;
+  readonly flagsValue: number;
+  readonly flags: string;
+  readonly headerRelativeVirtualAddress: number;
+  readonly headerSize: number;
+  readonly managedNativeHeaderRelativeVirtualAddress: number | null;
+  readonly managedNativeHeaderSize: number | null;
+  readonly exportHeaderRelativeVirtualAddress: number | null;
+  readonly manifestMetadata: BrowserReadyToRunManifest | null;
+  readonly sections: ReadonlyArray<BrowserReadyToRunSection>;
+}
+
+export interface BrowserReadyToRunManifest {
+  readonly relativeVirtualAddress: number;
+  readonly size: number;
+  readonly aliasesCliMetadata: boolean;
+}
+
+export interface BrowserReadyToRunSection {
+  readonly type: string;
+  readonly typeValue: number;
+  readonly relativeVirtualAddress: number;
+  readonly size: number;
+  readonly aliasesCliMetadata: boolean;
 }
 
 export interface BrowserTypeComposition {
@@ -247,12 +290,12 @@ export interface BrowserTypeSurface {
 type $ManagedExports = {
   readonly "MetadataExports": {
     readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
-    readonly "QueryPackageHeapEntries.1330709314": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string) => Promise<string>;
+    readonly "QueryPackageHeapEntries.649160465": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string) => Promise<string>;
     readonly "QueryPackageMetadata.1579276339": (packageId: string, version: string, targetFramework: string, assemblyFileName: string) => Promise<string>;
-    readonly "QueryPackageMetadataTable.1509466830": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
-    readonly "QueryPlatformHeapEntries.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string) => Promise<string>;
+    readonly "QueryPackageMetadataTable.1945598111": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
+    readonly "QueryPlatformHeapEntries.649160465": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, heap: string) => Promise<string>;
     readonly "QueryPlatformMetadata.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
-    readonly "QueryPlatformMetadataTable.1509466830": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
+    readonly "QueryPlatformMetadataTable.1945598111": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
     readonly "QueryTypeProjection.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string) => Promise<string>;
   };
 };
@@ -310,9 +353,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPackageHeapEntries.1330709314");
+    value = $ownDataProperty(value, "QueryPackageHeapEntries.649160465");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027MetadataExports.QueryPackageHeapEntries.1330709314\u0027 is not callable.");
+      throw new Error("Managed export \u0027MetadataExports.QueryPackageHeapEntries.649160465\u0027 is not callable.");
     }
   }
   {
@@ -326,17 +369,17 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPackageMetadataTable.1509466830");
+    value = $ownDataProperty(value, "QueryPackageMetadataTable.1945598111");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadataTable.1509466830\u0027 is not callable.");
+      throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadataTable.1945598111\u0027 is not callable.");
     }
   }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPlatformHeapEntries.1330709314");
+    value = $ownDataProperty(value, "QueryPlatformHeapEntries.649160465");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027MetadataExports.QueryPlatformHeapEntries.1330709314\u0027 is not callable.");
+      throw new Error("Managed export \u0027MetadataExports.QueryPlatformHeapEntries.649160465\u0027 is not callable.");
     }
   }
   {
@@ -350,9 +393,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPlatformMetadataTable.1509466830");
+    value = $ownDataProperty(value, "QueryPlatformMetadataTable.1945598111");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027MetadataExports.QueryPlatformMetadataTable.1509466830\u0027 is not callable.");
+      throw new Error("Managed export \u0027MetadataExports.QueryPlatformMetadataTable.1945598111\u0027 is not callable.");
     }
   }
   {
@@ -406,8 +449,8 @@ export async function queryGraphMemberSurface(packageId: string, version: string
   return $parsed as BrowserGraphMemberSurface;
 }
 
-export async function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<BrowserHeapListing> {
-  const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageHeapEntries.1330709314"](packageId, version, targetFramework, assemblyFileName, heap);
+export async function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageHeapEntries.649160465"](packageId, version, targetFramework, assemblyFileName, metadataRoot, heap);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserHeapListing;
 }
@@ -418,14 +461,14 @@ export async function queryPackageMetadata(packageId: string, version: string, t
   return $parsed as BrowserPackageMetadata;
 }
 
-export async function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow> {
-  const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadataTable.1509466830"](packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
+export async function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadataTable.1945598111"](packageId, version, targetFramework, assemblyFileName, metadataRoot, tableIndex, startRowId, maxRows);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMetadataWindow;
 }
 
-export async function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string): Promise<BrowserHeapListing> {
-  const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformHeapEntries.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, heap);
+export async function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformHeapEntries.649160465"](targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, heap);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserHeapListing;
 }
@@ -436,8 +479,8 @@ export async function queryPlatformMetadata(targetFramework: string, platformVer
   return $parsed as BrowserPackageMetadata;
 }
 
-export async function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow> {
-  const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformMetadataTable.1509466830"](targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
+export async function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryPlatformMetadataTable.1945598111"](targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, tableIndex, startRowId, maxRows);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMetadataWindow;
 }

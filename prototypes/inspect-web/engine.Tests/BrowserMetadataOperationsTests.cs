@@ -1,5 +1,4 @@
 using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -17,25 +16,28 @@ public sealed class BrowserMetadataOperationsTests
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
-        var available = Assert.IsType<
-            AssemblyContextEntry<MetadataImageOverview>.Available>(
-                Assert.Single(
-                    AssemblyContextMetadataImageQuery.Execute(group)
-                        .Assemblies));
+        var entries = MetadataEntries(group);
 
         BrowserAssemblyMetadata result =
-            MetadataExports.ProjectMetadataAssembly(
-                "InspectWeb.Engine.Tests.dll",
-                available.Value);
+            Assert.IsType<BrowserAssemblyMetadata>(
+                MetadataExports.ProjectMetadataAssembly(
+                    "InspectWeb.Engine.Tests.dll",
+                    entries.Cli,
+                    entries.Manifest,
+                    entries.ReadyToRun));
+        BrowserMetadataImage root = Assert.Single(result.MetadataRoots);
 
-        Assert.StartsWith("v", result.MetadataVersion);
-        Assert.False(result.MetadataVersionTruncated);
+        Assert.Equal(nameof(MetadataRootKind.Cli), root.RequestedRoot);
+        Assert.StartsWith("v", root.MetadataVersion);
+        Assert.False(root.MetadataVersionTruncated);
         Assert.Contains(
-            result.Tables,
+            root.Tables,
             table => table.Index == (int)TableIndex.TypeDef);
         Assert.Contains(
-            result.Heaps,
+            root.Heaps,
             heap => heap.Name == nameof(HeapKind.String));
+        Assert.Null(result.ReadyToRun);
+        Assert.Null(result.ReadyToRunError);
     }
 
     [Fact]
@@ -43,12 +45,13 @@ public sealed class BrowserMetadataOperationsTests
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
-        MetadataImageOverview overview = Assert.IsType<
-            AssemblyContextEntry<MetadataImageOverview>.Available>(
-                Assert.Single(
-                    AssemblyContextMetadataImageQuery.Execute(group)
-                        .Assemblies))
-            .Value;
+        var entries = MetadataEntries(group);
+        var cliEntry = Assert.IsType<
+            AssemblyContextEntry<MetadataImageResult>.Available>(
+                entries.Cli);
+        var cli = Assert.IsType<MetadataImageResult.Available>(
+            cliEntry.Value);
+        MetadataImageOverview overview = cli.Overview;
         var truncated = new MetadataImageOverview(
             new InertString(
                 TextPolicy.Field,
@@ -63,55 +66,147 @@ public sealed class BrowserMetadataOperationsTests
             overview.Headers);
 
         BrowserAssemblyMetadata result =
-            MetadataExports.ProjectMetadataAssembly(
-                "InspectWeb.Engine.Tests.dll",
-                truncated);
+            Assert.IsType<BrowserAssemblyMetadata>(
+                MetadataExports.ProjectMetadataAssembly(
+                    "InspectWeb.Engine.Tests.dll",
+                    new AssemblyContextEntry<MetadataImageResult>.Available(
+                        cliEntry.Subject,
+                        new MetadataImageResult.Available(
+                            truncated,
+                            cli.Root)),
+                    entries.Manifest,
+                    entries.ReadyToRun));
+        BrowserMetadataImage root = Assert.Single(result.MetadataRoots);
 
-        Assert.Equal("v4.0.30319", result.MetadataVersion);
-        Assert.True(result.MetadataVersionTruncated);
+        Assert.Equal("v4.0.30319", root.MetadataVersion);
+        Assert.True(root.MetadataVersionTruncated);
     }
 
     [Fact]
-    public void MetadataOverview_ProjectsManagedReadyToRunHeader()
+    public void MetadataOverview_ProjectsRuntimeReadyToRunAndManifestRoot()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            typeof(object).Assembly.Location);
+        var entries = MetadataEntries(group);
+        BrowserAssemblyMetadata result =
+            Assert.IsType<BrowserAssemblyMetadata>(
+                MetadataExports.ProjectMetadataAssembly(
+                    "System.Private.CoreLib.dll",
+                    entries.Cli,
+                    entries.Manifest,
+                    entries.ReadyToRun));
+
+        Assert.Contains(
+            result.MetadataRoots,
+            root => root.RequestedRoot
+                == nameof(MetadataRootKind.Cli));
+        BrowserMetadataImage manifest = Assert.Single(
+            result.MetadataRoots,
+            root => root.RequestedRoot
+                == nameof(MetadataRootKind.ReadyToRunManifest));
+        Assert.NotNull(manifest.CanonicalRoot);
+        BrowserReadyToRunImage readyToRun =
+            Assert.IsType<BrowserReadyToRunImage>(result.ReadyToRun);
+        Assert.NotNull(readyToRun.ManifestMetadata);
+        Assert.Contains(
+            readyToRun.Sections,
+            section => section.TypeValue
+                == (uint)ReadyToRunSectionType.ManifestMetadata);
+        Assert.Null(result.ManifestMetadataError);
+        Assert.Null(result.ReadyToRunError);
+
+        BrowserMetadataTable table = manifest.Tables.First(
+            candidate => candidate.IsProjected && candidate.RowCount > 0);
+        AssemblyContextParticipant participant = group.Participants[0];
+        BrowserMetadataWindow window = MetadataExports.ProjectMetadataWindow(
+            "System.Private.CoreLib.dll",
+            table.Index,
+            AssemblyContextMetadataTableQuery.ExecuteParticipant(
+                group,
+                participant,
+                new MetadataTableWindowRequest(
+                    (TableIndex)table.Index,
+                    maxRows: 1),
+                MetadataRootKind.ReadyToRunManifest));
+        Assert.Null(window.Error);
+        Assert.Equal(table.Index, window.Index);
+
+        BrowserHeapListing heap = MetadataExports.ProjectHeapListing(
+            "System.Private.CoreLib.dll",
+            HeapKind.String,
+            AssemblyContextMetadataHeapQuery.ExecuteParticipant(
+                group,
+                participant,
+                HeapKind.String,
+                MetadataRootKind.ReadyToRunManifest));
+        Assert.Null(heap.Error);
+        Assert.Equal(nameof(HeapKind.String), heap.Heap);
+    }
+
+    [Fact]
+    public void MetadataOverview_PreservesManifestWhenCliRootIsAbsent()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            typeof(object).Assembly.Location);
+        var entries = MetadataEntries(group);
+        var manifest = Assert.IsType<
+            AssemblyContextEntry<MetadataImageResult>.Available>(
+                entries.Manifest);
+
+        BrowserAssemblyMetadata result =
+            Assert.IsType<BrowserAssemblyMetadata>(
+                MetadataExports.ProjectMetadataAssembly(
+                    "System.Private.CoreLib.dll",
+                    new AssemblyContextEntry<MetadataImageResult>.Available(
+                        manifest.Subject,
+                        new MetadataImageResult.NoMetadata()),
+                    manifest,
+                    entries.ReadyToRun));
+
+        BrowserMetadataImage root = Assert.Single(result.MetadataRoots);
+        Assert.Equal(
+            nameof(MetadataRootKind.ReadyToRunManifest),
+            root.RequestedRoot);
+        Assert.Null(result.CliMetadataError);
+    }
+
+    [Fact]
+    public void MetadataOverview_PreservesHealthyCliRootBesideIndependentFailures()
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
-        MetadataImageOverview overview = Assert.IsType<
-            AssemblyContextEntry<MetadataImageOverview>.Available>(
-                Assert.Single(
-                    AssemblyContextMetadataImageQuery.Execute(group)
-                        .Assemblies))
-            .Value;
-        MetadataCorHeaderSummary cor = Assert.IsType<MetadataCorHeaderSummary>(
-            overview.Headers.Cor);
-        var readyToRun = new MetadataImageOverview(
-            overview.MetadataVersion,
-            overview.Kind,
-            overview.IsAssembly,
-            overview.MetadataOffset,
-            overview.MetadataSize,
-            overview.Heaps,
-            overview.Tables,
-            new MetadataImageHeaders(
-                overview.Headers.Machine,
-                overview.Headers.ImageCharacteristics,
-                overview.Headers.Subsystem,
-                overview.Headers.DllCharacteristics,
-                overview.Headers.IsPE32Plus,
-                new MetadataCorHeaderSummary(
-                    cor.MajorRuntimeVersion,
-                    cor.MinorRuntimeVersion,
-                    cor.Flags,
-                    cor.EntryPointTokenOrRelativeVirtualAddress,
-                    new DirectoryEntry(0x1234, 96))));
+        var entries = MetadataEntries(group);
+        var cli = Assert.IsType<
+            AssemblyContextEntry<MetadataImageResult>.Available>(
+                entries.Cli);
 
         BrowserAssemblyMetadata result =
-            MetadataExports.ProjectMetadataAssembly(
-                "ReadyToRun.dll",
-                readyToRun);
+            Assert.IsType<BrowserAssemblyMetadata>(
+                MetadataExports.ProjectMetadataAssembly(
+                    "InspectWeb.Engine.Tests.dll",
+                    cli,
+                    new AssemblyContextEntry<MetadataImageResult>.Available(
+                        cli.Subject,
+                        new MetadataImageResult.Failed(
+                            new BadImageFormatException(
+                                "Malformed manifest root."))),
+                    new AssemblyContextEntry<ReadyToRunImageResult>.Available(
+                        cli.Subject,
+                        new ReadyToRunImageResult.Failed(
+                            new BadImageFormatException(
+                                "Malformed ReadyToRun header.")))));
 
-        Assert.Equal(0x1234, result.Headers.ManagedNativeHeaderRva);
-        Assert.Equal(96, result.Headers.ManagedNativeHeaderSize);
+        Assert.Single(result.MetadataRoots);
+        Assert.StartsWith(
+            "Assembly inspection failed",
+            result.ManifestMetadataError);
+        Assert.StartsWith(
+            "Assembly inspection failed",
+            result.ReadyToRunError);
     }
 
     [Fact]
@@ -234,16 +329,43 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     static AssemblyContextGroup Group(InspectionWorkspace workspace) =>
+        Group(
+            workspace,
+            typeof(BrowserMetadataOperationsTests).Assembly.Location);
+
+    static AssemblyContextGroup Group(
+        InspectionWorkspace workspace,
+        string path) =>
         workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
                     ResolvedAssemblyReference.CreateFromPath(
-                        typeof(BrowserMetadataOperationsTests)
-                            .Assembly.Location,
+                        path,
                         AssemblyResolutionProvenance.Local(
                             "metadata adapter tests")),
                     new TestBindingPolicy()),
             ]);
+
+    static (
+        AssemblyContextEntry<MetadataImageResult> Cli,
+        AssemblyContextEntry<MetadataImageResult> Manifest,
+        AssemblyContextEntry<ReadyToRunImageResult> ReadyToRun)
+        MetadataEntries(AssemblyContextGroup group)
+    {
+        AssemblyContextParticipant participant = group.Participants[0];
+        return (
+            AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                group,
+                participant,
+                MetadataRootKind.Cli),
+            AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                group,
+                participant,
+                MetadataRootKind.ReadyToRunManifest),
+            AssemblyContextReadyToRunImageQuery.ExecuteParticipant(
+                group,
+                participant));
+    }
 
     sealed class TestBindingPolicy : IAssemblyBindingPolicy
     {

@@ -360,10 +360,13 @@ import {
   EXPLORER_PAGE,
   EXPLORER_ROW_H,
   heapStreamName,
+  metadataRootSelection,
   renderMetadataExplorer as renderMetadataExplorerHtml,
   renderPackageMetadata as renderPackageMetadataHtml,
   sameFocus,
+  selectMetadataImage,
   type ExplorerFocus,
+  type MetadataRootSelection,
   type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
@@ -861,6 +864,7 @@ const initialState = {
   packageMetadataLoading: false,
   packageMetadataError: "",
   packageMetadataKey: "",
+  packageMetadataRoot: "cli" as MetadataRootSelection,
   explorer: null,
   memberCallGraph: null,
   memberCallGraphLoading: false,
@@ -1236,6 +1240,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.framework,
       explorer.assemblyId,
+      explorer.metadataRoot,
       index,
       startRowId,
       maxRows),
@@ -1245,6 +1250,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.assemblyFileName,
       explorer.pack || "",
+      explorer.metadataRoot,
       index,
       startRowId,
       maxRows),
@@ -1254,6 +1260,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.framework,
       explorer.assemblyId,
+      explorer.metadataRoot,
       heapName),
   queryPlatformHeap: (explorer, heapName) =>
     inspectPlatformHeapEntries(
@@ -1261,6 +1268,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
       explorer.version,
       explorer.assemblyFileName,
       explorer.pack || "",
+      explorer.metadataRoot,
       heapName),
   describeError: errorMessage,
   render,
@@ -4830,6 +4838,7 @@ function renderPackageMetadata() {
     loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
     metadata: state.packageMetadata || null,
+    selectedRoot: state.packageMetadataRoot,
     escapeHtml,
     fmtBytes,
   });
@@ -4866,8 +4875,13 @@ function explorerPageSize() {
 // Opens the explorer over one assembly, focused on a table (and optionally a row). The table
 // directory comes from the already-loaded overview so the canvas can render immediately; each
 // card fetches its own row window.
-function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
-  const ex = buildBaseExplorer(assemblyFileName);
+function openExplorer(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+  tableIndex: number,
+  rowId = 0,
+) {
+  const ex = buildBaseExplorer(assemblyFileName, metadataRoot);
   if (!ex) return;
   ex.history = [{ index: tableIndex, rowId: rowId || 0 }];
   ex.historyPos = 0;
@@ -4875,8 +4889,11 @@ function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   applyExplorerFocus();
 }
 
-function openExplorerOverview(assemblyFileName: string) {
-  const ex = buildBaseExplorer(assemblyFileName);
+function openExplorerOverview(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+) {
+  const ex = buildBaseExplorer(assemblyFileName, metadataRoot);
   if (!ex) return;
   ex.overview = true;
   state.explorer = ex;
@@ -4884,8 +4901,12 @@ function openExplorerOverview(assemblyFileName: string) {
 }
 
 // Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
-function openExplorerHeap(assemblyFileName: string, heapName: string) {
-  const ex = buildBaseExplorer(assemblyFileName);
+function openExplorerHeap(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+  heapName: string,
+) {
+  const ex = buildBaseExplorer(assemblyFileName, metadataRoot);
   if (!ex) return;
   ex.history = [{ heap: heapName }];
   ex.historyPos = 0;
@@ -4895,11 +4916,20 @@ function openExplorerHeap(assemblyFileName: string, heapName: string) {
 
 // The common explorer state: the table + heap directories drawn from the loaded overview, plus
 // empty window caches. Focus is set by the caller (openExplorer / openExplorerHeap).
-function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
+function buildBaseExplorer(
+  assemblyFileName: string,
+  metadataRoot: MetadataRootSelection,
+): AppExplorerState | null {
   const data = state.packageMetadata;
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
   if (!asm) return null;
+  const metadata = selectMetadataImage(
+    asm.metadataRoots || [],
+    metadataRoot);
+  if (!metadata) return null;
+  const effectiveRoot = metadataRootSelection(metadata.requestedRoot);
+  if (!effectiveRoot) return null;
   const pkg = currentPackage();
   const library = selectedLibrary();
   if (!library) {
@@ -4908,11 +4938,11 @@ function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
     return null;
   }
   const isPlatform = pkg.isRuntimePack;
-  const directory = (asm.tables || [])
+  const directory = (metadata.tables || [])
     .slice()
     .sort((a, b) => a.index - b.index)
     .map(t => ({ index: t.index, name: t.name, rowCount: t.rowCount, isProjected: t.isProjected }));
-  const heaps = (asm.heaps || [])
+  const heaps = (metadata.heaps || [])
     .filter(h => h.sizeInBytes > 0)
     .map(h => ({ name: h.name, streamName: heapStreamName(h.name), sizeInBytes: h.sizeInBytes, addressing: h.addressing }));
   return {
@@ -4920,6 +4950,9 @@ function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
     isPlatform,
     assemblyId: library.id,
     assemblyFileName: asm.assembly,
+    metadataRoot: effectiveRoot,
+    canonicalRoot: metadata.canonicalRoot ?? null,
+    aliasesCliMetadata: metadata.aliasesCliMetadata,
     pack: isPlatform ? platformPackForAssembly(asm.assembly.replace(/\.dll$/i, "")) : null,
     packageId: pkg.id,
     version: pkg.version,
@@ -5117,6 +5150,11 @@ function bindMetadataViewerEvents() {
     onHistoryForward: explorerHistoryForward,
     onHeapFocus: heap => pushExplorerFocus({ heap }),
     onJump: explorerJump,
+    onMetadataRootSelect: root => {
+      state.packageMetadataRoot = root;
+      state.explorer = null;
+      render();
+    },
     onOpenHeap: openExplorerHeap,
     onOpenOverview: openExplorerOverview,
     onOpenTable: openExplorer,

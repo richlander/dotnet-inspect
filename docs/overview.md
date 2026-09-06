@@ -178,6 +178,9 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
+  Its [ReadyToRun browser projection](design/readytorun-browser-projection.md)
+  carries Metadata-owned ReadyToRun facts and root-scoped metadata operations
+  through the managed facade into Package Metadata and Metadata Explorer.
 - [Approved lazy traversal](design/approved-lazy-traversal.md) is the
   operator-approved cross-owner target experience for subjects, traversal
   permissions, operation demand, Browser defaults, and ecosystem-assisted
