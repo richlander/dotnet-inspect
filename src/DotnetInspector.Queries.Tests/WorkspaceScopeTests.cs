@@ -189,7 +189,8 @@ public sealed class WorkspaceScopeTests
         InspectionWorkspace.RootLifetime lifetime = Assert.Single(Lifetimes(workspace));
         using InspectionWorkspace.ArtifactRootQueryLease query = ArtifactAvailable(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                prior.Roots[0].Occurrence.Correspondence, Ready(prior.Roots[0])));
+                prior.Roots[0].Occurrence.Correspondence, Ready(prior.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PackageRootBinding slow = Binding("Slow.Package", onOpen: () =>
@@ -562,7 +563,8 @@ public sealed class WorkspaceScopeTests
         WorkspaceScopeSnapshot prior = await Replace(workspace, Binding("Prior.Package"));
         using InspectionWorkspace.ArtifactRootQueryLease query = ArtifactAvailable(
             await workspace.EnterArtifactRootQueryAsync(workspace.Identity,
-                prior.Roots[0].Occurrence.Correspondence, Ready(prior.Roots[0])));
+                prior.Roots[0].Occurrence.Correspondence, Ready(prior.Roots[0]),
+                cancellationToken: TestContext.Current.CancellationToken));
         Task<InspectionWorkspaceCloseReport> close = workspace.CloseAsync();
         try
         {
