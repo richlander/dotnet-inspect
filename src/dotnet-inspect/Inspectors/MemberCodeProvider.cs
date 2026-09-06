@@ -19,7 +19,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, bool FindingCensus = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -45,7 +45,10 @@ internal static class MemberCodeProvider
         // including document-only and Applied-Taste-only runs.
         bool StyledProjectionProduced = false,
         Decompiler.AnnotatedSourceDocument? SourceDocument = null,
-        Decompiler.DecompilerResult? SourceDocumentFailure = null);
+        Decompiler.DecompilerResult? SourceDocumentFailure = null,
+        IReadOnlyList<ILInspector.Research.ResearchViews.AnnotatedSourceFactIdentity>?
+            SourceDocumentFactIdentities = null,
+        FindingCensusReceipt? FactCensusReceipt = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -122,6 +125,8 @@ internal static class MemberCodeProvider
             bool methodHasBody = selection?.HasBody == true;
             bool requiresAsyncBodyModifier = selection is not null
                 && TypeShellProducer.RequiresAsyncBodyModifier(selection);
+            if (request.FindingCensus && !methodHasBody)
+                continue;
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
@@ -202,7 +207,9 @@ internal static class MemberCodeProvider
             }
 
             ILInspector.Research.ResearchViews.MemberProjectionResult? researchProjection = null;
-            if ((request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.Facts || request.SourceDocument) && pipelineSource is not null)
+            if ((request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay
+                    || request.Facts || request.SourceDocument || request.FindingCensus)
+                && pipelineSource is not null)
             {
                 researchProjection = ILInspector.Research.ResearchViews.ProjectMember(
                     new ILInspector.Research.ResearchViews.MemberProjectionRequest(
@@ -214,7 +221,7 @@ internal static class MemberCodeProvider
                         AnnotatedSource: request.AnnotatedSource,
                         CostOverlay: request.CostOverlay,
                         SemanticsOverlay: request.SemanticsOverlay,
-                        FactRows: request.Facts,
+                        FactRows: request.Facts || request.FindingCensus,
                         MethodToken: methodToken,
                         // Every C# body view uses the same local-name policy, so one
                         // document never mixes readable names with V_index. Research
@@ -222,12 +229,13 @@ internal static class MemberCodeProvider
                         // spelling knobs; fact rows remain style-invariant.
                         PrinterOptions: request.AnnotatedSource
                             || request.SourceDocument
+                            || request.FindingCensus
                             || request.CostOverlay
                             || request.SemanticsOverlay
                             ? renderOptions
                             : null,
                         CaretFocus: request.CaretFocus,
-                        SourceDocument: request.SourceDocument));
+                        SourceDocument: request.SourceDocument || request.FindingCensus));
 
                 // Promotion never hides a fact, so a focus that matched nothing
                 // renders identically to no focus at all. Say so, and name the
@@ -253,10 +261,10 @@ internal static class MemberCodeProvider
             if (request.AnnotatedSource && annotatedResult?.Output is not null)
                 styledProjectionProduced = true;
 
-            var sourceDocument = request.SourceDocument
+            var sourceDocument = request.SourceDocument || request.FindingCensus
                 ? researchProjection?.SourceDocument
                 : null;
-            var sourceDocumentFailure = request.SourceDocument
+            var sourceDocumentFailure = request.SourceDocument || request.FindingCensus
                 ? researchProjection?.SourceDocumentFailure
                 : null;
             if (sourceDocument?.Text.Length > 0)
@@ -321,7 +329,7 @@ internal static class MemberCodeProvider
             // Structured Research overlay rows for one method: the table-shaped
             // projection of the same facts the annotated source/IL views render.
             IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? facts = null;
-            if (request.Facts && researchProjection is not null)
+            if ((request.Facts || request.FindingCensus) && researchProjection is not null)
                 facts = researchProjection.Facts;
 
             results.Add((method, new Item(
@@ -340,7 +348,9 @@ internal static class MemberCodeProvider
                 requiresAsyncBodyModifier,
                 styledProjectionProduced,
                 sourceDocument,
-                sourceDocumentFailure)));
+                sourceDocumentFailure,
+                researchProjection?.SourceDocumentFactIdentities,
+                researchProjection?.FactCensusReceipt)));
         }
 
         return results;
@@ -384,7 +394,9 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses && !request.AppliedTaste && !request.SourceDocument)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay
+            && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
+            && !request.AppliedTaste && !request.SourceDocument && !request.FindingCensus)
             return null;
         try
         {

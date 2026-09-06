@@ -26,6 +26,13 @@ implementation-ready syntax.
 
 ### Pinned (`Name@version`)
 
+Online caller-pinned CLI extraction now follows the
+[configured-authority acquisition contract](package-source-model.md#caller-pinned-payload-acquisition):
+local authority caches may answer immediately, while HTTP payloads currently
+use temporary authority-scoped materialization rather than persistent
+producer-keyed caches. The following producer-cache description applies to
+offline and other unmigrated consumers.
+
 The version is treated as immutable and the caller supplies the candidate. If
 the package is already in a payload cache under an eligible producer, it is
 used immediately. A global-folder entry qualifies only when its
@@ -228,6 +235,14 @@ kind and producer detail establish identity, while IL offsets remain local to
 each endpoint.
 
 ## Listed vs. unlisted versions
+
+The online CLI metadata-only version queries now adopt typed configured
+authority results under
+[Package Source Model](package-source-model.md#metadata-only-version-queries).
+They bypass the legacy caches described below, disclose partial raw listings,
+and require complete evidence for latest and range selection. Payload-selecting
+resolution and offline queries retain the legacy behavior in this section
+until their separately tracked adoption.
 
 NuGet lets a publisher **unlist** a version: it stays restorable by exact
 coordinate but is hidden from discovery on nuget.org. The flat-container

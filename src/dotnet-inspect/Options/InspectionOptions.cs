@@ -55,6 +55,12 @@ public record InspectionOptions : IProjectionOptions
     public bool ListLayout { get; init; }
 
     /// <summary>
+    /// The caller explicitly supplied <c>--layout</c>, including in discovery
+    /// mode where layout rendering itself is suppressed.
+    /// </summary>
+    public bool ListLayoutExplicitlySet { get; init; }
+
+    /// <summary>
     /// Scope the file listing to one or more selectors: a file, a directory
     /// (trailing slash), the package root (<c>/</c>), a glob (<c>*.md</c>), or a
     /// token such as <c>@readme</c>/<c>@agents</c>. Selects the Files section.
@@ -93,6 +99,11 @@ public record InspectionOptions : IProjectionOptions
     /// List available versions of the package from nuget.org.
     /// </summary>
     public bool ListVersions { get; init; }
+
+    /// <summary>
+    /// Select one version with bare --version, rather than limit a raw listing.
+    /// </summary>
+    public bool SingleVersionQuery { get; init; }
 
     /// <summary>
     /// Annotate each listed version with the feed it came from, one row per version and feed.

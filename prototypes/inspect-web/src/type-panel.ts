@@ -9,7 +9,7 @@ import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 // renders; `dotnet-inspect.ts` owns the type index, filters, member grouping, and navigation
 // state transitions behind explicit callbacks. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
+// relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {
@@ -95,6 +95,7 @@ export interface TypePanelBindingActions {
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
+  onLibraryOpen: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
   onMemberBack: () => void;
@@ -136,6 +137,9 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelector("[data-library-root]")?.addEventListener(
+    "click",
+    actions.onLibraryOpen);
   root.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button =>
     button.addEventListener(
       "click",
@@ -303,7 +307,7 @@ export interface TypeNavOptions {
   namespaceOptionsHtml: string;
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
-  libraryControlHtml: string;
+  library: string;
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -316,7 +320,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
-    libraryControlHtml, filtersExpanded, filterSummary, escapeHtml,
+    library, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, kindIcon, shortKind,
   } = options;
   return `
@@ -331,6 +335,11 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${renderContentNavigationCloseButton()}
         </div>
       </div>
+      <button class="nav-back-row" type="button" data-library-root title="Back to library">
+        <span class="chevron">‹</span>
+        <span class="type-name">${escapeHtml(library)}</span>
+        <small>library</small>
+      </button>
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
         <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
         <label class="type-search">
@@ -352,7 +361,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${accessibilityControlHtml}
         </div>
       </details>
-      <div class="type-library-context">${libraryControlHtml}</div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
@@ -540,13 +548,13 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`;
   };
   if (metadataState.typeMetadataLoading && fresh) {
-    return renderSurface(`<section class="document-section metadata-surface-state source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
+    return renderSurface(`<section class="document-section metadata-surface-state source-progress" data-type-graph-surface><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
   }
   if (fresh && metadataState.typeMetadataError) {
-    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`);
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document" data-type-graph-surface><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`);
   }
   if (!meta) {
-    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`);
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document" data-type-graph-surface><span class="loader"></span><h2>Loading…</h2></section>`);
   }
 
   const shape: (readonly [string, string])[] = [
@@ -591,16 +599,19 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
-  const graph = (meta.graphNodes || []).length > 1
-    ? `<section class="document-section call-graph-section">
-        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a highlighted node to open</span></div>
-        <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-      </section>`
-    : "";
-
   const failures = (meta.inspectionFailures || []).length
     ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures!.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
     : "";
+
+  const graph = (meta.graphNodes || []).length > 1
+    ? `<div data-type-graph-surface>
+        <section class="document-section call-graph-section">
+          <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — select a highlighted node to open</span></div>
+          <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+        </section>
+        ${failures}
+      </div>`
+    : failures;
 
   return renderSurface(`
     <section class="document-section metadata-shape-section">
@@ -611,8 +622,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${interfaces}
     ${derived}
     ${attributes}
-    ${graph}
-    ${failures}`);
+    ${graph}`);
 }
 
 export function typeSourceSignature(

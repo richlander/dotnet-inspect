@@ -179,7 +179,13 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
     testTsconfig.include,
-    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts"],
+    [
+      "./**/*.ts",
+      "../browser/**/*.ts",
+      "../playwright.config.ts",
+      "../playwright.worker.config.ts",
+      "../playwright.package-adoption.config.ts",
+    ],
   );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
@@ -390,6 +396,7 @@ const generatedFacadeSources =
   facadeModules.map(module => `engine/facades/${module}.ts`);
 const publishedFacadeModules =
   facadeModules.map(module => `engine/wwwroot/${module}.js`);
+const runtimeLoaderSource = "engine/wwwroot/runtime-loader.js";
 
 const typeScriptExtensions = typeScriptSourceExtensions;
 const javaScriptExtensions = javaScriptSourceExtensions;
@@ -400,9 +407,12 @@ test("no source file suppresses type checking", () => {
   // Round 3 (Sol) hid a suppression directive in `scripts/probe.mts`: the scan asked only
   // for `.ts` while the compiler happily reads all four TypeScript extensions, so a file
   // the program did type-check could turn that checking off and say nothing.
-  const files = projectFiles(typeScriptExtensions);
+  const files = [
+    ...projectFiles(typeScriptExtensions),
+    resolve(root, runtimeLoaderSource),
+  ];
 
-  assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
+  assert.ok(files.length > 50, `expected the checked sources, found ${files.length}`);
   const suppressionPattern = new RegExp(
     ["nocheck", "ignore"].map(directive => `@ts-${directive}`).join("|"),
   );
@@ -425,11 +435,9 @@ test("no source file suppresses type checking", () => {
 // exemption for free. Those files are TypeScript now, and the one remaining exemption is
 // the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
-// Rather than restate that file name twice, the two sets are asserted against each other:
-// the JavaScript actually present must be exactly the JavaScript actually exempted. A new
-// authored file fails, a widened exemption fails, and an exemption left behind by a
-// deleted file fails too.
-test("the only JavaScript is the file the lint exemption names", () => {
+// The authored runtime loader is checked against the SDK declaration in the facade
+// compiler program. Only the compiler-derived facades receive lint exemptions.
+test("JavaScript is either compiler-derived or the SDK-checked runtime loader", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const present = projectFiles(javaScriptExtensions)
     .map(file => projectRelative(root, file))
@@ -440,11 +448,11 @@ test("the only JavaScript is the file the lint exemption names", () => {
     .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
-  assert.deepEqual(present, [...publishedFacadeModules].sort(),
+  assert.deepEqual(present, [...publishedFacadeModules, runtimeLoaderSource].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");
-  assert.deepEqual(exempted, present,
-    "the lint exemption and the JavaScript it covers must name the same files");
+  assert.deepEqual(exempted, [...publishedFacadeModules].sort(),
+    "only compiler-derived facades may receive the JavaScript lint exemption");
 });
 
 // Every gate in this file accounts for *files*: the compiler builds a program out of
@@ -940,6 +948,9 @@ const separatelyCompiledTypeScript = new Set([
   "multi-facade-canary/exercise.ts",
   "multi-facade-canary/facades/alpha.ts",
   "multi-facade-canary/facades/beta.ts",
+  "managed-operation-bridge-canary/initialize.ts",
+  "managed-operation-bridge-canary/exercise.ts",
+  "managed-operation-bridge-canary/facades/bridge.ts",
 ]);
 
 function programFiles(): Set<string> {
@@ -1036,6 +1047,13 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     ),
     "utf8",
   );
+  const managedBridgeGenerationScript = readFileSync(
+    new URL(
+      "../../../eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
   assert.deepEqual([...separatelyCompiledTypeScript], [
     ...generatedFacadeSources,
@@ -1043,6 +1061,9 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     "multi-facade-canary/exercise.ts",
     "multi-facade-canary/facades/alpha.ts",
     "multi-facade-canary/facades/beta.ts",
+    "managed-operation-bridge-canary/initialize.ts",
+    "managed-operation-bridge-canary/exercise.ts",
+    "managed-operation-bridge-canary/facades/bridge.ts",
   ]);
   assert.match(
     engineGenerationScript,
@@ -1105,6 +1126,14 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   assert.match(
     engineGenerationScript,
     /"\$tsc" -p "\$scratch\/sources\/tsconfig\.json"/);
+  assert.match(engineGenerationScript, /"allowJs": true/);
+  assert.match(engineGenerationScript, /"checkJs": true/);
+  assert.match(
+    engineGenerationScript,
+    /cp "\$js_output_directory\/runtime-loader\.js" "\$scratch\/sources\/runtime-loader\.js"/);
+  assert.match(
+    engineGenerationScript,
+    /printf ', "runtime-loader\.js"\]/);
   // The whole set is compiled by one program built from an exact file inventory, not from a
   // directory glob that would admit an unowned source.
   assert.match(
@@ -1128,6 +1157,24 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /"include": \["facades\/\*\.ts", "coordinator\.ts", "exercise\.ts"\]/);
   assert.match(
     multiFacadeGenerationScript,
+    /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+
+  assert.match(
+    managedBridgeGenerationScript,
+    /canary="\$repo_root\/prototypes\/inspect-web\/managed-operation-bridge-canary"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
+  assert.doesNotMatch(managedBridgeGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(managedBridgeGenerationScript, /"newLine": "lf"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /"include": \["facades\/\*\.ts", "initialize\.ts", "exercise\.ts"\]/);
+  assert.match(
+    managedBridgeGenerationScript,
     /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
 });
 
@@ -1484,6 +1531,7 @@ test("the lint covers every file the bundler reads", async () => {
   // `src/styles.css` is style content. It sits under a lint target, but oxlint reads
   // script and the compiler has no account of a stylesheet at all, so it cannot clear
   // either half of the test below. A browser will not execute it either.
+  // The module Worker build also reads `tsconfig.json` as configuration, not source.
   //
   // Pinning the exact list is what makes this fail closed. Anything else the build reads
   // changes it and fails -- including a second stylesheet, which is a small cost for a
@@ -1494,6 +1542,7 @@ test("the lint covers every file the bundler reads", async () => {
     "../annotated-source-viewer/src/document-model.js",
     "index.html",
     "src/styles.css",
+    "tsconfig.json",
   ];
 
   const targets = lintTargets;
@@ -2049,6 +2098,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
     ...generatedFacadeSources,
     "multi-facade-canary/facades/alpha.ts",
     "multi-facade-canary/facades/beta.ts",
+    "managed-operation-bridge-canary/facades/bridge.ts",
   ].join(", ");
   const publishedFacadeScope = publishedFacadeModules.join(", ");
 
@@ -2116,10 +2166,14 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
         .map(([rule, entry]) => [`${override.files.join(", ")} :: ${rule}`, entry] as const)),
   ].filter(([, entry]) => optionsOf(entry).length > 0));
 
-  // The one exception this project configures: `node:test` returns a promise nobody is
+  // Two exceptions this project configures. `node:test` returns a promise nobody is
   // expected to await, so `test(...)` at the top level of a test file is not a floating
-  // promise. Nothing else narrows a rule by option.
+  // promise. Prism ships each language grammar as a module whose only effect is
+  // registering itself onto the core, so there is nothing to bind and the import is
+  // unassigned by construction; the allowance names that path and nothing else, so an
+  // unassigned import anywhere outside `prismjs/components/` still reports.
   assert.deepEqual(configuredOptions, {
+    "import/no-unassigned-import": ["deny", [{ allow: ["prismjs/components/*"] }]],
     "typescript/no-floating-promises": ["deny", [{
       allowForKnownSafeCalls: [{ from: "package", name: "test", package: "node:test" }],
     }]],
@@ -2660,8 +2714,8 @@ test("static hosting sends its security headers on every static response", () =>
   // These are response-header protections, so nothing in the source tree can stand in for
   // them: a linter reads the markup this project ships, while these constrain what a
   // browser will do with it once shipped. `nosniff` stops content-type guessing on the
-  // JSON, TSV and wasm this site serves, and the other three are the cheap defaults that
-  // need no coordination with page content.
+  // JSON, TSV and wasm this site serves. CSP's hash is filled after the SDK publishes
+  // the import map; the published-artifact browser gate checks the resulting policy.
   //
   // "static" in this test's name is load-bearing. Azure Static Web Apps does not apply
   // `globalHeaders` to responses produced by the managed functions under `/api/*`; those
@@ -2673,6 +2727,7 @@ test("static hosting sends its security headers on every static response", () =>
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{{IMPORT_MAP_HASH}}'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https:; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
   });
 
   // Azure Static Web Apps returns the union of `globalHeaders` and a matching route's
@@ -2703,7 +2758,7 @@ test("static hosting sends its security headers on every static response", () =>
   // global headers without naming any of them. Azure has acknowledged this since 2022
   // (Azure/static-web-apps#739): a route with `redirect` returns neither `globalHeaders`
   // nor its own `headers`. Such a route passes the disjointness check above while serving
-  // a 302 with none of the four headers on it, which is exactly the silent weakening this
+  // a 302 with none of the security headers on it, which is exactly the silent weakening this
   // test exists to prevent. There are no redirect routes today; this keeps it that way
   // rather than waiting for one to be added and quietly punch a hole.
   const redirecting = staticWebAppConfig.routes
@@ -2712,7 +2767,7 @@ test("static hosting sends its security headers on every static response", () =>
 
   assert.deepEqual(redirecting, [],
     "Azure Static Web Apps omits `globalHeaders` on redirect responses "
-      + "(Azure/static-web-apps#739), so this route would answer without any of the four "
+      + "(Azure/static-web-apps#739), so this route would answer without any of the security "
       + "headers while the config still reads as though they are global; serve the "
       + "redirect from a route that does not use `redirect`, or narrow this test's claim "
       + "deliberately");
@@ -2806,9 +2861,13 @@ test("the analysis host check matches locked native packages and lint wiring", (
     "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test browser scripts "
       + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
-      + "multi-facade-canary/facades engine/facades "
-      + `${publishedFacadeModules.join(" ")} vite.config.ts `
-      + "playwright.config.ts && "
+      + "multi-facade-canary/facades "
+      + "managed-operation-bridge-canary/initialize.ts "
+      + "managed-operation-bridge-canary/exercise.ts "
+      + "managed-operation-bridge-canary/facades engine/facades "
+      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
+      + "playwright.config.ts playwright.worker.config.ts "
+      + "playwright.package-adoption.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });

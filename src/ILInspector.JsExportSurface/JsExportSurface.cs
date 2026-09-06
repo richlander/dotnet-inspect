@@ -31,24 +31,66 @@ public sealed class JsExportSurface
     /// </summary>
     public IReadOnlyList<ApiType> Enums { get; init; } = [];
 
+    public IReadOnlyList<JsExportUnion> Unions { get; init; } = [];
+
+    /// <summary>
+    /// Complete extracted same-assembly type inventory available when the
+    /// surface came from <see cref="JsExportSurfaceBuilder"/> rather than a
+    /// hand-composed test fixture.
+    /// </summary>
+    /// <remarks>
+    /// Consumers use this only for same-assembly wire-contract decisions that
+    /// must distinguish "not discovered for emission" from "not present in the
+    /// assembly at all".
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyList<ApiType> AllTypes { get; init; } = [];
+
     /// <summary>
     /// The wire directions each declared type was reached in, keyed by the
     /// <see cref="ApiType"/> instances published in <see cref="Records"/> and
-    /// <see cref="Enums"/>.
+    /// <see cref="Enums"/> and <see cref="Unions"/>.
     /// </summary>
     /// <remarks>
     /// Directions are composed here rather than stored on <see cref="ApiType"/>
     /// because they are a property of how an export uses a type, not a metadata
-    /// fact the type itself carries. A type absent from this map — a
-    /// hand-composed surface, or a registered shape no export references — is
-    /// treated as <see cref="JsonWireDirection.Both"/> by consumers, which is
-    /// the conservative reading. Gated by
+    /// fact the type itself carries. Body-backed surfaces mark unreached types
+    /// as <see cref="JsonWireDirection.None"/>. A type absent from this map on
+    /// a declaration-only or hand-composed surface is conservatively treated
+    /// as <see cref="JsonWireDirection.Both"/> by consumers. Gated by
     /// <c>JsExportSurfaceBuilderTests.Build_RecordsSerializeOnlyDirectionForReturnOnlyDto</c>.
     /// </remarks>
     [JsonIgnore]
     public IReadOnlyDictionary<ApiType, JsonWireDirection> WireDirections
         { get; init; } =
         new Dictionary<ApiType, JsonWireDirection>();
+}
+
+/// <summary>
+/// The source-generated union convention, distinct from an object-property
+/// contract. Case types retain generic parameter positions; a consumer must
+/// instantiate them for a closed use and honor each case's own wire contract.
+/// </summary>
+public sealed class JsExportUnion
+{
+    public required ApiType Definition { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<TypeRef> CaseTypes { get; init; } = [];
+
+    /// <summary>
+    /// Null means the convention was not established. True includes the
+    /// default union state independently of constructor parameter annotations.
+    /// </summary>
+    public bool? IncludesNull { get; init; }
+
+    public string? SerializationUnsupportedReason { get; init; }
+
+    /// <summary>
+    /// Writing alternatives do not establish a case classifier for reading.
+    /// </summary>
+    public string DeserializationUnsupportedReason { get; init; } =
+        "union deserialization case classification is not modeled";
 }
 
 /// <summary>
@@ -124,6 +166,15 @@ public sealed class JsExportFunction
         { get; init; } = [];
 
     /// <summary>
+    /// Authenticated source-generated serializer-context scopes that produced
+    /// <see cref="ReturnWireTypeReferences"/>. Present only on body-backed
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ReturnWireContextScopeKeys
+        { get; init; } = [];
+
+    /// <summary>
     /// Exact structural shape of <see cref="ReturnWireType"/>. This keeps
     /// primitive nodes distinct from producer-defined types whose C# display
     /// spelling is identical.
@@ -145,6 +196,36 @@ public sealed class JsExportFunction
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
         { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated source-generated serializer-context scopes that produced
+    /// <see cref="ParameterWireTypeReferences"/>. Present only on body-backed
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ParameterWireContextScopeKeys
+        { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated per-call associations between a wire-contract root type,
+    /// the source-generated serializer context scope that supplied it, and the
+    /// direction it participates in.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<JsExportWireTypeContextPath> WireTypeContextPaths
+        { get; init; } = [];
+}
+
+public sealed class JsExportWireTypeContextPath
+{
+    public required JsonWireDirection Direction { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> TypeReferences
+        { get; init; } = [];
+
+    [JsonIgnore]
+    public IReadOnlyList<string> ContextScopeKeys { get; init; } = [];
 }
 
 public enum JsExportDelegateKind

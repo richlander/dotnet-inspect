@@ -132,10 +132,112 @@ unchanged, rather than selecting or extracting it again.
 This is the API-surface slice in
 [#5853](https://github.com/richlander/dotnet-inspect/issues/5853), not complete
 descriptor adoption for every `type` operation. Existing source/PDB policy
-consumers keep receiving the selected type's descriptor. Runtime and
-source-context acquisition, deep Analysis/decompiler acquisition, and
-acquired-PDB propagation remain focused successors under
+consumers keep receiving the selected type's descriptor; the next subsection
+owns source-context opening; later subsections own type Analysis-index
+acquisition and exception-region context opening. Runtime acquisition, remaining deep-body/decompiler
+acquisition, and acquired-PDB propagation remain focused successors under
 [#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
+
+### Type source-context opening
+
+When type source enrichment or portable-PDB-path acquisition receives a
+selected supplier descriptor, that exact descriptor opens the PE/PDB context
+and supplies symbol acquisition policy. Its path projection is not an
+alternative opener. Thrown opening or acquisition failures reach the command's
+visible error boundary instead of becoming absent symbols or empty source
+output. A missing mapping does not replace the selected supplier with a new
+path-based forwarding lookup.
+
+Missing symbols, Windows PDBs, and absent SourceLink retain their existing
+non-throwing absence behavior. Descriptorless callers keep the path-based
+compatibility route. Section authorization and the XML-documentation shortcut
+are unchanged. The API supplier remains distinct from any runtime candidate:
+this adoption does not select another runtime image or establish cross-image
+correspondence.
+
+`TypeSourceAcquisition_SourceFilesUsesSelectedOpener`,
+`TypeSourceAcquisition_PdbPathUsesSelectedOpener`,
+`TypeSourceAcquisition_ReportsSelectedOpenFailure`,
+`TypeSourceAcquisition_PreservesMissingSymbols`, and
+`TypeSourceAcquisition_ReportsMalformedDebugData` gate this composition.
+Existing source-printing and selected-supplier policy cases remain its
+neighboring outcome gates.
+
+This is [#5888](https://github.com/richlander/dotnet-inspect/issues/5888)'s
+three-step CLI adoption path: the loaded surface supplies its descriptor,
+source/PDB acquisition consumes it, and existing rendering or command error
+reporting publishes the result. It uses Metadata/SourceLink's existing
+host-neutral descriptor APIs; their contracts remain owned by
+[PDB acquisition](pdb-acquisition.md). Standalone member, browser, runtime
+selection, and remaining deep-body adoption remain separate #4867 successors.
+
+### Type Analysis-index acquisition
+
+Type sections backed by the shared Analysis index consume the selected API
+supplier's descriptor, including forwarded suppliers, rather than reopening
+its path projection. Normal output and effective discovery carry that supplier
+through filtering and rendering. A rejected image acquisition reaches the
+command error boundary, not path fallback or successful empty Analysis output.
+
+CLI composition acquires Metadata's bounded immutable image snapshot and
+passes its content to Analysis's existing prefetched-image entry point. The
+512 MiB default retained-image envelope is inherited from Metadata. Scoped
+requests deliberately materialize a bounded PE snapshot to keep descriptor
+validation with Metadata; body decoding remains scoped as before. Acquisition
+does not use a PDB context. Requested features, reference-resolution options,
+whole-assembly scope for aggregate sections, and lazy per-render index reuse
+remain unchanged.
+
+`TypeAnalysisAcquisition_UsesSelectedSupplier`,
+`TypeAnalysisAcquisition_ReportsSelectedOpenFailure`,
+`TypeAnalysisAcquisition_SkipsOrdinaryApiOutput`, and
+`TypeAnalysisAcquisition_PreservesFeaturesAndScope` gate this composition,
+alongside the existing index-build and reference-resolver invariants.
+`TypeAnalysisAcquisition_IgnoresUnrequestedDebugData` gates direct and
+deferred Analysis requests over an image with a malformed embedded PDB.
+
+This is [#5957](https://github.com/richlander/dotnet-inspect/issues/5957)'s
+three-step production adoption: TypeCommand retains the selected descriptor;
+the type-index helper acquires its snapshot and hands the content to Analysis;
+existing typed rows and Markout rendering, or command error reporting, publish
+the result. Metadata's snapshot contract and Analysis's producer contracts
+remain unchanged; Research's descriptor Analysis cache is an analogous
+consumer, not a new CLI dependency. Browser adoption remains under #4867.
+
+Descriptorless and standalone-member callers retain their path route. This
+does not select a runtime implementation or establish cross-image
+correspondence. The next subsection owns Exception Regions context opening;
+Body Shapes, whole-type decompiler acquisition, and acquired-PDB propagation
+remain separate successors.
+
+### Type exception-region context opening
+
+When type Exception Regions receives a selected API supplier descriptor, that
+descriptor opens the Metadata context, including for forwarded suppliers.
+Normal/projected output and effective discovery preserve the supplier through
+filtering. Its path projection is not an alternative opener: opening failures
+reach the command error boundary, not a path retry or successful empty output.
+
+`TypeExceptionRegionsAcquisition_UsesSelectedSupplier` and
+`TypeExceptionRegionsAcquisition_ReportsSelectedOpenFailure` gate this
+composition. Existing Exception Regions section cases cover catch/finally rows,
+genuine empty regions, and standalone member output;
+`TypeAnalysisAcquisition_SkipsOrdinaryApiOutput` also gates ordinary type output
+without selected-context acquisition.
+
+This is [#5999](https://github.com/richlander/dotnet-inspect/issues/5999)'s
+three-step production adoption under #4867: TypeCommand retains the supplier;
+the shared CLI exception-region helper consumes Metadata's existing
+descriptor opener; typed rows and Markout rendering, or command error
+reporting, publish the result. Type source-context opening is the analogous
+consumer. No new shared acquisition or rendering API is needed.
+
+Metadata still owns context validation, local symbol probing and region
+decoding. Their behavior and the section authorization policy are unchanged;
+this does not add network acquisition or a new per-method decode diagnostic
+policy. Descriptorless and standalone-member callers keep their existing path
+routes. API/runtime correspondence, runtime-image selection, Body Shapes,
+whole-type decompilation and other hosts remain separate adoption work.
 
 ## Command families
 
@@ -174,6 +276,68 @@ The CLI does not reproduce query prerequisites, execution order, or cost. Those
 remain with `InspectionQueryCatalog<TContext>`. It does not derive section
 demand by inspecting rendered rows; those declarations remain with the
 section pipeline.
+
+### Integration ecosystem queries
+
+`library --where "ecosystem=ecosystem.aspire"` narrows ordinary Integration
+results. All integrations remain enabled without that predicate; normal section
+disclosure still determines which results are requested and shown. There is no
+separate scanner opt-in or scanner-only section.
+
+The CLI owns an explicit binding from a canonical ecosystem-pack identity to
+existing Integration concepts. It consumes typed pack and concept identities,
+not display-name inference or a claim that every pack has an Integration
+mapping. The initial supported value is `ecosystem.aspire`. Malformed, unknown,
+and known-but-unbound IDs fail before source acquisition. Exactly one ecosystem
+equality predicate is supported; Body Shapes predicates and Performance Triage
+filters/rankings cannot be combined with it. Explicit ranking options remain
+incompatible under `--count`, even when count-mode normalization would discard
+the ranking.
+
+Without `-S`, the predicate requests the Integration family. Explicit selection
+must include an Integration section; other explicitly selected sections are
+unchanged. Integration evidence and opportunity rows are narrowed by their
+owner-issued concept association. An unmatched selected table is empty, not
+an error or a request to run another scanner. Assembly-wide presence, counts,
+and the authoritative Census/outcomes remain unchanged. A filtered empty result
+does not assert that the library has no integrations.
+
+The existing full Integration query remains the producer. Decode, acquisition,
+and admitted participant failures remain visible and produce the existing
+nonzero failure result. The same file, platform, package, and TFM source paths
+remain available. Resource extraction, IL-coordinate operations, payload
+printing, and value/URL/path extraction are not Integration query operations
+and cannot consume the predicate.
+
+`library -Q Integrations` describes the family binding without a target.
+Concrete Integration sections expose the same facet; ordinary `-D` remains
+schema discovery, while effective discovery observes the narrowed results.
+The descriptor supplies only supported CLI values, not every catalog pack.
+The existing query-discovery owner retains mode separation and format rules.
+
+Existing section tables and typed JSON remain the rendering contract. Plain
+`--json` retains the full typed-library document, with narrowed Integration
+properties: `-S` scopes producer demand, not JSON member selection. Row,
+column, and count projections apply to the narrowed tables. Heterogeneous
+Integration sections still require Markdown/JSON; select a concrete section
+for tabular output. Existing all-TFM format restrictions remain unchanged.
+
+The consumer is the CLI, through focused adoption #5985 and parent disclosure
+tracker #6002. The user approved replacing the scanner-only UX with this
+narrowing contract. The six-step scanner path in #5728 still tracks the
+Integration contract, substrate, catalog, CLI adoption, browser adoption, and
+compatibility retirement. This CLI projection does not claim to replace the
+full-scan producer or complete scanner compatibility retirement. The
+[scanner owner](design/integration-scanner-binding.md#adoption-and-retirement)
+retains that work; the
+[pack owner](design/ecosystem-packs.md#integration-scanner-binding) retains
+catalog and binding semantics.
+
+The Release `LibraryIntegrationQueryTests` gate compares unfiltered and
+narrowed ordinary results, including mixed concepts, empty results, retained
+failure evidence, structural discovery, machine-readable projection, and
+malformed/unsupported predicates. `QueryDiscoveryTests` covers acquisition-free
+facet disclosure from the same binding.
 
 ## Lifetime and failure
 

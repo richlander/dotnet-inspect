@@ -60,7 +60,9 @@ function inspectionState(
   return {
     packages: [],
     atPackageRoot: false,
+    atLibraryRoot: false,
     packageLens: "overview",
+    libraryLens: "overview",
     packageDependencies: null,
     packageDependenciesLoading: false,
     packageDependenciesError: "",
@@ -277,6 +279,26 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+test("Library References does not acquire other workspace dependencies", async () => {
+  const selected = packageModel();
+  const other = packageModel({ id: "Other.Package" });
+  const state = inspectionState({
+    packages: [selected, other],
+    atLibraryRoot: true,
+    libraryLens: "references",
+  });
+  const calls: string[] = [];
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async pkg => {
+        calls.push(`${pkg.id}#${pkg.assemblyId}`);
+        return dependencyResult(pkg.id);
+      },
+    }));
+  await coordinator.loadDependencies(selected, "library:references");
+  assert.deepEqual(calls, ["Example.Package#example-package"]);
+});
+
 type PackageInspectionCoordinator =
   ReturnType<typeof createPackageInspectionCoordinator>;
 
@@ -426,6 +448,67 @@ async function verifyPackageLensLifecycle<T>(
       true,
       `${fixture.name} stale loading`);
   }
+
+  for (const outcome of ["success", "failure"]) {
+    for (const completionOrder of ["stale-first", "current-first"]) {
+      const label = `${fixture.name}: ${outcome}, ${completionOrder}`;
+      const stale = deferred<T>();
+      const current = deferred<T>();
+      const currentResult = structuredClone(fixture.result);
+      let queries = 0;
+      let renders = 0;
+      const state = inspectionState({ packages: [packageModel()] });
+      const coordinator = fixture.createCoordinator(
+        state,
+        async () => ++queries === 1 ? stale.promise : current.promise,
+        () => renders++);
+
+      const staleLoad = fixture.load(coordinator, "same-coordinate");
+      state.packages = [];
+      coordinator.invalidatePackageResults();
+      state.packages = [packageModel()];
+      const currentLoad = fixture.load(coordinator, "same-coordinate");
+      assert.equal(queries, 2, label);
+
+      if (completionOrder === "current-first") {
+        current.resolve(currentResult);
+        await currentLoad;
+      }
+      const rendersBeforeStaleCompletion = renders;
+      const workspaceBeforeStaleCompletion = structuredClone(
+        state.workspaceDependencies);
+      if (outcome === "success") {
+        stale.resolve(fixture.result);
+      } else {
+        stale.reject(new Error("retired failure"));
+      }
+      await staleLoad;
+
+      assert.strictEqual(
+        fixture.readResult(state),
+        completionOrder === "current-first" ? currentResult : null,
+        label);
+      assert.equal(
+        fixture.readLoading(state),
+        completionOrder === "stale-first",
+        label);
+      assert.equal(fixture.readError(state), "", label);
+      assert.equal(renders, rendersBeforeStaleCompletion, label);
+      assert.deepEqual(
+        state.workspaceDependencies,
+        workspaceBeforeStaleCompletion,
+        label);
+      assert.deepEqual(state.workspaceDependencyErrors, {}, label);
+
+      if (completionOrder === "stale-first") {
+        current.resolve(currentResult);
+        await currentLoad;
+      }
+      assert.strictEqual(fixture.readResult(state), currentResult, label);
+      assert.equal(fixture.readLoading(state), false, label);
+      assert.equal(fixture.readError(state), "", label);
+    }
+  }
 }
 
 test("workspace dependency keys normalize complete package coordinates", () => {
@@ -470,7 +553,7 @@ test("dependency results cache for a resident package after the foreground lens 
   assert.equal(
     state.workspaceDependencyErrors[key],
     "partial dependency data");
-  assert.deepEqual(events, ["render", "stats", "render", "graph"]);
+  assert.deepEqual(events, ["render", "stats", "render"]);
 });
 
 test("foreground dependency success refreshes cached groups and clears a prior error", async () => {
@@ -618,7 +701,7 @@ test("package lens loaders reuse cached failures without querying", async () => 
   assert.equal(state.packagePerformanceError, "cached failure");
 });
 
-test("every package lens preserves its complete request lifecycle", async () => {
+test("every package lens preserves its lifecycle and same-coordinate ownership across invalidation", async () => {
   const packageItem = packageModel();
 
   await verifyPackageLensLifecycle({
@@ -789,6 +872,240 @@ test("stale package lens rejection cannot overwrite newer state", async () => {
   assert.equal(state.packagePerformanceLoading, true);
 });
 
+test("invalidation clears package results, failures, keys, and loads without changing selection or workspace caches", () => {
+  const remaining = packageModel();
+  const key = workspaceDependencyKey(remaining);
+  const workspaceDependencies = {
+    [key]: {
+      dependencyGroups: dependencyResult().dependencyGroups,
+      dependencyGroupError: "retained partial data",
+    },
+  };
+  const workspaceDependencyErrors = { [key]: "retained partial data" };
+  const retainedState = {
+    packages: [remaining],
+    atPackageRoot: false,
+    atLibraryRoot: true,
+    packageLens: "dependencies" as const,
+    libraryLens: "analysis" as const,
+    workspaceDependencies,
+    workspaceDependencyErrors,
+  };
+  const state = inspectionState({
+    ...retainedState,
+    packageDependencies: dependencyResult(),
+    packageDependenciesLoading: true,
+    packageDependenciesError: "dependency failure",
+    packageDependenciesKey: "dependencies",
+    packageIntegrations: integrationsResult(),
+    packageIntegrationsLoading: true,
+    packageIntegrationsError: "integration failure",
+    packageIntegrationsKey: "integrations",
+    packageOpportunities: opportunitiesResult(),
+    packageOpportunitiesLoading: true,
+    packageOpportunitiesError: "opportunity failure",
+    packageOpportunitiesKey: "opportunities",
+    packagePerformance: performanceResult(),
+    packagePerformanceLoading: true,
+    packagePerformanceError: "performance failure",
+    packagePerformanceKey: "performance",
+    packageMetadata: metadataResult(),
+    packageMetadataLoading: true,
+    packageMetadataError: "metadata failure",
+    packageMetadataKey: "metadata",
+    workspaceDependencyLoads: new Set([key]),
+  });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state));
+
+  coordinator.invalidatePackageResults();
+
+  assert.deepEqual(state, inspectionState(retainedState));
+  assert.strictEqual(state.packages, retainedState.packages);
+  assert.strictEqual(state.workspaceDependencies, workspaceDependencies);
+  assert.strictEqual(state.workspaceDependencyErrors, workspaceDependencyErrors);
+});
+
+test("invalidated package completions cannot publish, render, or start follow-up work", async () => {
+  for (const outcome of ["success", "failure"]) {
+    const removed = packageModel();
+    const remaining = packageModel({ id: "Example.Remaining" });
+    const dependencies = deferred<BrowserPackageDependencies>();
+    const integrations = deferred<BrowserPackageIntegrations>();
+    const opportunities = deferred<BrowserPackageOpportunities>();
+    const performance = deferred<PackagePerformance>();
+    const metadata = deferred<PackageMetadata>();
+    const events: string[] = [];
+    const state = inspectionState({ packages: [removed, remaining] });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryDependencies: async packageItem => {
+          events.push(`query:${packageItem.id}`);
+          return dependencies.promise;
+        },
+        queryPackageIntegrations: async () => integrations.promise,
+        queryPackageOpportunities: async () => opportunities.promise,
+        queryPackagePerformance: async () => performance.promise,
+        queryPackageMetadata: async () => metadata.promise,
+        render: () => events.push("render"),
+        refreshPackageStats: () => events.push("stats"),
+        renderDependencyGraph: async () => { events.push("graph"); },
+      }));
+    const loads = [
+      coordinator.loadDependencies(removed, "dependencies"),
+      coordinator.loadIntegrations(removed, "integrations", null),
+      coordinator.loadOpportunities(removed, "opportunities", null),
+      coordinator.loadPerformance(removed, "performance", null),
+      coordinator.loadMetadata(removed, "metadata", null),
+    ];
+
+    state.packages = [remaining];
+    events.length = 0;
+    coordinator.invalidatePackageResults();
+    assert.deepEqual(state, inspectionState({ packages: [remaining] }), outcome);
+
+    if (outcome === "success") {
+      dependencies.resolve(dependencyResult());
+      integrations.resolve(integrationsResult());
+      opportunities.resolve(opportunitiesResult());
+      performance.resolve(performanceResult());
+      metadata.resolve(metadataResult());
+    } else {
+      for (const request of [
+        dependencies, integrations, opportunities, performance, metadata,
+      ]) {
+        request.reject(new Error("retired failure"));
+      }
+    }
+    await Promise.all(loads);
+
+    assert.deepEqual(state, inspectionState({ packages: [remaining] }), outcome);
+    assert.deepEqual(events, [], outcome);
+  }
+});
+
+test("invalidated workspace dependency loads cannot restore removed entries or continue their queue", async () => {
+  for (const outcome of ["success", "failure"]) {
+    const removed = packageModel();
+    const queued = packageModel({ id: "Example.Queued" });
+    const cached = packageModel({ id: "Example.Cached" });
+    const key = workspaceDependencyKey(cached);
+    const request = deferred<BrowserPackageDependencies>();
+    const events: string[] = [];
+    const state = inspectionState({
+      packages: [removed, queued, cached],
+      atPackageRoot: true,
+      packageLens: "dependencies",
+      workspaceDependencies: {
+        [key]: { dependencyGroups: dependencyResult(cached.id).dependencyGroups },
+      },
+      workspaceDependencyErrors: { [key]: "retained warning" },
+    });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryDependencies: async packageItem => {
+          events.push(`query:${packageItem.id}`);
+          return packageItem === removed
+            ? request.promise
+            : dependencyResult(packageItem.id);
+        },
+        render: () => events.push("render"),
+        refreshPackageStats: () => events.push("stats"),
+        renderDependencyGraph: async () => { events.push("graph"); },
+      }));
+
+    const load = coordinator.ensureWorkspaceDependencies();
+    assert.deepEqual(events, [`query:${removed.id}`], outcome);
+    state.packages = [queued, cached];
+    events.length = 0;
+    coordinator.invalidatePackageResults();
+    assert.equal(state.workspaceDependencyLoads.size, 0, outcome);
+    const invalidatedState = structuredClone(state);
+
+    if (outcome === "success") {
+      request.resolve(dependencyResult(removed.id, "retired warning"));
+    } else {
+      request.reject(new Error("retired failure"));
+    }
+    await load;
+
+    assert.deepEqual(state, invalidatedState, outcome);
+    assert.deepEqual(events, [], outcome);
+
+    await coordinator.ensureWorkspaceDependencies();
+    assert.deepEqual(events, [`query:${queued.id}`, "render", "stats"], outcome);
+    assert.deepEqual(
+      state.workspaceDependencies[key],
+      invalidatedState.workspaceDependencies[key],
+      outcome);
+    assert.equal(state.workspaceDependencyErrors[key], "retained warning", outcome);
+  }
+});
+
+test("invalidated workspace completions cannot overwrite reopened results or release a new load", async () => {
+  for (const outcome of ["success", "failure"]) {
+    for (const completionOrder of ["stale-first", "current-first"]) {
+      const label = `${outcome}, ${completionOrder}`;
+      const removed = packageModel();
+      const key = workspaceDependencyKey(removed);
+      const stale = deferred<BrowserPackageDependencies>();
+      const current = deferred<BrowserPackageDependencies>();
+      const currentResult = dependencyResult(removed.id, "current warning");
+      let queries = 0;
+      const events: string[] = [];
+      const state = inspectionState({
+        packages: [removed],
+        atPackageRoot: true,
+        packageLens: "dependencies",
+      });
+      const coordinator = createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryDependencies: async () => ++queries === 1
+            ? stale.promise
+            : current.promise,
+          render: () => events.push("render"),
+          refreshPackageStats: () => events.push("stats"),
+          renderDependencyGraph: async () => { events.push("graph"); },
+        }));
+
+      const staleLoad = coordinator.ensureWorkspaceDependencies();
+      state.packages = [];
+      coordinator.invalidatePackageResults();
+      state.packages = [packageModel()];
+      const currentLoad = coordinator.ensureWorkspaceDependencies();
+      assert.equal(queries, 2, label);
+      assert.deepEqual([...state.workspaceDependencyLoads], [key], label);
+      if (completionOrder === "current-first") {
+        current.resolve(currentResult);
+        await currentLoad;
+      }
+      const currentState = structuredClone(state);
+      events.length = 0;
+      if (outcome === "success") {
+        stale.resolve(dependencyResult(removed.id, "retired warning"));
+      } else {
+        stale.reject(new Error("retired failure"));
+      }
+      await staleLoad;
+
+      assert.deepEqual(state, currentState, label);
+      assert.deepEqual(events, [], label);
+      if (completionOrder === "stale-first") {
+        await coordinator.ensureWorkspaceDependencies();
+        assert.equal(queries, 2, label);
+        current.resolve(currentResult);
+        await currentLoad;
+      }
+      assert.deepEqual(state.workspaceDependencies[key], {
+        dependencyGroups: currentResult.dependencyGroups,
+        dependencyGroupError: currentResult.dependencyGroupError,
+      }, label);
+      assert.equal(state.workspaceDependencyErrors[key], "current warning", label);
+      assert.equal(state.workspaceDependencyLoads.size, 0, label);
+    }
+  }
+});
+
 test("workspace dependency loading records failures and ignores runtime packs", async () => {
   const good = packageModel({ id: "Example.Good" });
   const partial = packageModel({ id: "Example.Partial" });
@@ -919,13 +1236,14 @@ test("workspace dependency loading is sequential and only renders the active len
   assert.equal(stats, 1);
 });
 
-test("workspace dependency loading does not render another active package lens", async () => {
+test("workspace dependency loading does not render an active library lens", async () => {
   const packageItem = packageModel();
   let renders = 0;
   const state = inspectionState({
     packages: [packageItem],
-    atPackageRoot: true,
-    packageLens: "metadata",
+    atPackageRoot: false,
+    atLibraryRoot: true,
+    libraryLens: "metadata",
   });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {

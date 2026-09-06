@@ -345,6 +345,9 @@ jobs:
       - name: Test shared-runtime multi-facade canary
         run: eng/test-inspect-web-multi-facade-canary.sh
 
+      - name: Test managed-operation bridge Browser/Wasm canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
+
       - name: Typecheck generated ts-jsexport facade
         run: eng/test-ts-jsexport-typescript.sh
 
@@ -399,7 +402,8 @@ jobs:
           # where they ship. The toolchain test pins them in the source file; this checks
           # the copy Azure actually reads. Values are compared exactly rather than by
           # prefix -- `max-age=0` starts with `max-age=` and switches HSTS off.
-          jq -e '.globalHeaders == {
+          # CSP includes a per-publish import-map hash, checked below in Firefox.
+          jq -e '(.globalHeaders | del(."Content-Security-Policy")) == {
               "X-Content-Type-Options": "nosniff",
               "Referrer-Policy": "no-referrer",
               "X-Frame-Options": "DENY",
@@ -473,6 +477,18 @@ jobs:
       - name: Test Annotated Source in Firefox
         working-directory: prototypes/inspect-web
         run: npm run test:browser
+
+      - name: Test published Worker browser binding
+        working-directory: prototypes/inspect-web
+        run: npm run inspect-web-worker-browser-binding
+
+      - name: Test artifact-backed package scope adoption in Firefox
+        # Reuses the engine artifact published above and the Firefox install
+        # from the Worker browser binding step. Builds only the tiny fixture
+        # resolver graph (resolver + two cataloged diff-asm fixtures) to
+        # materialize and catalog-resolve the fixture binaries; adds no corpus
+        # lane or engine rebuild.
+        run: eng/test-inspect-web-package-adoption-gate.sh
 
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
@@ -654,7 +670,7 @@ jobs:
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
       - name: Run artifact contract tests
-        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
         run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
@@ -663,10 +679,16 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run row-selection tests
-        run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
+
+      - name: Run source-selection public contract tests
+        run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
+
+      - name: Run source-delegation public contract tests
+        run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
 
       - name: Run section-row tests
-        run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
@@ -686,13 +708,16 @@ jobs:
       - name: Run inspection query tests
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
+      - name: Run presentation tests
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
       # depend on a third-party service, and the Azure DevOps ones need a private feed and a
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
@@ -705,7 +730,15 @@ jobs:
       # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;
       # the full suite (including those) runs in Deep Inspect. Mark any
       # new Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
+      #
+      # Path-gated on the same `decompilerGates` selection as the separate,
+      # heavier decompiler-gates job: both are driven by the
+      # ILInspector.Decompiler.Tests project-reference closure, so a PR that
+      # cannot affect that project skips this ~8 minute step. A PR that does
+      # touch it still gets both the fast unit tests here and the slow
+      # pre-merge gate preset in decompiler-gates.
       - name: Run decompiler unit tests (fast)
+        if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run analysis tests (fast)
@@ -797,7 +830,7 @@ jobs:
         run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
 
       - name: Run runfaster tests
-        run: dotnet run --project src/runfaster.Tests -c Release
+        run: dotnet run --project tests/runfaster.Tests -c Release
 
       # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
       # in PR CI when the round-trip tests or source dependencies change. The
@@ -1432,6 +1465,99 @@ jobs:
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
   # `failure` or `skipped` is what closes that path.
   #
+  # CodeQL code scanning. Each language is a separate lane so a change can
+  # pay only for the extractors its file types need: the C# lane alone costs
+  # roughly nine minutes and is a fixed cost, unrelated to how much C#
+  # changed. Lane selection is by file extension rather than by the project
+  # graph the build gates use, because CodeQL analyzes whole source trees.
+  #
+  # These lanes are not gated on the pre-merge event. Code scanning alerts are
+  # reported against the default branch, so skipping analysis on pushes to
+  # main would freeze that baseline at whatever last ran before a merge. A
+  # push applies this same routing rather than re-analyzing the whole tree, so
+  # it does not bound a mis-routed lane; the weekly full analysis in
+  # codeql-scheduled.yml is that bound.
+  #
+  # Push-time analysis is skipped for Dependabot-authored commits. This
+  # repository allows only squash merging, so merging a Dependabot pull
+  # request produces a Dependabot-authored commit on main, and GitHub gives
+  # workflows running on such a commit read-only permissions. The SARIF upload
+  # needs security-events: write, which a job cannot grant itself, so the job
+  # would fail with "403: Resource not accessible by integration" and turn
+  # ci-required red on main. Both identities are checked because they differ:
+  # on a squash merge the actor is the maintainer who merged, not Dependabot,
+  # so an actor-only guard would never fire. The pull-request run still
+  # analyzes the change: code scanning always accepts uploads from a
+  # pull_request event. Only the default-branch baseline refresh is deferred,
+  # to the weekly scan.
+  # https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible
+  codeql-actions:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlActions
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:actions
+
+  codeql-csharp:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # Buildless extraction, matching what default setup ran here. It
+          # needs no SDK and no restored solution, so this lane does not
+          # duplicate the build the test matrix already performs.
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:csharp
+
+  codeql-javascript:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
   # Like `changes`, this always-run terminal gate uses the GA image so preview
   # capacity cannot leave an otherwise-complete PR waiting for its required
   # status. Path-gated jobs retain ubuntu-26.04 coverage.
@@ -1453,6 +1579,9 @@ jobs:
       - csharp-diff-smoke
       - il-diff-smoke
       - pack
+      - codeql-actions
+      - codeql-csharp
+      - codeql-javascript
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

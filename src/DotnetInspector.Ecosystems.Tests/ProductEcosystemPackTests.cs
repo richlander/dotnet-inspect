@@ -1,11 +1,32 @@
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems.Tests;
 
 public sealed class ProductEcosystemPackTests
 {
+    [Fact]
+    public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
+    {
+        Assert.Equal(
+            [false, false, false, true],
+            EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
+        var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
+            EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
+        Assert.Same(EcosystemIntegrationScanner.AspireBinding, selected.Binding);
+        Assert.All(
+            new[]
+            {
+                EcosystemPackIds.Platform,
+                EcosystemPackIds.MicrosoftExtensions,
+                EcosystemPackIds.AspNetCore,
+            },
+            id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
+                EcosystemPackCatalog.SelectScanner(id)));
+    }
+
     [Fact]
     public void ShippedManifestMatchesLiteralPolicy()
     {
@@ -73,7 +94,7 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
-    public void ShippedPackManifestCarriesOnlyPackageSetIdentity()
+    public void ShippedPackManifestKeepsCuratedMembershipAsIdentity()
     {
         Type[] packTypes =
         [
@@ -92,6 +113,59 @@ public sealed class ProductEcosystemPackTests
                     type.GetProperties(),
                     property => CarriesPackageSetState(property.PropertyType));
             });
+    }
+
+    [Fact]
+    public void ShippedRetrievalKnowledgeMatchesLiteralPolicy()
+    {
+        Assert.Collection(
+            EcosystemPackCatalog.Discover(),
+            platform => AssertKnowledge(platform, ["System"], []),
+            extensions => AssertKnowledge(
+                extensions,
+                ["Microsoft.Extensions"],
+                [
+                    "Microsoft.Extensions.DependencyInjection.Abstractions",
+                    "Microsoft.Extensions.Configuration.Abstractions",
+                    "Microsoft.Extensions.Logging.Abstractions",
+                ]),
+            aspNetCore => AssertKnowledge(
+                aspNetCore,
+                ["Microsoft.AspNetCore"],
+                [
+                    "Microsoft.AspNetCore.OpenApi",
+                    "Microsoft.AspNetCore.Authentication.JwtBearer",
+                ]),
+            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]));
+
+        static void AssertKnowledge(
+            EcosystemPackDescriptor pack,
+            string[] roots,
+            string[] corePackageIds)
+        {
+            Assert.Equal(roots, pack.NamespaceRoots);
+            Assert.Equal(corePackageIds, pack.CorePackages.Select(package => package.PackageId));
+            Assert.All(pack.CorePackages, package =>
+            {
+                Assert.Null(PackageCoordinateResolver.Validate(package));
+                Assert.Null(package.Version);
+                Assert.Null(package.Framework);
+                Assert.Null(package.RuntimeIdentifier);
+            });
+        }
+    }
+
+    [Fact]
+    public void ShippedToolPackagesMatchLiteralPolicy()
+    {
+        Assert.Collection(
+            EcosystemPackCatalog.Discover(),
+            platform => Assert.Empty(platform.ToolPackages),
+            extensions => Assert.Empty(extensions.ToolPackages),
+            aspNetCore => Assert.Empty(aspNetCore.ToolPackages),
+            aspire => Assert.Equal(
+                new PackageCoordinate("Aspire.Cli"),
+                Assert.Single(aspire.ToolPackages)));
     }
 
     [Fact]
@@ -338,7 +412,6 @@ public sealed class ProductEcosystemPackTests
         type == typeof(PackageSetDescriptor)
         || type == typeof(PackageSetRegistration)
         || type == typeof(PackageSetRegistry)
-        || type == typeof(PackageCoordinate)
         || (type.IsArray && CarriesPackageSetState(type.GetElementType()!))
         || (type.IsGenericType
             && type.GetGenericArguments().Any(CarriesPackageSetState));

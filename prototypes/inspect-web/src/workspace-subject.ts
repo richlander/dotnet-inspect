@@ -1,4 +1,14 @@
 import type { PackageControlPackage } from "./package-controls.ts";
+import { packageIdentityKey } from "./data.ts";
+import { packageRemoveButton } from "./package-removal.ts";
+import type { SavedWorkspaceFocus } from "./saved-workspaces.ts";
+import {
+  captureSavedWorkspaceFocus,
+  renderSavedWorkspaces,
+  renderWorkspaceSaveButton,
+  restoreSavedWorkspaceFocus,
+  type SavedWorkspacesView,
+} from "./saved-workspaces-view.ts";
 import type {
   BrowserWorkspacePackageOccurrence,
 } from "./facades/inspect-web-package.d.ts";
@@ -15,6 +25,8 @@ export interface WorkspaceSubjectRenderOptions {
 }
 
 export interface WorkspaceViewRenderOptions {
+  canAddPackage?: boolean;
+  savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
   demos: readonly ProductHomeDemoCatalogEntry[];
@@ -29,6 +41,8 @@ export interface WorkspaceSubjectBindingActions {
   onActivate: (action: string) => void;
   onDemo: (demo: ProductHomeDemoId) => void;
   onRetry: () => void;
+  onRemove?: (key: string) => void;
+  onAddPackage?: () => void;
 }
 
 export interface WorkspaceOccurrenceVisibility {
@@ -44,7 +58,10 @@ export interface WorkspaceOccurrenceVisibility {
 }
 
 export type WorkspaceFocusTarget =
+  | SavedWorkspaceFocus
   | { kind: "workspace" }
+  | { kind: "add-package" }
+  | { kind: "remove"; key: string; index: number }
   | { kind: "demo"; id: string };
 
 export function workspaceOccurrenceActionsAreVisible(
@@ -93,14 +110,23 @@ export function renderWorkspaceView(
     error,
     escapeHtml,
   } = options;
-  const packageRows = occurrences.map(occurrence => {
-    const label = `${occurrence.package} ${occurrence.version} ${occurrence.framework}`;
+  const packageRows = packages.filter(item => !item.isRuntimePack).map(item => {
+    const key = packageIdentityKey(item);
+    const occurrence = !loading && !error
+      ? occurrences.find(candidate => packageIdentityKey({
+        id: candidate.package,
+        version: candidate.version,
+        activeFramework: candidate.framework,
+      }) === key)
+      : undefined;
+    const label = `${item.id} ${item.version} ${item.activeFramework}`;
     return `<li class="workspace-occurrence-row">
-      <button class="workspace-occurrence" type="button" data-workspace-activate="${escapeHtml(occurrence.action)}" aria-label="Inspect ${escapeHtml(label)}">
+      <button class="workspace-occurrence" type="button" ${occurrence ? `data-workspace-activate="${escapeHtml(occurrence.action)}"` : "disabled"} aria-label="Inspect ${escapeHtml(label)}">
         <span>NuGet package</span>
-        <strong>${escapeHtml(occurrence.package)}</strong>
-        <small>${escapeHtml(occurrence.version)} · ${escapeHtml(occurrence.framework)}</small>
+        <strong>${escapeHtml(item.id)}</strong>
+        <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
       </button>
+      ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
     </li>`;
   }).join("");
   const platformRows = packages.filter(item => item.isRuntimePack).map(item =>
@@ -110,16 +136,17 @@ export function renderWorkspaceView(
       <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
     </li>`).join("");
   const rows = `${packageRows}${platformRows}`;
-  const content = loading
+  const status = loading
     ? `<p class="workspace-empty">Reading Workspace package occurrences…</p>`
     : error
       ? `<div class="workspace-empty">
           <p>${escapeHtml(error)}</p>
           <button type="button" data-workspace-retry>Retry</button>
         </div>`
-      : rows
-        ? `<ul class="workspace-detail-list loaded">${rows}</ul>`
-        : `<p class="workspace-empty">No packages are loaded in this Workspace.</p>`;
+      : "";
+  const content = status + (rows
+    ? `<ul class="workspace-detail-list loaded">${rows}</ul>`
+    : `<p class="workspace-empty">No packages are loaded in this Workspace.</p>`);
   const demoRows = demos.map(demo =>
     `<li class="workspace-demo-row">
       <div>
@@ -140,16 +167,18 @@ export function renderWorkspaceView(
       <h1>Workspace</h1>
       <code class="type-signature">${packages.length} loaded coordinate${packages.length === 1 ? "" : "s"}</code>
     </div>
+    ${options.savedWorkspaces ? renderWorkspaceSaveButton(options.savedWorkspaces) : ""}
   </header>
   <div class="workspace-overview">
+    ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
     <section class="document-section workspace-section">
       <div class="section-title"><h2>Demos</h2><span>${demos.length} available</span></div>
       <p>Open a product demo to replace this Workspace with its packages and initial view.</p>
       ${demoContent}
     </section>
     <section class="document-section workspace-section">
-      <div class="section-title"><h2>Packages</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span></div>
-      <p>Choose a package to inspect it. The Workspace keeps every loaded coordinate available.</p>
+      <div class="section-title"><h2>Packages</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
+      <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
       ${content}
     </section>
   </div>`;
@@ -173,6 +202,13 @@ export function bindWorkspaceSubject(
     }));
   root.querySelector<HTMLElement>("[data-workspace-retry]")
     ?.addEventListener("click", actions.onRetry);
+  root.querySelector<HTMLElement>("[data-workspace-add-package]")
+    ?.addEventListener("click", () => actions.onAddPackage?.());
+  root.querySelectorAll<HTMLElement>("[data-workspace-remove]").forEach(button =>
+    button.addEventListener("click", () => {
+      const key = button.dataset.workspaceRemove;
+      if (key !== undefined) actions.onRemove?.(key);
+    }));
 }
 
 export function focusWorkspace(
@@ -186,11 +222,24 @@ export function focusWorkspace(
 export function captureWorkspaceFocus(
   element: HTMLElement | null,
 ): WorkspaceFocusTarget | null {
+  const savedFocus = captureSavedWorkspaceFocus(element);
+  if (savedFocus) return savedFocus;
   const target = element?.closest<HTMLElement>(
-    "[data-workspace-default], [data-workspace-demo]");
+    "[data-workspace-default], [data-workspace-demo], [data-workspace-remove], [data-workspace-add-package]");
   if (!target) return null;
   if (target.hasAttribute("data-workspace-default")) {
     return { kind: "workspace" };
+  }
+  if (target.hasAttribute("data-workspace-add-package")) {
+    return { kind: "add-package" };
+  }
+  if (target.dataset.workspaceRemove !== undefined) {
+    return {
+      kind: "remove",
+      key: target.dataset.workspaceRemove,
+      index: [...target.ownerDocument.querySelectorAll("[data-workspace-remove]")]
+        .indexOf(target),
+    };
   }
   const demo = target.dataset.workspaceDemo;
   if (demo !== undefined) {
@@ -205,14 +254,27 @@ export function restoreWorkspaceFocus(
 ): boolean {
   let element: HTMLElement | null = null;
   switch (target.kind) {
+    case "remove": {
+      const buttons = [...root.querySelectorAll<HTMLElement>("[data-workspace-remove]")];
+      element = buttons.find(button => button.dataset.workspaceRemove === target.key)
+        ?? buttons[Math.min(target.index, buttons.length - 1)]
+        ?? root.querySelector<HTMLElement>("h1");
+      if (element?.tagName === "H1") element.tabIndex = -1;
+      break;
+    }
     case "workspace":
       element = root.querySelector<HTMLElement>("[data-workspace-default]");
+      break;
+    case "add-package":
+      element = root.querySelector<HTMLElement>("[data-workspace-add-package]");
       break;
     case "demo":
       element = [...root.querySelectorAll<HTMLElement>("[data-workspace-demo]")]
         .find(candidate => candidate.dataset.workspaceDemo === target.id)
         ?? null;
       break;
+    default:
+      return restoreSavedWorkspaceFocus(root, target);
   }
   element?.focus({ preventScroll: true });
   return element !== null;

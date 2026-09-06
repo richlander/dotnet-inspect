@@ -76,10 +76,10 @@ public static class MethodClassificationScanner
     /// Finds all unsafe and P/Invoke methods in an assembly.
     /// </summary>
     public static List<ClassifiedMethodInfo> Scan(Stream peStream)
-    {
-        using var peReader = new PEReader(peStream);
-        return Scan(peReader);
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            Scan,
+            []);
 
     /// <summary>
     /// Finds all unsafe and P/Invoke methods in an assembly.
@@ -88,10 +88,10 @@ public static class MethodClassificationScanner
     {
         List<ClassifiedMethodInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         int identityDecodeFailures = 0;
         int scanWorkRemaining =
             MetadataSafetyPolicy.MaxClassificationScanWorkChars;
@@ -488,7 +488,12 @@ public static class MethodClassificationScanner
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = GuardedSignatureText.MethodText(reader, method, context)
                 .GetValueOrThrow();
-            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
+            return SignatureRenderer.RenderDecodedSignature(
+                reader,
+                method,
+                methodName,
+                sig,
+                context);
         }
         catch
         {

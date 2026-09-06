@@ -210,6 +210,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         List<Call> Calls,
         Environment? Environment,
         IrFunction Body,
+        ImmutableArray<string> CapturedBinderNames,
         string Name);
 
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
@@ -332,7 +333,13 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // #3631.
                 if (!TypeParametersAreTheHostsOwn(body.Signature, SelfReferences(body, group.Key)))
                     continue;
-                if (environment is not null && !SubstituteEnvironment(body, environment))
+                ImmutableArray<string> capturedBinderNames = [];
+                if (environment is not null
+                    && !SubstituteEnvironment(
+                        body,
+                        environment,
+                        function,
+                        out capturedBinderNames))
                     continue;
                 bool allowLocals = environment is null;
                 if (!allowLocals && !body.Locals.IsEmpty
@@ -345,6 +352,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     calls,
                     environment,
                     body,
+                    capturedBinderNames,
                     CSharpNaming.MethodName(method.Name)));
             }
         }
@@ -402,7 +410,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // synthesized method is static only because the environment is passed
             // explicitly by ref, which the recovered source form does not show.
             raised.Add(Identity(method));
-            declarations.Add(new LocalFunctionStatement(
+            var declaration = new LocalFunctionStatement(
                 name,
                 method.ReturnType,
                 parameters,
@@ -412,7 +420,15 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 body.LocalNames,
                 body.UsesUpdatedMemorySafetyRules,
                 body.SkipLocalsInit,
-                container));
+                container,
+                UnsafeAwaitOperand.MethodRequiresUnsafe(
+                    method,
+                    body.UsesUpdatedMemorySafetyRules))
+            {
+                SynthesizedLocalNames = body.SynthesizedLocalNames,
+                CapturedBinderNames = candidate.CapturedBinderNames,
+            };
+            declarations.Add(declaration);
             // Merge the raised body's resolved type info into the enclosing
             // function. The body was imported from a separate method, so the
             // host never materialized shapes/enum members/underlying types/
@@ -525,17 +541,31 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return null;
     }
 
-    static bool SubstituteEnvironment(IrFunction body, Environment environment)
+    static bool SubstituteEnvironment(
+        IrFunction body,
+        Environment environment,
+        IrFunction host,
+        out ImmutableArray<string> capturedBinderNames)
     {
+        capturedBinderNames = [];
+        if (environment.ArgIndex < 0
+            || environment.ArgIndex >= body.Signature.Parameters.Length)
+        {
+            return false;
+        }
+        var environmentParameter = body.Signature.Parameters[environment.ArgIndex];
+
         // Every use of the environment parameter must be the receiver of a
         // LoadField we can substitute. Check that on the original body, before
         // substitution: the captured values cloned in below are themselves
-        // host LoadArguments, so a post-substitution index test cannot tell a
-        // leftover environment read from a substituted host argument that
-        // happens to share the same index.
+        // host LoadArguments, while nested functions have independent argument
+        // ordinals. Binder identity distinguishes all three.
         foreach (var arg in body.Descendants.OfType<LoadArgument>())
         {
-            if (arg.Index != environment.ArgIndex)
+            if (!IsEnvironmentArgument(
+                    arg,
+                    environment.ArgIndex,
+                    environmentParameter))
                 continue;
             if (arg.Parent is not LoadField load
                 || !Equals(load.Field.DeclaringType, environment.Type)
@@ -543,15 +573,41 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 return false;
         }
 
+        var names = ImmutableArray.CreateBuilder<string>();
+        var seenNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
-            if (load.Instance is LoadArgument arg && arg.Index == environment.ArgIndex
+            if (load.Instance is LoadArgument arg
+                && IsEnvironmentArgument(
+                    arg,
+                    environment.ArgIndex,
+                    environmentParameter)
                 && Equals(load.Field.DeclaringType, environment.Type)
                 && environment.Captures.TryGetValue(load.Field.Name, out var value))
+            {
+                string? name = value switch
+                {
+                    LoadArgument => null,
+                    LoadLocal local when local.Index < host.LocalNames.Length
+                        => host.LocalNames[local.Index],
+                    _ => null,
+                };
+                if (name is not null && seenNames.Add(name))
+                    names.Add(name);
                 load.ReplaceWith(value.Clone());
+            }
         }
+        capturedBinderNames = names.ToImmutable();
         return true;
     }
+
+    static bool IsEnvironmentArgument(
+        LoadArgument argument,
+        int environmentArgumentIndex,
+        Parameter environmentParameter)
+        => argument.Parameter is { } binding
+            ? ReferenceEquals(binding, environmentParameter)
+            : argument.Index == environmentArgumentIndex;
 
     /// <summary>
     /// Whether the body reaches a DIFFERENT local function. Mutual and nested local
@@ -608,7 +664,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             method.ReturnType,
             arguments,
             parameterTypes,
-            VisibleParameterRefKinds(method, count));
+            VisibleParameterRefKinds(method, count),
+            method.RequiresUnsafe);
     }
 
     static ImmutableArray<ArgumentRefKind> VisibleParameterRefKinds(MethodRef method, int count)

@@ -625,18 +625,18 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
-    public async Task Similar_WithImplementation_RejectsCombination()
+    public async Task Similar_WithBody_RejectsCombination()
     {
         MatchOptions options = Seeded($"{typeof(MatchSampleA).FullName}.AddOne") with
         {
-            IncludeImplementation = true,
+            IncludeBody = true,
         };
 
         var (exitCode, output, error) = await RunAsync(options);
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
-        Assert.Contains("--implementation cannot be combined with --similar", error);
+        Assert.Contains("--body cannot be combined with --similar", error);
     }
 
     [Fact]
@@ -2439,7 +2439,8 @@ public sealed class MatchDiscoveryTests
 
             Assert.Equal(1, widenedExit);
             Assert.Contains(
-                "Could not extract API",
+                "The assembly metadata root is malformed "
+                    + "(UnmappableMetadataDirectory).",
                 widenedError);
             Assert.Equal(0, replayExit);
             Assert.Empty(replayError);

@@ -119,6 +119,31 @@ public static partial class AttributeReader
         return false;
     }
 
+    internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        bool includeExtension,
+        Action<int>? beforeMaterialize)
+    {
+        // Share name materialization rather than adding a scan for each marker.
+        bool isExtension = false;
+        bool isReadOnly = false;
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            string? name = GetAttributeTypeName(
+                reader,
+                attribute.Constructor,
+                beforeMaterialize);
+            isExtension |= includeExtension
+                && name == KnownAttributeNames.ExtensionAttribute;
+            isReadOnly |= name == KnownAttributeNames.IsReadOnlyAttribute;
+            if (isReadOnly && (!includeExtension || isExtension))
+                break;
+        }
+        return (isExtension, isReadOnly);
+    }
+
     public static bool TryGetExtensionMarkerName(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
@@ -428,6 +453,27 @@ public static partial class AttributeReader
                 beforeMaterialize);
             if (attrName == attributeTypeName)
                 return true;
+        }
+        return false;
+    }
+
+    internal static bool HasUnionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (TryGetTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    KnownAttributeNames.UnionAttribute,
+                    beforeMaterialize,
+                    out _))
+            {
+                return true;
+            }
         }
         return false;
     }
@@ -2784,9 +2830,9 @@ public static partial class AttributeReader
     public static List<(string Name, string? Value)> GetMethodAttributes(
         PEReader peReader, string fullTypeName, string methodName, int overloadIndex, bool publicOnly = true)
     {
-        if (!peReader.HasMetadata) return [];
+        if (!MetadataFormatAdmission.AdmitImage(peReader)) return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return ReadMethodAttributes(reader, FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly));
     }
 

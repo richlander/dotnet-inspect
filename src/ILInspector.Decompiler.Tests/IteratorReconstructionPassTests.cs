@@ -867,7 +867,10 @@ public class IteratorReconstructionPassTests
         // call). The transform-then-restructure path strips both the state scaffolding and
         // the disposal, then recovers the foreach — no acknowledgment marker.
         Assert.Single(function.Descendants.OfType<YieldReturn>());
-        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal(
+            ["GetEnumerator", "MoveNext", "get_Current", "Dispose"],
+            foreachStatement.ConsumedMemberRefs.Select(method => method.Name));
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
@@ -884,6 +887,130 @@ public class IteratorReconstructionPassTests
         // The split disposal scaffolding is fully gone.
         Assert.DoesNotContain("Finally", output);
         Assert.DoesNotContain("GetEnumerator", output);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_PreservesNamedStructReceiver()
+    {
+        using var source = MetadataSource.Open(typeof(NamePreservationSamples).Assembly.Location);
+        var (function, output) = RaisedFrom(
+            source,
+            typeof(NamePreservationSamples).FullName!,
+            nameof(NamePreservationSamples.YieldNamedStructReceiver));
+
+        var loop = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("date", function.LocalNames[loop.LocalIndex]);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("foreach (DateTime date in dates)", output);
+        Assert.Contains("yield return date.Year;", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldYears))]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldAdjustedYears))]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldCombinedYears))]
+    public void ForeachDelegationIterator_PreservesCapturedInstance(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorReceiverNameSamples).Assembly.Location);
+        var (function, output) = RaisedFrom(
+            source,
+            typeof(IteratorReceiverNameSamples).FullName!,
+            methodName);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var loop = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("date", function.LocalNames[loop.LocalIndex]);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        var receiverReads = function.Descendants.OfType<LoadArgument>()
+            .Where(argument => argument.Index == 0).ToArray();
+        Assert.NotEmpty(receiverReads);
+        Assert.All(receiverReads, argument => Assert.Same(function.ReceiverParameter, argument.Parameter));
+        Assert.Contains("date.Year", output);
+        Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_CopiedValueReceiverDeclines()
+    {
+        using var source = MetadataSource.Open(typeof(IteratorValueReceiverNameSamples).Assembly.Location);
+        var (function, _) = RaisedFrom(source, typeof(IteratorValueReceiverNameSamples).FullName!,
+            nameof(IteratorValueReceiverNameSamples.YieldYears));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+    }
+
+    [Theory]
+    [InlineData("different-receiver")]
+    [InlineData("missing-field-evidence")]
+    [InlineData("reassigned-alias")]
+    [InlineData("addressed-alias")]
+    [InlineData("captured-field-write")]
+    [InlineData("captured-field-address")]
+    [InlineData("unrelated-prefix")]
+    public void ForeachDelegationIterator_UnownedReceiverInitializationDeclines(string shape)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorReceiverNameSamples).Assembly.Location);
+        var kickoff = IrImporter.Import(source, typeof(IteratorReceiverNameSamples).FullName!,
+            nameof(IteratorReceiverNameSamples.YieldCombinedYears))!;
+        var context = new PassContext(new Stepper(enabled: false),
+            importMethodBody: method => IrImporter.Import(source, method));
+        IrPasses.Run(kickoff, [.. IrPasses.Default.TakeWhile(pass => pass is not IteratorReconstructionPass)], context);
+        var handoff = Assert.Single(kickoff.Descendants.OfType<NewObject>());
+        var initializer = Assert.IsType<ObjectInitializerExpression>(handoff.Parent);
+        var capture = Assert.Single(initializer.Entries, entry => entry.ConsumedField?.Name == "<>4__this");
+        var work = IrImporter.Import(source, handoff.Constructor with { Name = "MoveNext" })!;
+        var entryBlock = work.Body.Blocks[0];
+        var alias = Assert.Single(entryBlock.Children.OfType<StoreLocal>(),
+            store => store.Value is LoadField { Field.Name: "<>4__this" });
+
+        if (shape == "different-receiver")
+        {
+            capture.Arguments[0].ReplaceWith(new LoadArgument(1, kickoff.Signature.Parameters[0]));
+        }
+        else if (shape == "missing-field-evidence")
+        {
+            var replacement = new ObjectInitializerExpression((NewObject)handoff.Clone(), false,
+                initializer.Entries.Select(entry => entry with
+                {
+                    ConsumedField = entry.ConsumedField?.Name == "<>4__this" ? null : entry.ConsumedField,
+                    Arguments = [.. entry.Arguments.Select(argument => (IrExpression)argument.Clone())],
+                }));
+            initializer.ReplaceWith(replacement);
+            handoff = replacement.Creation;
+        }
+        else
+        {
+            var intType = TypeRef.CoreLib("System", "Int32");
+            var terminal = entryBlock.Children[^1];
+            terminal.Detach();
+            entryBlock.Add(shape switch
+            {
+                "reassigned-alias" => alias.Clone(),
+                "addressed-alias" => new ExpressionStatement(new LoadLocalAddress(alias.Index, alias.Type)),
+                "captured-field-write" => new StoreField(capture.ConsumedField!,
+                    new LoadArgument(0, work.ReceiverParameter!), (IrExpression)alias.Value.Clone()),
+                "captured-field-address" => new ExpressionStatement(new LoadFieldAddress(capture.ConsumedField!,
+                    new LoadArgument(0, work.ReceiverParameter!))),
+                "unrelated-prefix" => new StoreLocal(work.AddLocal(intType, "unowned"), intType,
+                    new Constant(1, intType)),
+                _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+            });
+            entryBlock.Add(terminal);
+        }
+
+        work.CheckInvariant();
+        kickoff.CheckInvariant();
+        Assert.False(ForeachIteratorReconstruction.TryReconstruct(work, kickoff, handoff, context, out _));
+        work.CheckInvariant();
+        new IteratorAcknowledgmentPass().Run(kickoff, context);
+        kickoff.CheckInvariant();
+        Assert.Empty(kickoff.Descendants.OfType<ForeachStatement>());
+        Assert.Single(kickoff.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
     }
 
     [Fact]

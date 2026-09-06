@@ -5,7 +5,7 @@ export interface GraphBackBindingActions {
   onBack: () => void;
 }
 
-export interface CallGraphNodeBinding {
+export interface GraphNodeBinding {
   onSelect: () => void;
   label: string;
   platform?: boolean;
@@ -16,16 +16,13 @@ export interface GraphPanZoomBindingOptions {
   keybindings: KeybindingRegistry;
   resolveCallGraphNode?: (
     nodeId: string,
-  ) => CallGraphNodeBinding | null;
-}
-
-export interface TypeGraphNodeBinding {
-  onSelect?: () => void;
-  unavailableLabel?: string;
-}
-
-export interface DependencyGraphNodeBinding {
-  onSelect: () => void;
+  ) => GraphNodeBinding | null;
+  resolveDependencyGraphNode?: (
+    nodeId: string,
+  ) => GraphNodeBinding | null;
+  resolveTypeGraphNode?: (
+    nodeId: string,
+  ) => GraphNodeBinding | { unavailableLabel: string } | null;
 }
 
 export function bindGraphBack(
@@ -41,44 +38,6 @@ function mermaidNodeId(node: Element, prefix: string): string {
   const idMatch =
     node.id.match(new RegExp(`(?:^|flowchart-)(${prefix}\\d+)(?:-|$)`));
   return dataId || idMatch?.[1] || "";
-}
-
-export function bindTypeGraphNodes(
-  root: ParentNode,
-  resolveNode: (nodeId: string) => TypeGraphNodeBinding | null,
-) {
-  root.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-    const binding = resolveNode(mermaidNodeId(node, "t"));
-    if (!binding) return;
-    if (binding.onSelect) {
-      node.classList.add("nav-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", binding.onSelect);
-      return;
-    }
-
-    node.classList.add("non-nav");
-    if (!binding.unavailableLabel) return;
-    const title =
-      node.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title");
-    title.textContent = binding.unavailableLabel;
-    node.insertBefore(title, node.firstChild);
-  });
-}
-
-export function bindDependencyGraphNodes(
-  root: ParentNode,
-  resolveNode: (
-    nodeId: string,
-  ) => DependencyGraphNodeBinding | null,
-) {
-  root.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-    const binding = resolveNode(mermaidNodeId(node, "d"));
-    if (!binding) return;
-    node.classList.add("nav-node");
-    node.style.cursor = "pointer";
-    node.addEventListener("click", binding.onSelect);
-  });
 }
 
 export function bindGraphPanZoom(
@@ -246,11 +205,25 @@ export function bindGraphPanZoom(
     run: handlePanZoomKey,
   }, viewport);
 
-  if (options.resolveCallGraphNode) {
+  const resolveNode = options.resolveCallGraphNode
+    ?? options.resolveDependencyGraphNode
+    ?? options.resolveTypeGraphNode;
+  if (resolveNode) {
+    const prefix = options.resolveCallGraphNode ? "n"
+      : options.resolveDependencyGraphNode ? "d" : "t";
     svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const binding =
-        options.resolveCallGraphNode?.(mermaidNodeId(node, "n"));
+      const binding = resolveNode(mermaidNodeId(node, prefix));
       if (!binding) return;
+      if ("unavailableLabel" in binding) {
+        node.classList.add("non-nav");
+        node.setAttribute("role", "img");
+        node.setAttribute("aria-label", binding.unavailableLabel);
+        const title =
+          node.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = binding.unavailableLabel;
+        node.insertBefore(title, node.firstChild);
+        return;
+      }
       node.classList.add("nav-node");
       if (binding.platform) node.classList.add("platform-node");
       node.style.cursor = binding.blocked ? "not-allowed" : "pointer";
@@ -261,7 +234,11 @@ export function bindGraphPanZoom(
         if (!moved) binding.onSelect();
       });
       options.keybindings.register({
-        id: "call-graph-node.activate",
+        id: options.resolveCallGraphNode
+          ? "call-graph-node.activate"
+          : options.resolveDependencyGraphNode
+            ? "dependency-graph-node.activate"
+            : "type-graph-node.activate",
         key: ["Enter", " "],
         allowExtraModifiers: true,
         priority: WORKBENCH_KEYBINDING_PRIORITY.element,

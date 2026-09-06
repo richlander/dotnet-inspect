@@ -65,6 +65,48 @@ test("annotation rows preserve the anchored source indentation", async ({ page }
   expect(Math.abs(invocationBox.x - annotationBox.x)).toBeLessThan(1);
 });
 
+test("finding chips open detail without jumping the source", async ({ page }) => {
+  await page.addStyleTag({
+    content: ".annotated-reader { height: 150px !important; }",
+  });
+  const source = page.locator(
+    '.annotated-source-code[data-annotated-surface="embedded"]',
+  );
+  const before = await source.evaluate(element => {
+    element.scrollTop = 18;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator("#annotated-chip-embedded-0-1-CSharp").click();
+
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  await expect(source).toHaveJSProperty("scrollTop", before);
+});
+
+test("modal finding chips preserve the source pane position", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: `
+      .annotated-modal-source .annotated-source-code {
+        min-height: 900px !important;
+        overflow: visible !important;
+      }
+    `,
+  });
+  const source = page.locator(".annotated-modal-source");
+  const before = await source.evaluate(element => {
+    element.scrollTop = 18;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator("#annotated-chip-modal-0-1-CSharp").click();
+
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  await expect(source).toHaveJSProperty("scrollTop", before);
+});
+
 test("pointer hit testing prefers the product-issued invocation node", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   const invocation = page.locator(
@@ -74,6 +116,35 @@ test("pointer hit testing prefers the product-issued invocation node", async ({ 
 
   await expect(page.locator("#annotated-node-1")).toBeFocused();
   await expect(page.locator("#annotated-node-4")).toHaveCount(0);
+});
+
+test("source selection reveals the focused inspector node", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: ".annotated-modal-inspector { height: 120px !important; }",
+  });
+  const inspector = page.locator(".annotated-modal-inspector");
+  const before = await inspector.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  const invocation = page.locator(
+    '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
+  ).first();
+  await invocation.click({ position: { x: 8, y: 8 } });
+
+  const focused = page.locator("#annotated-node-1");
+  await expect(focused).toBeFocused();
+  const visible = await inspector.evaluate((element, selector) => {
+    const target = document.querySelector(selector);
+    if (!(target instanceof HTMLElement)) return false;
+    const viewport = element.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
+    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+  }, "#annotated-node-1");
+  expect(visible).toBe(true);
 });
 
 test("keyboard source activation selects the same invocation node", async ({ page }) => {
@@ -153,6 +224,39 @@ test("Escape closes detail before dismissing and restores exact focus", async ({
   await expect(page.locator("#explore-annotated")).toBeFocused();
 });
 
+test("closing detail reveals its exact annotation opener", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: `
+      .annotated-modal-source .annotated-source-code {
+        min-height: 900px !important;
+        overflow: visible !important;
+      }
+    `,
+  });
+  const source = page.locator(".annotated-modal-source");
+  const chip = page.locator("#annotated-chip-modal-0-1-CSharp");
+  await chip.click();
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  const scrolled = await source.evaluate(element => {
+    element.scrollTop = 400;
+    return element.scrollTop;
+  });
+  expect(scrolled).toBeGreaterThan(0);
+
+  await page.keyboard.press("Escape");
+
+  await expect(chip).toBeFocused();
+  const visible = await source.evaluate((element, selector) => {
+    const target = document.querySelector(selector);
+    if (!(target instanceof HTMLElement)) return false;
+    const viewport = element.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
+    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+  }, "#annotated-chip-modal-0-1-CSharp");
+  expect(visible).toBe(true);
+});
+
 test("pointer Close dismisses detail and modal together", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   await page.locator("#annotated-inspector-0").click();
@@ -194,4 +298,36 @@ test("modal makes the background inert and traps forward and reverse Tab", async
   await first.focus();
   await page.keyboard.press("Shift+Tab");
   await expect(last).toBeFocused();
+});
+
+// Prism is bundled rather than loaded from a CDN, so this asserts the grammar registered
+// and tokenized real C#. Before bundling, a test like this needed the network to pass and
+// so could not be a gate at all.
+test("bundled Prism tokenizes the C# source", async ({ page }) => {
+  const keywords = page.locator(".annotated-source-code .token.keyword");
+  await expect(keywords.first()).toHaveText("for");
+
+  // A class the C# grammar produces and the clike grammar alone does not, so this fails if
+  // the language modules are imported in the wrong order or one is dropped.
+  await expect(page.locator(".annotated-source-code .token.class-name").first())
+    .toBeVisible();
+});
+
+// This observes only the annotated-source fixture's load through highlighting readiness,
+// not every application route, later interaction, or possible resource type.
+test("loading the annotated-source fixture uses only same-origin requests", async ({ page }) => {
+  const external: string[] = [];
+  await page.route("**", route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== new URL(page.url() || "http://127.0.0.1:4175").origin) {
+      external.push(url.href);
+    }
+    return route.continue();
+  });
+
+  await page.reload();
+  await expect(page.locator("#explore-annotated")).toBeVisible();
+  await expect(page.locator(".annotated-source-code .token.keyword").first()).toBeVisible();
+
+  expect(external).toEqual([]);
 });

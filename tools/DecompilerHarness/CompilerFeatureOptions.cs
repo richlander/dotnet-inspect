@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -12,9 +12,6 @@ static class CompilerFeatureOptions
     const System.Reflection.MethodImplAttributes RuntimeAsync =
         (System.Reflection.MethodImplAttributes)0x2000;
 
-    public static CSharpParseOptions ParseOptions()
-        => new(LanguageVersion.Preview);
-
     public static CSharpParseOptions ParseOptions(string assemblyPath)
     {
         using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -23,9 +20,14 @@ static class CompilerFeatureOptions
 
     public static CSharpParseOptions ParseOptions(PEReader pe)
     {
-        var options = ParseOptions();
+        bool usesUpdatedMemorySafetyRules =
+            pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe);
+        var options = new CSharpParseOptions(
+            usesUpdatedMemorySafetyRules
+                ? LanguageVersion.Preview
+                : LanguageVersion.Latest);
         var features = new List<KeyValuePair<string, string>>();
-        if (pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe))
+        if (usesUpdatedMemorySafetyRules)
         {
             features.Add(new("updated-memory-safety-rules", "true"));
         }
@@ -37,17 +39,18 @@ static class CompilerFeatureOptions
     }
 
     /// <summary>
-    /// Recompilation must replay the mode the printer used, so this defers to
-    /// the printer's own predicate rather than deriving the mode independently.
-    /// Any second reader — including the more faithful
-    /// <c>MemorySafetyMetadataIndex</c>, which accepts marker spellings the
-    /// printer ignores — can disagree with the printer and compile output back
-    /// under rules it was not printed with.
+    /// Recompilation must replay the normalized module model consumed by the
+    /// product. Raw marker presence is insufficient because unsupported or
+    /// malformed markers use legacy printer rules rather than V2 rules.
     /// <c>CompilerFeatureOptionsTests.HarnessReplayMatchesPrinterMode</c> is the
     /// gate.
     /// </summary>
     static bool ModuleUsesUpdatedMemorySafetyRules(PEReader pe)
-        => IrImporter.ModuleUsesUpdatedMemorySafetyRules(pe.GetMetadataReader());
+        => MemorySafetyMetadataIndex.Create(pe.GetMetadataReader()).Rules
+            is MemorySafetyRulesResult.Available
+            {
+                State: MemorySafetyRulesState.Updated,
+            };
 
     static bool ModuleUsesRuntimeAsync(PEReader pe)
     {

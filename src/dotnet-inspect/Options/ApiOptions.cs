@@ -1,5 +1,7 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
@@ -230,6 +232,13 @@ public partial record ApiOptions : IProjectionOptions
     /// silently ignore the selector. See #3547.
     /// </remarks>
     public bool SelectDeferredToListing { get; init; }
+
+    /// <summary>
+    /// Set when effective discovery names resolve only on the Type-listing
+    /// catalog and final target lookup must choose between that catalog and the
+    /// provisional single-Type catalog.
+    /// </summary>
+    public bool DiscoverDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }
@@ -334,6 +343,12 @@ public record MemberOptions : ApiOptions
     public string? MemberDigest { get; init; }
     public int? MemberGenericArity { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
+    public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
+    public MemberSourceDiffPresentationResult? MemberSourceDiffPresentation
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when the selected member carries no IL body — an abstract, interface, extern, or

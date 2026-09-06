@@ -1,4 +1,4 @@
-// The Metadata lens (the image-level summary of each assembly — format stamp, heap sizes,
+// The Metadata lens (the image-level summary of one library — format stamp, heap sizes,
 // ECMA-335 table row counts, PE/CLI headers) and the Metadata Explorer (the spatial
 // "browse the metadata like a database" table/heap drill-down) as pure,
 // dependency-injected render functions. Both views describe the same subject — the shape of
@@ -52,6 +52,8 @@ export interface MetadataHeaders {
   majorRuntimeVersion?: number | null;
   minorRuntimeVersion?: number | null;
   entryPointToken?: number | null;
+  managedNativeHeaderRva?: number;
+  managedNativeHeaderSize?: number;
 }
 
 export interface MetadataAssembly {
@@ -206,6 +208,7 @@ export interface MetadataExplorerBindingActions {
   onHeapFocus: (heap: string) => void;
   onJump: (index: number, rowId: number) => void;
   onOpenHeap: (assembly: string, heap: string) => void;
+  onOpenOverview: (assembly: string) => void;
   onOpenTable: (assembly: string, index: number) => void;
   onPage: (index: number, startRowId: number) => void;
   onRetryPackageMetadata: () => void;
@@ -244,6 +247,11 @@ export function bindMetadataExplorer(
   root.querySelector("#mde-hist-fwd")?.addEventListener(
     "click",
     actions.onHistoryForward);
+  root.querySelectorAll<HTMLElement>("[data-mde-explore]").forEach(button =>
+    button.addEventListener("click", () => {
+      const assembly = button.dataset.mdeAssembly ?? "";
+      if (assembly) actions.onOpenOverview(assembly);
+    }));
   root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
     button.addEventListener("click", () => {
       const assembly = button.dataset.mdeAssembly ?? "";
@@ -384,12 +392,85 @@ export function coverageLabel(coverage: string): string {
   }
 }
 
+export interface MetadataTableGroup {
+  name: string;
+  tables: readonly MetadataTableSummary[];
+}
+
+const metadataTableGroupDefinitions: readonly {
+  name: string;
+  tables: ReadonlySet<string>;
+}[] = [
+  {
+    name: "Modules & assemblies",
+    tables: new Set([
+      "Module", "ModuleRef", "Assembly", "AssemblyProcessor", "AssemblyOS",
+      "AssemblyRef", "AssemblyRefProcessor", "AssemblyRefOS", "File",
+      "ExportedType", "ManifestResource",
+    ]),
+  },
+  {
+    name: "Types",
+    tables: new Set([
+      "TypeRef", "TypeDef", "InterfaceImpl", "TypeSpec", "NestedClass",
+    ]),
+  },
+  {
+    name: "Members",
+    tables: new Set([
+      "FieldPtr", "Field", "MethodPtr", "MethodDef", "ParamPtr", "Param",
+      "MemberRef", "EventMap", "EventPtr", "Event", "PropertyMap",
+      "PropertyPtr", "Property", "MethodSemantics", "MethodImpl",
+    ]),
+  },
+  {
+    name: "Signatures & generics",
+    tables: new Set([
+      "StandAloneSig", "GenericParam", "MethodSpec",
+      "GenericParamConstraint",
+    ]),
+  },
+  {
+    name: "Attributes & layout",
+    tables: new Set([
+      "Constant", "CustomAttribute", "FieldMarshal", "DeclSecurity",
+      "ClassLayout", "FieldLayout", "ImplMap", "FieldRva",
+    ]),
+  },
+  {
+    name: "Debug & deltas",
+    tables: new Set([
+      "EncLog", "EncMap", "Document", "MethodDebugInformation", "LocalScope",
+      "LocalVariable", "LocalConstant", "ImportScope", "StateMachineMethod",
+      "CustomDebugInformation",
+    ]),
+  },
+];
+
+export function groupMetadataTables(
+  tables: readonly MetadataTableSummary[],
+): readonly MetadataTableGroup[] {
+  const remaining = new Set(tables);
+  const groups: MetadataTableGroup[] = [];
+  for (const definition of metadataTableGroupDefinitions) {
+    const matches = tables
+      .filter(table => definition.tables.has(table.name))
+      .sort((a, b) => a.index - b.index);
+    if (!matches.length) continue;
+    matches.forEach(table => remaining.delete(table));
+    groups.push({ name: definition.name, tables: matches });
+  }
+  const other = [...remaining].sort((a, b) => a.index - b.index);
+  if (other.length) groups.push({ name: "Other", tables: other });
+  return groups;
+}
+
 // -- Metadata lens ---------------------------------------------------------------------------
 
 export interface PackageMetadataOptions extends MetadataTextHelpers {
-  /** True for the runtime pack, where the lens scopes to one platform library. */
+  /** True for the runtime pack. */
   isPlatform: boolean;
-  /** The scoped platform library name, or "" when the platform lens has no selection yet. */
+  /** The selected library name, or "" when the platform lens has no selection yet. */
   scopedLibrary: string;
   packageId: string;
   packageVersion: string;
@@ -404,11 +485,9 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
 }
 
 /**
- * The Metadata lens: the image-level "container" view of each assembly — metadata format
+ * The Metadata lens: the image-level "container" view of one library — metadata format
  * version, heap sizes, ECMA-335 table row counts, and PE/CLI header facts. This is the shape
- * of the metadata itself, distinct from the API surface (the types within). For the platform
- * it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
- * NuGet package it describes every active-framework `lib/` assembly.
+ * of the metadata itself, distinct from the API surface (the types within).
  */
 export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const {
@@ -422,7 +501,7 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const renderSurface = (content: string, status: string) => `
     <section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
       <header class="metadata-surface-head package-metadata-surface-head">
-        <h1 id="package-metadata-surface-title">Metadata images</h1>
+        <h1 id="package-metadata-surface-title">Metadata image</h1>
         <p>${escapeHtml(status)}</p>
       </header>
       ${controlsHtml}
@@ -439,9 +518,8 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
       `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Pick a library to inspect</h2><p>Choose a .NET platform library above to read its metadata image — format version, heaps, tables, and PE/CLI headers.</p></section>`,
       "library required");
   }
-  const scanScope = isPlatform
-    ? `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`
-    : escapeHtml(activeFramework);
+  const scanScope =
+    `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`;
   if (loading && fresh) {
     return renderSurface(
       `<section class="document-section package-metadata-state source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`,
@@ -463,12 +541,12 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
     return renderSurface(
       data.inspectionError
         ? `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(data.inspectionError)}</p></section>`
-        : `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`,
+        : `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">◇</span><h2>No metadata image</h2><p>${scanScope} does not carry ECMA-335 metadata (it may be native or resource-only).</p></section>`,
       data.inspectionError ? "read failed" : "no images");
   }
 
   const warning = data.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be read</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
+    ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be read completely</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
     : "";
   const blocks = assemblies
     .map(asm => renderAssemblyMetadataBlock(asm, { escapeHtml, fmtBytes }))
@@ -493,38 +571,51 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
         <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
       </button>`).join("");
 
-  const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
-  const tableRows = tables.map(table => `
-    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
-      <span class="meta-table-name">${escapeHtml(table.name)}</span>
-      <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
-      <span class="meta-table-go">→</span>
-    </button>`).join("");
+  const tables = asm.tables || [];
+  const tableGroups = groupMetadataTables(tables);
+  const tableGroupsHtml = tableGroups.map(group => `
+    <section class="meta-table-group">
+      <h4>${escapeHtml(group.name)}<span>${group.tables.length}</span></h4>
+      <div class="meta-table-list">${group.tables.map(table => `
+        <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
+          <span class="meta-table-name">${escapeHtml(table.name)}</span>
+          <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
+          <span class="meta-table-go">→</span>
+        </button>`).join("")}</div>
+    </section>`).join("");
 
   const h = asm.headers || {};
   const corLine = h.corFlags
     ? `<span class="meta-fact"><span class="meta-fact-k">CLI</span><span class="meta-fact-v">v${h.majorRuntimeVersion}.${h.minorRuntimeVersion} · ${escapeHtml(h.corFlags)}${h.entryPointToken ? ` · entry 0x${(h.entryPointToken >>> 0).toString(16)}` : ""}</span></span>`
     : "";
+  const readyToRunLine = (h.managedNativeHeaderSize || 0) > 0
+    ? `<span class="meta-fact"><span class="meta-fact-k">ReadyToRun</span><span class="meta-fact-v">managed native header · ${fmtBytes(h.managedNativeHeaderSize || 0)} · RVA 0x${((h.managedNativeHeaderRva || 0) >>> 0).toString(16)}</span></span>`
+    : "";
 
   return `
     <section class="document-section meta-assembly">
-      <div class="section-title"><h2>${escapeHtml(asm.assembly)}</h2><span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span></div>
+      <div class="section-title meta-assembly-title">
+        <div>
+          <h2>${escapeHtml(asm.assembly)}</h2>
+          <span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span>
+        </div>
+        <button type="button" class="meta-explore primary-action" data-mde-explore data-mde-assembly="${escapeHtml(asm.assembly)}">Explore</button>
+      </div>
       <div class="meta-facts">
         <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}${asm.metadataVersionTruncated ? "…" : ""}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>
         ${corLine}
+        ${readyToRunLine}
       </div>
-      <div class="meta-grid">
-        <div class="meta-col">
-          <h3 class="meta-col-title">Heaps</h3>
-          <div class="meta-heaps">${heapRows || '<div class="meta-empty">No non-empty heaps</div>'}</div>
-        </div>
-        <div class="meta-col">
-          <h3 class="meta-col-title">Tables <span class="meta-col-note">by row count</span></h3>
-          <div class="meta-tables">${tableRows || '<div class="meta-empty">No populated tables</div>'}</div>
-        </div>
+      <div class="meta-heaps-section">
+        <h3 class="meta-col-title">Heaps</h3>
+        <div class="meta-heaps">${heapRows || '<div class="meta-empty">No non-empty heaps</div>'}</div>
+      </div>
+      <div class="meta-table-directory">
+        <h3 class="meta-col-title">Tables <span class="meta-col-note">grouped by role</span></h3>
+        <div class="meta-table-groups">${tableGroupsHtml || '<div class="meta-empty">No populated tables</div>'}</div>
       </div>
     </section>`;
 }

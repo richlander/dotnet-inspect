@@ -106,7 +106,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
-        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>
@@ -162,6 +162,15 @@ public static class ArgumentPreprocessor
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+                continue;
+            }
+
+            if (token != "--"
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && bool.TryParse(args[i + 1], out _))
             {
                 i++;
             }
@@ -432,14 +441,14 @@ public static class ArgumentPreprocessor
             [
                 "-v", "-T", "--tips",
                 "-S", "-s", "--select", "--section",
-                "-D", "--discover", "--columns", "--fields",
+                "-D", "--discover", "-Q", "--query-help", "--columns", "--fields",
             ],
             StringComparer.Ordinal);
     private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
         new(
             ["--path", "--library", "--version", "--versions", "--versions-with-feed"],
             StringComparer.Ordinal);
-    private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
+    private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "find", "implements", "extensions", "depends"
@@ -455,7 +464,7 @@ public static class ArgumentPreprocessor
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
-        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover",
+        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover", "-Q", "--query-help",
         "--at", "--file", "--finding", "--readme", "--relationship", "--repo"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";

@@ -45,7 +45,7 @@ public static class AttributeDecoder
             {
                 if (_typeDefinitionsByNameObserverFailure)
                 {
-                    throw new MaterializationObserverException(
+                    throw new CallerCallbackException(
                         _typeDefinitionsByNameFailure);
                 }
                 _typeDefinitionsByNameFailure.Throw();
@@ -55,7 +55,7 @@ public static class AttributeDecoder
             {
                 return _typeDefinitionsByName = create();
             }
-            catch (MaterializationObserverException ex)
+            catch (CallerCallbackException ex)
             {
                 _typeDefinitionsByNameFailure = ex.Failure;
                 _typeDefinitionsByNameObserverFailure = true;
@@ -193,11 +193,11 @@ public static class AttributeDecoder
     /// <summary>
     /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
     /// for serialized enum names that are not TypeDefs in
-    /// <paramref name="reader"/>. The resolver receives the exact metadata
-    /// name SRM's provider derives from the blob: the assembly suffix removed,
+    /// <paramref name="reader"/>. The resolver receives the decoder's exact
+    /// metadata-name projection from the blob: the assembly suffix removed,
     /// reflection escapes restored, and nested segments joined with <c>.</c>.
-    /// The pre-decode guard asks with that same projection, so a guard skip
-    /// and this decode never select different widths.
+    /// The owned decoder uses that projection when it selects the width during
+    /// its single walk.
     /// </summary>
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -267,46 +267,103 @@ public static class AttributeDecoder
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType)
-    {
-        var provider = new ArgTypeProvider(
+        => DecodeCore(
             reader,
+            attribute,
             preserveSerializedTypeNames,
             beforeMaterialize,
-            enumUnderlyingType);
+            LegacyResolver(enumUnderlyingType));
+
+    /// <summary>
+    /// Decodes an attribute and additionally reports, per top-level fixed and
+    /// named argument, whether any enum width within that argument defaulted to
+    /// <see cref="PrimitiveTypeCode.Int32"/> because no structural, local,
+    /// trusted, or caller path resolved it. This is the opt-in surface for
+    /// D2's "visibly" clause; the existing <see cref="TryDecode(MetadataReader,
+    /// CustomAttribute)"/> overloads report only the value.
+    /// <paramref name="enumUnderlyingType"/> may report a name unresolved (by
+    /// returning <see langword="false"/>), which a legacy
+    /// <c>Func&lt;string, PrimitiveTypeCode&gt;</c> cannot; an unresolved name
+    /// defaults and is reported set.
+    /// </summary>
+    public static DetailedCustomAttributeValue? TryDecodeDetailed(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize = null,
+        EnumWidthResolver? enumUnderlyingType = null,
+        bool preserveSerializedTypeNames = false)
+    {
         try
         {
-            if (!CustomAttributeValueGuard.IsSafeToDecode(
+            if (!CustomAttributeValueDecoder.TryDecode(
                     reader,
                     attribute,
+                    preserveSerializedTypeNames,
+                    captureDefaultedWidths: true,
                     beforeMaterialize,
-                    provider.GetUnderlyingEnumType))
+                    enumUnderlyingType,
+                    out CustomAttributeValue<string> value,
+                    out System.Collections.Immutable.ImmutableArray<bool> fixedDefaulted,
+                    out System.Collections.Immutable.ImmutableArray<bool> namedDefaulted))
+            {
                 return null;
-        }
-        catch (MaterializationObserverException ex)
-        {
-            ex.Rethrow();
-            throw;
-        }
-        catch (Exception ex) when (
-            ex is BadImageFormatException or ArgumentOutOfRangeException)
-        {
-            return null;
-        }
+            }
 
-        try
-        {
-            return attribute.DecodeValue(provider);
+            return new DetailedCustomAttributeValue(
+                value,
+                fixedDefaulted,
+                namedDefaulted);
         }
-        catch (MaterializationObserverException ex)
+        catch (CallerCallbackException ex)
         {
             ex.Rethrow();
             throw;
-        }
-        catch
-        {
-            return null;
         }
     }
+
+    static CustomAttributeValue<string>? DecodeCore(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        bool preserveSerializedTypeNames,
+        Action<int>? beforeMaterialize,
+        EnumWidthResolver? enumUnderlyingType)
+    {
+        try
+        {
+            return CustomAttributeValueDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    preserveSerializedTypeNames,
+                    captureDefaultedWidths: false,
+                    beforeMaterialize,
+                    enumUnderlyingType,
+                    out CustomAttributeValue<string> value,
+                    out _,
+                    out _)
+                ? value
+                : null;
+        }
+        catch (CallerCallbackException ex)
+        {
+            ex.Rethrow();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Adapts a legacy <c>Func&lt;string, PrimitiveTypeCode&gt;</c> to the
+    /// resolver shape. A legacy answer is authoritative: it always reports
+    /// resolved, so a defaulted-width signal is never set on its behalf.
+    /// </summary>
+    internal static EnumWidthResolver? LegacyResolver(
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
+        => enumUnderlyingType is null
+            ? null
+            : (string name, out PrimitiveTypeCode width) =>
+            {
+                width = enumUnderlyingType(name);
+                return true;
+            };
 
     /// <summary>
     /// Adapts a trusted, closed set of external enum widths to the resolver
@@ -321,241 +378,60 @@ public static class AttributeDecoder
             ? width
             : PrimitiveTypeCode.Int32;
 
-    /// <summary>
-    /// Binds a caller enum-width resolver to the same local-TypeDef-first,
-    /// <see cref="EnumUnderlyingPrimitive.Normalize"/> oracle
-    /// <see cref="ArgTypeProvider.GetUnderlyingEnumType"/> uses so a direct
-    /// <c>IsSafeToDecode(..., resolver)</c> skip cannot diverge from
-    /// <c>DecodeValue</c>.
-    /// </summary>
-    internal static Func<string, PrimitiveTypeCode> BindEnumWidthResolver(
-        MetadataReader reader,
-        Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode> enumUnderlyingType)
-        => enumUnderlyingType.Target is ArgTypeProvider
-            ? enumUnderlyingType
-            : new ArgTypeProvider(
-                reader,
-                preserveSerializedTypeNames: false,
-                beforeMaterialize,
-                enumUnderlyingType).GetUnderlyingEnumType;
-
-    /// <summary>
-    /// Applies the same projection SRM applies to a blob-authored serialized
-    /// enum name before it calls <c>GetUnderlyingEnumType</c>. SRM resolves the
-    /// SerString through <see cref="ArgTypeProvider.GetTypeFromSerializedName"/>
-    /// first, so a guard that consults the width oracle with the raw name asks a
-    /// different question whenever those two spellings normalize differently —
-    /// including names that only parse after the assembly suffix is removed.
-    /// Composing the same two steps keeps the guard skip and
-    /// <c>DecodeValue</c> on one width by construction rather than by relying on
-    /// two normalizations agreeing.
-    /// </summary>
-    internal static string ProjectSerializedEnumName(
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
-        string name)
-        => enumUnderlyingType?.Target is ArgTypeProvider provider
-            ? provider.GetTypeFromSerializedName(name)
-            : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
-
-    /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
-    internal sealed class ArgTypeProvider(
-        MetadataReader reader,
-        bool preserveSerializedTypeNames,
-        Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType) : ICustomAttributeTypeProvider<string>
-    {
-        Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
-        bool _lastNameFromBlob;
-        TypeDefinitionHandle _pendingDefinition;
-        TypeReferenceHandle _pendingReference;
-        MetadataReader? _pendingReader;
-        readonly MaterializationContext? _materializationContext =
-            beforeMaterialize?.Target as MaterializationContext;
-
-        public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
-        {
-            PrimitiveTypeCode.Boolean => "bool",
-            PrimitiveTypeCode.Char => "char",
-            PrimitiveTypeCode.SByte => "sbyte",
-            PrimitiveTypeCode.Byte => "byte",
-            PrimitiveTypeCode.Int16 => "short",
-            PrimitiveTypeCode.UInt16 => "ushort",
-            PrimitiveTypeCode.Int32 => "int",
-            PrimitiveTypeCode.UInt32 => "uint",
-            PrimitiveTypeCode.Int64 => "long",
-            PrimitiveTypeCode.UInt64 => "ulong",
-            PrimitiveTypeCode.Single => "float",
-            PrimitiveTypeCode.Double => "double",
-            PrimitiveTypeCode.String => "string",
-            _ => "object",
-        };
-
-        public string GetSystemType() => "System.Type";
-        public bool IsSystemType(string type) => type == "System.Type";
-        public string GetSZArrayType(string elementType) => elementType + "[]";
-        public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
-        {
-            _lastNameFromBlob = false;
-            // Remember the definition itself, not just its rendered name, and
-            // the reader it belongs to. The pre-decode guard resolves a
-            // definition-typed enum straight from this handle, so resolving the
-            // width from the same handle here is what keeps the two sides on
-            // one width; a rendered name cannot carry that identity, because
-            // distinct definitions can render to the same string.
-            _pendingDefinition = handle;
-            _pendingReference = default;
-            _pendingReader = r;
-            return TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
-        }
-
-        public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
-        {
-            _lastNameFromBlob = false;
-            // A reference carries a resolution scope that its flattened
-            // spelling discards, so remember the reference and let the enum
-            // lookup resolve it structurally, exactly as the guard does. The
-            // handle is recorded rather than resolved here because most
-            // references in an attribute blob name a typeof target rather than
-            // an enum, and resolving one costs a scan of the definition table.
-            _pendingDefinition = default;
-            _pendingReference = handle;
-            _pendingReader = r;
-            return TypeResolver.GetTypeName(
-                r,
-                handle,
-                context: null,
-                beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
-        }
-
-        public string GetTypeFromSerializedName(string name)
-        {
-            // Record that the name produced most recently came from the blob.
-            // SRM asks for a type name and then immediately asks for that
-            // name's underlying enum type, so this tracks the provenance of the
-            // pending lookup rather than remembering spellings. A set would
-            // accumulate, and a spelling that is legitimately handle-derived
-            // later in the same blob would then be resolved as blob syntax.
-            _lastNameFromBlob = true;
-            _pendingDefinition = default;
-            _pendingReference = default;
-            _pendingReader = null;
-            return preserveSerializedTypeNames
-                ? name
-                : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
-        }
-
-        public PrimitiveTypeCode GetUnderlyingEnumType(string type)
-        {
-            // A handle-typed argument is resolved from the definition the
-            // signature named, never from its rendered name. Nested types join
-            // their declaring type with '.', the same separator used between a
-            // namespace and a type name, so distinct definitions can render to
-            // one string and a name index must drop one of them; a reference
-            // also carries a resolution scope that its spelling discards. The
-            // guard resolves the same argument from the same handle through the
-            // same function, so taking the handle here keeps both sides on one
-            // width by construction.
-            //
-            // A blob-authored name is reflection syntax and is normalized
-            // first; a handle-derived name that has no pending definition is an
-            // exact metadata spelling and is matched verbatim before being
-            // normalized.
-            bool fromBlob = _lastNameFromBlob;
-            TypeDefinitionHandle pending = _pendingDefinition;
-            TypeReferenceHandle pendingReference = _pendingReference;
-            MetadataReader? pendingReader = _pendingReader;
-            _lastNameFromBlob = false;
-            _pendingDefinition = default;
-            _pendingReference = default;
-            _pendingReader = null;
-
-            if (pendingReader is not null)
-            {
-                if (!pending.IsNil)
-                    return EnumUnderlyingPrimitive.FromDefinition(pendingReader, pending);
-                if (!pendingReference.IsNil
-                    && EnumUnderlyingPrimitive.TryResolveDefinition(
-                        pendingReader,
-                        pendingReference,
-                        out TypeDefinitionHandle referenced))
-                {
-                    return EnumUnderlyingPrimitive.FromDefinition(pendingReader, referenced);
-                }
-            }
-
-            if (!fromBlob && TypeDefinitionsByName.TryGetValue(type, out var exact))
-                return EnumUnderlyingPrimitive.FromDefinition(reader, exact);
-
-            string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
-            if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))
-                return EnumUnderlyingPrimitive.FromDefinition(reader, handle);
-
-            return enumUnderlyingType is not null
-                ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(normalized))
-                : PrimitiveTypeCode.Int32;
-        }
-
-        Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
-            _materializationContext?.GetOrCreateTypeDefinitionsByName(
-                BuildTypeDefinitionIndex)
-            ?? (_typeDefinitionsByName ??= BuildTypeDefinitionIndex());
-
-        Dictionary<string, TypeDefinitionHandle> BuildTypeDefinitionIndex()
-        {
-            ObserveBeforeMaterialize(reader.TypeDefinitions.Count);
-            var result = new Dictionary<string, TypeDefinitionHandle>(
-                reader.TypeDefinitions.Count,
-                StringComparer.Ordinal);
-            foreach (var handle in reader.TypeDefinitions)
-            {
-                string name;
-                try
-                {
-                    name = TypeResolver.GetTypeNameFromDefinition(
-                        reader,
-                        handle,
-                        ObserveBeforeMaterialize);
-                }
-                catch (Exception ex) when (
-                    ex is BadImageFormatException or ArgumentOutOfRangeException)
-                {
-                    throw new TypeDefinitionIndexException(
-                        MetadataTypeNameFailure.Malformed(handle, ex.Message));
-                }
-
-                result.TryAdd(name, handle);
-            }
-            return result;
-        }
-
-        void ObserveBeforeMaterialize(int characters)
-        {
-            try
-            {
-                beforeMaterialize?.Invoke(characters);
-            }
-            catch (Exception ex)
-            {
-                throw new MaterializationObserverException(
-                    ExceptionDispatchInfo.Capture(ex));
-            }
-        }
-    }
-
     internal sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
         : BadImageFormatException(failure.Detail)
     {
         public MetadataTypeNameFailure Failure { get; } = failure;
     }
 
-    sealed class MaterializationObserverException(ExceptionDispatchInfo failure)
+    /// <summary>
+    /// Private sentinel that carries a caller callback's original exception —
+    /// from the <c>beforeMaterialize</c> observer or the enum-width resolver —
+    /// unchanged past the decoder's malformed-input catches so the public edge
+    /// can rethrow it. Because it is not a
+    /// <see cref="BadImageFormatException"/> or
+    /// <see cref="ArgumentOutOfRangeException"/>, a caller callback raising
+    /// either of those is never misclassified as a malformed blob (#5085,
+    /// #5759).
+    /// </summary>
+    internal sealed class CallerCallbackException(ExceptionDispatchInfo failure)
         : Exception(null, failure.SourceException)
     {
         public ExceptionDispatchInfo Failure { get; } = failure;
 
         public void Rethrow() =>
             Failure.Throw();
+    }
+
+    /// <summary>
+    /// Resolves a serialized enum type name to its underlying width, reporting
+    /// through the return value whether it could. A <see langword="false"/>
+    /// return means the width is unresolved and the decoder defaults it to
+    /// <see cref="PrimitiveTypeCode.Int32"/> and reports it defaulted, which a
+    /// legacy <c>Func&lt;string, PrimitiveTypeCode&gt;</c> cannot express.
+    /// </summary>
+    public delegate bool EnumWidthResolver(
+        string enumTypeName,
+        out PrimitiveTypeCode underlyingType);
+
+    /// <summary>
+    /// A decoded attribute value with the additive defaulted-width signal
+    /// (#5288 D2, #5742). Each flag is <see langword="true"/> when any enum
+    /// width within the corresponding top-level fixed or named argument
+    /// defaulted to <see cref="PrimitiveTypeCode.Int32"/>.
+    /// </summary>
+    public readonly struct DetailedCustomAttributeValue(
+        CustomAttributeValue<string> value,
+        System.Collections.Immutable.ImmutableArray<bool> fixedArgumentEnumWidthDefaulted,
+        System.Collections.Immutable.ImmutableArray<bool> namedArgumentEnumWidthDefaulted)
+    {
+        public CustomAttributeValue<string> Value { get; } = value;
+
+        public System.Collections.Immutable.ImmutableArray<bool>
+            FixedArgumentEnumWidthDefaulted { get; } = fixedArgumentEnumWidthDefaulted;
+
+        public System.Collections.Immutable.ImmutableArray<bool>
+            NamedArgumentEnumWidthDefaulted { get; } = namedArgumentEnumWidthDefaulted;
     }
 
 }

@@ -7,27 +7,20 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// Single width oracle for enum-typed custom-attribute arguments.
 ///
-/// SRM asks <c>ICustomAttributeTypeProvider.GetUnderlyingEnumType</c> for a
-/// name and then consumes that many value bytes. The pre-decode guard has to
-/// skip the same number of bytes or every later declared count is read from
-/// the wrong offset. Both callers therefore resolve a handle or serialized
-/// name to a local <see cref="TypeDefinition"/> the same way. A name that is
-/// not a TypeDef in the current image falls back to
-/// <see cref="PrimitiveTypeCode.Int32"/> so the skip stays aligned, unless a
-/// caller-supplied resolver found the defining image first. A local TypeDef
-/// still wins over that resolver. For a handle the guard consults the resolver
-/// with the same name SRM derives from that handle; for a blob-authored
-/// SerString it first applies SRM's own
-/// <c>GetTypeFromSerializedName</c> projection through
-/// <see cref="AttributeDecoder.ProjectSerializedEnumName"/>, so the two sides
-/// ask one identical question by construction rather than by relying on two
-/// normalizations agreeing on names that only parse once the assembly suffix
-/// is removed. Both then <see cref="Normalize"/> the returned code so an
-/// assembly-qualified SerString or a non-fixed-width callback cannot select a
-/// different skip than SRM. <c>CustomAttributeValueGuardTests</c>'s
+/// The owned decoder resolves a handle or serialized name to a local
+/// <see cref="TypeDefinition"/> before consuming the enum value bytes. A local
+/// TypeDef wins over a caller-supplied resolver. If neither path resolves the
+/// width, the decoder uses <see cref="PrimitiveTypeCode.Int32"/> and its
+/// detailed result reports that fallback as defaulted. For a handle the decoder
+/// resolves the width directly from the definition; for a blob-authored
+/// SerString it strips the assembly qualification and restores reflection
+/// escapes before lookup. Both then <see cref="Normalize"/> the returned code
+/// so an assembly-qualified SerString or a non-fixed-width callback cannot
+/// select an unexpected width.
+/// <c>CustomAttributeValueDecoderTests</c>'s
 /// <c>EscapedNamedEnum_MalformedAssemblySuffix_SeesOverlappingHostileCount</c>
 /// and <c>EscapedNamedEnum_OverBudgetAssemblySuffix_SeesOverlappingHostileCount</c>
-/// gate that alignment.
+/// gate that resolution.
 /// </summary>
 static class EnumUnderlyingPrimitive
 {
@@ -150,11 +143,11 @@ static class EnumUnderlyingPrimitive
         or PrimitiveTypeCode.UInt64;
 
     /// <summary>
-    /// SRM casts the provider result to <c>SerializationTypeCode</c> and
-    /// consumes a SerString for <see cref="PrimitiveTypeCode.String"/>.
     /// Only fixed-width enum primitives stay; everything else, including
-    /// String, falls back to <see cref="PrimitiveTypeCode.Int32"/> so the
-    /// guard and decoder skip the same four bytes.
+    /// <see cref="PrimitiveTypeCode.String"/>, normalizes to
+    /// <see cref="PrimitiveTypeCode.Int32"/>. A caller-provided answer remains
+    /// resolved for defaulted-width reporting; normalization only constrains
+    /// the byte width.
     /// </summary>
     public static PrimitiveTypeCode Normalize(PrimitiveTypeCode code) => code switch
     {

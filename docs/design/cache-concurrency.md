@@ -202,6 +202,15 @@ transactions from older direct-copy writers, earlier layouts that did not
 scope entries by source, and payloads previously misattributed by a
 noncanonical NuGet.org URL shortcut.
 
+Configured-authority acquisition reuses this publication mechanism with a
+separate `package-authority-content-v1` slot family. Its authority key and
+producer evidence are distinct; HTTP authorities without durable identity
+instead publish into caller-owned temporary storage. The
+[package source model](package-source-model.md#caller-pinned-payload-acquisition)
+owns authorization and adoption. The legacy `package-content-v5` family
+remains active for unmigrated callers rather than being relabeled or retired
+by this additive namespace.
+
 ## Versioned cache retirement
 
 Each versioned cache family registers its prefix and current numeric contract.
@@ -250,10 +259,12 @@ cache-coherency guarantees.
 ## Overlapping dependency work
 
 Two in-process dependency graphs that overlap on a package either await the
-same task for that exact coordinate or perform independent manifest reads.
-Tasks for different coordinates do not wait on one another, so they cannot form
-a wait cycle. Dependency traversal fetches only dependency nuspecs and uses a
-traversal-local seen set to terminate dependency cycles.
+same task under the full process-local acquisition key or perform independent
+manifest reads. Tasks under different acquisition keys do not wait on one
+another, so they cannot form a wait cycle. The target
+[package dependency traversal](package-dependency-traversal.md) uses
+root-relative source-projection identity to terminate dependency cycles; it
+must not introduce a coordinate-only single-flight key above this registry.
 
 Across processes there is no coordination wait. Publishers use unique staging
 directories, and the final rename succeeds or reports a conflict without

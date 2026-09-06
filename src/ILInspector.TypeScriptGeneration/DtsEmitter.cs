@@ -43,8 +43,18 @@ static class DtsEmitter
         TypeScriptGenerationDiagnostics? diagnostics = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity =
+                DeclaredTypesByScopedIdentity(
+                    surface,
+                    TypeInventory(
+                        surface,
+                        declarationTypes));
         ValidateTypeNames(declarationTypes);
-        ValidateWireNames(declarationTypes);
+        ValidateWireNames(
+            surface.AssemblyIdentity,
+            declarationTypes,
+            declaredTypesByScopedIdentity);
         ValidateFunctionNames(surface.Functions);
 
         var sb = new StringBuilder();
@@ -52,6 +62,7 @@ static class DtsEmitter
             sb,
             surface,
             declarationTypes,
+            declaredTypesByScopedIdentity,
             diagnostics);
 
         foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
@@ -71,14 +82,25 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity =
+                DeclaredTypesByScopedIdentity(
+                    surface,
+                    TypeInventory(
+                        surface,
+                        declarationTypes));
         ValidateTypeNames(declarationTypes, allocatedTypeNames);
-        ValidateWireNames(declarationTypes);
+        ValidateWireNames(
+            surface.AssemblyIdentity,
+            declarationTypes,
+            declaredTypesByScopedIdentity);
 
         var sb = new StringBuilder();
         EmitWireDeclarations(
             sb,
             surface,
             declarationTypes,
+            declaredTypesByScopedIdentity,
             diagnostics,
             allocatedTypeNames);
         return sb.ToString();
@@ -99,17 +121,58 @@ static class DtsEmitter
             includeRawReturnType);
 
     static ApiType[] GetDeclarationTypes(
-        ILInspector.JsExportSurface.JsExportSurface surface) =>
-        [
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        JsExportUnion? union = surface.Unions.FirstOrDefault(
+            union => ShouldEmit(surface, union.Definition));
+        if (union is not null)
+        {
+            throw new UnsupportedWireContractException(
+                union.Definition.FullName,
+                "native C# union TypeScript lowering is not implemented");
+        }
+        return [
             .. surface.Records
                 .Concat(surface.Enums)
                 .Where(type => ShouldEmit(surface, type)),
         ];
+    }
+
+    static IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+        DeclaredTypesByScopedIdentity(
+            ILInspector.JsExportSurface.JsExportSurface surface,
+            IEnumerable<ApiType> types) =>
+        surface.AssemblyIdentity is { } assembly
+            ? types
+                .Select(type => (
+                    Identity: new ApiTypeReferenceIdentity(
+                        assembly,
+                        type.FullName,
+                        type.DefinitionName),
+                    Type: type))
+                .GroupBy(candidate => candidate.Identity)
+                .Where(group => group
+                    .Select(candidate => candidate.Type)
+                    .Distinct()
+                    .Count() == 1)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First().Type)
+            : new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+
+    static IEnumerable<ApiType> TypeInventory(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType[] declarationTypes) =>
+        surface.AllTypes.Count > 0
+            ? surface.AllTypes
+            : declarationTypes;
 
     static void EmitWireDeclarations(
         StringBuilder sb,
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType[] declarationTypes,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity,
         TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
     {
@@ -143,6 +206,8 @@ static class DtsEmitter
                     out JsonWireDirection recordDirections)
                     ? recordDirections
                     : JsonWireDirection.Both,
+                surface.AssemblyIdentity,
+                declaredTypesByScopedIdentity,
                 AllocatedTypeName(record, allocatedTypeNames),
                 typeEnvironment,
                 diagnostics);
@@ -478,6 +543,9 @@ static class DtsEmitter
         StringBuilder sb,
         ApiType record,
         JsonWireDirection directions,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity,
         string declarationName,
         TypeMappingEnvironment typeEnvironment,
         TypeScriptGenerationDiagnostics? diagnostics)
@@ -495,7 +563,10 @@ static class DtsEmitter
             EmitBlockedType(sb, declarationName);
             return;
         }
-        if (HasUnsupportedRecordWireShape(record))
+        if (HasUnsupportedRecordWireShape(
+                record,
+                assemblyIdentity,
+                declaredTypesByScopedIdentity))
         {
             ReportUnsupportedJsonWireShape(record.Name, diagnostics);
             EmitBlockedType(sb, declarationName);
@@ -507,7 +578,9 @@ static class DtsEmitter
                 member => JsonWireMemberRules
                     .RequiresConstructorBindingEvidence(
                         record,
-                        member)))
+                        member,
+                        assemblyIdentity,
+                        declaredTypesByScopedIdentity)))
         {
             ReportUnsupportedConstructorBinding(
                 record.Name,
@@ -517,7 +590,11 @@ static class DtsEmitter
         }
 
         if (directions == JsonWireDirection.Both
-            && record.Members.Any(JsonWireMemberRules.IsDirectionSensitive))
+            && record.Members.Any(member =>
+                JsonWireMemberRules.IsDirectionSensitive(
+                    member,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity)))
         {
             ReportDirectionSplitWireShape(record.Name, diagnostics);
             EmitBlockedType(sb, declarationName);
@@ -527,7 +604,9 @@ static class DtsEmitter
         var members = record.Members
             .Where(member => JsonWireMemberRules.IsSerialized(
                 member,
-                directions))
+                directions,
+                assemblyIdentity,
+                declaredTypesByScopedIdentity))
             .Select(member => (
                 Member: member,
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
@@ -570,7 +649,11 @@ static class DtsEmitter
         sb.Append("}\n\n");
     }
 
-    static void ValidateWireNames(IEnumerable<ApiType> types)
+    static void ValidateWireNames(
+        ApiAssemblyIdentity? assemblyIdentity,
+        IEnumerable<ApiType> types,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
     {
         foreach (ApiType type in types)
         {
@@ -644,7 +727,10 @@ static class DtsEmitter
                 type.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
             var resolvedNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (ApiMember member in type.Members
-                .Where(JsonWireMemberRules.IsSerialized))
+                .Where(member => JsonWireMemberRules.IsSerialized(
+                    member,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity)))
             {
                 string resolvedName = member.JsonPropertyName
                     ?? ApplyNamingPolicy(member.Name, namingPolicy);
@@ -895,12 +981,19 @@ static class DtsEmitter
             || !type.HasJsonStringEnumConverter
             || type.JsonConverterAttributeCount != 1);
 
-    static bool HasUnsupportedRecordWireShape(ApiType type)
+    static bool HasUnsupportedRecordWireShape(
+        ApiType type,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
     {
         if (type.HasUnsupportedJsonWireAttributes
             || type.Members.Any(member =>
                 member.HasUnsupportedJsonWireAttributes
-                && JsonWireMemberRules.IsSerialized(member)))
+                && JsonWireMemberRules.IsSerialized(
+                    member,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity)))
         {
             return true;
         }

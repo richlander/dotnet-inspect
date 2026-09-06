@@ -752,6 +752,14 @@ public class IlToolsActivationTests
         Assert.Contains(
             "eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv --native-paths >> \"$GITHUB_PATH\"",
             installStep);
+        Assert.Contains(
+            "run: dotnet run --project tests/ILInspector.Metadata.Tests " +
+            "-c Release -- --long-running 60 --xunit-diagnostics on",
+            job);
+        Assert.Contains(
+            "run: dotnet run --project src/ILInspector.Research.Tests " +
+            "-c Release -- --fail-skips on",
+            job);
 
         string checkStep = job[terminalCheck..];
         Assert.Contains(
@@ -808,7 +816,8 @@ public class IlToolsActivationTests
             (
                 "cli",
                 "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
-                "--filter-not-trait \"Speed=Slow\""),
+                "--filter-not-trait \"Speed=Slow\" && " +
+                "dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release"),
             (
                 "services",
                 "dotnet run --project " +

@@ -341,6 +341,27 @@ public static class InspectionCommandDefinitions
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
+            if (!IntegrationQueryOptions.TryExtract(
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    out var integrationQuery,
+                    out var nonIntegrationWhere,
+                    out var integrationError))
+            {
+                CommandError.Write(integrationError);
+                return 1;
+            }
+            var independentTriage = opts.ParsePerformanceTriageOptions(parseResult, []);
+            if (integrationQuery.HasFilter
+                && (nonIntegrationWhere.Length > 0
+                    || independentTriage.HasFilters
+                    || independentTriage.HasRanking
+                    // Count mode suppresses Top, but the explicit option is still incompatible.
+                    || parseResult.GetValue(opts.PerformanceTriageTop) is not null))
+            {
+                CommandError.Write(
+                    "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+                return 1;
+            }
             var source = parseResult.GetValue(assemblyPathArg);
             var explicitPackage = parseResult.GetValue(asmPackageOption);
             var explicitPlatform = parseResult.GetValue(asmPlatformOption);
@@ -352,8 +373,15 @@ public static class InspectionCommandDefinitions
             var requestedFramework = parseResult.GetValue(asmFrameworkOption);
             var requestedPlatformVersion = parseResult.GetValue(asmVersionOption);
             NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+            bool structuralDiscovery =
+                opts.IsDiscoveryMode(parseResult)
+                && opts.ParseSchema(parseResult);
 
-            if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
+            if (structuralDiscovery)
+            {
+                assemblyPath = source;
+            }
+            else if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
                 if (File.Exists(source))
                     assemblyPath = source;
@@ -400,9 +428,8 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
-            var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
             if (!BodyKindQueryOptions.TryExtract(
-                    whereExpressions,
+                    nonIntegrationWhere,
                     out var bodyKindQuery,
                     out var performanceWhere,
                     out var bodyKindError))
@@ -471,6 +498,7 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = requestedFramework,
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
+                IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),

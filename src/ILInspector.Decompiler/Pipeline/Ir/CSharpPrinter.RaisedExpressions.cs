@@ -115,10 +115,10 @@ public sealed partial class CSharpPrinter
             lambda.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
         string parameters = hasByRefParameter
             ? $"({string.Join(", ", lambda.Parameters.Select((parameter, index) =>
-                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.Name)}"))})"
+                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.DisplayName)}"))})"
             : lambda.Parameters is [var single]
-                ? CSharpNaming.ContainedIdentifier(single.Name)
-                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
+                ? CSharpNaming.ContainedIdentifier(single.DisplayName)
+                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.DisplayName)))})";
 
         if (lambda.ExpressionBody is { } expr)
         {
@@ -127,7 +127,21 @@ public sealed partial class CSharpPrinter
             {
                 _ = LambdaBodyTextWithLocalScope(lambda);
             }
-            return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");
+            string expressionText = ExpressionTreeBodyText(lambda, expr);
+            if (!lambda.IsExpressionTree
+                && EmitsUnsafeBlocks
+                && HasRequiredUnsafeOperation(expr))
+            {
+                string statementText = lambda.ReturnsVoid
+                    ? $"{expressionText};"
+                    : $"return {expressionText};";
+                string bodyText =
+                    $"unsafe\n{{\n    {statementText}\n}}";
+                return LambdaConversionText(
+                    lambda,
+                    LambdaBlockText(parameters, bodyText));
+            }
+            return LambdaConversionText(lambda, $"{parameters} => {expressionText}");
         }
 
         var statementNodes = lambda.Body.Blocks
@@ -292,6 +306,7 @@ public sealed partial class CSharpPrinter
                 body)
             {
                 LocalNames = lambda.LocalNames,
+                SynthesizedLocalNames = lambda.SynthesizedLocalNames,
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };

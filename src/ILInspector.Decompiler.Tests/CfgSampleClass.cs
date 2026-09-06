@@ -390,6 +390,22 @@ public class CfgSampleClass
     // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
     public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
 
+    public static int LambdaParameterReusesOuterLocal(int input)
+    {
+        int value = input;
+        RefHelper(ref value);
+        System.Func<int, int> transform = value => value + 1;
+        return value + transform(input);
+    }
+
+    public static System.Func<int> LambdaLocalReusesOuterParameter(int value)
+        => () =>
+        {
+            int value = 1;
+            RefHelper(ref value);
+            return value;
+        };
+
     // Expression-tree lambdas do not emit a generated closure method to import;
     // ExpressionLambdaRewriter lowers the syntax directly to factory calls.
     public static System.Linq.Expressions.Expression<System.Func<int, int>> SimpleExpressionTreeLambda()
@@ -2290,6 +2306,27 @@ public class CfgSampleClass
         return Twice(x);
 
         static int Twice(int v) => v * 2;
+    }
+
+    public static int LocalFunctionParameterReusesOuterLocal(int input)
+    {
+        int value = input;
+        RefHelper(ref value);
+        return value + AddOne(input);
+
+        static int AddOne(int value) => value + 1;
+    }
+
+    public static int LocalFunctionLocalReusesOuterParameter(int value)
+    {
+        return Read();
+
+        static int Read()
+        {
+            int value = 1;
+            RefHelper(ref value);
+            return value;
+        }
     }
 
     // Adversarial breadth: a static local function called more than once. The call
@@ -4628,6 +4665,25 @@ public class CfgSampleClass
     }
 #pragma warning restore CS1998, CS9123
 
+    public unsafe int UnsafeGetter
+    {
+        get
+        {
+            int value = 42;
+            return *(&value);
+        }
+    }
+
+    public unsafe event Action UnsafeChanged
+    {
+        add
+        {
+            int local = 0;
+            _ = *(&local);
+        }
+        remove { }
+    }
+
     public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
     {
         int x = await t;
@@ -4723,6 +4779,38 @@ public class CfgSampleClass
             sum += value;
 
         return sum;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitForeachAfterUnsafeRead(
+        nint address,
+        System.Collections.Generic.IAsyncEnumerable<int> source)
+    {
+        int sum;
+        unsafe
+        {
+            sum = *(int*)address;
+        }
+
+        await foreach (int value in source)
+            sum += value;
+
+        return sum;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingAfterUnsafeRead(
+        nint address,
+        System.IAsyncDisposable resource)
+    {
+        int value;
+        unsafe
+        {
+            value = *(int*)address;
+        }
+
+        await using (resource)
+        {
+            return value;
+        }
     }
 
     public static async System.Threading.Tasks.Task<int> ManualAwaitEnumeratorLoop(
@@ -5314,6 +5402,12 @@ public class CfgSampleClass
         int n = 0;
         using (System.IDisposable @class = new SpanScope(0)) { n = 1; }
         return n;
+    }
+
+    public static IEnumerable<int> KeywordNamedIteratorLocal(int value)
+    {
+        for (int @class = 0; @class < value; @class++)
+            yield return @class;
     }
 
     // The expression form deliberately converts a value type to IDisposable.

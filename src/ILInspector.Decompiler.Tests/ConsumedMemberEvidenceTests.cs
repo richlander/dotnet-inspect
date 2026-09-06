@@ -60,4 +60,34 @@ public class ConsumedMemberEvidenceTests
     public void UnresolvedOrdinaryMethod_SeedsTargetRoot()
         // Unknown kind + a non-accessor name is still an ordinary member.
         => Assert.True(new ConsumedMemberEvidence(Method: Method("Compute", AccessorKind.Unknown)).EffectiveAllowTargetRoot);
+
+    [Fact]
+    public void PayloadOnlyRaisedMembers_AreRoutedAsTypedEvidence()
+    {
+        var setter = new MethodRef(Type, "set_Value", Int, [Int], HasThis: false)
+        {
+            AccessorKind = AccessorKind.PropertySet,
+        };
+        var field = new FieldRef(Type, "Field", Int);
+        var chain = new ChainedAssignment(
+            [
+                ChainedAssignmentTarget.StaticProperty(setter, isVirtual: false),
+                ChainedAssignmentTarget.StaticField(field),
+            ],
+            new Constant(1, Int));
+        var patternAccessor = Method("get_Value", AccessorKind.PropertyGet);
+        var arm = new PatternSwitchExpressionArm(
+            Type,
+            localIndex: null,
+            new PropertySubpattern(patternAccessor, Int, LocalIndex: 0),
+            new Constant(1, Int));
+        var evidence = new List<ConsumedMemberEvidence>();
+
+        ConsumedMemberEvidence.AddFrom(chain, evidence);
+        ConsumedMemberEvidence.AddFrom(arm, evidence);
+
+        Assert.Contains(evidence, item => item.Method == setter);
+        Assert.Contains(evidence, item => item.Field == field);
+        Assert.Contains(evidence, item => item.Method == patternAccessor);
+    }
 }

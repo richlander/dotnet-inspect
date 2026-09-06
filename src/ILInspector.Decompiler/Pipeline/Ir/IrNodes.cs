@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
@@ -199,6 +200,25 @@ public sealed record MethodRef(
     public bool RequiresUnsafe { get; init; }
 
     /// <summary>
+    /// Whether Metadata's normalized module/member contract proves that invoking
+    /// this method does or does not require unsafe context.
+    /// A known <see cref="MetadataFactState.No"/> is significant under updated
+    /// rules: pointer signature shape alone must not recreate a caller contract.
+    /// Unresolved MemberRefs remain <see cref="MetadataFactState.Unknown"/>, where
+    /// the compatibility signature fallback still applies.
+    /// </summary>
+    public MetadataFactState RequiresUnsafeFact { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// The callee module's normalized memory-safety model. Invalid states are
+    /// retained so fidelity accounting can visibly decline instead of treating a
+    /// direct member attribute as authoritative outside a supported module model.
+    /// </summary>
+    public MemorySafetyRulesState? MemorySafetyRulesState { get; init; }
+    public bool MemorySafetyRulesUnavailable { get; init; }
+    public bool MemorySafetyContractUnavailable { get; init; }
+
+    /// <summary>
     /// Metadata SpecialName evidence (accessors, operators, constructors). Exact
     /// for MethodDefs; unresolved MemberRefs carry no flags, so the importer may
     /// infer this from compiler-reserved names only to preserve spellability
@@ -305,14 +325,14 @@ public sealed record MethodRef(
     public MetadataFactState IsUnmanagedCallersOnly { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
-    /// True when a managed-pointer argument is passed to a by-ref parameter of
-    /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
-    /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
-    /// a generic type instance), which carries no parameter rows, so the
-    /// call-site <c>out</c>/<c>in</c>/<c>ref</c> kind is unknown. The printer
-    /// then spells a default keyword it cannot verify (wrong for out/in:
-    /// CS1620/CS1615), so callers lower fidelity rather than claim a faithful
-    /// render. <paramref name="nonReceiverArguments"/> aligns 1:1 with
+    /// True when a managed-reference or unmanaged-pointer argument is passed to
+    /// a by-ref parameter of this callee while <see cref="ParameterRefKinds"/> is
+    /// empty — the callee resolved as a MemberReference (cross-assembly, or a
+    /// same-assembly call on a generic type instance), which carries no parameter
+    /// rows, so the call-site <c>out</c>/<c>in</c>/<c>ref</c> kind is unknown.
+    /// The printer then spells a default keyword it cannot verify (wrong for
+    /// out/in: CS1620/CS1615), so callers lower fidelity rather than claim a
+    /// faithful render. <paramref name="nonReceiverArguments"/> aligns 1:1 with
     /// <see cref="ParameterTypes"/> (the instance receiver dropped first).
     /// </summary>
     public bool HasUnverifiableByRefArgument(IReadOnlyList<IrExpression> nonReceiverArguments)
@@ -321,7 +341,8 @@ public sealed record MethodRef(
             return false;
         for (int i = 0; i < ParameterTypes.Length && i < nonReceiverArguments.Count; i++)
             if (ParameterTypes[i].Kind == TypeRefKind.ByRef
-                && nonReceiverArguments[i].ResultType is { Kind: TypeRefKind.ByRef })
+                && nonReceiverArguments[i].ResultType is
+                    { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer })
                 return true;
         return false;
     }
@@ -381,6 +402,9 @@ public sealed class IrFunction : IrNode
         Name = name;
         DeclaringType = declaringType;
         Signature = signature;
+        ReceiverParameter = signature.HasThis
+            ? new Parameter("this", declaringType)
+            : null;
         Locals = locals;
         AddChild(body);
     }
@@ -391,6 +415,7 @@ public sealed class IrFunction : IrNode
     public int MetadataToken { get; set; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
+    internal Parameter? ReceiverParameter { get; }
     public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
     /// <summary>
     /// Typed constructor evidence decoded from the reserved metadata method name
@@ -404,9 +429,34 @@ public sealed class IrFunction : IrNode
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
+    public bool RequiresUnsafeContract { get; set; }
     internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
         { get; set; }
     internal bool IsMetadataBacked { get; set; }
+
+    internal void ValidateArgumentBindings()
+    {
+        foreach (var node in Descendants)
+        {
+            bool missing = node switch
+            {
+                    LoadArgument { Parameter: null } => true,
+                    LoadArgumentAddress { Parameter: null } => true,
+                    StoreArgument { Parameter: null } => true,
+                    DeconstructionTarget
+                    {
+                        Kind: DeconstructionTargetKind.Argument,
+                        ArgumentParameter: null,
+                    } => true,
+                    _ => false,
+            };
+            if (missing)
+            {
+                throw new InvalidOperationException(
+                    $"Invariant violated: metadata-backed '{Name}' contains an argument node without binder identity: {node.Describe()}.");
+            }
+        }
+    }
 
     /// <summary>
     /// True when a consumer embedding this body in a C# method declaration must
@@ -425,7 +475,7 @@ public sealed class IrFunction : IrNode
         || IsRuntimeAsync == MetadataFactState.Yes;
 
     /// <summary>
-    /// Appends a local slot (and its source name) and returns its index. Used by
+    /// Appends a local slot (and its recovered source name) and returns its index. Used by
     /// raising passes that introduce a variable absent from the original IL — e.g.
     /// <see cref="ILInspector.Decompiler.Pipeline.IteratorReconstructionPass"/>
     /// materializing a hoisted iterator loop field back into a C# loop local. Keeps
@@ -439,6 +489,13 @@ public sealed class IrFunction : IrNode
         while (names.Length < index)
             names = names.Add(null);
         LocalNames = names.Add(name);
+        if (!SynthesizedLocalNames.IsDefaultOrEmpty)
+        {
+            var synthesized = SynthesizedLocalNames;
+            while (synthesized.Length < index)
+                synthesized = synthesized.Add(null);
+            SynthesizedLocalNames = synthesized.Add(null);
+        }
         if (!LocalDeclaredInNestedScope.IsDefaultOrEmpty)
         {
             // A slot a pass invents has no PDB scope, so it is not nested.
@@ -447,6 +504,21 @@ public sealed class IrFunction : IrNode
                 nested = nested.Add(false);
             LocalDeclaredInNestedScope = nested.Add(false);
         }
+        return index;
+    }
+
+    /// <summary>
+    /// Appends a pass-created local with a preferred presentation name. Unlike
+    /// <see cref="LocalNames"/>, the name is not artifact identity and remains
+    /// collision-resolved against enclosing and descendant binders.
+    /// </summary>
+    public int AddSynthesizedLocal(TypeRef type, string name)
+    {
+        int index = AddLocal(type);
+        var synthesized = SynthesizedLocalNames;
+        while (synthesized.Length <= index)
+            synthesized = synthesized.Add(null);
+        SynthesizedLocalNames = synthesized.SetItem(index, name);
         return index;
     }
 
@@ -463,14 +535,23 @@ public sealed class IrFunction : IrNode
     /// transplanted body is not silently undone. A null set drops any prior
     /// marking, since the new numbering no longer names the same locals.
     /// </summary>
-    public void ResetLocals(ImmutableArray<TypeRef> locals, ImmutableArray<string?> names,
-        IReadOnlySet<int>? eliminatedSlots = null)
+    public void ResetLocals(
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> names,
+        IReadOnlySet<int>? eliminatedSlots = null,
+        ImmutableArray<string?> synthesizedNames = default)
     {
         Locals = locals;
         var aligned = names;
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
+        var alignedSynthesized = synthesizedNames.IsDefault
+            ? ImmutableArray<string?>.Empty
+            : synthesizedNames;
+        while (alignedSynthesized.Length < locals.Length)
+            alignedSynthesized = alignedSynthesized.Add(null);
+        SynthesizedLocalNames = alignedSynthesized;
         // The new numbering no longer names the same locals, so any scope evidence
         // gathered for the old slots would be misattributed. Drop it: the printer then
         // degrades to the byte-stable method-scope shape rather than guessing.
@@ -600,6 +681,13 @@ public sealed class IrFunction : IrNode
     /// printer renders a present name and falls back to <c>V_index</c> otherwise.
     /// </summary>
     public ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    /// <summary>
+    /// Preferred names for locals introduced by reconstruction rather than
+    /// recovered from artifact identity. Length-aligned with <see cref="Locals"/>
+    /// when non-empty.
+    /// </summary>
+    public ImmutableArray<string?> SynthesizedLocalNames { get; set; } = [];
 
     /// <summary>
     /// Per entry in <see cref="Locals"/>, whether the portable PDB scoped the local to
@@ -2056,16 +2144,19 @@ public sealed class AwaitExpression : IrExpression
     public AwaitExpression(
         IrExpression operand,
         TypeRef? resultType,
-        MetadataFactState resultIsDynamic = MetadataFactState.Unknown)
+        MetadataFactState resultIsDynamic = MetadataFactState.Unknown,
+        ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         AddChild(operand);
         ResultType = resultType;
         ResultIsDynamic = resultIsDynamic;
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
     }
 
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType { get; }
     public MetadataFactState ResultIsDynamic { get; }
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
 
     public override string Describe() => "AwaitExpression";
 }
@@ -2191,15 +2282,33 @@ public sealed class ExpressionStatement : IrNode
     witness: "corpus compile-back")]
 public sealed class LoadArgument : IrExpression
 {
+    readonly string _name = "";
+
     public LoadArgument(int index, string name, TypeRef type)
     {
         Index = index;
-        Name = name;
+        _name = name;
         Type = type;
     }
 
+    internal LoadArgument(int index, string name, TypeRef type, Parameter? parameter)
+        : this(index, name, type)
+    {
+        Parameter = parameter;
+    }
+
+    public LoadArgument(int index, Parameter parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        Index = index;
+        _name = parameter.Name;
+        Parameter = parameter;
+        Type = parameter.Type;
+    }
+
     public int Index { get; }
-    public string Name { get; }
+    internal Parameter? Parameter { get; }
+    public string Name => Parameter?.DisplayName ?? _name;
     public TypeRef Type { get; }
 
     /// <summary>
@@ -2217,16 +2326,40 @@ public sealed class LoadArgument : IrExpression
 
 public sealed class StoreArgument : IrNode
 {
+    readonly string _name = "";
+
     public StoreArgument(int index, string name, TypeRef type, IrExpression value)
     {
         Index = index;
-        Name = name;
+        _name = name;
         Type = type;
         AddChild(value);
     }
 
+    internal StoreArgument(
+        int index,
+        string name,
+        TypeRef type,
+        IrExpression value,
+        Parameter? parameter)
+        : this(index, name, type, value)
+    {
+        Parameter = parameter;
+    }
+
+    public StoreArgument(int index, Parameter parameter, IrExpression value)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        Index = index;
+        _name = parameter.Name;
+        Parameter = parameter;
+        Type = parameter.Type;
+        AddChild(value);
+    }
+
     public int Index { get; }
-    public string Name { get; }
+    internal Parameter? Parameter { get; }
+    public string Name => Parameter?.DisplayName ?? _name;
     public TypeRef Type { get; }
     public IrExpression Value => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => [Type];
@@ -2636,6 +2769,8 @@ public enum DeconstructionTargetKind
 /// <summary>A target inside a raised tuple deconstruction.</summary>
 public sealed class DeconstructionTarget : IrNode
 {
+    string _argumentName = "";
+
     DeconstructionTarget(DeconstructionTargetKind kind, TypeRef type)
     {
         Kind = kind;
@@ -2655,6 +2790,28 @@ public sealed class DeconstructionTarget : IrNode
             ArgumentIndex = index,
             ArgumentName = name,
         };
+
+    internal static DeconstructionTarget Argument(
+        int index,
+        string name,
+        TypeRef type,
+        Parameter? parameter)
+        => new(DeconstructionTargetKind.Argument, type)
+        {
+            ArgumentIndex = index,
+            ArgumentName = name,
+            ArgumentParameter = parameter,
+        };
+
+    public static DeconstructionTarget Argument(int index, Parameter parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        return new(DeconstructionTargetKind.Argument, parameter.Type)
+        {
+            ArgumentIndex = index,
+            ArgumentParameter = parameter,
+        };
+    }
 
     public static DeconstructionTarget FieldTarget(FieldRef field, bool isThisInstance)
         => new(DeconstructionTargetKind.Field, field.Type)
@@ -2689,7 +2846,12 @@ public sealed class DeconstructionTarget : IrNode
     public bool HasInstance { get; private init; }
     public bool IsVirtual { get; private init; }
     public int ArgumentIndex { get; private init; } = -1;
-    public string ArgumentName { get; private init; } = "";
+    internal Parameter? ArgumentParameter { get; private init; }
+    public string ArgumentName
+    {
+        get => ArgumentParameter?.DisplayName ?? _argumentName;
+        private init => _argumentName = value;
+    }
     public FieldRef? Field { get; private init; }
     public bool IsThisInstance { get; private init; }
     public string PropertyName => Accessor?.Name["set_".Length..] ?? "";
@@ -2950,7 +3112,16 @@ public sealed class ObjectInitializerExpression : IrExpression
 public sealed class WithExpression : IrExpression
 {
     public WithExpression(IrExpression receiver, IEnumerable<InitializerEntry> entries)
+        : this(receiver, entries, cloneMethod: null)
     {
+    }
+
+    public WithExpression(
+        IrExpression receiver,
+        IEnumerable<InitializerEntry> entries,
+        MethodRef? cloneMethod)
+    {
+        CloneMethod = cloneMethod;
         AddChild(receiver);
         var members = ImmutableArray.CreateBuilder<string>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
@@ -2973,6 +3144,7 @@ public sealed class WithExpression : IrExpression
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
+    public MethodRef? CloneMethod { get; }
     public ImmutableArray<string> Members { get; }
     public ImmutableArray<MethodRef?> ConsumedMethods { get; }
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
@@ -3237,6 +3409,8 @@ public sealed class DelegateCreation : IrExpression
     witness: "lambda/closure fixtures; corpus compile-back")]
 public sealed class Lambda : IrExpression
 {
+    ImmutableArray<string> _capturedBinderNames = [];
+
     public Lambda(
         TypeRef delegateType,
         ImmutableArray<Parameter> parameters,
@@ -3264,6 +3438,21 @@ public sealed class Lambda : IrExpression
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
+    public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
+    /// <summary>
+    /// Enclosing binders that the final raised body references after
+    /// capture substitution. Explicit non-parameter capture evidence is combined
+    /// with parameter-owned argument references from the transplanted body.
+    /// </summary>
+    public ImmutableArray<string> CapturedBinderNames
+    {
+        get => [
+            .. _capturedBinderNames
+                .Concat(CSharpSpellability.ExternalArgumentNamesInScope(Body, Parameters))
+                .Distinct(StringComparer.Ordinal),
+        ];
+        init => _capturedBinderNames = value;
+    }
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
@@ -3329,6 +3518,8 @@ public sealed class Lambda : IrExpression
 /// </summary>
 public sealed class LocalFunctionStatement : IrNode
 {
+    ImmutableArray<string> _capturedBinderNames = [];
+
     public LocalFunctionStatement(
         string name,
         TypeRef returnType,
@@ -3338,7 +3529,8 @@ public sealed class LocalFunctionStatement : IrNode
         ImmutableArray<string?> localNames,
         bool usesUpdatedMemorySafetyRules,
         bool skipLocalsInit,
-        BlockContainer body)
+        BlockContainer body,
+        bool requiresUnsafe = false)
         : this(
             name,
             returnType,
@@ -3349,7 +3541,8 @@ public sealed class LocalFunctionStatement : IrNode
             localNames,
             usesUpdatedMemorySafetyRules,
             skipLocalsInit,
-            body)
+            body,
+            requiresUnsafe)
     {
     }
 
@@ -3363,7 +3556,8 @@ public sealed class LocalFunctionStatement : IrNode
         ImmutableArray<string?> localNames,
         bool usesUpdatedMemorySafetyRules,
         bool skipLocalsInit,
-        BlockContainer body)
+        BlockContainer body,
+        bool requiresUnsafe = false)
     {
         Name = name;
         ReturnType = returnType;
@@ -3374,6 +3568,7 @@ public sealed class LocalFunctionStatement : IrNode
         LocalNames = localNames;
         UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules;
         SkipLocalsInit = skipLocalsInit;
+        RequiresUnsafe = requiresUnsafe;
         AddChild(body);
     }
 
@@ -3384,8 +3579,24 @@ public sealed class LocalFunctionStatement : IrNode
     public bool IsStatic { get; }
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
+    public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
+    /// <summary>
+    /// Enclosing binders that the final raised body references after
+    /// capture substitution. Explicit non-parameter capture evidence is combined
+    /// with parameter-owned argument references from the transplanted body.
+    /// </summary>
+    public ImmutableArray<string> CapturedBinderNames
+    {
+        get => [
+            .. _capturedBinderNames
+                .Concat(CSharpSpellability.ExternalArgumentNamesInScope(Body, Parameters))
+                .Distinct(StringComparer.Ordinal),
+        ];
+        init => _capturedBinderNames = value;
+    }
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
+    public bool RequiresUnsafe { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
@@ -3417,7 +3628,7 @@ public sealed class LocalFunctionStatement : IrNode
 public sealed class LocalFunctionInvocation : IrExpression
 {
     public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
-        : this(name, returnType, arguments, [], [])
+        : this(name, returnType, arguments, [], [], requiresUnsafe: false)
     {
     }
 
@@ -3426,12 +3637,14 @@ public sealed class LocalFunctionInvocation : IrExpression
         TypeRef returnType,
         IEnumerable<IrExpression> arguments,
         ImmutableArray<TypeRef> parameterTypes,
-        ImmutableArray<ArgumentRefKind> parameterRefKinds)
+        ImmutableArray<ArgumentRefKind> parameterRefKinds,
+        bool requiresUnsafe = false)
     {
         Name = name;
         ReturnType = returnType;
         ParameterTypes = parameterTypes;
         ParameterRefKinds = parameterRefKinds;
+        RequiresUnsafe = requiresUnsafe;
         foreach (var argument in arguments)
             AddChild(argument);
     }
@@ -3440,6 +3653,7 @@ public sealed class LocalFunctionInvocation : IrExpression
     public TypeRef ReturnType { get; }
     public ImmutableArray<TypeRef> ParameterTypes { get; }
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
+    public bool RequiresUnsafe { get; }
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => ReturnType;
     public override IEnumerable<TypeRef> DirectTypes => ParameterTypes.Append(ReturnType);
@@ -3851,12 +4065,17 @@ public readonly record struct PositionalPatternSubpattern(ComparisonKind Kind);
     witness: "IdiomShapeScorecard pattern cases, corpus compile-back")]
 public sealed class PositionalPattern : IrExpression
 {
-    public PositionalPattern(IrExpression value, IReadOnlyList<PositionalPatternSubpattern> subpatterns, IReadOnlyList<Constant> constants)
+    public PositionalPattern(
+        IrExpression value,
+        IReadOnlyList<PositionalPatternSubpattern> subpatterns,
+        IReadOnlyList<Constant> constants,
+        MethodRef? consumedDeconstructMethod = null)
     {
         if (subpatterns.Count != constants.Count)
             throw new ArgumentException("A positional pattern needs one constant per sub-pattern.", nameof(constants));
 
         Subpatterns = [.. subpatterns];
+        ConsumedDeconstructMethod = consumedDeconstructMethod;
         AddChild(value);
         foreach (var constant in constants)
             AddChild(constant);
@@ -3867,6 +4086,8 @@ public sealed class PositionalPattern : IrExpression
 
     /// <summary>The element sub-pattern kinds, parallel to <see cref="Constants"/>.</summary>
     public ImmutableArray<PositionalPatternSubpattern> Subpatterns { get; }
+
+    public MethodRef? ConsumedDeconstructMethod { get; }
 
     /// <summary>The constants used by equality or relational element sub-patterns.</summary>
     public IReadOnlyList<Constant> Constants => Children.Skip(1).Cast<Constant>().ToList();
@@ -4384,15 +4605,37 @@ public sealed class LoadLocalAddress : IrExpression
     witness: "corpus compile-back")]
 public sealed class LoadArgumentAddress : IrExpression
 {
+    readonly string _name = "";
+
     public LoadArgumentAddress(int index, string name, TypeRef type)
     {
         Index = index;
-        Name = name;
+        _name = name;
         Type = type;
     }
 
+    internal LoadArgumentAddress(
+        int index,
+        string name,
+        TypeRef type,
+        Parameter? parameter)
+        : this(index, name, type)
+    {
+        Parameter = parameter;
+    }
+
+    public LoadArgumentAddress(int index, Parameter parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        Index = index;
+        _name = parameter.Name;
+        Parameter = parameter;
+        Type = parameter.Type;
+    }
+
     public int Index { get; }
-    public string Name { get; }
+    internal Parameter? Parameter { get; }
+    public string Name => Parameter?.DisplayName ?? _name;
     public TypeRef Type { get; }
     public override TypeRef? ResultType => TypeRef.ByRef(Type);
 

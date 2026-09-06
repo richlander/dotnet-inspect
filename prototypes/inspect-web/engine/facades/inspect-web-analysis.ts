@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
@@ -156,9 +156,9 @@ export interface BrowserSafetyFact {
 type $ManagedExports = {
   readonly "AnalysisExports": {
     readonly "QueryMemberFacts.581406856": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean) => Promise<string>;
-    readonly "QueryPackageIntegrations.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
-    readonly "QueryPackageOpportunities.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
-    readonly "QueryPackagePerformance.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
+    readonly "QueryPackageIntegrations.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
+    readonly "QueryPackageOpportunities.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
+    readonly "QueryPackagePerformance.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
     readonly "QueryPlatformIntegrations.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
     readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
     readonly "QueryPlatformPerformance.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
@@ -218,25 +218,25 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "AnalysisExports");
-    value = $ownDataProperty(value, "QueryPackageIntegrations.1001223652");
+    value = $ownDataProperty(value, "QueryPackageIntegrations.1579276339");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027AnalysisExports.QueryPackageIntegrations.1001223652\u0027 is not callable.");
+      throw new Error("Managed export \u0027AnalysisExports.QueryPackageIntegrations.1579276339\u0027 is not callable.");
     }
   }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "AnalysisExports");
-    value = $ownDataProperty(value, "QueryPackageOpportunities.1001223652");
+    value = $ownDataProperty(value, "QueryPackageOpportunities.1579276339");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027AnalysisExports.QueryPackageOpportunities.1001223652\u0027 is not callable.");
+      throw new Error("Managed export \u0027AnalysisExports.QueryPackageOpportunities.1579276339\u0027 is not callable.");
     }
   }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "AnalysisExports");
-    value = $ownDataProperty(value, "QueryPackagePerformance.1001223652");
+    value = $ownDataProperty(value, "QueryPackagePerformance.1579276339");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027AnalysisExports.QueryPackagePerformance.1001223652\u0027 is not callable.");
+      throw new Error("Managed export \u0027AnalysisExports.QueryPackagePerformance.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -306,20 +306,20 @@ export async function queryMemberFacts(packageId: string, version: string, targe
   return $parsed as BrowserMemberFacts;
 }
 
-export async function queryPackageIntegrations(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageIntegrations> {
-  const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageIntegrations.1001223652"](packageId, version, targetFramework);
+export async function queryPackageIntegrations(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserPackageIntegrations> {
+  const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageIntegrations.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageIntegrations;
 }
 
-export async function queryPackageOpportunities(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageOpportunities> {
-  const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageOpportunities.1001223652"](packageId, version, targetFramework);
+export async function queryPackageOpportunities(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserPackageOpportunities> {
+  const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageOpportunities.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageOpportunities;
 }
 
-export async function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<BrowserPackagePerformance> {
-  const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackagePerformance.1001223652"](packageId, version, targetFramework);
+export async function queryPackagePerformance(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserPackagePerformance> {
+  const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackagePerformance.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackagePerformance;
 }

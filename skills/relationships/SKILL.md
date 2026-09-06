@@ -27,6 +27,23 @@ prefix; the command warns when that bound is reached. `depends` does not accept
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
+## What does the root declare directly?
+
+`dependency-evidence` reports one normalized snapshot of the direct
+dependencies declared by explicit package, nuspec, restored-project, or
+package-prefix roots. It preserves framework scopes, version constraints,
+restored resolution evidence, and root-set completion without walking the
+transitive dependency tree. Use `depends` when traversal is the goal.
+
+```bash
+dnx dotnet-inspect -y -- dependency-evidence \
+  --package Newtonsoft.Json --tfm net8.0
+dnx dotnet-inspect -y -- dependency-evidence \
+  --project ./src/App/App.csproj --nuspec ./artifacts/App.nuspec -v:n
+dnx dotnet-inspect -y -- dependency-evidence \
+  --package-prefix Microsoft.Extensions --tfm net10.0 --jsonl
+```
+
 ## What implements or extends it?
 
 `implements Interface` finds concrete implementors and subclasses;
@@ -89,6 +106,22 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
 ## What does it integrate with? (ecosystem)
+
+All integrations are enabled by default. Discover and narrow the ordinary
+Integration result with canonical ecosystem identities:
+
+```bash
+dnx dotnet-inspect -y -- library -Q Integrations
+dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- library MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+```
+
+Omitting `-S` with this predicate selects the Integration family. Use a concrete
+section for tabular output. An empty filtered result is not absence of all
+Integration support; full-library presence and Census remain unchanged.
+Unsupported IDs and combinations fail explicitly. Do not combine the ecosystem
+predicate with Performance Triage or Body Shapes queries.
+This option belongs to `library`, not `package --library` or `graph`.
 
 `graph integrations` compares an explicit package set inside one
 binding-consistent target. Repeat `--package name[@version]`, provide the shared

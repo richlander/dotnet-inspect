@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
 let $runtime;
 let $managedExports;
@@ -50,9 +50,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "MetadataExports");
-        value = $ownDataProperty(value, "QueryPackageMetadata.1001223652");
+        value = $ownDataProperty(value, "QueryPackageMetadata.1579276339");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadata.1001223652\u0027 is not callable.");
+            throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadata.1579276339\u0027 is not callable.");
         }
     }
     {
@@ -130,8 +130,8 @@ export async function queryPackageHeapEntries(packageId, version, targetFramewor
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackageMetadata(packageId, version, targetFramework) {
-    const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadata.1001223652"](packageId, version, targetFramework);
+export async function queryPackageMetadata(packageId, version, targetFramework, assemblyFileName) {
+    const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadata.1579276339"](packageId, version, targetFramework, assemblyFileName);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

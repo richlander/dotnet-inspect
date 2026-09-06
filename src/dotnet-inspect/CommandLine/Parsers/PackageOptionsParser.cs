@@ -131,6 +131,8 @@ public static class PackageOptionsParser
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
             ListLayout = parseResult.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(parseResult),
+            ListLayoutExplicitlySet =
+                parseResult.GetValue(args.LayoutOption),
             PathFilter = pathFilter,
             PathFilters = pathFilters,
             PathMatchMode = parseResult.GetValue(args.PathMatchOption) ?? "all",
@@ -139,6 +141,7 @@ public static class PackageOptionsParser
             ScopeLib = parseResult.GetValue(args.LibOption),
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
+            SingleVersionQuery = bareVersion,
             ListVersionsWithFeed = showVersionsWithFeed,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),

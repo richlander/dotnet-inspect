@@ -13,6 +13,487 @@ public class TypeResolutionContextTests
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
     [Fact]
+    public void Lineage_SharedForwarderKeepsBothContextsAndIntrinsicAnswers()
+    {
+        ResolvedAssemblyReference firstRoot =
+            Descriptor(BuildAssembly("First", definesType: false));
+        ResolvedAssemblyReference secondRoot =
+            Descriptor(BuildAssembly("Second", definesType: false));
+        int sharedOpens = 0;
+        ResolvedAssemblyReference shared = Descriptor(
+            BuildAssembly(
+                "Shared",
+                definesType: false,
+                forwardTarget: Identity("Terminal")),
+            () => sharedOpens++);
+        ResolvedAssemblyReference first =
+            Descriptor(BuildAssembly("Terminal", definesType: true));
+        ResolvedAssemblyReference second =
+            Descriptor(BuildAssembly("Terminal", definesType: true));
+        var policy = new LineagePolicy(
+            secondRoot,
+            (context, target) => target
+                is AssemblyBindingTarget.AssemblyReference
+                    { Identity.Name: "Shared" }
+                    ? shared
+                    : context == 0 ? first : second);
+        AssemblyBindingRequest[] bindings = [Seed(firstRoot), Seed(secondRoot)];
+        TypeResolutionRequest[] requests = bindings.Select(request =>
+            TypeResolutionRequest.FromReference(
+                shared.Identity, request.Origin, request.Scope, TypeName()))
+            .ToArray();
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext initial = catalog.CreateContext(
+            policy, [firstRoot, secondRoot], bindings, requests);
+        AssemblyBindingOutcome.Resolved[] selections = bindings.Select(request =>
+            Assert.IsType<AssemblyBindingOutcome.Resolved>(initial.Bind(request)))
+            .ToArray();
+        Assert.Equal(selections[0].Candidate.Id, selections[1].Candidate.Id);
+        Assert.Same(shared.Registration, selections[0].Occurrence.Assembly.Registration);
+        Assert.Same(shared.Registration, selections[1].Occurrence.Assembly.Registration);
+        Assert.NotEqual(selections[0].Occurrence.Lineage, selections[1].Occurrence.Lineage);
+        Assert.Same(first, Resolved(initial, requests[0]).Definition.Occurrence.Assembly);
+        Assert.Same(second, Resolved(initial, requests[1]).Definition.Occurrence.Assembly);
+        Assert.Equal(
+            selections[0].Occurrence,
+            Assert.Single(Resolved(initial, requests[0]).Hops).SourceOccurrence);
+        int initialSharedOpens = sharedOpens;
+
+        TypeResolutionRequest[] continuations = selections.SelectMany(selection =>
+            new[]
+            {
+                TypeResolutionRequest.FromOccurrence(
+                    selection.Occurrence, AssemblyResolutionScope.Any, TypeName()),
+                TypeResolutionRequest.FromCoreLibraryOccurrence(
+                    selection.Occurrence, AssemblyResolutionScope.Any, TypeName()),
+            }).ToArray();
+        using TypeResolutionContext next = catalog.CreateContext(
+            policy, [], continuations);
+        int calls = policy.CallCount;
+        using TypeResolutionContext repeated = catalog.CreateContext(
+            policy, [], continuations);
+        Assert.Equal(calls, policy.CallCount);
+        Assert.Same(first, Resolved(next, continuations[0]).Definition.Occurrence.Assembly);
+        Assert.Same(first, Resolved(next, continuations[1]).Definition.Occurrence.Assembly);
+        Assert.Same(second, Resolved(next, continuations[2]).Definition.Occurrence.Assembly);
+        Assert.Same(second, Resolved(next, continuations[3]).Definition.Occurrence.Assembly);
+        Assert.Equal(
+            Resolved(next, continuations[2]).Definition.Occurrence,
+            Resolved(repeated, continuations[2]).Definition.Occurrence);
+        Assert.Equal(initialSharedOpens, sharedOpens);
+
+        AssemblyBindingRequest Seed(ResolvedAssemblyReference root) =>
+            new(
+                AssemblyBindingTarget.Reference(shared.Identity),
+                AssemblyBindingOrigin.FromAssembly(root),
+                AssemblyResolutionScope.Any);
+    }
+
+    [Fact]
+    public void Lineage_DeferredKindAndCachedRecipesRetainContextNotPhysicalIdentity()
+    {
+        ResolvedAssemblyReference firstRoot =
+            Descriptor(BuildAssembly("First", definesType: false));
+        ResolvedAssemblyReference secondRoot =
+            Descriptor(BuildAssembly("Second", definesType: false));
+        ResolvedAssemblyReference middle = Descriptor(BuildAssembly(
+            "Middle", definesType: true, baseTarget: Identity("Facade")));
+        ResolvedAssemblyReference facade = Descriptor(BuildAssembly(
+            "Facade", definesType: false, forwardTarget: Identity("Terminal")));
+        ResolvedAssemblyReference first =
+            Descriptor(BuildAssembly("Terminal", definesType: true));
+        ResolvedAssemblyReference second =
+            Descriptor(BuildAssembly("Terminal", definesType: false));
+        var policy = new LineagePolicy(
+            secondRoot,
+            (context, target) => target switch
+            {
+                AssemblyBindingTarget.AssemblyReference { Identity.Name: "Middle" } => middle,
+                AssemblyBindingTarget.AssemblyReference { Identity.Name: "Facade" } => facade,
+                _ => context == 0 ? first : second,
+            });
+        TypeResolutionRequest[] requests = new[] { firstRoot, secondRoot }
+            .Select(root => TypeResolutionRequest.FromReference(
+                middle.Identity,
+                AssemblyBindingOrigin.FromAssembly(root),
+                AssemblyResolutionScope.Any,
+                TypeName()))
+            .ToArray();
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy, [firstRoot, secondRoot], requests);
+        ResolvedTypeDefinition left = Resolved(context, requests[0]).Definition;
+        ResolvedTypeDefinition right = Resolved(context, requests[1]).Definition;
+        Assert.Equal(MetadataTypeDefinitionKind.Class, left.Kind);
+        Assert.Equal(MetadataTypeDefinitionKind.Unknown, right.Kind);
+        Assert.Equal(left.Assembly.Id, right.Assembly.Id);
+        Assert.Equal(left.Address, right.Address);
+        Assert.IsType<DefinitionCorrespondence.Same>(
+            catalog.Compare(left.Key, right.Key));
+        Assert.Equal(IssuedToken(catalog, left.Key), IssuedToken(catalog, right.Key));
+        Assert.NotEqual(left.Occurrence.Lineage, right.Occurrence.Lineage);
+
+        int calls = policy.CallCount;
+        using TypeResolutionContext next = catalog.CreateContext(
+            policy, [firstRoot, secondRoot], requests);
+        Assert.Equal(calls, policy.CallCount);
+        Assert.Equal(MetadataTypeDefinitionKind.Class, Resolved(next, requests[0]).Definition.Kind);
+        Assert.Equal(MetadataTypeDefinitionKind.Unknown, Resolved(next, requests[1]).Definition.Kind);
+        TypeResolutionRequest dependency = TypeResolutionRequest.FromReference(
+            facade.Identity,
+            AssemblyBindingOrigin.FromOccurrence(left.Occurrence),
+            AssemblyResolutionScope.Any,
+            TypeName());
+        Assert.Same(first, Resolved(next, dependency).Definition.Occurrence.Assembly);
+        Assert.IsType<AssemblyBindingOutcome.Resolved>(next.Bind(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(facade.Identity),
+                AssemblyBindingOrigin.FromOccurrence(left.Occurrence),
+                AssemblyResolutionScope.Any)));
+        TypeResolutionRequest missingDependency = TypeResolutionRequest.FromReference(
+            facade.Identity,
+            AssemblyBindingOrigin.FromOccurrence(right.Occurrence),
+            AssemblyResolutionScope.Any,
+            TypeName());
+        var missing = Assert.IsType<TypeResolutionOutcome.NotFound>(next.Resolve(missingDependency));
+        Assert.Same(second, missing.LastOccurrence.Assembly);
+        Assert.Equal(right.Occurrence.Lineage, missing.LastOccurrence.Lineage);
+        Assert.Same(missing.LastOccurrence, missing.TerminalOccurrence);
+    }
+
+    [Fact]
+    public void Lineage_RequestEqualityIncludesContinuationAndDelegateContext()
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(BuildAssembly("Shared", definesType: true));
+        var policy = new LineagePolicy(assembly, (_, _) => assembly);
+        var foreign = new LineagePolicy(assembly, (_, _) => assembly);
+        AssemblyBindingOccurrence left = policy.Issue(assembly, 0);
+        AssemblyBindingOccurrence equal = policy.Issue(assembly, 0);
+        AssemblyBindingOccurrence right = policy.Issue(assembly, 1);
+        Assert.NotSame(left.Lineage, equal.Lineage);
+        Assert.Equal(left.Lineage, equal.Lineage);
+        Assert.NotEqual(left.Lineage, right.Lineage);
+        Assert.NotEqual(left.Lineage, foreign.Issue(assembly, 0).Lineage);
+        Assert.NotEqual(
+            policy.Issue(assembly, 0, left.Lineage).Lineage,
+            policy.Issue(assembly, 0, right.Lineage).Lineage);
+
+        Func<AssemblyBindingOccurrence, TypeResolutionRequest>[] factories =
+        [
+            occurrence => TypeResolutionRequest.FromOccurrence(
+                occurrence, AssemblyResolutionScope.Any, TypeName()),
+            occurrence => TypeResolutionRequest.FromCoreLibraryOccurrence(
+                occurrence, AssemblyResolutionScope.Any, TypeName()),
+            occurrence => TypeResolutionRequest.FromModuleOccurrence(
+                occurrence, "module", TypeName()),
+            occurrence => TypeResolutionRequest.FromReference(
+                assembly.Identity,
+                AssemblyBindingOrigin.FromOccurrence(occurrence),
+                AssemblyResolutionScope.Any,
+                TypeName()),
+        ];
+        foreach (var factory in factories)
+        {
+            var requests = new HashSet<TypeResolutionRequest>(
+                TypeResolutionRequestComparer.Instance)
+            {
+                factory(left), factory(equal), factory(right),
+            };
+            Assert.Equal(2, requests.Count);
+        }
+        Assert.False(TypeResolutionRequestComparer.Instance.Equals(
+            TypeResolutionRequest.FromAssembly(assembly, AssemblyResolutionScope.Any, TypeName()),
+            TypeResolutionRequest.FromOccurrence(
+                AssemblyBindingOccurrence.Seed(assembly), AssemblyResolutionScope.Any, TypeName())));
+        Assert.Null(AssemblyBindingOrigin.FromAssembly(assembly).Occurrence);
+        Assert.Same(assembly, AssemblyBindingOrigin.FromOccurrence(left).Assembly);
+        policy.Advance();
+        Assert.NotEqual(left.Lineage, policy.Issue(assembly, 0).Lineage);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Lineage_StaleAndForeignStartsRejectEvenDirectDefinitions(bool foreign)
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(BuildAssembly("Shared", definesType: true));
+        var issuer = new LineagePolicy(assembly, (_, _) => assembly);
+        AssemblyBindingOccurrence occurrence = issuer.Issue(assembly, 0);
+        IAssemblyBindingPolicy policy;
+        if (foreign)
+            policy = new LineagePolicy(assembly, (_, _) => assembly);
+        else
+        {
+            issuer.Advance();
+            policy = issuer;
+        }
+        AssemblyBindingOrigin origin = AssemblyBindingOrigin.FromOccurrence(occurrence);
+        TypeResolutionRequest[] requests =
+        [
+            TypeResolutionRequest.FromOccurrence(occurrence, AssemblyResolutionScope.Any, TypeName()),
+            TypeResolutionRequest.FromReference(
+                assembly.Identity, origin, AssemblyResolutionScope.Any, TypeName()),
+            TypeResolutionRequest.FromCoreLibraryOccurrence(
+                occurrence, AssemblyResolutionScope.Any, TypeName()),
+            TypeResolutionRequest.FromModuleOccurrence(occurrence, "module", TypeName()),
+        ];
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(assembly.Identity),
+            origin,
+            AssemblyResolutionScope.Any);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy, [assembly], [binding], requests);
+        foreach (TypeResolutionRequest request in requests)
+        {
+            var rejected = Assert.IsType<TypeResolutionOutcome.Rejected>(context.Resolve(request));
+            Assert.Equal(
+                AssemblyBindingFailureKind.InvalidBindingOrigin,
+                Assert.IsType<TypeResolutionFailure.InvalidBindingPolicy>(rejected.Failure).Failure.Kind);
+        }
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidBindingOrigin,
+            Assert.IsType<AssemblyBindingOutcome.Rejected>(context.Bind(binding)).Failure.Kind);
+        Assert.Equal(0, Assert.IsType<LineagePolicy>(policy).CallCount);
+    }
+
+    [Fact]
+    public void Lineage_TransparentAdapterPreservesOccurrenceAndSeedPoliciesRemainUsable()
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(BuildAssembly("Shared", definesType: true));
+        var policy = new LineagePolicy(assembly, (_, _) => assembly);
+        var adapter = new AssemblyReferenceBindingPolicy(policy);
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(assembly.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        AssemblyBindingSelectionSnapshot snapshot = adapter.Select(binding);
+        var selection = Assert.IsType<AssemblyBindingSelection.Selected>(snapshot.Selection);
+        Assert.Same(policy.LastOccurrence, selection.Occurrence);
+        TypeResolutionRequest request = TypeResolutionRequest.FromOccurrence(
+            selection.Occurrence, AssemblyResolutionScope.Any, TypeName());
+        using TypeResolutionContext context = TypeResolutionContext.Create(adapter, [], [request]);
+        Assert.Same(selection.Occurrence, Resolved(context, request).Definition.Occurrence);
+
+        var legacy = new RecordingPolicy(_ => AssemblyBindingSelection.Found(assembly));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext seed = catalog.CreateContext(legacy, [], [binding], []);
+        AssemblyBindingOccurrence seedOccurrence =
+            Assert.IsType<AssemblyBindingOutcome.Resolved>(seed.Bind(binding)).Occurrence;
+        Assert.Same(AssemblyBindingLineage.Seed, seedOccurrence.Lineage);
+        TypeResolutionRequest core = TypeResolutionRequest.FromCoreLibraryOccurrence(
+            seedOccurrence, AssemblyResolutionScope.Any, TypeName());
+        using TypeResolutionContext next = catalog.CreateContext(legacy, [], [core]);
+        Assert.Same(assembly, Resolved(next, core).Definition.Occurrence.Assembly);
+    }
+
+    [Fact]
+    public void Lineage_RequestBudgetCountsContextsButNotEquivalentOccurrences()
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(BuildAssembly("Shared", definesType: true));
+        var policy = new LineagePolicy(assembly, (_, _) => assembly);
+        TypeResolutionRequest[] requests = new[] { 0, 0, 1 }.Select(context =>
+            TypeResolutionRequest.FromOccurrence(
+                policy.Issue(assembly, context), AssemblyResolutionScope.Any, TypeName()))
+            .ToArray();
+        using var catalog = new TypeResolutionCatalog(new TypeResolutionContextOptions
+        {
+            MaxCandidates = 1,
+            MaxTypeResolutionRequests = 1,
+        });
+        using TypeResolutionContext context = catalog.CreateContext(policy, [], requests);
+        Assert.Same(context.Resolve(requests[0]), context.Resolve(requests[1]));
+        Assert.IsType<TypeResolutionOutcome.Resolved>(context.Resolve(requests[0]));
+        Assert.IsType<TypeResolutionFailure.RequestBudgetExceeded>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(context.Resolve(requests[2])).Failure);
+
+        AssemblyBindingRequest[] bindings = new[] { 0, 0, 1 }.Select(index =>
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromOccurrence(policy.Issue(assembly, index)),
+                AssemblyResolutionScope.Any)).ToArray();
+        using TypeResolutionContext bound = catalog.CreateContext(policy, [], bindings, []);
+        Assert.Equal(1, policy.CallCount);
+        Assert.Same(bound.Bind(bindings[0]), bound.Bind(bindings[1]));
+        Assert.IsType<AssemblyBindingOutcome.Resolved>(bound.Bind(bindings[0]));
+        Assert.Equal(
+            AssemblyBindingFailureKind.RequestBudgetExceeded,
+            Assert.IsType<AssemblyBindingOutcome.Rejected>(bound.Bind(bindings[2])).Failure.Kind);
+        Assert.Equal(1, policy.CallCount);
+
+        using TypeResolutionContext retry = catalog.CreateContext(
+            policy, [], [bindings[2]], []);
+        Assert.IsType<AssemblyBindingOutcome.Resolved>(retry.Bind(bindings[2]));
+        Assert.Equal(2, policy.CallCount);
+    }
+
+    [Fact]
+    public void Lineage_FrozenManifestSeparatesOccurrencesAndKeepsItsIssuingVersion()
+    {
+        ResolvedAssemblyReference assembly =
+            Descriptor(BuildAssembly("Shared", definesType: true));
+        var policy = new LineagePolicy(assembly, (_, _) => assembly);
+        AssemblyBindingOccurrence left = policy.Issue(assembly, 0);
+        AssemblyBindingOccurrence right = policy.Issue(assembly, 1);
+        TypeResolutionRequest planned = TypeResolutionRequest.FromOccurrence(
+            left, AssemblyResolutionScope.Any, TypeName());
+        TypeResolutionRequest absent = TypeResolutionRequest.FromOccurrence(
+            right, AssemblyResolutionScope.Any, TypeName());
+        TypeResolutionRequest module = TypeResolutionRequest.FromModuleOccurrence(
+            left, "module", TypeName());
+        TypeResolutionRequest otherModule = TypeResolutionRequest.FromModuleOccurrence(
+            right, "module", TypeName());
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromOccurrence(left),
+            AssemblyResolutionScope.Any);
+        var otherBinding = new AssemblyBindingRequest(
+            binding.Target,
+            AssemblyBindingOrigin.FromOccurrence(right),
+            binding.Scope);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy, [], [binding], [planned, module]);
+        Assert.IsType<TypeResolutionFailure.PlanExpansionRequired>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(context.Resolve(absent)).Failure);
+        Assert.IsType<TypeResolutionFailure.PlanExpansionRequired>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(context.Resolve(otherModule)).Failure);
+        Assert.IsType<AssemblyBindingOutcome.ExpansionRequired>(context.Bind(otherBinding));
+        Assert.Same(left, context.Resolve(module).TerminalOccurrence);
+        policy.Advance();
+        Assert.Same(left, Resolved(context, planned).Definition.Occurrence);
+        using TypeResolutionContext fresh = catalog.CreateContext(
+            policy, [], [planned]);
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidBindingOrigin,
+            Assert.IsType<TypeResolutionFailure.InvalidBindingPolicy>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(fresh.Resolve(planned)).Failure).Failure.Kind);
+    }
+
+    [Fact]
+    public void Lineage_CachedDeferredRecipesStillConsumeTheRequestBudget()
+    {
+        ResolvedAssemblyReference first = Descriptor(BuildAssembly(
+            "First", definesType: true, baseTarget: Identity("Middle")));
+        ResolvedAssemblyReference middle = Descriptor(BuildAssembly(
+            "Middle", definesType: true, baseTarget: Identity("Terminal")));
+        ResolvedAssemblyReference terminal =
+            Descriptor(BuildAssembly("Terminal", definesType: true));
+        var policy = new LineagePolicy(
+            first,
+            (_, target) => target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Middle" } ? middle : terminal);
+        AssemblyBindingOccurrence occurrence = policy.Issue(first, 0);
+        TypeResolutionRequest request = TypeResolutionRequest.FromOccurrence(
+            occurrence, AssemblyResolutionScope.Any, TypeName());
+        TypeResolutionRequest extra = TypeResolutionRequest.FromOccurrence(
+            occurrence, AssemblyResolutionScope.Any, TypeName("Other"));
+        using var catalog = new TypeResolutionCatalog(new TypeResolutionContextOptions
+        {
+            MaxTypeResolutionRequests = 3,
+        });
+        using TypeResolutionContext initial = catalog.CreateContext(policy, [], [request]);
+        Assert.Equal(MetadataTypeDefinitionKind.Class, Resolved(initial, request).Definition.Kind);
+        using TypeResolutionContext crowded = catalog.CreateContext(
+            policy, [], [extra, request]);
+        Assert.IsType<TypeResolutionFailure.RequestBudgetExceeded>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(crowded.Resolve(request)).Failure);
+        using TypeResolutionContext recovered = catalog.CreateContext(policy, [], [request]);
+        Assert.Equal(MetadataTypeDefinitionKind.Class, Resolved(recovered, request).Definition.Kind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Lineage_CachedParentHonorsCurrentDependencyBudgetFailure(
+        bool dependencyFirst)
+    {
+        ResolvedAssemblyReference root = Descriptor(BuildAssembly(
+            "Root", definesType: true, baseTarget: Identity("Terminal")));
+        ResolvedAssemblyReference terminal =
+            Descriptor(BuildAssembly("Terminal", definesType: true));
+        var policy = new LineagePolicy(root, (_, _) => terminal);
+        AssemblyBindingOccurrence occurrence = policy.Issue(root, 0);
+        TypeResolutionRequest rootRequest = TypeResolutionRequest.FromOccurrence(
+            occurrence, AssemblyResolutionScope.Any, TypeName());
+        TypeResolutionRequest dependencyRequest = TypeResolutionRequest.FromReference(
+            terminal.Identity,
+            AssemblyBindingOrigin.FromOccurrence(occurrence),
+            AssemblyResolutionScope.Any,
+            TypeName());
+        using var catalog = new TypeResolutionCatalog(new TypeResolutionContextOptions
+        {
+            MaxTypeResolutionRequests = 2,
+        });
+        using TypeResolutionContext initial = catalog.CreateContext(
+            policy, [], [rootRequest]);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            Resolved(initial, rootRequest).Definition.Kind);
+
+        AssemblyBindingRequest[] bindings = new[] { 1, 2 }.Select(context =>
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(terminal.Identity),
+                AssemblyBindingOrigin.FromOccurrence(policy.Issue(root, context)),
+                AssemblyResolutionScope.Any)).ToArray();
+        TypeResolutionRequest[] requests = dependencyFirst
+            ? [dependencyRequest, rootRequest]
+            : [rootRequest, dependencyRequest];
+        using TypeResolutionContext crowded = catalog.CreateContext(
+            policy, [], bindings, requests);
+        foreach (TypeResolutionRequest request in requests)
+        {
+            Assert.IsType<TypeResolutionFailure.RequestBudgetExceeded>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    crowded.Resolve(request)).Failure);
+        }
+
+        using TypeResolutionContext recovered = catalog.CreateContext(
+            policy, [], requests);
+        foreach (TypeResolutionRequest request in requests)
+        {
+            ResolvedTypeDefinition definition = Resolved(recovered, request).Definition;
+            Assert.Equal(MetadataTypeDefinitionKind.Class, definition.Kind);
+            Assert.Null(definition.KindResolutionFailure);
+        }
+    }
+
+    [Fact]
+    public void Lineage_ForwarderCycleStillUsesPhysicalCandidateIdentity()
+    {
+        ResolvedAssemblyReference assembly = Descriptor(BuildAssembly(
+            "Cycle", definesType: false, forwardTarget: Identity("Cycle")));
+        var policy = new LineagePolicy(
+            assembly, (_, _) => assembly, context => 1 - context);
+        TypeResolutionRequest request = TypeResolutionRequest.FromOccurrence(
+            policy.Issue(assembly, 1), AssemblyResolutionScope.Any, TypeName());
+        using TypeResolutionContext context = TypeResolutionContext.Create(policy, [], [request]);
+        var rejected = Assert.IsType<TypeResolutionOutcome.Rejected>(context.Resolve(request));
+        Assert.IsType<TypeResolutionFailure.ForwarderCycle>(rejected.Failure);
+        Assert.NotEqual(
+            Assert.Single(rejected.Hops).SourceOccurrence.Lineage,
+            policy.LastOccurrence!.Lineage);
+        Assert.Equal(1, policy.CallCount);
+    }
+
+    static TypeResolutionOutcome.Resolved Resolved(
+        TypeResolutionContext context,
+        TypeResolutionRequest request)
+    {
+        TypeResolutionOutcome outcome = context.Resolve(request);
+        Assert.True(
+            outcome is TypeResolutionOutcome.Resolved,
+            outcome is TypeResolutionOutcome.Rejected rejected
+                ? $"Resolution rejected: {rejected.Failure.GetType().Name}"
+                : $"Resolution returned: {outcome.GetType().Name}");
+        return Assert.IsType<TypeResolutionOutcome.Resolved>(outcome);
+    }
+
+    [Fact]
     public async Task Dispose_WaitsForActiveApiExtraction()
     {
         CancellationToken cancellationToken =
@@ -1528,12 +2009,176 @@ public class TypeResolutionContextTests
             AssemblyBindingFailureKind.CandidateUnavailable,
             Assert.IsType<AssemblyBindingOutcome.Unavailable>(
                 context.Bind(bindingRequest)).Failure.Kind);
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(bindingRequest))
+                .Failure.CandidateFailureKind);
         Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
             Assert.IsType<TypeResolutionOutcome.Rejected>(
                 second.Resolve(referenceRequest)).Failure);
         Assert.IsType<AssemblyBindingOutcome.Unavailable>(
             second.Bind(bindingRequest));
         Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
+    public void BindingFailure_PreservesMalformedCandidateReason()
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "malformed selected assembly"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Found(malformed));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
+    }
+
+    [Fact]
+    public void BindingFailure_PreservesMalformedOriginReason()
+    {
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                Identity("Owner"),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException(
+                "Policy must not run."));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
+        Assert.Empty(policy.Requests);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void MultipleBindingFailure_PrefersTypedAdmissionFailureRegardlessOfOrder(
+        bool malformed,
+        bool admissionFirst)
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference formatRejected =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    malformed
+                        ? MetadataAdmissionCleanupTests
+                            .BuildMalformedMetadataRoot()
+                        : MetadataAdmissionCleanupTests
+                            .BuildManagedWindowsMetadata(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("format rejected"));
+        ResolvedAssemblyReference unreadable =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => throw new IOException("unreadable"),
+                AssemblyResolutionProvenance.Local("unreadable"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Multiple(
+                admissionFirst
+                    ? [formatRejected, unreadable]
+                    : [unreadable, formatRejected]));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            malformed
+                ? CandidateOpenFailureKind.InvalidImage
+                : CandidateOpenFailureKind.UnsupportedMetadataFormat,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            malformed
+                ? MetadataRootMalformedReason.InvalidSignature
+                : null,
+            failure.MetadataRootReason);
     }
 
     [Fact]
@@ -1618,9 +2263,65 @@ public class TypeResolutionContextTests
             Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
                 Assert.IsType<TypeResolutionOutcome.Rejected>(
                     context.Resolve(request)).Failure).Budget);
-        Assert.IsType<AssemblyBindingOutcome.Unavailable>(
-            context.Bind(binding));
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            failure.CandidateFailureKind);
         Assert.Empty(policy.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MultipleBindingFailure_ResourceBudgetOutranksFormatFailure(
+        bool budgetFirst)
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("malformed"));
+        ResolvedAssemblyReference overBudget = Descriptor(targetImage);
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Multiple(
+                budgetFirst
+                    ? [overBudget, malformed]
+                    : [malformed, overBudget]));
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions { MaxCandidates = 1 });
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [malformed, owner, overBudget],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            failure.CandidateFailureKind);
+        Assert.Null(failure.MetadataRootReason);
     }
 
     [Fact]
@@ -2910,7 +3611,8 @@ public class TypeResolutionContextTests
         bool definesOtherType = false,
         Guid? moduleVersionId = null,
         ImmutableArray<string> typeSegments = default,
-        bool omitForwarderFlag = false)
+        bool omitForwarderFlag = false,
+        AssemblyReferenceIdentity? baseTarget = null)
     {
         ImmutableArray<string> segments = typeSegments.IsDefault
             ? ["Type"]
@@ -2939,6 +3641,26 @@ public class TypeResolutionContextTests
 
         if (definesType)
         {
+            EntityHandle baseType = default;
+            if (baseTarget is not null)
+            {
+                AssemblyReferenceHandle reference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString(baseTarget.Name),
+                    baseTarget.Version ?? new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default,
+                    flags: default,
+                    hashValue: default);
+                TypeReferenceHandle baseReference = metadata.AddTypeReference(
+                    reference,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Type"));
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature).TypeSpecificationSignature()
+                    .Type(baseReference, isValueType: false);
+                baseType = metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            }
             TypeDefinitionHandle enclosing = default;
             for (int i = 0; i < segments.Length; i++)
             {
@@ -2951,7 +3673,7 @@ public class TypeResolutionContextTests
                             ? metadata.GetOrAddString("N")
                             : default,
                         metadata.GetOrAddString(segments[i]),
-                        baseType: default,
+                        baseType,
                         fieldList: MetadataTokens.FieldDefinitionHandle(1),
                         methodList: MetadataTokens.MethodDefinitionHandle(1));
                 if (!enclosing.IsNil)
@@ -3115,6 +3837,77 @@ public class TypeResolutionContextTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    sealed class LineagePolicy(
+        ResolvedAssemblyReference secondRoot,
+        Func<int, AssemblyBindingTarget, ResolvedAssemblyReference?> select,
+        Func<int, int>? continueContext = null)
+        : IAssemblyBindingPolicy, IAssemblyReferenceResolver
+    {
+        public AssemblyBindingPolicyVersion Version { get; private set; } = new();
+        internal int CallCount { get; private set; }
+        internal AssemblyBindingOccurrence? LastOccurrence { get; private set; }
+
+        internal void Advance() => Version = new();
+
+        internal AssemblyBindingOccurrence Issue(
+            ResolvedAssemblyReference assembly,
+            int context,
+            AssemblyBindingLineage? delegated = null) =>
+            new ResolverLineage(Version, context, delegated).Select(assembly);
+
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
+        {
+            CallCount++;
+            int context = 0;
+            if (request.Origin is AssemblyBindingOrigin.RequestingAssembly origin)
+            {
+                if (origin.Lineage is ResolverLineage continuation
+                    && ReferenceEquals(continuation.Version, Version))
+                {
+                    context = continuation.Context;
+                }
+                else if (origin.Lineage is not null
+                    && origin.Lineage != AssemblyBindingLineage.Seed)
+                {
+                    return new(Version, AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(AssemblyBindingFailureKind.InvalidBindingOrigin)));
+                }
+                else if (ReferenceEquals(origin.Registration, secondRoot.Registration))
+                {
+                    context = 1;
+                }
+            }
+            ResolvedAssemblyReference? assembly = select(context, request.Target);
+            if (assembly is null)
+                return new(Version, AssemblyBindingSelection.NotFound());
+            LastOccurrence = Issue(
+                assembly, continueContext?.Invoke(context) ?? context);
+            return new(Version, AssemblyBindingSelection.FoundOccurrence(LastOccurrence));
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) =>
+            throw new InvalidOperationException("Structured policies must remain transparent.");
+    }
+
+    sealed record ResolverLineage : AssemblyBindingLineage
+    {
+        internal ResolverLineage(
+            AssemblyBindingPolicyVersion version,
+            int context,
+            AssemblyBindingLineage? delegated) : base(version)
+        {
+            Context = context;
+            Delegated = delegated;
+        }
+
+        internal int Context { get; }
+        internal AssemblyBindingLineage? Delegated { get; }
+        internal AssemblyBindingOccurrence Select(ResolvedAssemblyReference assembly) =>
+            CreateOccurrence(assembly);
     }
 
     sealed class RecordingPolicy(

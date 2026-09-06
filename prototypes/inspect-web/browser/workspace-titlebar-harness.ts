@@ -10,6 +10,7 @@ import {
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
+  LibraryLens,
   MemberSection,
   PackageLens,
   TypeLens,
@@ -40,6 +41,9 @@ import {
   renderSourcePageActions,
   renderSourceResult,
 } from "../src/type-panel.ts";
+import { renderMemberContractSections } from "../src/member-overview.ts";
+import { renderMemberFacts } from "../src/member-facts.ts";
+import { allocationFactsFixture, callFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -100,6 +104,9 @@ const packageMetadataMode = params.has("package-metadata");
 const packageMode =
   params.has("package") || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
+const memberFactsMode = params.get("member-facts");
+const allocationFactsMode = params.get("allocation-facts");
+const callFactsMode = params.get("call-facts");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -121,11 +128,17 @@ const packageIcon = params.has("fallback")
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
   ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
+  : packageMetadataMode
+    ? [
+        { kind: "package", label: "System.Text.Json", copyable: true },
+        { kind: "library", label: "System.Text.Json", copyable: true },
+      ]
   : packageMode
     ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
       ? [
           { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
             label: longMode
@@ -143,6 +156,7 @@ const subjectPath = workspaceMode
         ]
       : [
           { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
             label: longMode
@@ -207,22 +221,25 @@ function workspaceDetailHtml(): string {
 
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
-  : packageMode
+  : packageMetadataMode
+    ? "library"
+    : packageMode
     ? "package"
     : memberMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = packageDependenciesMode
   ? "dependencies"
-  : packageMetadataMode
-    ? "metadata"
-    : "overview";
+  : "overview";
+let activeLibraryLens: LibraryLens = packageMetadataMode ? "metadata" : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
     ? "metadata"
     : "api";
-let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
+let activeMemberSection: MemberSection = sourceMode
+  ? "source"
+  : memberFactsMode || allocationFactsMode || callFactsMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -250,6 +267,16 @@ const packageStrip: readonly (
   ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
   ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
 ];
+const libraryStrip: readonly (
+  readonly [LibraryLens, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["references", "References", scopeBarShortLabel("References"), "⇄"],
+  ["integrations", "Integrations", scopeBarShortLabel("Integrations"), "◇"],
+  ["opportunities", "Opportunities", scopeBarShortLabel("Opportunities"), "△"],
+  ["analysis", "Analysis", scopeBarShortLabel("Analysis"), "⌁"],
+  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+];
 const typeStrip: readonly (
   readonly [TypeLens, string, string, string]
 )[] = [
@@ -272,6 +299,8 @@ function scopeBarHtml() {
     ? []
     : activeScope === "package"
       ? packageStrip
+      : activeScope === "library"
+        ? libraryStrip
       : activeScope === "member"
         ? (emptyMode ? [] : memberStrip)
         : typeStrip;
@@ -283,11 +312,15 @@ function scopeBarHtml() {
       ? null
       : activeScope === "package"
         ? activePackageLens
+        : activeScope === "library"
+          ? activeLibraryLens
         : activeScope === "member"
           ? activeMemberSection
           : activeTypeLens,
     stripAttribute: activeScope === "package"
       ? "data-package-lens"
+      : activeScope === "library"
+        ? "data-library-lens"
       : activeScope === "member"
         ? "data-member-section"
         : "data-lens",
@@ -320,7 +353,8 @@ const navigationHtml = workspaceMode
           <button class="active">all kinds</button>
         </div>
       </div>
-      <div id="type-list" class="type-list" role="listbox" tabindex="0">
+      <div id="type-list" class="type-list" role="listbox" tabindex="0"
+        data-nav-scope="${memberMode ? "members:System.Text.Json.JsonSerializer" : "types"}">
         <button class="type-row selected" type="button" role="option"
           aria-selected="true" data-harness-navigation-row>
           <span class="${memberMode ? "member-icon" : "kind-icon"}">${memberMode ? "M" : "C"}</span>
@@ -385,9 +419,35 @@ function detailHtml() {
     </section>`;
   }
   if (memberMode) {
+    if (activeMemberSection === "facts") {
+      const mode = memberFactsMode === "zero" || memberFactsMode === "long"
+        ? memberFactsMode
+        : "populated";
+      const facts = allocationFactsMode
+        ? allocationFactsFixture(allocationFactsMode === "long" ? "long" : "populated")
+        : callFactsMode
+          ? callFactsFixture(callFactsMode === "long" ? "long" : "populated")
+          : memberFactsFixture(mode);
+      return `<section class="member-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">DeserializeSync</h1>
+          <p>method <span>· 1 of 1</span></p>
+        </header>
+        <div class="member-surface-scroll">${renderMemberFacts({
+          memberFacts: memberFactsMode === "error" ? null : facts,
+          memberFactsLoading: memberFactsMode === "loading",
+          memberFactsError: memberFactsMode === "error"
+            ? "The selected method could not be decoded."
+            : "",
+        })}</div>
+      </section>`;
+    }
+    const returnType = longSignatureMode
+      ? "System.Collections.Generic.IReadOnlyDictionary<string, TValue?>"
+      : "TValue?";
     const signature = longSignatureMode
-      ? "public static TValue? DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)"
-      : "public static object? DeserializeSync(string json)";
+      ? `public static ${returnType} DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, string propertyNamingPolicy = "camelCasePropertyNamingAndCaseInsensitive")`
+      : "public static TValue? DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, string propertyNamingPolicy = \"camelCasePropertyNamingAndCaseInsensitive\")";
     const documentation = memberDocumentationMode === "summary"
       ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
       : memberDocumentationMode === "loading"
@@ -395,6 +455,70 @@ function detailHtml() {
         : memberDocumentationMode === "error"
           ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
           : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
+    const documentationStatus = memberDocumentationMode === "loading"
+      ? "loading"
+      : memberDocumentationMode === "error"
+        ? "error"
+        : "loaded";
+    const documentationAvailable = memberDocumentationMode === "summary";
+    const memberContract = renderMemberContractSections({
+      parameters: [
+        {
+          name: longSignatureMode
+            ? "utf8JsonPayloadParameterNameWithAnIntentionallyLongUnbrokenIdentifierForContainmentEvidence"
+            : "utf8Json",
+          type: "ReadOnlySpan<byte>",
+          modifier: null,
+          hasDefault: false,
+          defaultValue: null,
+          description: documentationAvailable
+            ? "The JSON payload to deserialize into the requested return type."
+            : null,
+        },
+        {
+          name: "jsonTypeInfo",
+          type:
+            "System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>",
+          modifier: null,
+          hasDefault: false,
+          defaultValue: null,
+          description: documentationAvailable
+            ? "Metadata describing the requested return type."
+            : null,
+        },
+        {
+          name: "propertyNamingPolicy",
+          type: "string",
+          modifier: null,
+          hasDefault: true,
+          defaultValue: "\"camelCasePropertyNamingAndCaseInsensitive\"",
+          description: documentationAvailable
+            ? "The property naming policy used while reading the payload."
+            : null,
+        },
+      ],
+      returnType,
+      returns: documentationAvailable
+        ? "The value produced by deserializing the supplied JSON payload."
+        : null,
+      exceptions: documentationAvailable
+        ? [
+            {
+              type:
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverException",
+              description:
+                "The requested type cannot be resolved by the supplied metadata.",
+            },
+            {
+              type: "System.NotSupportedException",
+              description:
+                "No compatible converter is available for the requested return type.",
+            },
+          ]
+        : [],
+      activeFramework: "net10.0",
+      documentationStatus,
+    });
     return `<section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">DeserializeSync</h1>
@@ -426,19 +550,7 @@ function detailHtml() {
               <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
             </section>
           </section>
-          <section class="learn-section member-parameters">
-            <h2>Parameters</h2>
-            <dl class="parameter-docs">
-              <div>
-                <dt><code>json</code></dt>
-                <dd><a>string</a><p>The JSON payload to deserialize into the requested return type.</p></dd>
-              </div>
-            </dl>
-          </section>
-          <section class="learn-section member-returns">
-            <h2>Returns</h2>
-            <p class="api-summary">The value produced by deserializing the supplied JSON payload.</p>
-          </section>
+          ${memberContract}
         </article>
       </div>
     </section>`;
@@ -770,6 +882,10 @@ function bindHarnessScopeBar() {
       activeMemberSection = section;
       renderHarnessScopeBar();
     },
+    onLibraryLensSelect: lens => {
+      activeLibraryLens = lens;
+      renderHarnessScopeBar();
+    },
     onPackageLensSelect: lens => {
       activePackageLens = lens;
       renderHarnessScopeBar();
@@ -820,7 +936,7 @@ function enterEmptyMemberNavigation() {
         ${renderContentNavigationCloseButton()}
       </header>
       <div id="type-list" class="type-list member-list" role="listbox"
-        tabindex="0">
+        tabindex="0" data-nav-scope="members:System.Text.Json.JsonSerializer">
         <div class="empty-list">No members match these filters.</div>
       </div>
     </aside>`;

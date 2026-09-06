@@ -132,12 +132,12 @@ fi
 "$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
-  "${generator_build_properties[@]}" \
+  ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
   -- \
   "$source_assembly" \
   --context "$context_type" \
   --assembly-search-path "$source_assembly_directory" \
-  --runtime-module ./_framework/dotnet.js \
+  --runtime-module ./runtime-loader.js \
   --output "$context_output"
 
 expected_artifacts="$(printf '%s\n' "${context_artifacts[@]}" | sort)"
@@ -167,10 +167,10 @@ for index in "${!context_artifacts[@]}"; do
     --project "$repo_root/src/ts-jsexport" \
     -c Release \
     --no-build \
-    "${generator_build_properties[@]}" \
+    ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
     -- \
     "$root_assembly" \
-    --runtime-module ./_framework/dotnet.js \
+    --runtime-module ./runtime-loader.js \
     --output "$scratch/direct/$artifact"
   if ! cmp "$context_output/$artifact" "$scratch/direct/$artifact"; then
     echo "The JsExportRoot recipe differs from direct generation for $artifact." >&2
@@ -183,10 +183,13 @@ done
 
 mkdir -p "$scratch/sources/_framework"
 cp "$dotnet_dts" "$scratch/sources/_framework/dotnet.d.ts"
+cp "$js_output_directory/runtime-loader.js" "$scratch/sources/runtime-loader.js"
 {
   cat <<'JSON'
 {
   "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
     "declaration": true,
     "exactOptionalPropertyTypes": true,
     "lib": ["DOM", "ES2022"],
@@ -207,7 +210,7 @@ JSON
     [[ "$index" == 0 ]] || printf ', '
     printf '"%s.ts"' "${facade_modules[$index]}"
   done
-  printf ']\n}\n'
+  printf ', "runtime-loader.js"]\n}\n'
 } > "$scratch/sources/tsconfig.json"
 "$tsc" -p "$scratch/sources/tsconfig.json"
 
@@ -215,6 +218,10 @@ compiled="$scratch/sources/out"
 expected_declarations="$(
   printf '%s.d.ts\n' "${facade_modules[@]}" | sort)"
 expected_modules="$(printf '%s.js\n' "${facade_modules[@]}" | sort)"
+expected_compiled_declarations="$(
+  printf '%s.d.ts\n' "${facade_modules[@]}" runtime-loader | sort)"
+expected_compiled_modules="$(
+  printf '%s.js\n' "${facade_modules[@]}" runtime-loader | sort)"
 shopt -s nullglob
 compiled_declaration_paths=("$compiled"/*.d.ts)
 compiled_module_paths=("$compiled"/*.js)
@@ -222,9 +229,9 @@ shopt -u nullglob
 compiled_declarations="$(
   printf '%s\n' "${compiled_declaration_paths[@]##*/}" | sort)"
 compiled_modules="$(printf '%s\n' "${compiled_module_paths[@]##*/}" | sort)"
-if [[ "$compiled_declarations" != "$expected_declarations" \
-    || "$compiled_modules" != "$expected_modules" ]]; then
-  echo "Compiling the facade set produced a different artifact set than the consumer map." >&2
+if [[ "$compiled_declarations" != "$expected_compiled_declarations" \
+    || "$compiled_modules" != "$expected_compiled_modules" ]]; then
+  echo "Compiling the facades and runtime loader produced an unexpected artifact set." >&2
   exit 1
 fi
 
@@ -288,7 +295,7 @@ elif [[ "$mode" == check ]]; then
   assert_directory_inventory \
     "$dts_output_directory" '*.d.ts' "$expected_declarations" || drifted=1
   assert_directory_inventory \
-    "$js_output_directory" '*.js' "$expected_modules" || drifted=1
+    "$js_output_directory" 'inspect-web-*.js' "$expected_modules" || drifted=1
   if [[ "$drifted" != 0 ]]; then
     exit 1
   fi
@@ -333,5 +340,5 @@ else
   done
   assert_directory_inventory "$ts_output_directory" '*.ts' "$expected_sources"
   assert_directory_inventory "$dts_output_directory" '*.d.ts' "$expected_declarations"
-  assert_directory_inventory "$js_output_directory" '*.js' "$expected_modules"
+  assert_directory_inventory "$js_output_directory" 'inspect-web-*.js' "$expected_modules"
 fi

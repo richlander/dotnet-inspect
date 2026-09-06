@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 
 using DotnetInspector.Packages;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
@@ -17,7 +18,7 @@ using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class AssemblyContextSourceQueryTests
+public sealed partial class AssemblyContextSourceQueryTests
 {
     static readonly Guid SourceLinkKind =
         new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
@@ -290,6 +291,213 @@ public sealed class AssemblyContextSourceQueryTests
             decompiled.Result.Text,
             StringComparison.Ordinal);
         Assert.True(assembly.Policy.SelectionCount > 0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberComparison_AdjacentPdbRequiresExplicitCapability(
+        bool allowAdjacentPdbReads)
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(retainPath: true);
+        using var host = QueryHost.WithoutPdb(
+            allowLocalSourceReads: true,
+            allowAdjacentPdbReads: allowAdjacentPdbReads);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        if (allowAdjacentPdbReads)
+        {
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+                available.Pdb);
+            Assert.Empty(host.SymbolRequests);
+        }
+        else
+        {
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Unavailable>(
+                available.Pdb);
+            Assert.NotEmpty(host.SymbolRequests);
+        }
+        Assert.IsType<
+            AssemblyMemberDecompiledSourceAttempt.Available>(
+                available.Decompiled);
+    }
+
+    [Theory]
+    [InlineData(nameof(SourceFixture.Count), "set_Count")]
+    [InlineData(nameof(SourceFixture.Changed), "add_Changed")]
+    public async Task MemberComparison_ResolvesPhysicalAccessor(
+        string ownerName,
+        string accessorName)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        (ApiType type, ApiMember owner) =
+            assembly.MemberTarget(ownerName);
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(owner, type),
+            candidate => candidate.Name == accessorName);
+        AssemblyMemberSourceRequest request =
+            AssemblyMemberSourceRequest.From(type, accessor);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        var pdb =
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+                available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Equal(
+            request.MetadataToken,
+            pdb.Inspection.Mapping!.MetadataToken);
+        Assert.Contains(
+            ownerName,
+            pdb.Inspection.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            accessorName,
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberComparison_ResolvesProjectedExtensionMethod()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        (ApiType type, ApiMember projected) =
+            assembly.MemberTarget(
+                nameof(SourceProjectionExtensions.ProjectedIncrement),
+                nameof(SourceProjectionTarget));
+        Assert.Equal("extension-method", projected.Kind);
+        AssemblyMemberSourceRequest request =
+            AssemblyMemberSourceRequest.From(type, projected);
+        Assert.Equal(
+            projected.DeclaringTypeDefinitionName,
+            request.Type);
+        Assert.Equal(
+            projected.DeclaringTypeCanonicalName,
+            request.Member.TypeFullName);
+        Assert.StartsWith(
+            projected.Name + "~",
+            request.Member.StableSelector,
+            StringComparison.Ordinal);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+            available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Contains(
+            nameof(SourceProjectionExtensions.ProjectedIncrement),
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberComparison_ResolvesProjectedExtensionOperator()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        ApiType type =
+            assembly.TypeTarget(nameof(InventoryFixture));
+        ApiMember projected = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Name == "op_Addition"
+                && candidate.Kind == "extension-method");
+        Assert.Equal("extension-method", projected.Kind);
+        AssemblyMemberSourceRequest request =
+            AssemblyMemberSourceRequest.From(type, projected);
+        Assert.StartsWith(
+            "operator:op_Addition~",
+            request.Member.StableSelector,
+            StringComparison.Ordinal);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            File.ReadAllBytes(
+                Path.Combine(
+                    Path.GetDirectoryName(SourceFileBytesPath())!,
+                    "ApiInventoryQueryTests.cs")));
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+            available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Contains(
+            "operator +",
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1988,11 +2196,14 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Theory]
-    [InlineData(1024, 1)]
-    [InlineData(1, 1024)]
+    [InlineData(1024, 1, false)]
+    [InlineData(1024, 1, true)]
+    [InlineData(1, 1024, false)]
+    [InlineData(1, 1024, true)]
     public async Task EmbeddedPdbHostLimits_ApplyBeforeQueryOwnedOpen(
         long maxPortablePdbBytes,
-        long maxExpandedPdbBytes)
+        long maxExpandedPdbBytes,
+        bool allowAdjacentPdbReads)
     {
         byte[] bytes = File.ReadAllBytes(
             typeof(EmbeddedSourceFixture).Assembly.Location);
@@ -2013,7 +2224,9 @@ public sealed class AssemblyContextSourceQueryTests
                 maxSymbolPackageBytes: 1024,
                 maxPortablePdbBytes,
                 maxSymbolPackageEntries: 1,
-                maxExpandedPdbBytes));
+                maxExpandedPdbBytes),
+            allowAdjacentPdbReads:
+                allowAdjacentPdbReads);
 
         var result =
             await AssemblyContextSourceQuery.OpenSourceLinkAsync(
@@ -2680,6 +2893,32 @@ public sealed class AssemblyContextSourceQueryTests
             rejected.Failure.Kind);
     }
 
+    [Fact]
+    public async Task SourcePair_OwnedPdbCleanupFailurePreventsComparison()
+    {
+        TestAssembly before = TestAssembly.Create();
+        TestAssembly after = TestAssembly.Create();
+        var error = new IOException("Synthetic paired-source PDB disposal failure.");
+        var pdbStore = new StateChangingPdbStore(
+            afterLocalPath: null,
+            disposeFailure: error);
+        using var host = QueryHost.WithPdb(
+            before.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+
+        AssemblyMemberSourcePairResult result = await ExecuteSourcePairAsync(
+            before, after, nameof(SourceFixture.Describe), host,
+            typeName: nameof(SourceFixture));
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Failed, result.Status);
+        Assert.Same(error, result.Failure?.Error);
+        Assert.Null(result.Comparison);
+        Assert.False(result.IsExact);
+        Assert.Equal(0, before.Policy.SelectionCount);
+        Assert.Equal(0, after.Policy.SelectionCount);
+    }
+
     static byte[] SourceFileBytes(
         [CallerFilePath] string path = "") =>
         File.ReadAllBytes(path);
@@ -3283,10 +3522,13 @@ public sealed class AssemblyContextSourceQueryTests
         internal static TestAssembly Create(
             string? selectedName = null,
             bool retainPath = false,
-            Func<Stream>? openRead = null)
+            Func<Stream>? openRead = null,
+            FixtureDefinition? fixture = null,
+            string packageVersion = "1.0.0")
         {
             string path =
-                typeof(AssemblyContextSourceQueryTests)
+                fixture?.AssemblyPath()
+                ?? typeof(AssemblyContextSourceQueryTests)
                     .Assembly.Location;
             byte[] bytes = File.ReadAllBytes(path);
             AssemblyReferenceIdentity identity =
@@ -3311,7 +3553,7 @@ public sealed class AssemblyContextSourceQueryTests
                             writable: false)),
                     AssemblyResolutionProvenance.Package(
                         "Example.Source",
-                        "1.0.0",
+                        packageVersion,
                         "net10.0",
                         rid: null));
             var policy = new FrameworkBindingPolicy();
@@ -3469,7 +3711,8 @@ public sealed class AssemblyContextSourceQueryTests
             ISourceContentStore? sourceContentStore = null,
             IPdbStore? pdbStore = null,
             bool allowLocalSourceReads = false,
-            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null,
+            bool allowAdjacentPdbReads = false)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -3486,6 +3729,8 @@ public sealed class AssemblyContextSourceQueryTests
             {
                 AllowLocalSourceReads =
                     allowLocalSourceReads,
+                AllowAdjacentPdbReads =
+                    allowAdjacentPdbReads,
                 SymbolAcquisitionLimits =
                     symbolAcquisitionLimits,
             };
@@ -3534,11 +3779,47 @@ public sealed class AssemblyContextSourceQueryTests
                     allowLocalSourceReads);
 
         internal static QueryHost WithoutPdb(
-            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null,
+            bool allowLocalSourceReads = false,
+            bool allowAdjacentPdbReads = false)
             => new(
                 new SymbolPackageHandler(snupkg: null),
                 new SourceHandler(content: null),
-                symbolAcquisitionLimits: symbolAcquisitionLimits);
+                symbolAcquisitionLimits: symbolAcquisitionLimits,
+                allowLocalSourceReads: allowLocalSourceReads,
+                allowAdjacentPdbReads: allowAdjacentPdbReads);
+
+        internal static QueryHost WithPairPdb(
+            TestAssembly before,
+            TestAssembly after,
+            byte[] beforeSource,
+            byte[]? afterSource,
+            Action? duringAfterSource = null,
+            bool missingAfterPdb = false)
+        {
+            byte[] beforeSymbols = BuildSnupkg(
+                Path.GetFileName(before.PdbPath),
+                File.ReadAllBytes(before.PdbPath));
+            byte[]? afterSymbols = missingAfterPdb
+                ? null
+                : BuildSnupkg(
+                    Path.GetFileName(after.PdbPath),
+                    File.ReadAllBytes(after.PdbPath));
+            return new QueryHost(
+                new SymbolPackageHandler(null, uri =>
+                    uri.AbsolutePath.Contains("2.0.0", StringComparison.Ordinal)
+                        ? afterSymbols
+                        : beforeSymbols),
+                new SourceHandler(null, uri =>
+                {
+                    if (uri.AbsolutePath.StartsWith("/v2/", StringComparison.Ordinal))
+                    {
+                        duringAfterSource?.Invoke();
+                        return afterSource;
+                    }
+                    return beforeSource;
+                }));
+        }
 
         public void Dispose()
         {
@@ -3567,7 +3848,9 @@ public sealed class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class SymbolPackageHandler(byte[]? snupkg)
+    sealed class SymbolPackageHandler(
+        byte[]? snupkg,
+        Func<Uri, byte[]?>? response = null)
         : HttpMessageHandler
     {
         internal List<Uri> RequestUris { get; } = [];
@@ -3577,7 +3860,10 @@ public sealed class AssemblyContextSourceQueryTests
             CancellationToken cancellationToken)
         {
             RequestUris.Add(request.RequestUri!);
-            if (snupkg is not null
+            byte[]? content = response is null
+                ? snupkg
+                : response(request.RequestUri!);
+            if (content is not null
                 && request.RequestUri!.AbsolutePath.EndsWith(
                     ".snupkg",
                     StringComparison.OrdinalIgnoreCase))
@@ -3585,7 +3871,7 @@ public sealed class AssemblyContextSourceQueryTests
                 return Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new ByteArrayContent(snupkg),
+                        Content = new ByteArrayContent(content),
                         RequestMessage = request,
                     });
             }
@@ -3599,7 +3885,9 @@ public sealed class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class SourceHandler(byte[]? content)
+    sealed class SourceHandler(
+        byte[]? content,
+        Func<Uri, byte[]?>? response = null)
         : HttpMessageHandler
     {
         internal List<Uri> RequestUris { get; } = [];
@@ -3609,15 +3897,18 @@ public sealed class AssemblyContextSourceQueryTests
             CancellationToken cancellationToken)
         {
             RequestUris.Add(request.RequestUri!);
+            byte[]? source = response is null
+                ? content
+                : response(request.RequestUri!);
             return Task.FromResult(
                 new HttpResponseMessage(
-                    content is null
+                    source is null
                         ? HttpStatusCode.NotFound
                         : HttpStatusCode.OK)
                 {
-                    Content = content is null
+                    Content = source is null
                         ? null
-                        : new ByteArrayContent(content),
+                        : new ByteArrayContent(source),
                     RequestMessage = request,
                 });
         }
@@ -4178,6 +4469,14 @@ public sealed class AssemblyContextSourceQueryTests
 
     public static class SourceFixture
     {
+        public static int Count { get; set; }
+
+        public static event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
         public static string Describe(int value)
             => $"value={value}";
 
@@ -4186,4 +4485,14 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     public delegate int SourceDelegate(int value);
+}
+
+public sealed class SourceProjectionTarget;
+
+public static class SourceProjectionExtensions
+{
+    public static int ProjectedIncrement(
+        this SourceProjectionTarget target,
+        int value) =>
+        value + 1;
 }

@@ -763,66 +763,21 @@ preservation, and the display/structured split are gated by
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
-attribute values. Declared custom-attribute SZArray and named-argument counts
-are checked against remaining value-blob bytes before SRM allocates builders
-from those counts, and each declared slot is charged as decode work so a
-hostile four-byte count cannot become a gigabyte-scale argument array or a
-swallowed OOM. The same walk covers each named argument's
-`FieldOrPropType`, name, and value — a named SZArray count or a nested
-named array type is not left for `DecodeValue` to allocate or recurse
-on. Boxed and nested SZArray encodings are walked on a heap work-stack
-and depth-bounded before decode, so a chain of tags cannot overflow the
-native stack even if the policy cap moves. Signature-type skips reuse
-one work-stack per decode (`Clear` at entry) so a wide `int[][]` cannot
-allocate a stack per inner array. That reuse is structural; the path
-gate is `CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`. The
-small-stack gate is the 128 KiB
-`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
-fixed and named arguments use one shared underlying-width oracle, so a
-TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
-full name collides with an earlier row, an over-deep
-`value__` field signature, or a non-fixed-width `value__` primitive
-such as `string`, cannot desynchronize later count reads.
-A serialized enum name that is not a TypeDef in the current image
-stays `int32` unless a caller-supplied resolver found the defining
-image; local TypeDefs still win over that resolver. Guard and SRM
-invoke that resolver with the same normalized name (assembly suffix
-stripped), so a resolver keyed on the simple name cannot skip four
-bytes in the guard and eight in SRM. Absent a defining image, decode
-returns null rather than emitting values from a four-byte skip of an
-eight-byte argument. A defining image does not make a later hostile
-count legal.
-`CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
-SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
-and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
-consumes a SerString rather than four enum bytes.
-A truncated value walk returns `Truncated` and stops remaining work,
-so leftover named-count bytes after a short SZArray cannot be charged
-as 65,535 named arguments. A boxed SZArray of `ENUM` consumes the
-enum-name SerString before the `Int32` count, matching SRM's
-`DecodeNamedArgumentType(isElementType: true)`, so an empty name
-cannot hide a gigabyte-scale builder behind a 9-byte blob and a
-legal boxed enum array is not dropped.
-Declared SZArray leftovers stop once the value blob is exhausted, so a
-jagged constructor signature cannot re-walk the element type once per
-unreadable slot.
-Serialized enum names are normalized the same way SRM's provider sees
-them (assembly suffix stripped, nested `+` matched to the metadata
-index). `CLASS`/`VALUETYPE` constructor parameters special-case only
-`System.Type`; other tokens use the enum-width oracle so a
-`class System.String` argument cannot shift later counts. Generic
-attribute constructors whose parameter is a `VAR` resolve that
-argument through the owning TypeSpec. Earlier generic arguments
-that cannot be skipped, including `FNPTR` and `PTR`+`FNPTR`, fail
-closed instead of leaving the substituted value unconsumed. Earlier
-`CLASS`/`VALUETYPE` arguments are skipped the same way SRM
-`CustomAttributeDecoder.SkipType` does — including treating a
-TypeDefOrRef coded index as another type code — so a TypeDef row 4
-or TypeRef row 4 cannot hide a later SZArray count. A
-substituted type is not itself re-substituted, so a self-referential
-`GENERICINST` `!0` cannot recurse the guard. A budget observer failure
-raised while the guard consults the enum index unwraps to the same
-typed truncation `DecodeValue` already propagated. Every bounded member-name decode and every namespace/name
+attribute values. Custom-attribute value decoding follows the
+[owned decoder contract](custom-attribute-value-decoding.md#the-containment-invariants),
+not a guard followed by SRM decoding. Declared fixed, named, and array slot
+counts are checked against remaining value bytes before count-derived charging
+and materialization. The value tree is walked iteratively; the 128 KiB
+small-stack gate is
+`CustomAttributeValueDecoderTests.DeeplyNestedObjectArray_OnSmallNativeStack_Decodes`.
+Malformed or unsupported structure is refused, while caller-observer and
+resolver failures preserve their origin. Enum resolution and its final
+defaulted-width signal are governed by the decoder's
+[D2 contract](custom-attribute-value-decoding.md#d2--fail-closed-visibly).
+The focused cases below do not establish full D1/D3 certification or the
+dedicated internal-OOM gate; the decoder design owns those remaining gaps.
+
+Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
@@ -878,49 +833,49 @@ pre-decoding rejection.
 `DeepNamedNestedArrayCustomAttribute_StopsBeforeStackOverflow`,
 `TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
 `OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
-`CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
-`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`,
-`CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`,
-`CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
-`CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
-`CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.DuplicateTypeDefEnumName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsSafe`,
-`CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
-`CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
+`CustomAttributeValueDecoderTests.HugeNamedArgumentArrayCount_IsRefused`,
+`CustomAttributeValueDecoderTests.DeeplyNestedObjectArray_OnSmallNativeStack_Decodes`,
+`CustomAttributeValueDecoderTests.NestedEmptySzArray_IsRefused`,
+`CustomAttributeValueDecoderTests.WideInt32Array_Decodes`,
+`CustomAttributeValueDecoderTests.NamedArrayNestingJustOverLimit_IsRefused`,
+`CustomAttributeValueDecoderTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.DuplicateTypeDefEnumName_ResolvesTheDeclaredDefinition`,
+`CustomAttributeValueDecoderTests.ExhaustedJaggedSzArray_IsRefused`,
+`CustomAttributeValueDecoderTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
 `TypeResolutionEnumWidthTests.PlannedQualifiedName_DecodesInt64FromRetainedDefiningImage`,
 `TypeResolutionEnumWidthTests.UnplannedRequest_StaysInt32`,
 `TypeResolutionEnumWidthTests.MissingDefiningImage_StaysInt32`,
 `TypeResolutionEnumWidthTests.FacadeForwarder_DecodesInt64`,
-`TypeResolutionEnumWidthTests.HostileLeftoverCount_IsUnsafe`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
-`CustomAttributeValueGuardTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,
-`CustomAttributeValueGuardTests.DirectGuard_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount`,
-`CustomAttributeValueGuardTests.DirectGuard_NormalizesNonFixedWidthResolver_SeesHostileCount`,
-`CustomAttributeValueGuardTests.DirectGuard_MalformedTypeDefIndex_DoesNotBypassHostileCount`,
-`CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.LegalSystemTypeArgument_IsSafe`,
-`CustomAttributeValueGuardTests.StringTypedEnumValue_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsSafe`,
-`CustomAttributeValueGuardTests.LegalBoxedEnumArray_IsSafe`,
-`CustomAttributeValueGuardTests.LegalBoxedInt32Array_IsSafe`,
-`CustomAttributeValueGuardTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
-`CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ClassTypeDefRow4EarlierArgument_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ValueTypeTypeRefRow4EarlierArgument_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.SelfReferentialGenericVar_IsUnsafe`,
+`TypeResolutionEnumWidthTests.HostileLeftoverCount_IsRefused`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
+`CustomAttributeValueDecoderTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,
+`CustomAttributeValueDecoderTests.Decode_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount`,
+`CustomAttributeValueDecoderTests.Decode_NormalizesNonFixedWidthResolver_SeesHostileCount`,
+`CustomAttributeValueDecoderTests.Decode_MalformedTypeDefIndex_DoesNotBypassHostileCount`,
+`CustomAttributeValueDecoderTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.LegalSystemTypeArgument_Decodes`,
+`CustomAttributeValueDecoderTests.StringTypedEnumValue_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.TruncatedInt32ArrayThenHugeNamedCount_IsRefused`,
+`CustomAttributeValueDecoderTests.LegalBoxedEnumArray_Decodes`,
+`CustomAttributeValueDecoderTests.LegalBoxedInt32Array_Decodes`,
+`CustomAttributeValueDecoderTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.GenericAttributeTypeParameterInt32_Decodes`,
+`CustomAttributeValueDecoderTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.ClassTypeDefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.ValueTypeTypeRefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.SelfReferentialGenericVar_IsRefused`,
 `ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
 `ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
-`CustomAttributeValueGuardTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
+`CustomAttributeValueDecoderTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
 `FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
 `PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
 `SelfReferentialGenericVar_StopsBeforeStackOverflow`,

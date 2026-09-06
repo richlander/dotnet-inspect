@@ -1,4 +1,5 @@
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -16,7 +17,10 @@ internal static class ProductEcosystemPacks
                 Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse a real package API", 100, CreateStjSerializerRecords),
                 Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Dense package-local STJ graph", 300, CreateStjSerializeCallGraphRecords),
                 Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "STJ number parse path", 800, CreateStjGetDecimalCallGraphRecords),
-            ]),
+            ])
+        {
+            NamespaceRoots = ["System"],
+        },
         new(
             EcosystemPackIds.MicrosoftExtensions,
             "Microsoft.Extensions",
@@ -29,14 +33,31 @@ internal static class ProductEcosystemPacks
                 Demo(ProductDemoIds.OptionsAddCallGraph, "Options hub", "Inbound fan-in at AddOptions", 500, CreateOptionsAddCallGraphRecords),
                 Demo(ProductDemoIds.DiTryAddCallGraph, "DI TryAdd hub", "Keyed/scoped Try* fan-in", 600, CreateDiTryAddCallGraphRecords),
                 Demo(ProductDemoIds.HttpAddHttpClientCallGraph, "AddHttpClient", "HttpClient factory registration", 700, CreateHttpAddHttpClientCallGraphRecords),
-            ]),
+            ])
+        {
+            NamespaceRoots = ["Microsoft.Extensions"],
+            CorePackages =
+            [
+                new("Microsoft.Extensions.DependencyInjection.Abstractions"),
+                new("Microsoft.Extensions.Configuration.Abstractions"),
+                new("Microsoft.Extensions.Logging.Abstractions"),
+            ],
+        },
         new(
             EcosystemPackIds.AspNetCore,
             "ASP.NET Core",
             "ASP.NET Core package content.",
             300,
             PackageSetIds.AspNetCore,
-            []),
+            [])
+        {
+            NamespaceRoots = ["Microsoft.AspNetCore"],
+            CorePackages =
+            [
+                new("Microsoft.AspNetCore.OpenApi"),
+                new("Microsoft.AspNetCore.Authentication.JwtBearer"),
+            ],
+        },
         new(
             EcosystemPackIds.Aspire,
             "Aspire",
@@ -46,7 +67,13 @@ internal static class ProductEcosystemPacks
             [
                 Demo(ProductDemoIds.AspirePostgresCallGraph, "Aspire AddPostgres", "PostgreSQL resource registration graph", 900, CreateAspirePostgresCallGraphRecords),
                 Demo(ProductDemoIds.AspireRedisCallGraph, "Aspire AddRedis", "Redis resource registration graph", 1000, CreateAspireRedisCallGraphRecords),
-            ]),
+            ],
+            Scanner: EcosystemIntegrationScanner.AspireBinding)
+        {
+            NamespaceRoots = ["Aspire"],
+            CorePackages = [new("Aspire.Hosting")],
+            ToolPackages = [new("Aspire.Cli")],
+        },
     ]);
 
     private static EcosystemDemoRegistration Demo(

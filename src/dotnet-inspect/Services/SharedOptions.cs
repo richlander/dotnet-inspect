@@ -56,12 +56,16 @@ public class SharedOptions
 
     // Discovery option
     public Option<string?> Discover { get; }
+    public Option<string?> QueryHelp { get; }
 
     // Projection options
     public Option<string?> Select { get; }
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
-    public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
+    public Option<bool> Schema { get; } = new("--schema")
+    {
+        Description = "With -D: show syntax-selected static schema or labeled alternatives without resolving/loading source (offline)"
+    };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
     public Option<bool> Effective { get; } = new("--effective")
     {
@@ -123,6 +127,13 @@ public class SharedOptions
             Arity = ArgumentArity.ZeroOrOne
         };
         Discover.Aliases.Add("--discover");
+
+        QueryHelp = new Option<string?>("-Q")
+        {
+            Description = "Discover query-capable sections, or the facets and operators of a section/category (no inspection)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        QueryHelp.Aliases.Add("--query-help");
 
         Select = new Option<string?>("-S")
         {
@@ -628,6 +639,12 @@ public class SharedOptions
     /// </summary>
     public string[]? ParseDiscover(ParseResult parseResult)
         => ParseProjectionList(parseResult, Discover);
+
+    public string[]? ParseQueryHelp(ParseResult parseResult)
+        => ParseProjectionList(parseResult, QueryHelp);
+
+    public bool IsQueryHelpMode(ParseResult parseResult)
+        => parseResult.GetResult(QueryHelp) is { Implicit: false };
 
     /// <summary>
     /// Parses columns list from parse result.

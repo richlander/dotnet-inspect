@@ -1,11 +1,13 @@
 namespace ILInspector.Decompiler.Fixtures.UnsafeChainA;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Leaf assembly A of the cross-assembly unsafe chain, and the shared
 /// memory-safety specimen library. The module opts into the updated
 /// memory-safety rules (see the csproj), so the compiler stamps every method
-/// declared <c>unsafe</c> with <c>RequiresUnsafeAttribute</c> and treats a
-/// pointer anywhere in a signature as requires-unsafe.
+/// declared <c>unsafe</c> with <c>RequiresUnsafeAttribute</c>. A pointer
+/// signature without that contract remains safe to invoke.
 ///
 /// The methods below are deliberately diverse so the fixture serves many
 /// scenarios at once — cross-assembly requires-unsafe rendering, and the
@@ -20,7 +22,8 @@ namespace ILInspector.Decompiler.Fixtures.UnsafeChainA;
 /// ContractUnsafe       | `unsafe` modifier     | yes         | no            | caller contract, safe-looking sig
 /// EscapingStackPointer | pointer signature     | no (escape) | no            | unconditionally unsafe (stack escape)
 /// HollowUnsafe         | `unsafe` modifier     | no          | no            | hollow — removable `unsafe`
-/// SignatureOnlyUnsafe  | pointer signature     | no          | no            | hollow — signature-only
+/// SignatureOnlyUnsafe  | pointer signature     | no          | no            | safe updated-rule signature
+/// SafePointerTask      | pointer signature     | no          | no            | safe cross-assembly async callee
 /// DelegatedUnsafe      | pointer signature     | no          | yes           | delegated — correctly unsafe
 /// Safe                 | (not requires-unsafe) | no          | no            | safe baseline
 /// </code>
@@ -34,6 +37,9 @@ namespace ILInspector.Decompiler.Fixtures.UnsafeChainA;
 /// </summary>
 public static class LibraryA
 {
+    public static Task<int> SafePointerTask(int* value)
+        => Task.FromResult(1);
+
     // ---- Cross-assembly chain leaf -------------------------------------------
 
     /// <summary>

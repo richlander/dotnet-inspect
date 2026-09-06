@@ -833,7 +833,7 @@ valid credentials, it can serve the requested resource instead of redirecting to
 
 ## Tests
 
-Two tiers, in `src/NuGetFetch.Tests`:
+Two tiers, in `tests/NuGetFetch.Tests`:
 
 - **Hermetic**, no network and no real plugin binary, runs in PR CI:
   - `CredentialMechanismTests` pins every row of the ranking table above.
@@ -867,7 +867,7 @@ Two tiers, in `src/NuGetFetch.Tests`:
 CI runs the offline tier only:
 
 ```bash
-dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 ```
 
 The live tier needs a private feed, which CI and fork PRs do not have. To run it locally, mint a
@@ -878,7 +878,7 @@ PAT:
 export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 export DOTNET_INSPECT_TEST_AZDO_TOKEN=$(az account get-access-token \
   --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
-dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
+dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 ```
 
 The token is read from the environment and never written to a config file.

@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
 let $runtime;
 let $managedExports;
@@ -34,9 +34,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+        value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.976702342");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.976702342\u0027 is not callable.");
         }
     }
     {
@@ -61,6 +61,14 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "GetPackageDocument.1001223652");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.GetPackageDocument.1001223652\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "ListGalleryDiscoveryCatalog.1310674786");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.ListGalleryDiscoveryCatalog.1310674786\u0027 is not callable.");
         }
     }
     {
@@ -146,6 +154,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "RequestPackageQueryMatches.1520975400");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.RequestPackageQueryMatches.1520975400\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ResolvePackageDependencyVersion.451505237");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.ResolvePackageDependencyVersion.451505237\u0027 is not callable.");
@@ -154,9 +170,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageQuery.287304775");
+        value = $ownDataProperty(value, "RunPackageQuery.1009197168");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.RunPackageQuery.287304775\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.RunPackageQuery.1009197168\u0027 is not callable.");
         }
     }
     {
@@ -192,8 +208,8 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
-export function activateWorkspacePackageOccurrence(action) {
-    const $result = $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+export async function activateWorkspacePackageOccurrence(action) {
+    const $result = await $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -205,6 +221,11 @@ export function clearWorkspacePackageOccurrences() {
 }
 export async function getPackageDocument(packageId, version, path) {
     const $result = await $requireManagedExports()["PackageExports"]["GetPackageDocument.1001223652"](packageId, version, path);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function listGalleryDiscoveryCatalog() {
+    const $result = $requireManagedExports()["PackageExports"]["ListGalleryDiscoveryCatalog.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -254,11 +275,14 @@ export async function queryWorkspacePackageOccurrences(workspaceJson) {
     const $parsed = JSON.parse($result);
     return $parsed;
 }
+export function requestPackageQueryMatches(additionalMatchCredit) {
+    return $requireManagedExports()["PackageExports"]["RequestPackageQueryMatches.1520975400"](additionalMatchCredit);
+}
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
     return await $requireManagedExports()["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
-export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink) {
-    const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.287304775"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink);
+export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId) {
+    const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.1009197168"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

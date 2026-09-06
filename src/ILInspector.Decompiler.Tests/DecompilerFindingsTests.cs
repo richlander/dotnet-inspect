@@ -233,6 +233,21 @@ public class DecompilerFindingsTests
     }
 
     [Fact]
+    public void Inspect_FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission()
+    {
+        var combiningMark = TypeRef.GenericParameter(0, "T\u0301");
+        var cause = Assert.Single(CompleteInspection(
+                DecompilerFindings.InspectFidelityCauses(
+                    Function(new Return(new Constant(null, combiningMark))),
+                    Subject))
+            .Findings).Payload;
+
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableGenericParameterName,
+            cause.Discriminator);
+    }
+
+    [Fact]
     public void Inspect_FieldName_AcceptsEscapableKeywordAndRejectsInvalidName()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");

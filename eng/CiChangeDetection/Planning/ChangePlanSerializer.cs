@@ -25,6 +25,9 @@ internal static class ChangePlanSerializer
         "inspectWeb",
         "skillGate",
         "tla",
+        "codeqlActions",
+        "codeqlCSharp",
+        "codeqlJavaScript",
     ];
 
     /// <summary>
@@ -240,7 +243,10 @@ internal static class ChangePlanSerializer
                 values[8],
                 values[9],
                 values[10],
-                values[11]);
+                values[11],
+                values[12],
+                values[13],
+                values[14]);
 
             JsonElement scopesElement =
                 RequireObject(root.GetProperty("scopes"), "scopes");
@@ -316,6 +322,9 @@ internal static class ChangePlanSerializer
         validations.InspectWeb,
         validations.SkillGate,
         validations.Tla,
+        validations.CodeqlActions,
+        validations.CodeqlCSharp,
+        validations.CodeqlJavaScript,
     ];
 
     /// <summary>

@@ -7,6 +7,7 @@ using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Planning;
 using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -30,6 +31,28 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class LibraryCommand
 {
+    internal static DocumentSchema CreateStructuralSchema()
+        => MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default
+                .GetSchemaInfo<LibraryInspectionView>()!
+                .ToDocumentSchema());
+
+    internal static StructuralSectionInput GetStructuralSectionInput(
+        string section)
+        => ILCoordinateSections.Contains(
+                section,
+                StringComparer.OrdinalIgnoreCase)
+            ? StructuralSectionInput.IlCoordinate
+            : section.Equals(
+                MetadataSectionNames.Heap,
+                StringComparison.OrdinalIgnoreCase)
+                ? StructuralSectionInput.HeapCoordinate
+                : section.Equals(
+                    SectionNames.BodyShapes,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? StructuralSectionInput.BodyKindFilter
+                    : StructuralSectionInput.None;
+
     /// <summary>
     /// Discovery must know which metadata tables carry rows, or the whole <c>@Metadata</c> category
     /// filters out of the catalog: its sections are explicit-only, so no verbosity requests them,
@@ -111,6 +134,23 @@ public class LibraryCommand
 
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
+        if (options.IntegrationQuery.HasFilter
+            && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
+                || options.PerformanceTriage.HasRanking))
+        {
+            CommandError.Write(
+                "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+            return 1;
+        }
+        if (options.IntegrationQuery.HasFilter
+            && (options.ILOffsetParameter is not null || options.ILOffsetsPath is not null
+                || options.HeapParameter is not null || options.ExtractResources is not null
+                || options.Print || options.Value || options.Urls || options.Paths))
+        {
+            CommandError.Write(
+                "Integration ecosystem queries support section rows, columns, and counts, not coordinate or extraction operations.");
+            return 1;
+        }
         var assemblyPath = options.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
         var sections = catalog.Sections;
@@ -118,8 +158,7 @@ public class LibraryCommand
         var queryCatalog = catalog.QueryCatalog;
         var groupQueryCatalog = catalog.GroupQueryCatalog;
 
-        var schemaMap = MetadataSectionNames.AugmentSchema(
-            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
+        var schemaMap = CreateStructuralSchema();
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
@@ -138,15 +177,22 @@ public class LibraryCommand
         options = aliasNormalized.Options;
         options = NormalizeReferenceProjection(options);
 
-        if (options.Effective && options.Discover == null)
+        if (GetDiscoveryModeError(
+                options.Effective,
+                options.Discover is not null,
+                options.Schema) is { } discoveryModeError)
         {
-            CommandError.Write("--effective requires -D/--discover.");
+            CommandError.Write(discoveryModeError);
             return 1;
         }
-        if (options.Effective && options.Schema)
+
+        if (options.Discover is not null && options.Schema)
         {
-            CommandError.Write("--effective cannot be combined with --schema.");
-            return 1;
+            return StructuralViewRegistry.Execute(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library),
+                StructuralDiscoveryRequest.From(options));
         }
 
         // Schema and named discovery are structural by default. They describe the catalog without
@@ -253,6 +299,25 @@ public class LibraryCommand
 
         if (options.Discover is null || fullEffectiveDiscovery)
         {
+            if (options.IntegrationQuery.HasFilter)
+            {
+                string[] integrationSections =
+                    [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities];
+                if (options.IncludeSections is not { Count: > 0 })
+                {
+                    options = options with
+                    {
+                        IncludeSections = [.. integrationSections],
+                        FixedOverview = false,
+                    };
+                }
+                else if (!options.IncludeSections.Overlaps(integrationSections))
+                {
+                    CommandError.Write(
+                        "--where ecosystem=... targets Integrations. Omit -S or include an Integration section.");
+                    return 1;
+                }
+            }
             bool bodyShapesSelected =
                 options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
             if (options.BodyKindQuery.HasFilter
@@ -1770,7 +1835,7 @@ public class LibraryCommand
     /// Resolves every hex table spelling in <paramref name="values"/>. Returns a null array when
     /// nothing needed rewriting, so an untouched selection keeps its original instance.
     /// </summary>
-    private static (string[]? Values, string? Error) ResolveTableAliases(string[]? values)
+    internal static (string[]? Values, string? Error) ResolveTableAliases(string[]? values)
     {
         if (values is not { Length: > 0 })
             return (null, null);
@@ -1789,6 +1854,18 @@ public class LibraryCommand
         }
 
         return (rewritten, null);
+    }
+
+    internal static OptionError? GetDiscoveryModeError(
+        bool effective,
+        bool hasDiscovery,
+        bool schema)
+    {
+        if (effective && !hasDiscovery)
+            return new OptionError("--effective requires -D/--discover.");
+        if (effective && schema)
+            return new OptionError("--effective cannot be combined with --schema.");
+        return null;
     }
 
     /// <summary>
@@ -2899,6 +2976,10 @@ public class LibraryCommand
                 writeEmptyNote: false);
             return true;
         }
+
+        if (options.IntegrationQuery.HasFilter
+            && section.StartsWith(IntegrationSectionNames.Prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;

@@ -149,6 +149,25 @@ public sealed class ApiSurfaceEmitSetTests
             member => member.Name == "get_Count");
     }
 
+    [Theory]
+    [InlineData(nameof(CovariantEmitDerived), nameof(CovariantEmitDerived.P))]
+    [InlineData(nameof(StaticAbstractEmitImpl), nameof(StaticAbstractEmitImpl.Value))]
+    [InlineData(nameof(ImplicitEmitImpl), nameof(ImplicitEmitImpl.Count))]
+    public void PublicAccessorProjection_RetainsMethodClassification(
+        string typeName,
+        string propertyName)
+    {
+        ApiType type = Type(PublicSurface, typeName);
+        ApiMember property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property" && member.Name == propertyName);
+        Assert.NotNull(property.SignatureModel);
+        Assert.All(
+            property.SignatureModel.Accessors,
+            accessor => Assert.False(accessor.IsExplicitInterfaceImplementation));
+        Assert.Equal("method", Assert.Single(ApiMemberAccessors.Create(property, type)).Kind);
+    }
+
     [Fact]
     public void IncludeAllExtract_StillKeepsExplicitInterfaceAccessorsAsMethods()
     {

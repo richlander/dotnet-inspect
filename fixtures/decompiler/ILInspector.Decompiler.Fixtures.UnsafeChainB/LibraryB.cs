@@ -2,6 +2,8 @@ namespace ILInspector.Decompiler.Fixtures.UnsafeChainB;
 
 using ILInspector.Decompiler.Fixtures.UnsafeChainA;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Caller assembly B of the cross-assembly unsafe chain. <see cref="M2"/> calls
 /// <see cref="LibraryA.M1"/> — a pointerless requires-unsafe method in assembly
@@ -12,6 +14,9 @@ using ILInspector.Decompiler.Fixtures.UnsafeChainA;
 /// </summary>
 public static class LibraryB
 {
+    public static async Task<int> AwaitSafePointer(nint value)
+        => await LibraryA.SafePointerTask((int*)value);
+
     // Cross-assembly call to a pointerless requires-unsafe method. The call —
     // not any intrinsic pointer op — is what forces the unsafe context.
     public static int M2()

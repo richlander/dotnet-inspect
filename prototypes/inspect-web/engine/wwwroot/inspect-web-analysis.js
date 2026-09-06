@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
 let $runtime;
 let $managedExports;
@@ -42,25 +42,25 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "AnalysisExports");
-        value = $ownDataProperty(value, "QueryPackageIntegrations.1001223652");
+        value = $ownDataProperty(value, "QueryPackageIntegrations.1579276339");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027AnalysisExports.QueryPackageIntegrations.1001223652\u0027 is not callable.");
+            throw new Error("Managed export \u0027AnalysisExports.QueryPackageIntegrations.1579276339\u0027 is not callable.");
         }
     }
     {
         let value = exports;
         value = $ownDataProperty(value, "AnalysisExports");
-        value = $ownDataProperty(value, "QueryPackageOpportunities.1001223652");
+        value = $ownDataProperty(value, "QueryPackageOpportunities.1579276339");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027AnalysisExports.QueryPackageOpportunities.1001223652\u0027 is not callable.");
+            throw new Error("Managed export \u0027AnalysisExports.QueryPackageOpportunities.1579276339\u0027 is not callable.");
         }
     }
     {
         let value = exports;
         value = $ownDataProperty(value, "AnalysisExports");
-        value = $ownDataProperty(value, "QueryPackagePerformance.1001223652");
+        value = $ownDataProperty(value, "QueryPackagePerformance.1579276339");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027AnalysisExports.QueryPackagePerformance.1001223652\u0027 is not callable.");
+            throw new Error("Managed export \u0027AnalysisExports.QueryPackagePerformance.1579276339\u0027 is not callable.");
         }
     }
     {
@@ -117,18 +117,18 @@ export async function queryMemberFacts(packageId, version, targetFramework, asse
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackageIntegrations(packageId, version, targetFramework) {
-    const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageIntegrations.1001223652"](packageId, version, targetFramework);
+export async function queryPackageIntegrations(packageId, version, targetFramework, assemblyName) {
+    const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageIntegrations.1579276339"](packageId, version, targetFramework, assemblyName);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackageOpportunities(packageId, version, targetFramework) {
-    const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageOpportunities.1001223652"](packageId, version, targetFramework);
+export async function queryPackageOpportunities(packageId, version, targetFramework, assemblyName) {
+    const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackageOpportunities.1579276339"](packageId, version, targetFramework, assemblyName);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryPackagePerformance(packageId, version, targetFramework) {
-    const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackagePerformance.1001223652"](packageId, version, targetFramework);
+export async function queryPackagePerformance(packageId, version, targetFramework, assemblyName) {
+    const $result = await $requireManagedExports()["AnalysisExports"]["QueryPackagePerformance.1579276339"](packageId, version, targetFramework, assemblyName);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

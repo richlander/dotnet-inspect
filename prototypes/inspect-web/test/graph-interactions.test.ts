@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  bindDependencyGraphNodes,
   bindGraphBack,
   bindGraphPanZoom,
-  bindTypeGraphNodes,
 } from "../src/graph-interactions.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -78,18 +76,6 @@ class FakeElement {
   insertBefore(node: { textContent: string | null }) {
     this.inserted.push(node);
     return node;
-  }
-}
-
-class FakeNodeRoot {
-  private readonly nodes: FakeElement[];
-
-  constructor(nodes: FakeElement[]) {
-    this.nodes = nodes;
-  }
-
-  querySelectorAll(selector: string) {
-    return selector === "g.node" ? this.nodes : [];
   }
 }
 
@@ -220,22 +206,28 @@ test("graph back binding dispatches only from the rendered control", () => {
   assert.equal(calls, 1);
 });
 
-test("type and dependency nodes decode stable Mermaid identities", () => {
+test("type nodes retain typed identity, keyboard activation, and unavailable explanations", () => {
   const type = new FakeElement({ dataId: "t1" });
   const unavailable = new FakeElement({ id: "flowchart-t2-4" });
   const unknown = new FakeElement({ id: "flowchart-x3-4" });
   const typeCalls: string[] = [];
+  const viewport = new FakeViewport(new FakeSvg([type, unavailable, unknown]));
+  const keybindings = new KeybindingRegistry();
 
-  bindTypeGraphNodes(
-    fakeDom.parentNode(new FakeNodeRoot([type, unavailable, unknown])),
-    nodeId => {
-      if (nodeId === "t1") {
-        return { onSelect: () => typeCalls.push(nodeId) };
-      }
-      if (nodeId === "t2") {
-        return { unavailableLabel: "Hidden.Type — unavailable" };
-      }
-      return null;
+  bindGraphPanZoom(
+    fakeDom.parentNode(new FakeContainer([])),
+    fakeDom.htmlElement(viewport),
+    {
+      keybindings,
+      resolveTypeGraphNode: nodeId => {
+        if (nodeId === "t1") {
+          return { onSelect: () => typeCalls.push(nodeId), label: "Open Visible.Type" };
+        }
+        if (nodeId === "t2") {
+          return { unavailableLabel: "Hidden.Type — unavailable" };
+        }
+        return null;
+      },
     });
 
   assert.deepEqual(typeCalls, []);
@@ -243,27 +235,75 @@ test("type and dependency nodes decode stable Mermaid identities", () => {
   assert.equal(type.style.cursor, "pointer");
   type.dispatch("click");
   assert.deepEqual(typeCalls, ["t1"]);
+  assert.equal(type.attributes.get("role"), "button");
+  assert.equal(type.attributes.get("tabindex"), "0");
+  for (const key of ["Enter", " "]) {
+    assert.equal(dispatchKey(keybindings, type, { key }).prevented, true);
+  }
+  assert.deepEqual(typeCalls, ["t1", "t1", "t1"]);
+  viewport.dispatch("pointerdown", {
+    button: 0, clientX: 10, clientY: 10, pointerId: 1,
+  });
+  viewport.dispatch("pointermove", {
+    clientX: 30, clientY: 10, pointerId: 1,
+  });
+  viewport.dispatch("pointerup", { pointerId: 1 });
+  type.dispatch("click");
+  assert.deepEqual(typeCalls, ["t1", "t1", "t1"]);
   assert.equal(unavailable.classList.contains("non-nav"), true);
   assert.equal(unavailable.classList.contains("nav-node"), false);
   assert.equal(unavailable.inserted[0]?.textContent, "Hidden.Type — unavailable");
+  assert.equal(unavailable.attributes.get("aria-label"), "Hidden.Type — unavailable");
+  assert.equal(unavailable.attributes.get("tabindex"), undefined);
+  unavailable.dispatch("click");
+  assert.equal(dispatchKey(keybindings, unavailable, { key: "Enter" }).prevented, false);
+  assert.deepEqual(typeCalls, ["t1", "t1", "t1"]);
   assert.equal(unknown.classList.contains("nav-node"), false);
+});
 
+test("dependency nodes share keyboard activation and suppress clicks after dragging", () => {
   const dependency = new FakeElement({ id: "flowchart-d7-2" });
   const self = new FakeElement({ dataId: "d0" });
+  const direct = new FakeElement({ dataId: "d8" });
+  const viewport = new FakeViewport(new FakeSvg([dependency, self, direct]));
+  const keybindings = new KeybindingRegistry();
   const dependencyCalls: string[] = [];
-  bindDependencyGraphNodes(
-    fakeDom.parentNode(new FakeNodeRoot([dependency, self])),
-    nodeId => nodeId === "d7"
-      ? { onSelect: () => dependencyCalls.push(nodeId) }
-      : null);
+  bindGraphPanZoom(
+    fakeDom.parentNode(new FakeContainer([])),
+    fakeDom.htmlElement(viewport),
+    {
+      keybindings,
+      resolveDependencyGraphNode: nodeId => nodeId === "d0"
+        ? null
+        : {
+            label: `Open ${nodeId}`,
+            onSelect: () => dependencyCalls.push(nodeId),
+          },
+    });
 
   assert.deepEqual(dependencyCalls, []);
   assert.equal(dependency.classList.contains("nav-node"), true);
   assert.equal(dependency.style.cursor, "pointer");
+  assert.equal(dependency.attributes.get("aria-label"), "Open d7");
+  assert.equal(dependency.attributes.get("tabindex"), "0");
+  assert.equal(dependency.attributes.get("role"), "button");
   assert.equal(self.classList.contains("nav-node"), false);
   dependency.dispatch("click");
   self.dispatch("click");
   assert.deepEqual(dependencyCalls, ["d7"]);
+  for (const key of ["Enter", " "]) {
+    assert.equal(dispatchKey(keybindings, direct, { key }).prevented, true);
+  }
+  assert.deepEqual(dependencyCalls, ["d7", "d8", "d8"]);
+  viewport.dispatch("pointerdown", {
+    button: 0, clientX: 10, clientY: 10, pointerId: 1,
+  });
+  viewport.dispatch("pointermove", {
+    clientX: 30, clientY: 10, pointerId: 1,
+  });
+  viewport.dispatch("pointerup", { pointerId: 1 });
+  dependency.dispatch("click");
+  assert.deepEqual(dependencyCalls, ["d7", "d8", "d8"]);
 });
 
 test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated", () => {
@@ -452,9 +492,6 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
 
 test("graph bindings tolerate missing rendered surfaces", () => {
   const keybindings = new KeybindingRegistry();
-  const root = fakeDom.parentNode(new FakeNodeRoot([]));
-  assert.doesNotThrow(() => bindTypeGraphNodes(root, () => null));
-  assert.doesNotThrow(() => bindDependencyGraphNodes(root, () => null));
   assert.doesNotThrow(() => bindGraphBack(
     fakeDom.parentNode({ querySelector: () => null }),
     { onBack() {} }));

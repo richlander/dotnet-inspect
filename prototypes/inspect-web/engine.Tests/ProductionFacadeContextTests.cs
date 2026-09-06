@@ -56,6 +56,7 @@ public sealed class ProductionFacadeContextTests
             "CancelPackageQuery",
             "ClearWorkspacePackageOccurrences",
             "GetPackageDocument",
+            "ListGalleryDiscoveryCatalog",
             "ListPackageQueryFacets",
             "LoadRuntimePack",
             "LoadRuntimePackAssembly",
@@ -66,6 +67,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageDependencies",
             "QueryPackageVersions",
             "QueryWorkspacePackageOccurrences",
+            "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
             "RunPackageQuery",
             "SearchTypes",
@@ -93,7 +95,11 @@ public sealed class ProductionFacadeContextTests
         ],
         [SourceAssembly] =
         [
+            "CancelMethodBodyComparison",
             "CancelSourceQuery",
+            "CancelTypeSourceQuery",
+            "QueryMethodBodyComparison",
+            "QueryMethodBodyComparisonTargets",
             "QueryMemberAnnotatedSource",
             "QueryMemberSource",
             "QueryTypeMemberSource",
@@ -156,10 +162,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 48 operations, and no operation name in two modules: a move that forgot to delete its
+        // 54 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(48, everyExport.Length);
+        Assert.Equal(54, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

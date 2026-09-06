@@ -399,6 +399,8 @@ public sealed record ApiSurfaceInspectionFailure(
         "type forwarder identity";
     public const string TypeForwarderRowOperation =
         "type forwarder row";
+    public const string MemorySafetyContractOperation =
+        "memory safety contract";
     internal const string UnmarkedAssemblyForwarderDetail =
         "The selected image has an AssemblyRef-terminated ExportedType "
             + "chain that is not a forwarder.";
@@ -673,6 +675,16 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsReadOnly { get; set; }
+
+    /// <summary>
+    /// Whether this accessor is a private MethodImpl body, matching the raw
+    /// explicit-implementation member classification. Null when that metadata
+    /// relationship was not retained.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsExplicitInterfaceImplementation { get; set; }
 
     /// <summary>
     /// The accessor MethodDef name. Ordinary properties use <c>get_Value</c>;
@@ -791,6 +803,20 @@ public class ApiType
     public string? Accessibility { get; set; }
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];
+
+    /// <summary>
+    /// Whether the type declares the exact-name runtime UnionAttribute, including a
+    /// downlevel polyfill. This is marker presence, not a valid union or JSON contract.
+    /// Null means the marker was not inspected, including older or summary surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasUnionAttribute { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiTypeLayout? Layout { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiModuleMemorySafetyFacts? MemorySafety { get; set; }
 
     /// <summary>The C# enum underlying type, captured from the special <c>value__</c> field.</summary>
     public string? EnumUnderlyingType { get; set; }
@@ -1070,6 +1096,16 @@ public class ApiMember
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
 
+    /// <summary>
+    /// Whether each property accessor MethodDef has a managed body RVA.
+    /// Null preserves older or hand-composed surfaces that predate the exact
+    /// accessor-level metadata fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? GetterHasMethodBody { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SetterHasMethodBody { get; set; }
+
     [JsonIgnore]
     public bool? HasGetter { get; set; }
 
@@ -1096,6 +1132,16 @@ public class ApiMember
     public int? AdderToken { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RemoverToken { get; set; }
+
+    /// <summary>
+    /// Whether each event accessor MethodDef has a managed body RVA.
+    /// Null preserves older or hand-composed surfaces that predate the exact
+    /// accessor-level metadata fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AdderHasMethodBody { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RemoverHasMethodBody { get; set; }
 
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
@@ -1124,11 +1170,44 @@ public class ApiMember
     public bool IsAsync { get; set; }
 
     /// <summary>
+    /// Version-aware caller contract and independent signature pointer evidence.
+    /// Null denotes an older or hand-composed surface, not a safe contract.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiMemberMemorySafetyFacts? MemorySafety { get; set; }
+
+    /// <summary>
+    /// Contracts for the accessor MethodDefs represented by this property or
+    /// event, including accessors not exposed as separate API members.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<ApiMemberMemorySafetyFacts>? AccessorMemorySafety
+        { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiBackingStorageAssociation? BackingStorage { get; set; }
+
+    /// <summary>
     /// Whether this MethodDef has a managed body RVA. Null is retained for
     /// older or hand-composed surfaces that predate the exact metadata fact.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasMethodBody { get; set; }
+
+    /// <summary>
+    /// Raw implementation evidence for this MethodDef. Null means the member
+    /// has no retained MethodDef evidence, not that it is an ordinary IL method.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiMethodImplementationFacts? MethodImplementation { get; set; }
+
+    /// <summary>
+    /// Implementation evidence for each distinct accessor MethodDef, including
+    /// accessors not exposed as separate API members.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<ApiMethodImplementationFacts>? AccessorImplementations
+        { get; set; }
 
     /// <summary>
     /// Whether metadata contains an exact-name runtime-wrapper MethodDef and a
@@ -1178,8 +1257,9 @@ public class ApiMember
 
     /// <summary>
     /// True when the member carries <c>[JsonInclude]</c>. Source-generated STJ
-    /// can honor the opt-in only when the generated context can access the
-    /// member or relevant accessor.
+    /// can honor the opt-in for non-public accessors and fields, but
+    /// same-assembly named value types still participate only when the
+    /// generated context can access those types.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }

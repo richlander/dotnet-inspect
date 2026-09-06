@@ -45,6 +45,7 @@ public sealed class MetadataSource : IDisposable
     readonly object _crossLock = new();
     readonly object _acquisitionGuard = new();
     readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
@@ -61,6 +62,7 @@ public sealed class MetadataSource : IDisposable
         _suppliedContext = context;
         _stateMachineRelationships =
             new(() => StateMachineRelationshipIndex.Create(reader));
+        _memorySafety = new(() => MemorySafetyMetadataIndex.Create(reader));
     }
 
     public string Path { get; }
@@ -100,6 +102,8 @@ public sealed class MetadataSource : IDisposable
     internal MetadataReader Reader { get; }
 
     internal object AcquisitionGuard => _acquisitionGuard;
+
+    internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
 
     internal ClassicAsyncRequestAdapterResult AdaptClassicAsyncRequest(
         MethodDefinitionHandle method,
@@ -1579,9 +1583,10 @@ public sealed class MetadataSource : IDisposable
                     if (variable.Index < 0 || variable.Index >= localCount)
                         continue;
                     names[variable.Index] = pdb.GetString(variable.Name);
-                    // A slot listed in more than one scope is malformed or merged
-                    // metadata. Keep the narrowest range: it is the weaker claim about
-                    // how far the declaration reaches, so it cannot widen a scope.
+                    // The current model retains only one range per slot. Keep the
+                    // narrowest range so collapsing legal scope-qualified slot reuse
+                    // cannot widen a declaration; #5617 tracks retaining every name
+                    // and scope instead.
                     var candidate = new LocalSlotScope(scope.StartOffset, scope.EndOffset);
                     if (scopes[variable.Index] is not { } existing || candidate.Length < existing.Length)
                         scopes[variable.Index] = candidate;

@@ -140,7 +140,7 @@ and query workspaces while migration continues.
 | ------ | ------------- | -------------- | ----------------- |
 | `ILInspector.MetadataPrimitives` | Primitive floor | Dependency-free SRM mechanics and neutral metadata-name operations. | [Metadata primitives](metadata-primitives.md) |
 | `CSharpText` | Text grammar floor | Model-free C# and XML-documentation grammars, names, signatures, and conservative text ranges. | [Inspection layers](design/inspection-layers.md) |
-| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), focused Metadata designs |
+| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
 | `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
 | `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |
@@ -148,6 +148,12 @@ and query workspaces while migration continues.
 Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
 CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that
 depends on typed models.
+
+[C# memory-safety declaration spelling](design/csharp-memory-safety-spelling.md)
+owns the proposed CSharp policy for consuming independent caller-contract,
+pointer, and declaration-shape facts. Its adoption and production-host gates
+remain pending; Metadata interpretation and Decompiler reconstruction stay
+with their respective owners.
 
 ### Evidence and comparison engines
 
@@ -173,6 +179,8 @@ reaches through Research to redefine the other.
 | ------ | ------------- | -------------- | ----------------- |
 | `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
 | `DotnetInspector.RowSelection` | Shared row-selection contract | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
+| `DotnetInspector.SourceSelection` | Shared source-intent contract | Immutable source declarations, bounded package-prefix intent, and pure reference search normalization; host adoption is staged. | [Typed source intent](design/search-scope-domain.md) |
+| `DotnetInspector.SourceDelegation` | Shared source-execution contract | Typed candidate planning, linear acceptance/execution, and completion-bound row or Count outcomes; source and host adoption is staged. | [Source delegation](design/source-delegation.md) |
 | `DotnetInspector.Sections` | Shared L2 contracts | Typed unresolved row-selection intent plus binding of already-resolved section-row cohorts to semantic selection and L2 result identities. | [L2 section-row shaping](design/section-row-shaping.md) |
 | `DotnetInspector.Presentation` | Shared presentation composition | Host-neutral lowering from typed inspection and comparison contracts into Markout presentation shapes. Member source diff projection deliberately consumes the Queries, Decompiler, Text, Metadata, MetadataPrimitives, and CSharpText graph so hosts cannot pair independently acquired endpoints or infer constructor context from display text. | [Analysis diff](design/analysis-diff.md), [Comparison document](design/comparison-document.md), [Member source diff presentation](design/member-source-diff-presentation.md) |
 | `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |

@@ -23,9 +23,28 @@ export interface QueryFacetTerm {
 
 const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
 const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
+export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
+const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
+const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
+
+export interface QuerySourceSelection {
+  packageType: string | null;
+  sourceOrderId: string | null;
+  includePrerelease: boolean;
+}
+
+export interface QuerySourceCatalog {
+  packageType: {
+    id: string;
+    label: string;
+    summary: string;
+    suggestions: readonly { value: string; label: string }[];
+  };
+  orders: readonly { id: string; label: string; summary: string }[];
+}
 
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
-export interface QueryRequest {
+export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
   /** Declared cap communicated to the source. The bounded-complete footer
@@ -42,6 +61,9 @@ export function createQueryRequest(
 ): QueryRequest {
   return {
     scopeQuery,
+    packageType: null,
+    sourceOrderId: null,
+    includePrerelease: false,
     facets: [],
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
@@ -114,9 +136,10 @@ export function toggleFacet(
 export interface QueryResultRow {
   packageId: string;
   version: string;
-  tier: "nuspec" | "package-content";
+  tier: "search-metadata" | "nuspec" | "package-content";
   evidence: readonly [string, ...string[]];
-  totalDownloads: number;
+  totalDownloads: number | null;
+  description?: string | null;
   producer?: string;
 }
 
@@ -201,6 +224,12 @@ export function withCompletion(
 
 /** Supplies product-projected pages and failures for a request. */
 export interface PackageQueryDataSource {
+  /** Initial durable-match credit advertised to the producer. Sources without
+   * a demand protocol omit this and retain their existing push behavior. */
+  initialMatchCredit?: number;
+  /** Adds durable-match credit to the active request. Returns false when no
+   * request can accept the credit. */
+  requestMore?(additionalMatchCredit: number): boolean;
   run(
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
@@ -225,7 +254,10 @@ export function initialQueryState(): PackageQueryState {
 export interface PackageQueryController {
   run(request: QueryRequest): Promise<void>;
   cancel(): void;
+  requestMore(): void;
 }
+
+export type PackageQueryUpdateKind = "reset" | "stream";
 
 /** Owns one in-flight generation counter so a superseded request's late pages
  * never append into a newer request's outcome (same race-safety idiom as
@@ -233,10 +265,11 @@ export interface PackageQueryController {
 export function createPackageQueryController(
   state: PackageQueryState,
   source: PackageQueryDataSource,
-  onUpdate: () => void,
+  onUpdate: (kind: PackageQueryUpdateKind) => void,
 ): PackageQueryController {
   let generation = 0;
   let abortController = new AbortController();
+  let grantedMatchCredit = Number.POSITIVE_INFINITY;
 
   return {
     async run(request: QueryRequest) {
@@ -246,6 +279,8 @@ export function createPackageQueryController(
       const requestGeneration = ++generation;
       state.request = request;
       state.outcome = emptyOutcome();
+      grantedMatchCredit =
+        source.initialMatchCredit ?? Number.POSITIVE_INFINITY;
       // Capture this run's own signal before onUpdate() runs: onUpdate() is
       // caller-supplied and may reentrantly call run() again synchronously
       // (e.g. a state-change handler that immediately kicks off a new
@@ -253,7 +288,7 @@ export function createPackageQueryController(
       // `source.run()` below gets a chance to read it — silently handing
       // this run the *next* run's signal instead of its own.
       const signal = runController.signal;
-      onUpdate();
+      onUpdate("reset");
 
       let completion: TerminalQueryCompletion;
       try {
@@ -262,17 +297,17 @@ export function createPackageQueryController(
           rows => {
             if (requestGeneration !== generation) return;
             state.outcome = appendRows(state.outcome, rows);
-            onUpdate();
+            onUpdate("stream");
           },
           failure => {
             if (requestGeneration !== generation) return;
             state.outcome = appendFailure(state.outcome, failure);
-            onUpdate();
+            onUpdate("stream");
           },
           progress => {
             if (requestGeneration !== generation) return;
             state.outcome = appendProgress(state.outcome, progress);
-            onUpdate();
+            onUpdate("stream");
           },
           signal,
         );
@@ -293,13 +328,13 @@ export function createPackageQueryController(
         if (requestGeneration !== generation) return;
         const reason = error instanceof Error ? error.message : String(error);
         state.outcome = withCompletion(state.outcome, { kind: "failed", reason });
-        onUpdate();
+        onUpdate("stream");
         return;
       }
 
       if (requestGeneration !== generation) return;
       state.outcome = withCompletion(state.outcome, completion);
-      onUpdate();
+      onUpdate("stream");
     },
 
     cancel() {
@@ -309,7 +344,20 @@ export function createPackageQueryController(
       generation++;
       abortController.abort();
       state.outcome = withCompletion(state.outcome, { kind: "cancelled" });
-      onUpdate();
+      onUpdate("stream");
+    },
+
+    requestMore() {
+      if (state.outcome.completion.kind !== "streaming"
+        || !source.requestMore
+        || !Number.isFinite(grantedMatchCredit)
+        || state.outcome.rows.length
+          < grantedMatchCredit - PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD) {
+        return;
+      }
+      if (source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH)) {
+        grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
+      }
     },
   };
 }

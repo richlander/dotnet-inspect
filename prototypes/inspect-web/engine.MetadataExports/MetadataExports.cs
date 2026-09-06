@@ -14,60 +14,70 @@ public static partial class MetadataExports
     public static async Task<string> QueryPackageMetadata(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string assemblyFileName)
     {
-        BrowserInspectionScope scope =
+        BrowserPackageMetadata metadata =
+            await PackageMetadataAsync(
+                packageId, version, targetFramework, assemblyFileName);
+        return JsonSerializer.Serialize(
+            metadata,
+            BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
+    }
+
+    static async Task<BrowserPackageMetadata> PackageMetadataAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
                 targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserMetadataWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
         if (!coordinate.Selection.IsSelected)
         {
-            return JsonSerializer.Serialize(
-                new BrowserPackageMetadata(
-                    Assemblies: [],
-                    InspectionError: null,
-                    compileLibrary),
-                BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
+            return new BrowserPackageMetadata(
+                Assemblies: [],
+                InspectionError: null,
+                compileLibrary);
         }
 
-        var assemblies = new List<BrowserAssemblyMetadata>();
-        var failures = new List<string>();
-        foreach (BrowserWorkspaceParticipant participant
-            in MetadataParticipants(scope, coordinate))
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyFileName);
+        AssemblyContextEntry<MetadataImageOverview> result =
+            scope.UseMetadataParticipant(
+                participant,
+                (group, selected) =>
+                AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                    group,
+                    selected));
+        BrowserPackageMetadata metadata;
+        if (result
+            is AssemblyContextEntry<MetadataImageOverview>.Available available)
         {
-            AssemblyContextEntry<MetadataImageOverview> result =
-                scope.UseMetadataParticipant(
-                    participant,
-                    (group, selected) =>
-                    AssemblyContextMetadataImageQuery.ExecuteParticipant(
-                        group,
-                        selected));
-            if (result
-                is AssemblyContextEntry<MetadataImageOverview>.Available
-                    available)
-            {
-                assemblies.Add(
-                    ProjectMetadataAssembly(
-                        participant.Asset.AssemblyName,
-                        available.Value));
-            }
-            else
-            {
-                failures.Add(MetadataFailure(result));
-            }
+            metadata = new BrowserPackageMetadata(
+                [ProjectMetadataAssembly(
+                    participant.Asset.AssemblyName,
+                    available.Value)],
+                null,
+                compileLibrary);
+        }
+        else
+        {
+            metadata = new BrowserPackageMetadata(
+                [],
+                MetadataFailure(result),
+                compileLibrary);
         }
 
-        return JsonSerializer.Serialize(
-            new BrowserPackageMetadata(
-                [.. assemblies],
-                failures.Count == 0 ? null : string.Join("; ", failures),
-                compileLibrary),
-            BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
+        return metadata;
     }
 
     [JSExport]
@@ -80,11 +90,34 @@ public static partial class MetadataExports
         int startRowId,
         int maxRows)
     {
-        BrowserInspectionScope scope =
+        BrowserMetadataWindow window = await PackageMetadataTableAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyFileName,
+            tableIndex,
+            startRowId,
+            maxRows);
+        return JsonSerializer.Serialize(
+            window,
+            BrowserMetadataJsonContext.Default.BrowserMetadataWindow);
+    }
+
+    static async Task<BrowserMetadataWindow> PackageMetadataTableAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
                 targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserWorkspaceParticipant participant = MetadataParticipant(
             scope,
             scope.Coordinates[0],
@@ -101,9 +134,7 @@ public static partial class MetadataExports
                     group,
                     selected,
                     request));
-        return JsonSerializer.Serialize(
-            ProjectMetadataWindow(assemblyFileName, tableIndex, result),
-            BrowserMetadataJsonContext.Default.BrowserMetadataWindow);
+        return ProjectMetadataWindow(assemblyFileName, tableIndex, result);
     }
 
     [JSExport]
@@ -114,11 +145,30 @@ public static partial class MetadataExports
         string assemblyFileName,
         string heap)
     {
-        BrowserInspectionScope scope =
+        BrowserHeapListing listing = await PackageHeapEntriesAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyFileName,
+            heap);
+        return JsonSerializer.Serialize(
+            listing,
+            BrowserMetadataJsonContext.Default.BrowserHeapListing);
+    }
+
+    static async Task<BrowserHeapListing> PackageHeapEntriesAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName,
+        string heap)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
                 targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserWorkspaceParticipant participant = MetadataParticipant(
             scope,
             scope.Coordinates[0],
@@ -132,9 +182,7 @@ public static partial class MetadataExports
                     group,
                     selected,
                     heapKind));
-        return JsonSerializer.Serialize(
-            ProjectHeapListing(assemblyFileName, heapKind, result),
-            BrowserMetadataJsonContext.Default.BrowserHeapListing);
+        return ProjectHeapListing(assemblyFileName, heapKind, result);
     }
 
     [JSExport]
@@ -144,34 +192,38 @@ public static partial class MetadataExports
         string assemblyFileName,
         string pack)
     {
-        using BrowserPlatformScopeResolution resolution =
+        BrowserPackageMetadata metadata;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        AssemblyContextEntry<MetadataImageOverview> result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                AssemblyContextMetadataImageQuery.ExecuteParticipant);
-        string assembly = PlatformAssemblyFileName(
-            resolution.Participant.Participant.Assembly.Identity.Name);
-        BrowserPackageMetadata metadata = result switch
+                pack))
         {
-            AssemblyContextEntry<MetadataImageOverview>.Available available =>
-                new BrowserPackageMetadata(
-                    [ProjectMetadataAssembly(assembly, available.Value)],
-                    null,
+            AssemblyContextEntry<MetadataImageOverview> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextMetadataImageQuery.ExecuteParticipant);
+            string assembly = PlatformAssemblyFileName(
+                resolution.Participant.Participant.Assembly.Identity.Name);
+            metadata = result switch
+            {
+                AssemblyContextEntry<MetadataImageOverview>.Available available =>
+                    new BrowserPackageMetadata(
+                        [ProjectMetadataAssembly(assembly, available.Value)],
+                        null,
+                        BrowserMetadataWireProjection.Project(
+                            BrowserCompileLibraryProjection.Selected(
+                                resolution.Scope.Framework))),
+                _ => new BrowserPackageMetadata(
+                    [],
+                    MetadataFailure(result),
                     BrowserMetadataWireProjection.Project(
-                        BrowserCompileLibraryProjection.Selected(
-                            resolution.Scope.Framework))),
-            _ => new BrowserPackageMetadata(
-                [],
-                MetadataFailure(result),
-                BrowserMetadataWireProjection.Project(
-                        BrowserCompileLibraryProjection.Selected(
-                            resolution.Scope.Framework))),
-        };
+                            BrowserCompileLibraryProjection.Selected(
+                                resolution.Scope.Framework))),
+            };
+        }
+
         return JsonSerializer.Serialize(
             metadata,
             BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
@@ -187,30 +239,35 @@ public static partial class MetadataExports
         int startRowId,
         int maxRows)
     {
-        using BrowserPlatformScopeResolution resolution =
+        BrowserMetadataWindow window;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        var request = new MetadataTableWindowRequest(
-            (TableIndex)tableIndex,
-            startRowId,
-            maxRows);
-        AssemblyContextEntry<MetadataTableWindow> result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, participant) =>
-                    AssemblyContextMetadataTableQuery.ExecuteParticipant(
-                        group,
-                        participant,
-                        request));
-        return JsonSerializer.Serialize(
-            ProjectMetadataWindow(
+                pack))
+        {
+            var request = new MetadataTableWindowRequest(
+                (TableIndex)tableIndex,
+                startRowId,
+                maxRows);
+            AssemblyContextEntry<MetadataTableWindow> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, participant) =>
+                        AssemblyContextMetadataTableQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            request));
+            window = ProjectMetadataWindow(
                 PlatformAssemblyFileName(
                     resolution.Participant.Participant.Assembly.Identity.Name),
                 tableIndex,
-                result),
+                result);
+        }
+
+        return JsonSerializer.Serialize(
+            window,
             BrowserMetadataJsonContext.Default.BrowserMetadataWindow);
     }
 
@@ -222,27 +279,32 @@ public static partial class MetadataExports
         string pack,
         string heap)
     {
-        using BrowserPlatformScopeResolution resolution =
+        HeapKind heapKind = ParseHeap(heap);
+        BrowserHeapListing listing;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        HeapKind heapKind = ParseHeap(heap);
-        AssemblyContextEntry<MetadataHeapEntrySet> result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, participant) =>
-                    AssemblyContextMetadataHeapQuery.ExecuteParticipant(
-                        group,
-                        participant,
-                        heapKind));
-        return JsonSerializer.Serialize(
-            ProjectHeapListing(
+                pack))
+        {
+            AssemblyContextEntry<MetadataHeapEntrySet> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, participant) =>
+                        AssemblyContextMetadataHeapQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            heapKind));
+            listing = ProjectHeapListing(
                 PlatformAssemblyFileName(
                     resolution.Participant.Participant.Assembly.Identity.Name),
                 heapKind,
-                result),
+                result);
+        }
+
+        return JsonSerializer.Serialize(
+            listing,
             BrowserMetadataJsonContext.Default.BrowserHeapListing);
     }
 
@@ -283,7 +345,9 @@ public static partial class MetadataExports
                 cor?.Flags.ToString(),
                 cor?.MajorRuntimeVersion,
                 cor?.MinorRuntimeVersion,
-                cor?.EntryPointToken));
+                cor?.EntryPointToken,
+                cor?.ManagedNativeHeaderDirectory.RelativeVirtualAddress ?? 0,
+                cor?.ManagedNativeHeaderDirectory.Size ?? 0));
     }
 
     internal static BrowserMetadataWindow ProjectMetadataWindow(
@@ -448,45 +512,11 @@ public static partial class MetadataExports
             "An available assembly-context entry has no failure.",
             nameof(entry));
 
-    static BrowserWorkspaceParticipant[] MetadataParticipants(
-        BrowserInspectionScope scope,
-        BrowserPackageCoordinate coordinate) =>
-    [
-        .. scope.ImplementationParticipants
-            .Concat(scope.ReferenceOnlySurfaceParticipants)
-            .Where(participant => ReferenceEquals(
-                participant.Coordinate.Root.Identity,
-                coordinate.Root.Identity)),
-    ];
-
     static BrowserWorkspaceParticipant MetadataParticipant(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate,
-        string assemblyFileName)
-    {
-        if (!coordinate.Selection.IsSelected)
-        {
-            throw new InvalidOperationException(
-                $"{coordinate.PackageId} {coordinate.Version} has no selected "
-                + $"compile library ({coordinate.Selection.Status}).");
-        }
-
-        BrowserWorkspaceParticipant[] matches =
-        [
-            .. MetadataParticipants(scope, coordinate).Where(participant =>
-                participant.Asset.AssemblyName.Equals(
-                    assemblyFileName,
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-        return matches.Length switch
-        {
-            1 => matches[0],
-            0 => throw new InvalidOperationException(
-                $"Assembly '{assemblyFileName}' is not part of the selected metadata workspace."),
-            _ => throw new InvalidOperationException(
-                $"Assembly '{assemblyFileName}' is ambiguous in the selected metadata workspace."),
-        };
-    }
+        string assemblyFileName) =>
+        scope.LibraryParticipant(coordinate, assemblyFileName);
 
     static HeapKind ParseHeap(string heap) =>
         Enum.TryParse(heap, ignoreCase: true, out HeapKind parsed)

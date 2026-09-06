@@ -247,6 +247,140 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void FormatSourceWithDeclaration_UsesBodyOwnedParameterNames()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var method = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "M",
+                ReturnType = "System.Int32",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "arg0",
+                        Type = "System.Int32",
+                    },
+                ],
+            },
+        };
+        var result = DecompilerResult.Success("return arg0_1;") with
+        {
+            Metadata = DecompilerResultMetadata.Default with
+            {
+                ParameterNames = ["arg0_1"],
+            },
+        };
+
+        string source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: null,
+            result);
+
+        Assert.StartsWith("public System.Int32 M(System.Int32 arg0_1)", source);
+        Assert.Contains("return arg0_1;", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_AppliesNamesToGenericMethodModel()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var method = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "M",
+                ReturnType = "T",
+                TypeParameters = [new TypeParameter { Name = "T" }],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "arg0",
+                        Type = "T",
+                    },
+                ],
+            },
+        };
+        var result = DecompilerResult.Success("return arg0_1;") with
+        {
+            Metadata = DecompilerResultMetadata.Default with
+            {
+                ParameterNames = ["arg0_1"],
+            },
+        };
+
+        string source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: ["T"],
+            result);
+
+        Assert.StartsWith("public T M<T>(T arg0_1)", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_AppliesNamesToConstructorModel()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = ".ctor",
+                ReturnType = "System.Void",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "arg0",
+                        Type = "System.Int32",
+                    },
+                ],
+            },
+        };
+        var result = DecompilerResult.Success("this.Value = arg0_1;") with
+        {
+            Metadata = DecompilerResultMetadata.Default with
+            {
+                ParameterNames = ["arg0_1"],
+            },
+        };
+
+        string source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+
+        Assert.StartsWith("public Widget(System.Int32 arg0_1)", source);
+    }
+
+    [Fact]
     public void FormatSourceWithDeclaration_NoDeclaration_KeepsTheCommentAsOneLeadingLine()
     {
         // A member the formatter cannot spell a declaration for still gets the
@@ -2639,6 +2773,55 @@ public class ApiOutputFormatterTests
         Assert.Equal(1, filtered.AttributeCount);
         Assert.True(filtered.HasValidRow);
         Assert.False(filtered.HasMalformedRow);
+    }
+
+    [Fact]
+    public void ApiTypeJson_RoundTripsAccessorBodyAvailability()
+    {
+        var type = new ApiType
+        {
+            Name = "Accessors",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    GetterHasMethodBody = false,
+                    SetterHasMethodBody = true,
+                },
+                new ApiMember
+                {
+                    Name = "Changed",
+                    Kind = "event",
+                    AdderToken = 0x06000003,
+                    RemoverToken = 0x06000004,
+                    AdderHasMethodBody = true,
+                    RemoverHasMethodBody = false,
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        ApiMember property = Assert.Single(
+            restored.Members,
+            member => member.Kind == "property");
+        ApiMember @event = Assert.Single(
+            restored.Members,
+            member => member.Kind == "event");
+
+        Assert.False(property.GetterHasMethodBody);
+        Assert.True(property.SetterHasMethodBody);
+        Assert.True(@event.AdderHasMethodBody);
+        Assert.False(@event.RemoverHasMethodBody);
     }
 
     [Fact]

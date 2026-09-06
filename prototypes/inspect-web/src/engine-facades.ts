@@ -1,14 +1,14 @@
 // The application's one runtime composition point for the production facade set.
 //
 // Seven independently generated modules attach to one Browser/Wasm runtime through the one
-// shared `./_framework/dotnet.js` module. Startup is eager, ordered and serial: every facade
+// shared `./runtime-loader.js` module. Startup is eager, ordered and serial: every facade
 // acquires its own managed export assembly before any application operation is published as
 // ready. Concurrent callers share one attempt, and the first failure is the failure every
 // later caller observes, so a stale module or a missing export root fails the application
 // visibly instead of leaving it partially initialized.
 //
-// Nothing here re-exports a managed operation. Application code calls each of the 48
-// operations through the generated module that owns it; this module owns only composition.
+// Nothing here re-exports a managed operation. Application code calls each exported
+// operation through the generated module that owns it; this module owns only composition.
 //
 // The published modules are served beside `_framework/` at the site root, so they are named
 // by their absolute runtime specifier and loaded as modules rather than bundled.

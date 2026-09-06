@@ -90,6 +90,155 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_ExplicitInterfaceSetterUsesPropertyValueType()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && !member.IsStatic
+                && member.Name.EndsWith(
+                    $".{nameof(get_IMemberRenderExplicitProperty.Label)}",
+                    StringComparison.Ordinal));
+        ApiMember setter = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.EndsWith(
+                $".set_{nameof(get_IMemberRenderExplicitProperty.Label)}",
+                StringComparison.Ordinal));
+        type.Members = [setter];
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            setter,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "string? get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "set => _explicitLabel = value;",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "void get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_")]
+    [InlineData("set_")]
+    public void ProduceMember_ReadonlyExplicitInterfaceAccessorPreservesPhysicalModifier(
+        string accessorPrefix)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(ReadonlyExplicitMemberRenderSpecimen).FullName);
+        ApiMember accessor = Assert.Single(
+            type.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(
+                    $".{accessorPrefix}Label",
+                    StringComparison.Ordinal));
+        Assert.True(accessor.IsReadOnly);
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type, accessor, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "readonly string? get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_")]
+    [InlineData("set_")]
+    public void ProduceMember_StaticExplicitInterfaceAccessorPreservesStaticModifier(
+        string accessorPrefix)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.IsStatic
+                && member.Name.EndsWith(
+                    "."
+                        + nameof(
+                            set_IMemberRenderStaticExplicitProperty<
+                                MemberRenderSpecimen>.Label),
+                    StringComparison.Ordinal));
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.Contains(
+                $".{accessorPrefix}"
+                    + nameof(
+                        set_IMemberRenderStaticExplicitProperty<
+                            MemberRenderSpecimen>.Label),
+                StringComparison.Ordinal));
+        type.Members = [accessor];
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            accessor,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "static string? set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_Prefix", "int IMemberRenderExplicitPrefixMethods.get_Prefix()")]
+    [InlineData("set_Prefix", "void IMemberRenderExplicitPrefixMethods.set_Prefix()")]
+    public void ProduceMember_ExplicitGetSetPrefixedMethodRetainsMethodForm(
+        string methodName,
+        string expectedSignature)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Kind == "explicit-interface-implementation"
+                && candidate.Name.EndsWith(
+                    $".{methodName}",
+                    StringComparison.Ordinal));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            member,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            expectedSignature,
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProduceMember_RendersCustomEventAccessorBodiesAndReturnAttributes()
     {
         var type = Specimen();
@@ -120,6 +269,344 @@ public sealed class MemberBodyProducerMemberRenderTests
             rendered.Text,
             StringComparison.Ordinal);
         Assert.Contains("Delegate.Remove(_changed, value)", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("set_Value")]
+    [InlineData("assign_Value")]
+    public void ProduceMember_MissingSetterValueName_FailsVisibly(
+        string setterName)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-missing-setter-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("MissingSetterValueName");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "MissingSetterValueNameSample",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var field = typeBuilder.DefineField(
+                "_value",
+                typeof(int),
+                FieldAttributes.Private);
+            var setter = typeBuilder.DefineMethod(
+                setterName,
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(int)]);
+            var il = setter.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Stfld, field);
+            il.Emit(OpCodes.Ret);
+            typeBuilder
+                .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+                .SetSetMethod(setter);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(
+                directory,
+                "MissingSetterValueName.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "MissingSetterValueNameSample");
+            var property = Assert.Single(
+                type.Members,
+                member => member.Name == "Value");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                property,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+            Assert.Contains("issue #5778", rendered.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProduceMember_RenamedEventValueNames_FailVisibly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-renamed-event-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("RenamedEventValueNames");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "RenamedEventValueNamesSample",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var eventBuilder = typeBuilder.DefineEvent(
+                "Changed",
+                EventAttributes.None,
+                typeof(Action));
+            var adder = typeBuilder.DefineMethod(
+                "attach_Changed",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(Action)]);
+            adder.GetILGenerator().Emit(OpCodes.Ret);
+            eventBuilder.SetAddOnMethod(adder);
+            var remover = typeBuilder.DefineMethod(
+                "detach_Changed",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(Action)]);
+            remover.GetILGenerator().Emit(OpCodes.Ret);
+            eventBuilder.SetRemoveOnMethod(remover);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(
+                directory,
+                "RenamedEventValueNames.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "RenamedEventValueNamesSample");
+            var eventMember = Assert.Single(
+                type.Members,
+                member => member.Name == "Changed");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                eventMember,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+            Assert.Contains("issue #5778", rendered.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("value", "value", MemberBodyProductionStatus.Complete)]
+    [InlineData(null, null, MemberBodyProductionStatus.Failed)]
+    [InlineData("handler", "otherHandler", MemberBodyProductionStatus.Failed)]
+    public void ProduceMember_FieldLikeEventParameterNames_RequireImplicitValue(
+        string? adderParameterName,
+        string? removerParameterName,
+        MemberBodyProductionStatus expectedStatus)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-field-like-event-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var (assemblyPath, type) = CreateFieldLikeEventAssembly(
+                directory,
+                adderParameterName,
+                removerParameterName);
+            var eventMember = Assert.Single(
+                type.Members,
+                member => member.Name == "Changed");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                eventMember,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(expectedStatus, rendered.Status);
+            if (expectedStatus == MemberBodyProductionStatus.Complete)
+            {
+                Assert.Contains(
+                    "public event Action Changed;",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains(
+                    "issue #5778",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Project_IncompatibleFieldLikeEventValueName_FailsWholeTypeVisibly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-field-like-event-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var (assemblyPath, type) = CreateFieldLikeEventAssembly(
+                directory,
+                adderParameterName: "handler",
+                removerParameterName: "otherHandler");
+
+            var rendered = MemberBodyProducer.Project(
+                type,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Contains(
+                "DEC0001: type source unavailable",
+                rendered.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "issue #5778",
+                rendered.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "index",
+        "index",
+        MemberBodyProductionStatus.Complete)]
+    [InlineData(
+        "getIndex",
+        "setIndex",
+        MemberBodyProductionStatus.Failed)]
+    public void ProduceMember_IndexerAccessorParameterNames_RequireSharedDeclaration(
+        string getterParameterName,
+        string setterParameterName,
+        MemberBodyProductionStatus expectedStatus)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-indexer-name-mismatch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("IndexerNameMismatch");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "IndexerNameMismatchSample",
+                TypeAttributes.Public | TypeAttributes.Class);
+            typeBuilder.SetCustomAttribute(new CustomAttributeBuilder(
+                typeof(DefaultMemberAttribute).GetConstructor([typeof(string)])!,
+                ["Item"]));
+            var field = typeBuilder.DefineField(
+                "_last",
+                typeof(int),
+                FieldAttributes.Private);
+            var getter = typeBuilder.DefineMethod(
+                "get_Item",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(int),
+                [typeof(int)]);
+            getter.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                getterParameterName);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldarg_1);
+            getterIl.Emit(OpCodes.Ret);
+            var setter = typeBuilder.DefineMethod(
+                "set_Item",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(int), typeof(int)]);
+            setter.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                setterParameterName);
+            setter.DefineParameter(2, ParameterAttributes.None, "value");
+            var setterIl = setter.GetILGenerator();
+            setterIl.Emit(OpCodes.Ldarg_0);
+            setterIl.Emit(OpCodes.Ldarg_1);
+            setterIl.Emit(OpCodes.Stfld, field);
+            setterIl.Emit(OpCodes.Ret);
+            var property = typeBuilder.DefineProperty(
+                "Item",
+                PropertyAttributes.None,
+                typeof(int),
+                [typeof(int)]);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(directory, "IndexerNameMismatch.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "IndexerNameMismatchSample");
+            var indexer = Assert.Single(
+                type.Members,
+                member => member.Name == "Item");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                indexer,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(expectedStatus, rendered.Status);
+            if (expectedStatus == MemberBodyProductionStatus.Failed)
+            {
+                Assert.Contains(
+                    "issue #5778",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains(
+                    $"this[int {getterParameterName}]",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    $"set => _last = {setterParameterName};",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -727,12 +1214,114 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.DoesNotContain("using System.event.Models;", listing);
         Assert.DoesNotContain("using event.Models;", listing);
     }
+
+    static (string AssemblyPath, ApiType Type) CreateFieldLikeEventAssembly(
+        string directory,
+        string? adderParameterName,
+        string? removerParameterName)
+    {
+        var assemblyName = new AssemblyName("FieldLikeEventValueNames");
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = module.DefineType(
+            "FieldLikeEventValueNamesSample",
+            TypeAttributes.Public | TypeAttributes.Class);
+        _ = typeBuilder.DefineField(
+            "Changed",
+            typeof(Action),
+            FieldAttributes.Private);
+        var eventBuilder = typeBuilder.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        var adder = typeBuilder.DefineMethod(
+            "add_Changed",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        if (adderParameterName is not null)
+        {
+            adder.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                adderParameterName);
+        }
+        adder.GetILGenerator().Emit(OpCodes.Ret);
+        eventBuilder.SetAddOnMethod(adder);
+        var remover = typeBuilder.DefineMethod(
+            "remove_Changed",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        if (removerParameterName is not null)
+        {
+            remover.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                removerParameterName);
+        }
+        remover.GetILGenerator().Emit(OpCodes.Ret);
+        eventBuilder.SetRemoveOnMethod(remover);
+        typeBuilder.CreateType();
+
+        string assemblyPath = Path.Combine(
+            directory,
+            "FieldLikeEventValueNames.dll");
+        assemblyBuilder.Save(assemblyPath);
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == "FieldLikeEventValueNamesSample");
+        return (assemblyPath, type);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
-public sealed class MemberRenderSpecimen
+public interface get_IMemberRenderExplicitProperty
+{
+    string? Label { get; set; }
+}
+
+public interface set_IMemberRenderStaticExplicitProperty<TSelf>
+    where TSelf : set_IMemberRenderStaticExplicitProperty<TSelf>
+{
+    static abstract string? Label { get; set; }
+}
+
+public interface IMemberRenderExplicitPrefixMethods
+{
+    int get_Prefix();
+
+    void set_Prefix();
+}
+
+public struct ReadonlyExplicitMemberRenderSpecimen : get_IMemberRenderExplicitProperty
+{
+    string? _label;
+
+    public ReadonlyExplicitMemberRenderSpecimen(string? label) => _label = label;
+
+    readonly string? get_IMemberRenderExplicitProperty.Label
+    {
+        get => _label;
+        set => GC.KeepAlive(value);
+    }
+}
+
+public sealed class MemberRenderSpecimen :
+    get_IMemberRenderExplicitProperty,
+    set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>,
+    IMemberRenderExplicitPrefixMethods
 {
     EventHandler? _changed;
+    string? _explicitLabel;
+    static string? _staticExplicitLabel;
 
     [System.ComponentModel.Description("marker")]
     [System.Runtime.CompilerServices.SkipLocalsInit]
@@ -745,6 +1334,24 @@ public sealed class MemberRenderSpecimen
     public string Name { get; private set; } = "";
 
     public static string StaticName { get; set; } = "";
+
+    string? get_IMemberRenderExplicitProperty.Label
+    {
+        get => _explicitLabel;
+        set => _explicitLabel = value;
+    }
+
+    static string? set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label
+    {
+        get => _staticExplicitLabel;
+        set => _staticExplicitLabel = value;
+    }
+
+    int IMemberRenderExplicitPrefixMethods.get_Prefix() => 1;
+
+    void IMemberRenderExplicitPrefixMethods.set_Prefix()
+    {
+    }
 
     public int AttributedValue
     {

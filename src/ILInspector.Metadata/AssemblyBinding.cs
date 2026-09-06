@@ -10,6 +10,8 @@ public enum AssemblyBindingFailureKind
     CandidateUnavailable,
     UnsupportedScope,
     InvalidPolicyResult,
+    InvalidBindingOrigin,
+    RequestBudgetExceeded,
 }
 
 /// <summary>
@@ -53,6 +55,9 @@ public sealed record AssemblyBindingFailure
 
     public AssemblyBindingFailureKind Kind { get; }
     public CandidateOpenFailureKind? CandidateFailureKind { get; }
+
+    /// <summary>The exact malformed-root reason for an invalid candidate.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
 }
 
 /// <summary>
@@ -61,6 +66,64 @@ public sealed record AssemblyBindingFailure
 /// could return a different answer for the same request.
 /// </summary>
 public sealed class AssemblyBindingPolicyVersion;
+
+/// <summary>
+/// Immutable policy-issued continuation. The version identifies the issuing
+/// policy state; derived records retain every context distinction, including
+/// delegated lineage, that can change a subsequent answer.
+/// </summary>
+public abstract record AssemblyBindingLineage
+{
+    protected AssemblyBindingLineage(AssemblyBindingPolicyVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        Version = version;
+    }
+
+    private AssemblyBindingLineage()
+    {
+    }
+
+    public AssemblyBindingPolicyVersion? Version { get; }
+
+    /// <summary>A context-free continuation using the policy's seed rules.</summary>
+    public static AssemblyBindingLineage Seed { get; } = new SeedLineage();
+
+    // Seed continuations explicitly opt into the existing seed rules.
+    internal static AssemblyBindingLineage? BindingContext(
+        AssemblyBindingLineage? lineage) =>
+        lineage == Seed ? null : lineage;
+
+    /// <summary>Pairs a selection with this issuing policy's continuation.</summary>
+    protected AssemblyBindingOccurrence CreateOccurrence(
+        ResolvedAssemblyReference assembly) => new(assembly, this);
+
+    sealed record SeedLineage : AssemblyBindingLineage;
+}
+
+/// <summary>
+/// A selected acquisition descriptor and its immutable binding continuation.
+/// Neither lineage nor occurrence creates a new acquisition registration.
+/// </summary>
+public sealed record AssemblyBindingOccurrence
+{
+    internal AssemblyBindingOccurrence(
+        ResolvedAssemblyReference assembly,
+        AssemblyBindingLineage lineage)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(lineage);
+        Assembly = assembly;
+        Lineage = lineage;
+    }
+
+    public ResolvedAssemblyReference Assembly { get; }
+    public AssemblyBindingLineage Lineage { get; }
+
+    public static AssemblyBindingOccurrence Seed(
+        ResolvedAssemblyReference assembly) =>
+        new(assembly, AssemblyBindingLineage.Seed);
+}
 
 /// <summary>
 /// One immutable policy answer paired with the exact policy-state version that
@@ -158,7 +221,15 @@ public abstract class AssemblyBindingOrigin
         ResolvedAssemblyReference assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        return new RequestingAssembly(assembly.Registration);
+        return new RequestingAssembly(assembly, null);
+    }
+
+    /// <summary>Continues from the exact occurrence returned by a selection.</summary>
+    public static RequestingAssembly FromOccurrence(
+        AssemblyBindingOccurrence occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        return new RequestingAssembly(occurrence.Assembly, occurrence);
     }
 
     /// <summary>A binding request with no requesting-assembly domain.</summary>
@@ -175,10 +246,18 @@ public abstract class AssemblyBindingOrigin
     public sealed class RequestingAssembly : AssemblyBindingOrigin
     {
         internal RequestingAssembly(
-            AssemblyAcquisitionRegistration registration) =>
-            Registration = registration;
+            ResolvedAssemblyReference assembly,
+            AssemblyBindingOccurrence? occurrence)
+        {
+            Assembly = assembly;
+            Occurrence = occurrence;
+        }
 
-        public AssemblyAcquisitionRegistration Registration { get; }
+        public ResolvedAssemblyReference Assembly { get; }
+        public AssemblyBindingOccurrence? Occurrence { get; }
+        public AssemblyBindingLineage? Lineage => Occurrence?.Lineage;
+        public AssemblyAcquisitionRegistration Registration =>
+            Assembly.Registration;
     }
 }
 
@@ -229,6 +308,17 @@ public abstract class AssemblyBindingSelection
         ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies = default)
     {
         ArgumentNullException.ThrowIfNull(assembly);
+        return FoundOccurrence(
+            AssemblyBindingOccurrence.Seed(assembly),
+            shadowedAssemblies);
+    }
+
+    /// <summary>Retains the selection issuer's occurrence unchanged.</summary>
+    public static AssemblyBindingSelection FoundOccurrence(
+        AssemblyBindingOccurrence occurrence,
+        ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies = default)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
         if (shadowedAssemblies.IsDefault)
             shadowedAssemblies = [];
         if (shadowedAssemblies.Any(static shadow => shadow is null))
@@ -238,7 +328,7 @@ public abstract class AssemblyBindingSelection
                 nameof(shadowedAssemblies));
         }
 
-        return new Selected(assembly, shadowedAssemblies);
+        return new Selected(occurrence, shadowedAssemblies);
     }
 
     /// <summary>
@@ -319,14 +409,15 @@ public abstract class AssemblyBindingSelection
     public sealed class Selected : AssemblyBindingSelection
     {
         internal Selected(
-            ResolvedAssemblyReference assembly,
+            AssemblyBindingOccurrence occurrence,
             ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
         {
-            Assembly = assembly;
+            Occurrence = occurrence;
             ShadowedAssemblies = shadowedAssemblies;
         }
 
-        public ResolvedAssemblyReference Assembly { get; }
+        public AssemblyBindingOccurrence Occurrence { get; }
+        public ResolvedAssemblyReference Assembly => Occurrence.Assembly;
         public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
         {
             get;
@@ -428,6 +519,18 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
         if (_bindingPolicy is { } bindingPolicy)
             return bindingPolicy.Select(request);
 
+        if (request.Origin is AssemblyBindingOrigin.RequestingAssembly
+            {
+                Lineage.Version: { } version,
+            } && !ReferenceEquals(version, _version))
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                _version,
+                AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidBindingOrigin)));
+        }
+
         var key = SelectionKey.From(request);
         return _selections.GetOrAdd(
             key,
@@ -456,12 +559,14 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
             };
         }
         catch (Exception ex) when (
-            ex is IOException
+            ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException
+                and (IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
                 or InvalidOperationException
                 or NotSupportedException
-                or ArgumentException)
+                or ArgumentException))
         {
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
@@ -478,28 +583,14 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 
     readonly record struct SelectionKey(
         AssemblyBindingTarget Target,
-        AssemblyAcquisitionRegistration? Origin,
-        bool GlobalOrigin,
+        ManifestOriginKey Origin,
         AssemblyResolutionScope Scope)
     {
         internal static SelectionKey From(AssemblyBindingRequest request) =>
-            request.Origin switch
-            {
-                AssemblyBindingOrigin.GlobalOrigin =>
-                    new(
-                        request.Target,
-                        null,
-                        true,
-                        request.Scope),
-                AssemblyBindingOrigin.RequestingAssembly requesting =>
-                    new(
-                        request.Target,
-                        requesting.Registration,
-                        false,
-                        request.Scope),
-                _ => throw new InvalidOperationException(
-                    "Unknown assembly-binding origin."),
-            };
+            new(
+                request.Target,
+                ManifestOriginKey.From(request.Origin),
+                request.Scope);
     }
 }
 
@@ -525,13 +616,16 @@ public abstract class AssemblyBindingOutcome
     {
         internal Resolved(
             ResolvedAssemblyCandidate candidate,
+            AssemblyBindingOccurrence occurrence,
             ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
         {
             Candidate = candidate;
+            Occurrence = occurrence;
             ShadowedAssemblies = shadowedAssemblies;
         }
 
         public ResolvedAssemblyCandidate Candidate { get; }
+        public AssemblyBindingOccurrence Occurrence { get; }
         public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
         {
             get;

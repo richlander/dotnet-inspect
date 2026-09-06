@@ -34,6 +34,12 @@ property below is **unverified** until its named Release gate exists. The
 revision-authority properties additionally require the model described under
 [Concurrency model](#concurrency-model) before implementation.
 
+[Approved lazy traversal](approved-lazy-traversal.md) records the approved
+cross-owner target experience for Browser construction defaults, ecosystem
+knowledge, and demand-driven operations. It does not change this owner's
+empty-registration-set-is-closed invariant or claim the missing registration,
+candidate-discovery, or query-population adoption is implemented.
+
 ## Authority and exact claim
 
 Workspace Scope and Expansion is the product authority for the committed
@@ -1202,6 +1208,16 @@ lifetime state machines.
 Model configurations and exact expected outcomes must enter
 `eng/tla-expected-exit-codes.txt` before implementation claims these
 properties.
+
+The [revision/publication composition model](models/workspace-scope-revisions/README.md)
+provides the focused #5796 bounded evidence and its exact-outcome gates. It
+instantiates Artifact Acquisition's publication lifecycle over live shared
+currencies rather than copying physical publication. This is design evidence,
+not Release implementation conformance; the broader expansion, resource-erasure,
+and host gates below remain unverified. The immediate implementation consumer
+is [#5821](https://github.com/richlander/dotnet-inspect/issues/5821), initial
+snapshot and exact Replace/Clear followed by Browser Open/Clear and CLI
+snapshot adoption.
 
 ## Pathological cases
 
