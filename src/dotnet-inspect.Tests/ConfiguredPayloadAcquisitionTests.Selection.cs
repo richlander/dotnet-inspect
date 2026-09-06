@@ -276,6 +276,28 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task ExtractSelected_ReportedVersionWithoutPayloadReturnsAcquisitionFailure()
+    {
+        const string Id = "Selected.Unavailable";
+        var requests = new ConcurrentQueue<string>();
+        using var client = new HttpClient(new RejectNetworkHandler(new HttpClientHandler()));
+
+        PackageExtractionOutcome outcome = await DesktopPackageExtractor.ExtractSelectedPackageAsync(
+            client, Id, "",
+            sourceOptions: new NuGetSourceOptions { Sources = [FirstFeed] },
+            createComposition: () => CreateComposition((source, _) =>
+                new SelectionFeedHandler(source.Url, Id, [Version],
+                    _ => CreatePackage(Id, "unavailable"), requests, missingPayload: true)));
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Null(outcome.Result);
+        Assert.Contains("selection 'latest'", outcome.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("No eligible reporting source supplied a matching payload.",
+            outcome.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains(requests, request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ExtractSelected_WrapperReauthorizesTargetAndTransfersOwnedTemporary()
     {
         const string Wrapper = "Selected.Wrapper";

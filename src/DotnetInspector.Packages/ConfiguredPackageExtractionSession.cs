@@ -39,8 +39,8 @@ internal sealed class ConfiguredPackageExtractionSession(
             includePrerelease, rangeAddress, operationContext: _operation).ConfigureAwait(false);
 
         return ConvertResult(result,
-            $"Package '{packageId}' selection '{versionSelector ?? "latest"}'",
-            "No eligible source reported a matching version.", log);
+            $"Package '{packageId}' selection '{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'",
+            "No eligible reporting source supplied a matching payload.", log);
     }
 
     private DesktopPackageSourceComposition GetComposition() =>
