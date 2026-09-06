@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 
@@ -37,6 +38,131 @@ public sealed class EcosystemPackRegistryTests
             out EcosystemPackId? unknownId));
         Assert.IsType<EcosystemPackLookupResult.Unknown>(
             registry.Lookup(unknownId));
+    }
+
+    [Fact]
+    public void RetrievalKnowledgePreservesIndependentImmutableSequencesAndPackIdentity()
+    {
+        string[] roots = ["Example.Shared.Child", "Example.Shared"];
+        PackageCoordinate[] core =
+        [
+            new("Example.Zeta"),
+            new("Example.Core"),
+            new("Example.Alpha"),
+        ];
+        EcosystemPackRegistry registry = Registry(
+            Pack("ecosystem.first", 100, "package-set.not-registered")
+            with { NamespaceRoots = roots, CorePackages = core },
+            Pack("ecosystem.second", 200, null, Demo("second", 100, CreateSecondRecords))
+            with
+            {
+                NamespaceRoots = ["Example.Shared", "example.Shared", "9-root"],
+                CorePackages = [new("example.core")],
+            });
+        roots[0] = "Changed";
+        core[0] = new("Changed");
+
+        EcosystemPackDescriptor first = registry.Packs[0];
+        EcosystemPackDescriptor second = registry.Packs[1];
+        Assert.Equal("ecosystem.first", first.Id.Value);
+        Assert.Equal(["Example.Shared.Child", "Example.Shared"], first.NamespaceRoots);
+        Assert.Equal(
+            ["Example.Zeta", "Example.Core", "Example.Alpha"],
+            first.CorePackages.Select(package => package.PackageId));
+        Assert.Equal("package-set.not-registered", first.PackageSet!.Value);
+        Assert.Equal("ecosystem.second", second.Id.Value);
+        Assert.Equal(["Example.Shared", "example.Shared", "9-root"], second.NamespaceRoots);
+        Assert.Equal("example.core", Assert.Single(second.CorePackages).PackageId);
+        Assert.Null(second.PackageSet);
+        Assert.All(registry.Packs, pack => Assert.Same(
+            pack,
+            Assert.IsType<EcosystemPackLookupResult.Known>(registry.Lookup(pack.Id)).Descriptor));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("Example. Space")]
+    [InlineData("Example.\tSpace")]
+    [InlineData("Example.\u00a0Space")]
+    [InlineData("Example.*")]
+    [InlineData("Example?")]
+    [InlineData(".Example")]
+    [InlineData("Example.")]
+    [InlineData("Example..Child")]
+    [InlineData("Example.Valid")]
+    public void InvalidNamespaceRootsFailBeforePublication(string? root)
+    {
+        s_firstInvocations = 0;
+        ArgumentException error = Assert.Throws<ArgumentException>(() => Registry(
+            Pack("ecosystem.first", 100, null, Demo("first", 100, CreateFirstRecords)),
+            Pack("ecosystem.second", 200, "package-set.second")
+            with { NamespaceRoots = ["Example.Valid", root!] }));
+
+        Assert.Contains("ecosystem.second", error.Message);
+        Assert.Contains("namespace root", error.Message);
+        Assert.Equal("registrations", error.ParamName);
+        Assert.Equal(0, s_firstInvocations);
+    }
+
+    public static TheoryData<PackageCoordinate[]> InvalidCorePackages => new()
+    {
+        { [null!] },
+        { [new(null!)] },
+        { [new("")] },
+        { [new("Invalid Package")] },
+        { [new("Example.Core", "1.0.0")] },
+        { [new("Example.Core", "")] },
+        { [new("Example.Core", Framework: "net10.0")] },
+        { [new("Example.Core", Framework: "")] },
+        { [new("Example.Core", RuntimeIdentifier: "linux-x64")] },
+        { [new("Example.Core", RuntimeIdentifier: "")] },
+        { [new("Example.Core"), new("example.core")] },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidCorePackages))]
+    public void InvalidCorePackagesFailBeforePublication(PackageCoordinate[] corePackages)
+    {
+        s_firstInvocations = 0;
+        ArgumentException error = Assert.Throws<ArgumentException>(() => Registry(
+            Pack("ecosystem.first", 100, null, Demo("first", 100, CreateFirstRecords)),
+            Pack("ecosystem.second", 200, "package-set.second")
+            with { CorePackages = corePackages }));
+
+        Assert.Contains("ecosystem.second", error.Message);
+        Assert.Contains("core", error.Message);
+        Assert.Equal("registrations", error.ParamName);
+        Assert.Equal(0, s_firstInvocations);
+    }
+
+    [Fact]
+    public void MissingKnowledgeSequencesFailBeforePublication()
+    {
+        EcosystemPackRegistration pack = Pack("ecosystem.first", 100, "package-set.first");
+        Assert.Throws<ArgumentException>(() => Registry(pack with { NamespaceRoots = null! }));
+        Assert.Throws<ArgumentException>(() => Registry(pack with { CorePackages = null! }));
+    }
+
+    [Fact]
+    public void EmptyKnowledgePreservesCapabilityRequirements()
+    {
+        EcosystemPackRegistry registry = Registry(
+            Pack("ecosystem.first", 100, null, Demo("first", 100, CreateFirstRecords)));
+        EcosystemPackDescriptor descriptor = Assert.Single(registry.Packs);
+
+        Assert.Empty(descriptor.NamespaceRoots);
+        Assert.Empty(descriptor.CorePackages);
+        Assert.False(descriptor.HasScanner);
+        Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
+            registry.SelectScanner(descriptor.Id));
+        Assert.Throws<ArgumentException>(() => Registry(
+            Pack("ecosystem.hints-only", 100, null)
+            with { NamespaceRoots = ["Example"] }));
+        Assert.Throws<ArgumentException>(() => Registry(
+            Pack("ecosystem.core-only", 100, null)
+            with { CorePackages = [new("Example.Core")] }));
     }
 
     [Fact]
@@ -201,14 +327,26 @@ public sealed class EcosystemPackRegistryTests
         var second = EcosystemIntegrationScannerBinding.Create(ScanSecond);
         EcosystemPackRegistry registry = Registry(
             Pack("ecosystem.first", 100, "package-set.first", Demo("first", 100, CreateFirstRecords))
-                with { Scanner = first },
+                with
+                {
+                    Scanner = first,
+                    NamespaceRoots = ["Example.First"],
+                    CorePackages = [new("Example.Core")],
+                },
             Pack("ecosystem.second", 200, null, Demo("second", 200, CreateSecondRecords))
-                with { Scanner = second });
+                with
+                {
+                    Scanner = second,
+                    NamespaceRoots = ["Example.Second"],
+                    CorePackages = [new("Example.Other")],
+                });
 
         Assert.All(registry.Packs, pack => Assert.True(pack.HasScanner));
         Assert.Equal(2, registry.Demos.Length);
         var lookup = Assert.IsType<EcosystemPackLookupResult.Known>(
             registry.Lookup(registry.Packs[0].Id));
+        Assert.Equal(["Example.First"], lookup.Descriptor.NamespaceRoots);
+        Assert.Equal("Example.Core", Assert.Single(lookup.Descriptor.CorePackages).PackageId);
         Assert.Equal("package-set.first", lookup.Descriptor.PackageSet!.Value);
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             registry.SelectScanner(registry.Packs[1].Id));

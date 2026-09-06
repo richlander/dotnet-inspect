@@ -39,8 +39,8 @@ Related designs:
 - [Package source model](package-source-model.md) owns source authorization,
   provider routing, version discovery, failures, and payload acquisition.
 - [Static Ecosystem Packs](ecosystem-packs.md) owns ecosystem registration and
-  the front-end-only application assembly. An ecosystem pack stores only
-  `PackageSetId`; the package-set manifest remains a separate registry even
+  the front-end-only application assembly. For its curated-set contribution,
+  an ecosystem pack stores only `PackageSetId`; the package-set manifest remains a separate registry even
   when both registrations are authored in one pack source unit.
 
 ## Authority and exact claim
@@ -369,7 +369,8 @@ MicrosoftExtensionsPack.Registration
 
 These are separate values published by separate complete static manifests. The
 package-set registration contains the coordinates. The ecosystem-pack
-registration contains only `PackageSetIds.MicrosoftExtensions`. Neither table
+registration's curated-set contribution contains only
+`PackageSetIds.MicrosoftExtensions`. Neither table
 enumerates, looks up, or constructs the other during runtime publication.
 Source authors spell both values explicitly even when they share one source
 unit. That separation is a reviewed application-authoring rule; independent
@@ -656,7 +657,7 @@ lower-owner no-friend gates named by
 [Static Ecosystem Packs](ecosystem-packs.md#required-gates). Ecosystem-pack
 adoption is enforced by
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` and
-`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`.
+`ProductEcosystemPackTests.ShippedPackManifestKeepsCuratedMembershipAsIdentity`.
 
 Aspire membership is enforced by this Release gate:
 
