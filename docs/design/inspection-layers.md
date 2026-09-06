@@ -94,7 +94,12 @@ request binding, acquisition authorization, diagnostics, and format selection.
 The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
-over two host-resolved surfaces. The body-signal seam consumes already-acquired
+over two host-resolved surfaces. Its
+[selected-library coordinator](../inspection-space.md#selected-library-api-comparison)
+also projects two explicit context participants under independent bounds and
+withholds comparison when either API surface is incomplete. Browser
+selection and inventory/detail adoption remain separate deliveries.
+The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
 companion assembly avoids imposing Research on core query consumers. Core L1
 now intentionally references Decompiler for `AssemblyContextSourceQuery`,

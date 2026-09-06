@@ -1242,6 +1242,64 @@ acquisition, while a typed miss reaches a separately preflighted moderated PDB
 acquisition successor. Availability and integrity declare unbounded work and
 accept host-owned HTTP clients and an optional cache.
 
+### Selected-library API comparison
+
+Queries coordinates an ordered API comparison of two explicitly selected
+assembly-context participants. Each participant is projected inside its own
+existing binding group; selecting one library does not shrink that group's
+dependency-resolution context. The caller supplies the participants, visibility
+scope, and projection limits. Package-version choice, cross-version library
+selection, and presentation remain caller or adjacent-owner responsibilities.
+
+`AssemblyContextApiComparisonQuery` retains each side's
+`AssemblyContextSubject` and complete projection outcome, including a subject
+whose projection was omitted by a limit. Both sides are attempted independently.
+The same caller-declared budget applies separately to each endpoint, not to
+their combined population.
+
+The query compares only two fully projected surfaces. Rejection, failure,
+projection truncation, an API-row inspection failure, or a degraded member
+signature on either side prevents comparison, while retaining both endpoint
+outcomes and any available facts.
+In particular, a participant can be available while some API rows failed:
+`AssemblyContextApiSurfaceResult.IsComplete` alone does not establish that its
+surface is eligible for this comparison. Guarded signature substitution is
+also retained separately as `ApiMember.SignatureDecodeStatus`, without
+necessarily producing a row failure. The endpoint's completion consumes both
+signals; a substituted signature is not complete comparison evidence.
+
+A valid empty public surface is complete evidence and may be compared. An
+unavailable or incomplete surface is not an empty surface and must not produce
+apparent additions, removals, equality, or a negative compatibility conclusion.
+This stricter admission is deliberate: the Library Diff consumer in
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) needs an
+exhaustive result within its advertised API scope, not a comparison of two
+potentially different healthy subsets.
+
+When admitted, the query delegates to `ApiComparisonQuery`, retaining its
+Metadata-owned type/member Finding correspondence, signature compatibility
+classification, and exactness. Visibility scope does not add attribute,
+implementation, IL, or authored-source comparison. The existing raw-surface
+query and its CLI consumer remain unchanged.
+
+`AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
+selected-participant projection, complete and empty comparisons, independent
+budgets, unavailable neighbors, row-level failure admission, and degraded
+signature admission. `AssemblyContextApiSurfaceQueryTests` owns
+extraction-bound enforcement;
+`ApiComparisonQueryTests` owns the Metadata-comparison seam.
+
+[#6119](https://github.com/richlander/dotnet-inspect/issues/6119) is the
+selected-library slice of
+[#5104](https://github.com/richlander/dotnet-inspect/issues/5104), not its
+whole-package root/asset correspondence contract. The browser adoption path
+has three remaining deliveries: this query, Package-scoped comparison
+selection/defaults, and a feature facade with its immediate Library API Diff
+inventory/detail consumer. The existing CLI already consumes the shared
+Metadata comparison through `ApiComparisonQuery`; migrating its path-based
+acquisition to retained contexts remains separate. This query does not claim
+that the browser inspector or immersive comparison viewer is implemented.
+
 ### Executor
 
 Sequential topological execution defines the baseline. It works in
