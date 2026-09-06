@@ -175,6 +175,7 @@ immutable outcome
   - exact package nodes
   - source-relative manifest projections
   - unresolved declaration-boundary nodes
+  - failed-resolution declaration nodes
   - normalized declaration edges
   - per-root node distances
   - per-root projection distances
@@ -387,29 +388,49 @@ Boundary nodes are occurrence-bearing dependency identities, not exact
 package coordinates. They never participate in cycle coalescing or recursive
 expansion.
 
+### Failed-resolution declaration node
+
+A failed-resolution declaration node identifies a recursively authorized
+dependency declaration for which #5765 did not issue an exact candidate. Its
+identity combines:
+
+- source manifest projection identity;
+- owner-issued declaration identity; and
+- canonical package ID and constraint.
+
+It retains the complete typed #5765 no-match, authorization, incomplete, or
+source-failure outcome and the affected root occurrences. It is not a guessed
+package coordinate, does not participate in cycle coalescing, and has no
+outgoing expansion.
+
 ### Declaration edge
 
 One graph edge represents one normalized selected declaration. Its target is
-either an exact candidate or a declaration-boundary node. Its semantic identity
-combines:
+an exact candidate, a declaration-boundary node, or a failed-resolution
+declaration node. Its semantic identity combines:
 
 - source manifest projection identity and package coordinate;
 - owner-issued selected group and declaration identity;
-- target package coordinate and owner-issued candidate correspondence, or the
-  owner-issued boundary identity.
+- target package coordinate and owner-issued candidate correspondence,
+  declaration-boundary identity, or failed-resolution declaration identity.
 
 The edge retains the complete normalized declaration, including its canonical
 constraint and inert source spellings, plus the exact resolution and source
-evidence supplied by #5765. It also retains one emission authority:
+evidence supplied by #5765 when resolution was attempted. It also retains one
+emission authority:
 
 - `ResolvedCandidate`, produced by recursive source authorization; or
+- `FailedResolution`, produced by recursive source authorization when #5765
+  does not issue an exact candidate; or
 - `DirectBoundary`, produced for one exact direct-only root occurrence.
 
 Every distinct directed declaration edge remains present. Shared targets,
 cycles, and revisits never justify deleting an edge. A recursively authorized
-declaration that cannot produce an exact candidate remains typed failure
-evidence and does not invent a boundary node. A direct-only declaration has a
-boundary edge by contract and is not a failed candidate attempt.
+declaration that cannot produce an exact candidate retains its edge to a
+failed-resolution declaration node and remains typed failure evidence. It does
+not invent an exact candidate or reuse the direct-only boundary state. A
+direct-only declaration has a boundary edge by contract and is not a failed
+candidate attempt.
 
 A direct-only root and a recursive root may share the same exact source node.
 The result can then contain both a boundary edge and a resolved edge for the
@@ -433,8 +454,9 @@ An edge is admitted for root occurrence `R` only when both conditions hold:
 
 1. its source manifest projection is reachable from `R` within the depth rule;
 2. its emission authority matches `R`: `RecursiveSources` admits only
-   `ResolvedCandidate` edges, while `DirectDeclarationsOnly` admits only
-   `DirectBoundary` edges issued for `R` itself.
+   `ResolvedCandidate` and `FailedResolution` edges, while
+   `DirectDeclarationsOnly` admits only `DirectBoundary` edges issued for `R`
+   itself.
 
 Projection correspondence can reuse manifest facts; it never transfers one
 root occurrence's expansion authority to another.
@@ -450,6 +472,8 @@ A failure retains:
 - the phase that failed: candidate resolution, exact manifest acquisition,
   manifest projection, or work budget;
 - the source node and declaration or target candidate when applicable;
+- the failed-resolution declaration node and edge when candidate resolution
+  did not issue an exact target;
 - owner-issued source, manifest, or evidence-query failure;
 - affected root occurrences; and
 - whether usable graph evidence remains.
@@ -515,11 +539,12 @@ For a recursive root, the query schedules one candidate-resolution attempt
 for each normalized declaration in the selected group. Resolution happens
 before target manifest acquisition.
 
-An exact result adds the target node and edge. A complete no-match result,
-authorization failure, incomplete candidate set, or source failure remains
-visible and prevents that declaration from becoming a graph edge. A declaration
-is exact only when `PackageDependencyVersionRange.GetExactVersion` returns its
-canonical version. For example, `[1.0.0]` is exact while bare `1.0.0` is a
+An exact result adds the target package node and resolved edge. A complete
+no-match result, authorization failure, incomplete candidate set, or source
+failure adds a failed-resolution declaration node and edge, retains the typed
+failure, and schedules no target manifest acquisition. A declaration is exact
+only when `PackageDependencyVersionRange.GetExactVersion` returns its canonical
+version. For example, `[1.0.0]` is exact while bare `1.0.0` is a
 minimum-inclusive range. Only the exact case can bypass complete peer version
 enumeration under the Package Source Model's pinned-acquisition rule.
 
@@ -739,10 +764,11 @@ package IDs match.
 When one eligible authority reports matching versions and another required
 authority times out, #5765 cannot issue an authoritative range- or
 floating-selected candidate when the missing authority could change the
-answer. The traversal retains the declaration, incomplete source evidence,
-affected roots, and partial completion. It does not acquire the visible
-candidate or report a dependency-free leaf. An owner-classified exact
-declaration remains governed by the separate pinned-acquisition rule.
+answer. The traversal retains the declaration edge to a failed-resolution
+declaration node, incomplete source evidence, affected roots, and partial
+completion. It does not acquire the visible candidate or report a
+dependency-free leaf. An owner-classified exact declaration remains governed
+by the separate pinned-acquisition rule.
 
 ### Mixed expansion authority
 
@@ -779,6 +805,7 @@ The implementation adds focused Release gates for:
 | Root evidence replaces acquisition only with owner-issued correspondence. | `Traversal_RootEvidenceRequiresCandidateCorrespondenceForReuse` |
 | Same-coordinate source projections retain distinct adjacency without changing node identity. | `Traversal_SourceRelativeProjectionPreservesDistinctContent` |
 | Direct-only roots emit unresolved boundary edges without source work. | `Traversal_DirectOnlyRootsAreSourceBounded` |
+| Failed recursive resolution retains the declaration edge without inventing an exact target. | `Traversal_FailedResolutionRetainsDeclarationEdge` |
 | Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
 | Repeated direct roots remain distinct without typed correspondence. | `Traversal_RepeatedDirectRootRequiresCorrespondenceToCoalesce` |
 | Typed framework mode, never inert text, controls every group selection. | `Traversal_FrameworkModeIsStructuralCurrency` |
