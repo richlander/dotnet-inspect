@@ -8,7 +8,18 @@ namespace DotnetInspector.Packages;
 /// <see cref="RootPath"/>. This is the desktop content: the extracted directory
 /// itself is what the CLI's existing consumers open by path.
 /// </summary>
-public sealed class FileSystemPackageContent : IPackageContent
+/// <remarks>
+/// The extracted file length is the declared entry length, so this content also
+/// implements <see cref="IPackageContentEntryManifest"/>. Without it, a bounded
+/// caller would only learn that an entry is over budget from the
+/// <see cref="InvalidDataException"/> raised inside
+/// <see cref="TryOpenEntry(string, long, out Stream?)"/>, which is
+/// indistinguishable from an unrelated read failure. Gated by
+/// <c>FileSystemPackageContentManifestTests.FileSystemLengthUsesManifestPreflight</c>.
+/// </remarks>
+public sealed class FileSystemPackageContent :
+    IPackageContent,
+    IPackageContentEntryManifest
 {
     private readonly string _root;
 
@@ -102,6 +113,42 @@ public sealed class FileSystemPackageContent : IPackageContent
         {
             yield return Path.GetRelativePath(_root, file).Replace(Path.DirectorySeparatorChar, '/');
         }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetEntryLength(string relativePath, out long length)
+    {
+        var file = new FileInfo(ResolveEntryPath(relativePath));
+        if (!file.Exists)
+        {
+            length = 0;
+            return false;
+        }
+
+        length = file.Length;
+        return true;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
+    {
+        if (!Directory.Exists(_root))
+            return [];
+
+        var entries = new List<PackageContentEntry>();
+        foreach (var file in Directory.EnumerateFiles(
+            _root,
+            "*",
+            SearchOption.AllDirectories))
+        {
+            entries.Add(
+                new PackageContentEntry(
+                    Path.GetRelativePath(_root, file)
+                        .Replace(Path.DirectorySeparatorChar, '/'),
+                    new FileInfo(file).Length));
+        }
+
+        return entries;
     }
 
     private string ResolveEntryPath(string relativePath)

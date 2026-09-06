@@ -166,6 +166,7 @@ public sealed class MatchCommandTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task ExecuteAsync_BodyOnIdenticalBodies_RetainsNativeExactResults()
     {
         var options = new MatchOptions
@@ -188,6 +189,7 @@ public sealed class MatchCommandTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task ExecuteAsync_BodyJson_EmitsMatchAndBodyEnvelope()
     {
         var options = new MatchOptions
@@ -375,6 +377,7 @@ public sealed class MatchCommandTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task ExecuteAsync_CompilerGeneratedSeedAndDiscoveredToken_PreserveBodyEvidence()
     {
         Func<int> seed = static () => 42;
@@ -424,6 +427,7 @@ public sealed class MatchCommandTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task ExecuteAsync_BodylessPair_DoesNotReportEqualBodies()
     {
         string selector = $"{typeof(MatchSampleWithoutBody).FullName}.GetValue";

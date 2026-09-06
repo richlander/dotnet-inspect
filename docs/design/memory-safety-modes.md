@@ -72,6 +72,45 @@ in argument position types as `Span<byte>`, not `void*` — so the raise is mode
 fidelity, applied unconditionally by `StackAllocSpanPass`. The unsafe *wrapping* of that
 stackalloc (under `[SkipLocalsInit]`) remains gated on the new rules.
 
+## Primary-constructor storage shape
+
+**Owner and claim:** Decompiler whole-type composition retains an explicit
+storage declaration and ordinary constructor when hiding that storage behind
+a primary-constructor parameter would remove a required declaration site.
+This is the source-shape prerequisite
+[#6046](https://github.com/richlander/dotnet-inspect/issues/6046), within #5255,
+for the [CSharp declaration-spelling consumer](csharp-memory-safety-spelling.md)
+in #5257. CSharp owns whether the field and constructor spell `safe`, `unsafe`,
+or neither; a parameter is not a substitute declaration site.
+
+The current production `MemberBodyProducer.Project` already chooses the
+lowered form: capture fields are explicit fields, and parameter-dependent
+stores remain in ordinary constructors. This contract preserves that behavior;
+it does not introduce primary-constructor syntax for ordinary inputs or claim
+to recover the original source form. The compile-back planner's independent
+primary-constructor synthesis does not establish production reconstruction.
+No new fallback API or harness-only rewrite is needed.
+
+Preserving storage does not authorize moving it across an observable constructor
+chain. The existing constructor-call diagnostics permit parameter stores around
+the elided parameterless `System.Object` constructor, but retain a visible
+unsupported residual before a nontrivial base-constructor call.
+
+The Release `PrimaryConstructorStorageTests` gate exercises the product
+composer with updated-rules explicit-layout safe and unsafe fields and with
+ordinary captures. It observes retained declarations, offsets, constructor
+parameters, and stores, not completed model-aware spelling.
+`ConstructorCallDiagnosticsPassTests` gates the constructor-chain decline.
+Extended-layout declaration legality, caller-contract replay, and whole-output
+compilation under updated semantics remain unverified here and belong to the
+subsequent #5257/#5255 gates; an explicit-layout fixture does not establish them.
+
+This is a prerequisite within stage 2 of #5226's existing three-stage adoption:
+Metadata facts, shared CSharp adoption, then CLI and browser/Wasm outcomes.
+CLI whole-type decompilation calls `MemberBodyProducer.Project` directly;
+the browser reaches the same composer through `AssemblyContextSourceQuery`.
+This slice adds neither a host-local policy nor a new adoption stage.
+
 ## What the optimistic mode adds
 
 Optimistic mode (`MetadataSource.SimulateNewRules`; harness `--simulate-new-rules`)

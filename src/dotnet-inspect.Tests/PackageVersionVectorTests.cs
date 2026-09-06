@@ -212,6 +212,7 @@ public class PackageVersionVectorTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(HttpStatusCode.Unauthorized)]
     [InlineData(HttpStatusCode.Forbidden)]
     [InlineData(HttpStatusCode.InternalServerError)]

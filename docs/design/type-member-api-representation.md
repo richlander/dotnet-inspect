@@ -80,6 +80,9 @@ binding is unverified pending
 
 #### `CSharpText`
 
+The focused [member signature shape](member-signature-shape.md) owner defines
+projection, correspondence, and transport for the following currencies.
+
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `MemberSignatureShape` | One same-named source/metadata candidate set | Whether generic arity, parameter type shapes, and a conversion return shape discriminate one candidate | Member identity, named-type binding through using/alias context, or proof that source belongs to a MethodDef |
@@ -717,71 +720,12 @@ No generic converter should turn one `TypeRef` into the other, an address into
 correspondence, a display string into identity, or a `MemberAnchor` into body
 identity without the owning resolver and scope.
 
-Only canonical `mss1:` transport participates in candidate correspondence.
-Legacy signature text is accepted solely to validate an already selected
-exact-token record; it is not candidate-selection currency.
-
-`MemberSignatureShapeFlowTests` records literal shapes, canonical transport,
-and candidate outcomes across the source and Metadata adapters. Its same-name
-overload set distinguishes vector/non-SZ arrays, mixed array nesting, generic
-array ranks, and tuple element order. Generic-parameter and tuple-element names
-are erased deliberately; duplicate matches remain ambiguous and an unavailable
-source sibling prevents uniqueness. Rank-one non-SZ metadata has no ordinary
-C# declaration counterpart. These are correspondence gates, not member-identity
-or source-ownership proofs.
-
-`ConversionSignatureShapeFlowTests` records conversion return shapes and
-canonical transport against compiler-produced methods and independently located
-MethodDef tokens. Same-name conversion candidates remain distinct by return
-type; ordinary-method return types are erased, so their shape cannot establish
-return-type identity. The caller supplies the operator-name group: the shape
-itself does not distinguish implicit from explicit or checked operators. Checked
-explicit operators retain Metadata return evidence, while the current source
-adapter refuses their headers visibly rather than manufacturing correspondence.
-
-`ParameterPassingSignatureShapeFlowTests` records value-versus-by-reference
-passing through compiler-produced signatures, source headers, literal canonical
-transport, and candidate matching. Passing position and array element type stay
-distinct, and an array passed by value is not a by-reference parameter.
-`ref`, `out`, `in`, and `ref readonly` share the by-reference shape: alternative
-declarations differing only in those modifiers remain ambiguous, not evidence
-of direction, readonly semantics, or member identity. Correspondence remains
-unavailable when only an opposite-passing candidate is supplied.
-
-Metadata projection fails closed when a generic signature header is
-noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
-disagree, or when a declaring TypeDef chain's canonical name arities and
-cumulative owned rows disagree. Positional generic references must also fit
-those validated bounds. Metadata arity suffixes accept only nonzero canonical
-ASCII decimal, and function-pointer headers carrying instance, explicit-this,
-generic, or vararg semantics are unavailable because the shared shape cannot
-represent them. Multidimensional array sizes and nonzero lower bounds are
-likewise unavailable because C# array syntax carries rank but not those
-signature facts.
-An erased custom modifier is accepted only when its modifier type was decoded
-successfully. These properties are gated by
-`MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
-`MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
-`MetadataAdapter_RefusesZeroArityGenericHeader`,
-`MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity`,
-`MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
-`MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
-`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`,
-`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`,
-`MetadataAdapter_RefusesMultidimensionalArrayBounds`, and
-`MetadataAdapter_RefusesUnavailableErasedModifier`.
-
-One cumulative work budget covers the full metadata projection, including
-custom-modifier subtrees erased from the final shape and generic-parameter names
-read for legacy exact-token validation.
-`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation` and
-`LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation`
-gate those properties.
-
-Source declaration parsing computes parenthesis correspondence in one bounded
-linear pass rather than rescanning nested candidate lists.
-`SourceShape_NestedParameterListCandidatesStayWithinLinearTime` gates the
-accepted-input time ceiling.
+The [member signature shape contract](member-signature-shape.md) owns the
+source/Metadata projection policy, caller obligations, canonical `mss1`
+grammar, legacy boundary, and existing enforcement gates. This map does not
+independently redefine those rules. In particular, correspondence is not an
+identity conversion; the focused owner explains both deliberate erasure and
+visible refusal.
 
 ## Motivating scenarios
 

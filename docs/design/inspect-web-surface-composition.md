@@ -355,8 +355,28 @@ moves above the type. Long types, offsets, and property values wrap within
 their occurrence. This trades some vertical density for complete visible
 evidence without horizontal scrolling. A successful empty result retains
 the section and its explicit absence message; loading and failure remain
-separate top-level Facts states. Calls and subsequent detail sections retain
-their existing presentation.
+separate top-level Facts states.
+
+Calls follows the same readable measure and separator treatment. Each returned
+site retains its IL offset, opcode, callee, multiplicity, and loop flag. The
+callee is the primary row text, with offset and opcode beside it and compact
+Multiplicity and Loop properties below. At constrained pane widths provenance
+moves above the callee; long signatures, offsets, and property values wrap
+within the site rather than widening the scroller.
+
+The returned order and repeated callees remain intact. The section count
+describes static call sites, not executions or distinct callees. Loop membership
+uses explicit `yes` and `no`; opcode and multiplicity retain their returned
+values without a stronger dispatch or execution claim. Callee text and offsets
+remain non-interactive evidence rather than inferred navigation identities.
+The existing typed `kind` value remains undisplayed.
+
+This presentation trades some vertical density for visible evidence without
+horizontal scrolling; it does not hide, group, or truncate sites to reduce
+height. A successful empty Calls result retains the section, zero count, and
+explicit absence message. Loading and failure remain separate top-level Facts
+states. Safety facts and subsequent detail sections retain their existing
+presentation.
 
 #### Graph Explore
 

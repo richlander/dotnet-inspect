@@ -35,6 +35,37 @@ family.
   members present on both sides. A disagreement is retained as a per-member
   `Failed` diagnostic; it does not abort healthy members in the same diff.
 
+### Legacy body-index association
+
+The retained assembly-comparison paths consume Analysis-issued
+`LibraryBodyIndex.ModuleIdentity`, not a sampled method or a display path.
+`ImplementationDiff.Compare` requires each supplied index to match its opened
+image's complete assembly-definition identity and MVID, including when the
+index is methodless or a selected capability produced no method rows.
+Metadata's `AssemblyReferenceIdentity.EquivalentComparer` defines assembly
+identity equivalence; Analysis owns the identity's image-derived issuance.
+
+This physical association is distinct from cross-version pairing.
+`ResearchDiff` retains its existing ordinal simple-assembly-name pairing rule,
+now taking that name from the issued identity. Versions and MVIDs are not
+pairing keys: different versions and generations of the same assembly must
+remain comparable. Multiple inputs with the same pairing key on one side
+remain rejected, not silently coalesced. This legacy rule is not the richer
+workspace correspondence-domain contract below.
+
+A standalone managed module has no assembly-definition identity, so it cannot
+acquire an assembly pairing key from its filename. Body-index assembly
+comparison rejects that unsupported association visibly. API-only netmodule
+comparison remains supported; this does not change Metadata or Analysis
+module inspection.
+
+`ResearchDiffTests.BodyIndexIdentity_*` gates full identity and MVID mismatch,
+matching and mismatched capability-limited or methodless inputs, label-independent
+pairing and union construction, and preserved cross-version comparison in
+Release. The existing API netmodule case gates that separate supported path.
+This retires the heuristics tracked by #5125, not the live legacy comparison
+APIs or their native C#/IL producers.
+
 ### Structural body comparison
 
 `CSharpBodyDiff.IssueCorrespondence` is the product correspondence owner for

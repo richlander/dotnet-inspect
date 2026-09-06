@@ -58,7 +58,23 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext operation = operationContext ?? ownedOperation!;
         _ = operation.ResolveInvocationToken(cancellationToken);
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(packageId, normalizedVersion);
+        return await AcquireCoordinateAsync(
+            packageId, coordinate, createStore, sourceOptions, log, operation,
+            limits, transferPolicy, failures).ConfigureAwait(false);
+    }
 
+    private async Task<ConfiguredPackagePayloadResult> AcquireCoordinateAsync(
+        string packageId,
+        PackageSourceCoordinate coordinate,
+        Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
+        List<PackageAuthorityFailure> failures,
+        HashSet<ConfiguredPackageAuthority>? reportingAuthorities = null)
+    {
         try
         {
             operation.ThrowIfExpired();
@@ -73,6 +89,9 @@ public sealed partial class DesktopPackageSourceComposition
                 if (TryGetEligibleAuthority(source, failures) is not { } entry)
                     continue;
                 RequireAuthority(entry.Client.Source, entry);
+                if (reportingAuthorities is not null
+                    && !reportingAuthorities.Contains(entry.Authority))
+                    continue;
                 IPackageStore store = createStore(entry.Authority, entry.Client.Source.Producer);
                 entries.Add((entry, store));
             }
@@ -142,7 +161,7 @@ public sealed partial class DesktopPackageSourceComposition
         }
         catch (NuGetOperationTimeoutException)
         {
-            return TimedOut();
+            return PayloadOperationTimedOut(operation, failures);
         }
         catch (OperationCanceledException) when (operation.CancellationToken.IsCancellationRequested)
         {
@@ -150,19 +169,21 @@ public sealed partial class DesktopPackageSourceComposition
         }
         catch (OperationCanceledException) when (operation.OperationToken.IsCancellationRequested)
         {
-            return TimedOut();
+            return PayloadOperationTimedOut(operation, failures);
         }
+    }
 
-        ConfiguredPackagePayloadResult TimedOut()
+    private static ConfiguredPackagePayloadResult PayloadOperationTimedOut(
+        NuGetOperationContext operation,
+        List<PackageAuthorityFailure> failures)
+    {
+        failures.Add(new PackageAuthorityFailure(
+            InertString.Empty, PackageAuthorityFailureKind.Timeout,
+            "The package payload operation deadline expired before acquisition completed.")
         {
-            failures.Add(new PackageAuthorityFailure(
-                InertString.Empty, PackageAuthorityFailureKind.Timeout,
-                "The package payload operation deadline expired before acquisition completed.")
-            {
-                Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
-            });
-            return new(null, null, failures);
-        }
+            Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
+        });
+        return new(null, null, failures);
     }
 
     private static PackageAuthorityFailure DescribePayloadFailure(

@@ -592,6 +592,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void PopulateOptimizationOpportunities_RendersRowsForMatchingType()
     {
         var type = new ApiType
@@ -637,6 +638,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void PopulateOptimizationOpportunities_MapsAsyncStateMachineCallToSourceMember()
     {
         var type = new ApiType
@@ -683,6 +685,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void PopulateOptimizationOpportunities_AllocationFanoutCountsRepeatedCallSites()
     {
         var type = new ApiType
@@ -711,6 +714,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RenderTypeSectionsMarkdown_PopulatesOptimizationOpportunitiesWhenRequested()
     {
         var type = new ApiType
@@ -742,6 +746,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RenderTypeSectionsMarkdown_ScopesOptimizationOpportunitiesToSelectedMember()
     {
         var method = typeof(OutputFormatterTests).GetMethod(
@@ -781,6 +786,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RenderTypeSectionsMarkdown_MapsLiftedOpportunityToSelectedSourceMember()
     {
         var method = typeof(OutputFormatterTests).GetMethod(
@@ -870,6 +876,7 @@ public class OutputFormatterTests
         => left => left!.Equals(right);
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RenderOptimizationOpportunities_SuppressesGeneratedMethods()
     {
         var type = new ApiType
@@ -899,6 +906,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_PreservesGeneratedGenericObjectBox()
     {
         var rows = QueryOptimizationOpportunities();
@@ -1473,6 +1481,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_SuppressesGeneratedMethodsExceptGenericObjectBox()
     {
         var rows = QueryOptimizationOpportunities();

@@ -5646,6 +5646,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_RecordsAndReturnsTheBodyIndexItBuilds()
     {
         var registry = LibrarySections.CreateQueryRegistry();
@@ -5687,6 +5688,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
     {
         var index = Analysis.LibraryBodyIndex.Open(

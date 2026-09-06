@@ -49,6 +49,7 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations()
     {
         string root = CommandErrorOwnershipTests.RepositoryRoot();
@@ -934,6 +935,7 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CoreQueries_AcquireDecompilerButNotResearch()
     {
         string project = Path.Combine(

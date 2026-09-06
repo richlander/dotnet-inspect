@@ -3,7 +3,6 @@
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <RootNamespace>InertText.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -21,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Text\ILInspector.Text.csproj" />
   </ItemGroup>
 
 </Project>

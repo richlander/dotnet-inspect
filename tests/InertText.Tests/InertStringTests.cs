@@ -1363,14 +1363,18 @@ public class InertStringTests
 
         Assert.True(root is not null, "could not locate the repository root from the test binary");
 
-        string source = Path.Combine(root!.FullName, "src");
+        string[] sources =
+        [
+            Path.Combine(root!.FullName, "src"),
+            Path.Combine(root.FullName, "tests"),
+        ];
         string[] candidates =
         [
-            .. Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories),
-            .. Directory.EnumerateFiles(source, "*.csproj", SearchOption.AllDirectories),
-            .. Directory.EnumerateFiles(source, "*.props", SearchOption.AllDirectories),
-            .. Directory.EnumerateFiles(source, "*.targets", SearchOption.AllDirectories),
-            // Repo-root build files are outside src/ but flow into every project under it, so a
+            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories)),
+            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.csproj", SearchOption.AllDirectories)),
+            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.props", SearchOption.AllDirectories)),
+            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.targets", SearchOption.AllDirectories)),
+            // Repo-root build files are outside these trees but flow into their projects, so a
             // <Using Include> there is the widest-reaching version of exactly this hazard.
             .. Directory.EnumerateFiles(root.FullName, "Directory.Build.*", SearchOption.TopDirectoryOnly),
         ];

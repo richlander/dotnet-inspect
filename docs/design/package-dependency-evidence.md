@@ -51,6 +51,15 @@ Issue #5533 does not itself create a production-visible command. The first
 production user is the CLI adoption in #5534; #5533 remains incomplete as a
 delivered product experience until that consumer lands.
 
+The [Package Dependency Traversal Query](package-dependency-traversal.md)
+consumes one root's selected normalized group and declaration identities. For
+transitive manifests it invokes this evidence owner again after exact
+acquisition and projection. Those traversal-local subjects do not mutate the
+explicit-root evidence outcome or add rows to its root-scoped declaration
+universe. A traversal adapter carries typed framework intent and expansion
+authority separately; it never reuses this result's inert requested-framework
+spelling as structural input.
+
 The query preserves structured typed evidence rather than rendering it. The
 CLI consumer uses Markout as the default host-neutral lowering and projects
 JSON-family formats from the same typed information. The browser consumer
@@ -136,6 +145,14 @@ not turn either absence state into an empty selected group. Its
 `SelectedGroupIndex` identifies the exact owner-issued source occurrence,
 which normalization maps to one logical group. The canonical framework
 identity serves result comparison.
+
+When no target framework is requested,
+`PackageDependencyGroupsQuery` selects one group by its package-group priority,
+using source order to break equal-priority ties. That is a per-manifest
+default, not a claim that several manifests share one target framework.
+This exact no-request query path is currently unverified. The package traversal
+implementation must add
+`Traversal_ManifestDefaultUsesOwnerNoRequestSelection` before adopting it.
 
 ### Restored project graph
 

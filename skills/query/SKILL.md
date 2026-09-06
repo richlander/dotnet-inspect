@@ -146,6 +146,14 @@ columns; companion schema discovery requires one resolved section.
 A known section with no implemented query bindings
 says so; this currently includes package-query facets not yet wired to the CLI.
 
+`library -Q Integrations` describes the ecosystem facet for the whole Integration
+family. All integrations are enabled by default; use
+`library MyLibrary.dll -S Integrations --where "ecosystem=ecosystem.aspire"`
+to narrow the ordinary result. The initial supported value is
+`ecosystem.aspire`. Use a concrete section such as `Integration: Aspire` for
+TSV/JSONL. This predicate does not combine with Body Shapes or Performance
+Triage filters/rankings.
+
 ## Correlate one member's Findings
 
 Select `Finding Census` by its exact name for one body-backed method or

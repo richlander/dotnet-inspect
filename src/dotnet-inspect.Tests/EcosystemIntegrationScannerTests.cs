@@ -487,7 +487,7 @@ public class EcosystemIntegrationScannerTests
         Assert.Null(signal.GetApiEvidence());
     }
 
-    private static MemoryStream BuildDependencyInjectionExtensionAssembly(
+    internal static MemoryStream BuildDependencyInjectionExtensionAssembly(
         bool includeMalformedExtension = false,
         bool includeAdditionalOverload = false,
         bool includeConfigurationParameter = false,
@@ -596,7 +596,7 @@ public class EcosystemIntegrationScannerTests
         }
     }
 
-    private static MemoryStream BuildCloudClientAssembly()
+    internal static MemoryStream BuildCloudClientAssembly()
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("IntegrationOpportunityFixture"),

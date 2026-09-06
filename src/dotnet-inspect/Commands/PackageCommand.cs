@@ -830,14 +830,23 @@ public class PackageCommand
 
         try
         {
-            PackageExtractionOutcome outcome = !target.IsLocalFile
-                && !Core.HttpClientFactory.IsOffline
-                && PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
-                ? await PackageExtractor.ExtractPinnedPackageAsync(
-                    client, packageName, pinnedVersion, logger.Log,
-                    sourceOptions: options.SourceOptions,
-                    createComposition: context.CreatePackageSourceComposition)
-                : await PackageExtractor.ExtractPackageAsync(
+            PackageExtractionOutcome outcome;
+            if (!target.IsLocalFile && !Core.HttpClientFactory.IsOffline)
+            {
+                outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
+                    ? await PackageExtractor.ExtractPinnedPackageAsync(
+                        client, packageName, pinnedVersion, logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        createComposition: context.CreatePackageSourceComposition)
+                    : await PackageExtractor.ExtractSelectedPackageAsync(
+                        client, packageName, version.Length > 0 ? version : null, logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        includePrerelease: options.IncludePrerelease,
+                        createComposition: context.CreatePackageSourceComposition);
+            }
+            else
+            {
+                outcome = await PackageExtractor.ExtractPackageAsync(
                     client,
                     target.IsLocalFile ? target.OriginalArgument : packageName,
                     logger.Log,
@@ -845,6 +854,7 @@ public class PackageCommand
                     version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
                     forceLatest: options.ForceLatest,
                     includePrerelease: options.IncludePrerelease);
+            }
 
             if (!outcome.IsSuccess)
             {

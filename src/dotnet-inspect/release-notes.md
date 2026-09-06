@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Online single-package inspection now selects latest and wildcard versions
+  from configured local and HTTP authorities, including `--preview`.
+  Selection requires fresh, complete discovery and acquires only from sources
+  that reported the chosen version, even on a payload-cache hit. Local payload
+  caches and HTTP temporary ownership match exact-pin inspection. API/timeline
+  range hosts, multi-package commands, and offline extraction remain on their
+  existing paths (#5400).
 - **Breaking:** Renames `match --implementation` to `match --body`, with
   a `Method Body Diff` view. Body comparison now consumes the shared Queries
   designated-pair path and retains native endpoint and failure outcomes.

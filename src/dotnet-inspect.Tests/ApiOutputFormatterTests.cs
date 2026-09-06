@@ -1783,6 +1783,7 @@ public class ApiOutputFormatterTests
     /// required clauses.
     /// </remarks>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ConstraintRestatement_ResolvesADeepConstraintChainWithoutRecursion()
     {
         const int Length = 30_000;

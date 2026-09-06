@@ -21,6 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures/ILInspector.JsExportSurface.UnionFixtures.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />

@@ -342,6 +342,7 @@ compiler-generated IL shapes differ in Debug.
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
+| Text libraries | See [text-library tests](docs/dev-environment.md#text-library-tests). |
 | Inspection queries | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |

@@ -71,6 +71,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Open_HonorsBodyScope()
     {
         var fullIndex = Analysis.LibraryBodyIndex.Open(ProductPath);
@@ -87,6 +88,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void SourceName_MatchesAssemblyFileName()
     {
         var expected = Path.GetFileNameWithoutExtension(ProductPath);
@@ -94,6 +96,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_MatchSameAssemblyCalls_AndAttributeSource()
     {
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
@@ -153,6 +156,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_ConversionSelectionRetainsFunctionPointerShape()
     {
         var session = MethodBodyInspectionSession.Open(TestPath);
@@ -189,6 +193,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_IncludeAndAttributeCallerScopeAssemblies()
     {
         var target = MethodBodyInspectionSession.Open(
@@ -211,10 +216,12 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_UnknownToken_ReturnsEmpty()
         => Assert.Empty(MethodBodyInspectionSession.Open(ProductPath).CallerEdges(targetToken: 0));
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerTree_SessionScopes_MatchesNeutralIndexComposition()
     {
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
@@ -234,6 +241,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerTree_SessionScopes_ProjectsWithUnscopedInstanceCallees()
     {
         MethodBodyInspectionSession target =
@@ -297,6 +305,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallGraph_IndependentScopesReconcileExactBindingIdentity()
     {
         string analysisPath =

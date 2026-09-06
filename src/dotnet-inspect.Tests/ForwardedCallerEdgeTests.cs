@@ -98,6 +98,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_ReportCallerCompiledThroughFacade()
     {
         string? target = PrivateXmlPath();
@@ -115,6 +116,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_StillDiscriminateFacadeOverloads()
     {
         string? target = PrivateXmlPath();
@@ -132,6 +134,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_ResolveForwardedParameterTypes()
     {
         string? target = PrivateXmlPath();
@@ -152,6 +155,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_ForwardedParameterTypesRejectCloseOverload()
     {
         string? target = PrivateXmlPath();
@@ -172,6 +176,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_ReportPlatformFacadeCaller()
     {
         string? target = PrivateXmlPath();
@@ -197,6 +202,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(false)]
     [InlineData(true)]
     public void CallerEdges_AreIndependentOfGraphScopeOrder(

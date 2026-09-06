@@ -125,10 +125,10 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 
 ## Which versions to compare
 
-Version resolution is source-scoped. Use `Foo --version` for the best-known
-listed version: it reuses each source's matching latest entry and queries
-sources without one. Use `Foo --latest-version` to bypass those caches and
-refresh the newest version across all eligible configured sources, and
+Version resolution is source-scoped. Online `Foo --version` and
+`Foo --latest-version` resolve the newest listed version from fresh, complete
+discovery across all eligible configured sources, without legacy candidate
+cache reuse. Use
 `Foo --versions [N]` (add `--preview`) to list published versions. Unlisted
 versions are hidden unless
 `--include-unlisted` is explicit. `--versions-with-feed` retains each

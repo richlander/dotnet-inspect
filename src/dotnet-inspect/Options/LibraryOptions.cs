@@ -80,6 +80,9 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string? Tfm { get; init; }
 
+    /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
+    public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
+
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
     /// </summary>

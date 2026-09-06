@@ -1,8 +1,12 @@
 # Version resolution
 
-dotnet-inspect uses Docker-style version tags to balance freshness against
-latency. Version discovery is cached briefly; package contents are cached
-permanently by exact version.
+dotnet-inspect uses Docker-style version tags to separate version selection
+from exact payload acquisition. Online single-package CLI inspection uses the
+[configured-authority acquisition contract](package-source-model.md#discovered-coordinate-payload-acquisition):
+automatic selection performs fresh bounded discovery, local payload caches
+are authority-scoped, and HTTP payloads use temporary materialization.
+Unmigrated consumers retain the candidate and producer-payload caches described
+below.
 
 The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
@@ -16,17 +20,17 @@ implementation-ready syntax.
 
 ## Four modes
 
-| Syntax | Behavior | Network I/O |
+| Syntax | Behavior | Online single-package CLI discovery |
 | --- | --- | --- |
-| `Name@2.0.3` | **Pinned** — use the exact version from cache; download only if missing | Never, if cached |
-| `Name` | **Latest stable** — resolve the latest stable version, then use/download that exact package | Only on version-cache miss |
-| `Name --preview` | **Latest prerelease** — resolve the latest version including prerelease/preview versions | Only on version-cache miss |
-| `Name@latest` | **Always check** — query NuGet for the latest version every time | Always |
-| `Name@A..B` | **Addressable vector** — resolve the inclusive published-version range without downloading package payloads | Only on version-list cache miss |
+| `Name@2.0.3` | **Pinned** — acquire the caller's exact version | No candidate discovery |
+| `Name` | **Latest stable** — resolve the latest stable version, then acquire that exact package | Fresh eligible-source discovery |
+| `Name --preview` | **Latest prerelease** — include prerelease/preview versions in selection | Fresh eligible-source discovery |
+| `Name@latest` | **Always check** — resolve the latest version every time | Fresh eligible-source discovery |
+| `Name@A..B` | **Addressable vector** — enumerate the inclusive published-version range with `--versions`, without payload acquisition | Fresh eligible-source discovery |
 
 ### Pinned (`Name@version`)
 
-Online caller-pinned CLI extraction now follows the
+Online single-package caller-pinned CLI extraction follows the
 [configured-authority acquisition contract](package-source-model.md#caller-pinned-payload-acquisition):
 local authority caches may answer immediately, while HTTP payloads currently
 use temporary authority-scoped materialization rather than persistent
@@ -42,7 +46,13 @@ and cached permanently under that producer.
 
 ### Latest stable (`Name`)
 
-This is the default and the most common case. Resolution follows this order:
+This is the default and the most common case. Online single-package CLI
+inspection requires complete discovery from all eligible configured
+authorities, then acquires only from authorities that reported the chosen
+version. It does not consult legacy candidate caches or use their shortened
+stale-cache request budget. Folder-only selection performs no HTTP work.
+
+Unmigrated consumers follow this legacy order:
 
 1. **Version cache** — check each eligible feed's version-resolution cache
    (1-hour TTL) for a source-scoped candidate list.
@@ -157,6 +167,11 @@ dotnet-inspect timeline \
 Resolving the vector reads version metadata only. The command downloads or
 opens a package only after the caller selects an address, so an agent can probe
 previous, midpoint, or adjacent versions without triggering an unbounded scan.
+
+The configured-authority range-acquisition seam is available in the package
+layer. API and timeline adoption, including their payload replay paths, remains
+step 6 of the [source adoption plan](package-source-model.md#implementation-boundary).
+Ordinary `package` payload inspection does not accept a range or `--at`.
 
 `timeline` uses the same vector without changing that authorization rule. With
 no `--at`, it renders every address as `Unevaluated` and recommends a probe

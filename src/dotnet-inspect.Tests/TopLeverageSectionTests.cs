@@ -13,6 +13,7 @@ namespace DotnetInspector.Tests;
 public class TopLeverageSectionTests
 {
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task TypeTopLeverage_TsvHonorsRowLimit()
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
@@ -38,6 +39,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task TypeTopLeverage_IncludesVisibilityAndStableSelector()
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
@@ -60,6 +62,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task TypeTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var ranked = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
@@ -157,6 +160,7 @@ public class TopLeverageSectionTests
         Assert.Contains("Top Leverage\tsection", result.Output);
     }
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task MemberTopLeverage_ScopesRowsToSelectedMember()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -181,6 +185,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryTopLeverage_PopulatesVisibilityStableAndNameNSelector()
     {
         var rows = ScanLibraryTopLeverage();
@@ -198,6 +203,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryTopLeverage_PublicOverloadSharingNameWithNonPublic_GetsRoundTrippableSelector()
     {
         var rows = ScanLibraryTopLeverage();
@@ -216,6 +222,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryTopLeverage_AccessorRowUsesOwningPropertySelector()
     {
         var rows = ScanLibraryTopLeverage();
@@ -230,6 +237,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LibraryTopLeverage_TopLevelInternalTypeRowGainsSelector()
     {
         var rows = ScanLibraryTopLeverage();
@@ -259,6 +267,7 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var rows = ScanLibraryTopLeverage();

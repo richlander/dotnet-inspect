@@ -71,7 +71,7 @@ use the non-Gallery `listed` convention.
 
 These version queries are metadata-only and do not use `--offline`.
 
-### Inspect an exact package from a folder feed
+### Inspect a package from a folder feed
 
 Pin one coordinate to inspect its payload through the configured folder source:
 
@@ -79,19 +79,31 @@ Pin one coordinate to inspect its payload through the configured folder source:
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed \
   --path @readme --content --bare
+dnx dotnet-inspect -y -- package MyCompany.Widget --source ./feed
+dnx dotnet-inspect -y -- package 'MyCompany.Widget@1.*' --source ./feed \
+  --path @readme --content --bare
 ```
 
-Online caller-pinned acquisition tries local sources before HTTP sources.
+Online single-package inspection also supports latest, `--preview`, and
+wildcard payload selection. It freshly queries every eligible source and
+requires complete evidence before choosing a version; a failed peer blocks
+automatic selection even when another source has a warm payload cache.
+Only sources that reported the selected version may supply its payload.
+Wildcards use a case-insensitive version prefix and may match prereleases.
+
+Caller-pinned acquisition tries local sources before HTTP sources.
 Declaration order is not precedence within a tier. One eligible source can
 supply the exact package even when an earlier peer fails; `--verbose` retains
 those diagnostics. Tool-wrapper redirects independently reapply mapping.
 
 Local payload caches are scoped to the canonical configured folder, not just
-package ID/version or producer identity. HTTP pins currently use temporary
+package ID/version or producer identity. HTTP payloads currently use temporary
 authority-scoped materialization and do not reuse persistent payload caches.
-Multi-package inspection, local-feed latest/wildcard/range payload selection,
-package-scoped API and dependency commands, offline extraction, symbols, and
-manifest-only requests have not migrated yet.
+Automatic selection does not reuse legacy candidate caches. Multi-package
+inspection, range-addressed payload commands, package-scoped API and dependency
+commands, and offline extraction have not migrated yet. `package --versions`
+can enumerate a range, but ordinary `package` payload inspection does not
+accept a range or `--at`.
 
 ### Restrict package ids to feeds
 
@@ -174,8 +186,8 @@ Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
 succeeds only from producer-authorized caches. Online version queries bypass
-these legacy caches. Online caller-pinned extraction uses the new authority
-cache instead: old producer-keyed entries cannot authorize it, and HTTP
+these legacy caches. Online single-package extraction uses authority-scoped
+payload storage instead: old producer-keyed entries cannot authorize it, and HTTP
 global-packages entries are not reused. A local global-packages entry must
 name the same canonical configured folder in `.nupkg.metadata.source`.
 Other unmigrated paths still skip configured folder feeds; `--verbose`

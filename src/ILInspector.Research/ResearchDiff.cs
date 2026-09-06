@@ -1855,8 +1855,11 @@ public static class ResearchDiff
            && definition.Equals(TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
 
     static string AssemblyKey(LibraryBodyIndex index)
-        => index.Methods.Select(method => method.AssemblyName).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
-            ?? Path.GetFileNameWithoutExtension(index.Path);
+        => index.ModuleIdentity.AssemblyIdentity?.Name
+            ?? throw new ArgumentException(
+                "Body-index assembly comparison requires an assembly identity; "
+                + "a standalone module has no assembly pairing key.",
+                nameof(index));
 
     static string FormatOperations(IReadOnlyList<IlDiffRow> rows)
         => rows.Count == 0 ? "" : string.Join("; ", rows.Select(row => row.Operation.Display));

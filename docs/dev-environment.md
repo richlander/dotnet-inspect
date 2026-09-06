@@ -47,6 +47,20 @@ dotnet tool install -g dotnet-inspect --source https://api.nuget.org/v3/index.js
 dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
 ```
 
+## Text-library tests
+
+Run the complete text-library suites from the repository root:
+
+```bash
+dotnet run --project tests/InertText.Tests -c Release
+dotnet run --project tests/ILInspector.Text.Tests -c Release
+```
+
+Both are xUnit in-process executables. Their source lives under `tests/`, while
+their built outputs remain under `artifacts/`. The in-process corpus data stays
+with its test host; it is not an independently compiled inspected fixture.
+See [repository layout](fixture-governance.md#repository-layout).
+
 ## Test tooling activation
 
 The CLI and decompiler suites skip `ilasm`/`ildasm` checks when those tools are

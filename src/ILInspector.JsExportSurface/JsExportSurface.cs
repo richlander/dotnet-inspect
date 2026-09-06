@@ -31,6 +31,8 @@ public sealed class JsExportSurface
     /// </summary>
     public IReadOnlyList<ApiType> Enums { get; init; } = [];
 
+    public IReadOnlyList<JsExportUnion> Unions { get; init; } = [];
+
     /// <summary>
     /// Complete extracted same-assembly type inventory available when the
     /// surface came from <see cref="JsExportSurfaceBuilder"/> rather than a
@@ -47,21 +49,48 @@ public sealed class JsExportSurface
     /// <summary>
     /// The wire directions each declared type was reached in, keyed by the
     /// <see cref="ApiType"/> instances published in <see cref="Records"/> and
-    /// <see cref="Enums"/>.
+    /// <see cref="Enums"/> and <see cref="Unions"/>.
     /// </summary>
     /// <remarks>
     /// Directions are composed here rather than stored on <see cref="ApiType"/>
     /// because they are a property of how an export uses a type, not a metadata
-    /// fact the type itself carries. A type absent from this map — a
-    /// hand-composed surface, or a registered shape no export references — is
-    /// treated as <see cref="JsonWireDirection.Both"/> by consumers, which is
-    /// the conservative reading. Gated by
+    /// fact the type itself carries. Body-backed surfaces mark unreached types
+    /// as <see cref="JsonWireDirection.None"/>. A type absent from this map on
+    /// a declaration-only or hand-composed surface is conservatively treated
+    /// as <see cref="JsonWireDirection.Both"/> by consumers. Gated by
     /// <c>JsExportSurfaceBuilderTests.Build_RecordsSerializeOnlyDirectionForReturnOnlyDto</c>.
     /// </remarks>
     [JsonIgnore]
     public IReadOnlyDictionary<ApiType, JsonWireDirection> WireDirections
         { get; init; } =
         new Dictionary<ApiType, JsonWireDirection>();
+}
+
+/// <summary>
+/// The source-generated union convention, distinct from an object-property
+/// contract. Case types retain generic parameter positions; a consumer must
+/// instantiate them for a closed use and honor each case's own wire contract.
+/// </summary>
+public sealed class JsExportUnion
+{
+    public required ApiType Definition { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<TypeRef> CaseTypes { get; init; } = [];
+
+    /// <summary>
+    /// Null means the convention was not established. True includes the
+    /// default union state independently of constructor parameter annotations.
+    /// </summary>
+    public bool? IncludesNull { get; init; }
+
+    public string? SerializationUnsupportedReason { get; init; }
+
+    /// <summary>
+    /// Writing alternatives do not establish a case classifier for reading.
+    /// </summary>
+    public string DeserializationUnsupportedReason { get; init; } =
+        "union deserialization case classification is not modeled";
 }
 
 /// <summary>

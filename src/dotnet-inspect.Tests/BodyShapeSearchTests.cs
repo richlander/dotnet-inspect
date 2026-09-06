@@ -243,6 +243,7 @@ public sealed class BodyShapeSearchTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Search_PrefersDeclaringExtensionMemberIdentity()
     {
         using var source = MetadataSource.Open(typeof(SampleExtensions).Assembly.Location);

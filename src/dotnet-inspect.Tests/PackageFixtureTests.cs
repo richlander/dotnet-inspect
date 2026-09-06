@@ -19,6 +19,7 @@ public sealed class PackageFixtureTests
         "DotnetInspect.TestAssets.MetadataConfusion";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task PackageFixtureCatalog_PacksDeclaredToolV2Packages()
     {
         string root = FindRepositoryRoot();
@@ -133,6 +134,7 @@ public sealed class PackageFixtureTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task PackageFixtureCatalog_PacksMetadataConfusionPackage()
     {
         string root = FindRepositoryRoot();
