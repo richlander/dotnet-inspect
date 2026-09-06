@@ -4,18 +4,13 @@ using System.Reflection.Metadata;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// The owned custom-attribute value decoder (issue #5288 slice 2).
+/// The owned custom-attribute value decoder.
 ///
 /// A custom-attribute value blob is not self-describing: the value bytes carry
 /// only data, and the separate constructor signature says how wide each value
 /// is. Decoding one therefore reads two attacker-supplied structures together.
-/// Before slice 2 this component only <em>walked</em> the blob to bound it and
-/// then handed it to <c>System.Reflection.Metadata</c>'s
-/// <c>CustomAttribute.DecodeValue</c>; the two walkers had to agree on every
-/// byte. That relationship is now inverted: this decoder is the single owner
-/// of the walk and materializes SRM's public
-/// <see cref="CustomAttributeValue{TType}"/> shape directly, so there is no
-/// second walk to keep aligned. See
+/// This decoder owns the walk and materializes
+/// <see cref="CustomAttributeValue{TType}"/> directly. See
 /// <c>docs/design/custom-attribute-value-decoding.md</c>.
 ///
 /// The decode is all-or-nothing (D2): a blob whose <em>structure</em> cannot
@@ -30,11 +25,11 @@ namespace ILInspector.Metadata;
 /// The value walk uses an explicit heap work-stack rather than native
 /// recursion, so a deeply nested blob cannot overflow the native stack before
 /// <see cref="MaxSerializedDepth"/> is consulted;
-/// <c>CustomAttributeValueGuardTests.DeeplyNestedObjectArray_OnSmallNativeStack_IsSafe</c>
+/// <c>CustomAttributeValueDecoderTests.DeeplyNestedObjectArray_OnSmallNativeStack_Decodes</c>
 /// is that gate. Enum argument widths come from
 /// <see cref="EnumUnderlyingPrimitive"/> and the shared type-definition index.
 /// </summary>
-public static class CustomAttributeValueGuard
+internal static class CustomAttributeValueDecoder
 {
     /// <summary>
     /// Legacy conservative decode-work charge for one materialized
@@ -44,10 +39,8 @@ public static class CustomAttributeValueGuard
     /// exact retained-byte accounting: once boxing is included the retained
     /// output is <c>O(B + S*(C+N))</c> (D1), which #5755 owns the representation
     /// evidence for. The value <c>16</c> is preserved from the paired-walker era
-    /// because roughly twenty observer consumers budget against it, and slice 2
-    /// deliberately does not retune them; #5733 owns the D1 cost gate that would.
-    /// The non-materializing <see cref="IsSafeToDecode"/> bridge reports the
-    /// equivalent prospective charge without allocating output.
+    /// because existing observer consumers budget against it; #5733 owns the
+    /// D1 cost gate that would justify retuning it.
     /// </summary>
     public const int DeclaredSlotCharge = 16;
 
@@ -60,66 +53,17 @@ public static class CustomAttributeValueGuard
     public const int MaxSerializedDepth = SignatureBlobGuard.DefaultMaxDepth;
 
     /// <summary>
-    /// Temporary, inverted-semantics source-compatibility bridge over the owned
-    /// decoder. Returns <see langword="true"/> when the blob decodes to a value
-    /// and <see langword="false"/> when its structure cannot be followed —
-    /// including truncation, a jagged fixed argument, a generic method header,
-    /// an <c>MVAR</c>, a <c>TypeSpec</c>-typed enum, an unknown code, over-depth
-    /// nesting, or a declared count exceeding the remaining bytes. This is the
-    /// exact inverse of the pre-slice-2 guard, which deferred those cases to
-    /// SRM by returning <see langword="true"/>.
-    ///
-    /// It runs the <em>same</em> decoder as <see cref="AttributeDecoder"/> in a
-    /// non-materializing configuration and discards the value, so it is not on
-    /// the production <c>TryDecode</c> path and never leaves production with a
-    /// second walk. It preserves the prospective observer charge stream without
-    /// allocating value or defaulted-width arrays. A caller
-    /// <paramref name="beforeMaterialize"/> observer or
-    /// <paramref name="enumUnderlyingType"/> resolver that throws propagates
-    /// unchanged; only malformed-input structure yields
-    /// <see langword="false"/>.
-    /// </summary>
-    public static bool IsSafeToDecode(
-        MetadataReader reader,
-        CustomAttribute attribute,
-        Action<int>? beforeMaterialize = null,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType = null)
-    {
-        try
-        {
-            return Decode(
-                reader,
-                attribute,
-                preserveSerializedTypeNames: false,
-                materialize: false,
-                captureDefaultedWidths: false,
-                beforeMaterialize,
-                AttributeDecoder.LegacyResolver(enumUnderlyingType),
-                out _,
-                out _,
-                out _);
-        }
-        catch (AttributeDecoder.CallerCallbackException ex)
-        {
-            ex.Rethrow();
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// The single owned decode. Returns <see langword="true"/> and a
-    /// materialized <paramref name="value"/> when <paramref name="materialize"/>
-    /// is set, <see langword="true"/> with a default value when only validating,
-    /// and <see langword="false"/> when the blob is refused. Caller-callback
-    /// failures are raised as <see cref="AttributeDecoder.CallerCallbackException"/>
+    /// Returns <see langword="true"/> and a materialized <paramref name="value"/>
+    /// when decoding succeeds, or <see langword="false"/> when the blob is refused.
+    /// Caller-callback failures are raised as
+    /// <see cref="AttributeDecoder.CallerCallbackException"/>
     /// so the public edge can rethrow the original unchanged; only
     /// malformed-input exceptions become a refusal.
     /// </summary>
-    internal static bool Decode(
+    internal static bool TryDecode(
         MetadataReader reader,
         CustomAttribute attribute,
         bool preserveSerializedTypeNames,
-        bool materialize,
         bool captureDefaultedWidths,
         Action<int>? beforeMaterialize,
         AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
@@ -138,7 +82,6 @@ public static class CustomAttributeValueGuard
                 reader,
                 attribute.Constructor,
                 preserveSerializedTypeNames,
-                materialize,
                 captureDefaultedWidths,
                 beforeMaterialize,
                 enumUnderlyingType);
@@ -176,14 +119,12 @@ public static class CustomAttributeValueGuard
         MetadataReader reader,
         EntityHandle constructor,
         bool preserveSerializedTypeNames,
-        bool materialize,
         bool captureDefaultedWidths,
         Action<int>? beforeMaterialize,
         AttributeDecoder.EnumWidthResolver? enumUnderlyingType)
     {
         readonly MetadataReader _reader = reader;
         readonly EntityHandle _constructor = constructor;
-        readonly bool _materialize = materialize;
         readonly bool _captureDefaultedWidths = captureDefaultedWidths;
         readonly Action<int>? _beforeMaterialize = beforeMaterialize;
         readonly Classifier _classifier = new(
@@ -240,10 +181,9 @@ public static class CustomAttributeValueGuard
                 throw new BadImageFormatException();
 
             ChargeSlots(parameterCount);
-            var fixedArguments = _materialize
-                ? ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<string>>(
-                    parameterCount)
-                : null;
+            var fixedArguments =
+                ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<string>>(
+                    parameterCount);
             var fixedFlags = _captureDefaultedWidths
                 ? ImmutableArray.CreateBuilder<bool>(parameterCount)
                 : null;
@@ -258,7 +198,7 @@ public static class CustomAttributeValueGuard
                     depth: 1);
                 CustomAttributeTypedArgument<string> argument =
                     DecodeArgument(info, depth: 1);
-                fixedArguments?.Add(argument);
+                fixedArguments.Add(argument);
                 fixedFlags?.Add(_currentArgumentDefaulted);
             }
 
@@ -267,10 +207,9 @@ public static class CustomAttributeValueGuard
                 throw new BadImageFormatException();
 
             ChargeSlots(namedCount);
-            var namedArguments = _materialize
-                ? ImmutableArray.CreateBuilder<CustomAttributeNamedArgument<string>>(
-                    namedCount)
-                : null;
+            var namedArguments =
+                ImmutableArray.CreateBuilder<CustomAttributeNamedArgument<string>>(
+                    namedCount);
             var namedFlags = _captureDefaultedWidths
                 ? ImmutableArray.CreateBuilder<bool>(namedCount)
                 : null;
@@ -289,11 +228,10 @@ public static class CustomAttributeValueGuard
                 ArgumentType info = DecodeNamedArgumentType(
                     isElementType: false,
                     depth: 1);
-                string? name = ReadSerializedString(
-                    wantValue: _materialize);
+                string? name = ReadSerializedString();
                 CustomAttributeTypedArgument<string> argument =
                     DecodeArgument(info, depth: 1);
-                namedArguments?.Add(
+                namedArguments.Add(
                     new CustomAttributeNamedArgument<string>(
                         name,
                         kind,
@@ -302,12 +240,9 @@ public static class CustomAttributeValueGuard
                 namedFlags?.Add(_currentArgumentDefaulted);
             }
 
-            if (_materialize)
-            {
-                value = new CustomAttributeValue<string>(
-                    fixedArguments!.MoveToImmutable(),
-                    namedArguments!.MoveToImmutable());
-            }
+            value = new CustomAttributeValue<string>(
+                fixedArguments.MoveToImmutable(),
+                namedArguments.MoveToImmutable());
 
             if (_captureDefaultedWidths)
             {
@@ -498,7 +433,7 @@ public static class CustomAttributeValueGuard
 
                 case SerializationTypeCode.Enum:
                 {
-                    string? name = ReadSerializedString(wantValue: true);
+                    string? name = ReadSerializedString();
                     if (name is null)
                         throw new BadImageFormatException();
                     string type = _classifier.GetTypeFromSerializedName(name);
@@ -557,15 +492,15 @@ public static class CustomAttributeValueGuard
 
                 case SerializationTypeCode.String:
                 {
-                    object? text = ReadSerializedStringObject(wantValue: _materialize);
+                    string? text = ReadSerializedString();
                     Deliver(new CustomAttributeTypedArgument<string>(info.Type, text), container);
                     return;
                 }
 
                 case SerializationTypeCode.Type:
                 {
-                    string? name = ReadSerializedString(wantValue: true);
-                    object? value = _materialize && name is not null
+                    string? name = ReadSerializedString();
+                    object? value = name is not null
                         ? _classifier.GetTypeFromSerializedName(name)
                         : null;
                     Deliver(new CustomAttributeTypedArgument<string>(info.Type, value), container);
@@ -593,10 +528,11 @@ public static class CustomAttributeValueGuard
 
             if (count == 0)
             {
-                object? empty = _materialize
-                    ? ImmutableArray<CustomAttributeTypedArgument<string>>.Empty
-                    : null;
-                Deliver(new CustomAttributeTypedArgument<string>(info.Type, empty), container);
+                Deliver(
+                    new CustomAttributeTypedArgument<string>(
+                        info.Type,
+                        ImmutableArray<CustomAttributeTypedArgument<string>>.Empty),
+                    container);
                 return;
             }
 
@@ -608,9 +544,7 @@ public static class CustomAttributeValueGuard
 
             ChargeSlots(count);
             var child = new ArrayContainer(
-                _materialize
-                    ? ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<string>>(count)
-                    : null,
+                ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<string>>(count),
                 info.Type,
                 info.Element,
                 depth + 1,
@@ -623,11 +557,10 @@ public static class CustomAttributeValueGuard
         {
             if (container.Remaining == 0)
             {
-                object? array = _materialize
-                    ? container.Builder!.MoveToImmutable()
-                    : null;
                 Deliver(
-                    new CustomAttributeTypedArgument<string>(container.Type, array),
+                    new CustomAttributeTypedArgument<string>(
+                        container.Type,
+                        container.Builder.MoveToImmutable()),
                     container.Parent);
                 return;
             }
@@ -645,22 +578,14 @@ public static class CustomAttributeValueGuard
             CustomAttributeTypedArgument<string> argument,
             ArrayContainer? container)
         {
-            if (!_materialize)
-                return;
             if (container is null)
                 _rootResult = argument;
             else
-                container.Builder!.Add(argument);
+                container.Builder.Add(argument);
         }
 
         object? ReadScalar(SerializationTypeCode code)
         {
-            if (!_materialize)
-            {
-                SkipBytes(ScalarWidth(code));
-                return null;
-            }
-
             return code switch
             {
                 SerializationTypeCode.Boolean => _value.ReadBoolean(),
@@ -679,22 +604,8 @@ public static class CustomAttributeValueGuard
             };
         }
 
-        static int ScalarWidth(SerializationTypeCode code) => code switch
-        {
-            SerializationTypeCode.Boolean or SerializationTypeCode.Byte
-                or SerializationTypeCode.SByte => 1,
-            SerializationTypeCode.Char or SerializationTypeCode.Int16
-                or SerializationTypeCode.UInt16 => 2,
-            SerializationTypeCode.Int32 or SerializationTypeCode.UInt32
-                or SerializationTypeCode.Single => 4,
-            SerializationTypeCode.Int64 or SerializationTypeCode.UInt64
-                or SerializationTypeCode.Double => 8,
-            _ => throw new BadImageFormatException(),
-        };
-
-        // Reads a serialized string, charging its byte length. When
-        // wantValue is false the payload is skipped rather than decoded.
-        string? ReadSerializedString(bool wantValue)
+        // Charges the serialized byte length before decoding the string.
+        string? ReadSerializedString()
         {
             if (_value.RemainingBytes < 1)
                 throw new BadImageFormatException();
@@ -706,35 +617,7 @@ public static class CustomAttributeValueGuard
             if (length < 0 || _value.RemainingBytes < length)
                 throw new BadImageFormatException();
             Observe(length);
-            if (wantValue)
-                return _value.ReadUTF8(length);
-            _value.Offset += length;
-            return null;
-        }
-
-        object? ReadSerializedStringObject(bool wantValue)
-        {
-            if (_value.RemainingBytes < 1)
-                throw new BadImageFormatException();
-            int offset = _value.Offset;
-            if (_value.ReadByte() == 0xFF)
-                return null; // a null string value
-            _value.Offset = offset;
-            int length = _value.ReadCompressedInteger();
-            if (length < 0 || _value.RemainingBytes < length)
-                throw new BadImageFormatException();
-            Observe(length);
-            if (wantValue)
-                return _value.ReadUTF8(length);
-            _value.Offset += length;
-            return null;
-        }
-
-        void SkipBytes(int count)
-        {
-            if (count < 0 || _value.RemainingBytes < count)
-                throw new BadImageFormatException();
-            _value.Offset += count;
+            return _value.ReadUTF8(length);
         }
 
         PrimitiveTypeCode ResolveEnumWidth(string type)
@@ -827,14 +710,14 @@ public static class CustomAttributeValueGuard
     }
 
     sealed class ArrayContainer(
-        ImmutableArray<CustomAttributeTypedArgument<string>>.Builder? builder,
+        ImmutableArray<CustomAttributeTypedArgument<string>>.Builder builder,
         string type,
         ArgumentType element,
         int elementDepth,
         int remaining,
         ArrayContainer? parent)
     {
-        public ImmutableArray<CustomAttributeTypedArgument<string>>.Builder? Builder { get; }
+        public ImmutableArray<CustomAttributeTypedArgument<string>>.Builder Builder { get; }
             = builder;
         public string Type { get; } = type;
         public ArgumentType Element { get; } = element;
@@ -885,10 +768,8 @@ public static class CustomAttributeValueGuard
     /// distinguishes two definitions or an external reference from a local
     /// type); serialized-name enums resolve by projected name through the
     /// shared type-definition index, then a caller resolver, then the
-    /// <see cref="PrimitiveTypeCode.Int32"/> default. This is the resolution
-    /// and rendering that formerly lived in <c>ArgTypeProvider</c>; it no longer
-    /// implements <c>ICustomAttributeTypeProvider</c> because there is no SRM
-    /// decode to drive it. Type-name rendering and index construction retain
+    /// <see cref="PrimitiveTypeCode.Int32"/> default. Type-name rendering and
+    /// index construction retain
     /// their existing observer charges, while the value walk owns declared-slot
     /// and serialized-string charges.
     /// </summary>

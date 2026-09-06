@@ -4,10 +4,12 @@ import {
   decodeBoundMainToWorkerEnvelope,
   decodeStartPayload,
   decodeUnboundInitializationEnvelope,
+  decodeWorkerEventEntries,
   type BoundedPayloadDecoder,
   type ManagedOperationSettlement,
   type RawMainToWorkerEnvelope,
   type RawWorkerToMainEnvelope,
+  type WorkerNonterminalEvent,
   type WorkerEnvelopeDecodeFailure,
   type WorkerLivenessAllowance,
   type WorkerWireOperationReference,
@@ -41,6 +43,10 @@ export interface WorkerOperationContext {
   readonly cache: WorkerEpochCache;
   /** Returns false after settlement, realm failure, or disposal. */
   reportProgress(payload: unknown): boolean;
+  /** Returns false after settlement, realm failure, or disposal. */
+  reportEvents(
+    entries: readonly WorkerNonterminalEvent<unknown, unknown>[],
+  ): boolean;
   startEpochWork(
     producerClass: string,
     sequence: number,
@@ -541,6 +547,34 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
           operation: envelope.operation,
           payload,
         });
+        return true;
+      },
+      reportEvents: entries => {
+        if (this.#terminated
+          || this.#failed
+          || admitted === null
+          || admitted.settling
+          || this.#active.get(envelope.operation.operationId) !== admitted)
+          return false;
+        const decoded = decodeWorkerEventEntries(entries);
+        if (decoded.kind === "failure") {
+          this.#declareFailure(decoded.failure);
+          throw new Error("Worker event batch was rejected.", {
+            cause: decoded.failure,
+          });
+        }
+        try {
+          this.#emit({
+            protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+            epochToken: this.#requiredEpochToken(),
+            kind: "events",
+            operation: envelope.operation,
+            entries: decoded.value,
+          });
+        } catch (error: unknown) {
+          this.#declareFailure(error);
+          throw error;
+        }
         return true;
       },
       startEpochWork: (producerClass, sequence, advertisedAllowance) =>

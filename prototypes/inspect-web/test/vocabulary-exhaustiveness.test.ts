@@ -47,10 +47,18 @@ const widenings = [
   {
     vocabulary: "PackageLens",
     file: "data.ts",
-    find: '  ["metadata", "Metadata"]\n] as const;',
-    replace: '  ["metadata", "Metadata"],\n  ["probe-package-lens", "Probe"]\n] as const;',
+    find: '  ["dependencies", "Dependencies"]\n] as const;',
+    replace: '  ["dependencies", "Dependencies"],\n  ["probe-package-lens", "Probe"]\n] as const;',
     token: "probe-package-lens",
     dispatches: ["packageLensBody", "packageLensPresentation"],
+  },
+  {
+    vocabulary: "LibraryLens",
+    file: "data.ts",
+    find: '  ["metadata", "Metadata"]\n] as const;\n\nexport type PackageLens',
+    replace: '  ["metadata", "Metadata"],\n  ["probe-library-lens", "Probe"]\n] as const;\n\nexport type PackageLens',
+    token: "probe-library-lens",
+    dispatches: ["libraryLensBody", "libraryLensPresentation"],
   },
   {
     vocabulary: "MemberSection",
@@ -69,8 +77,8 @@ const widenings = [
   {
     vocabulary: "WorkspaceScope",
     file: "data.ts",
-    find: 'const workspaceScopes = ["workspace", "package", "type", "member"] as const;',
-    replace: 'const workspaceScopes = ["workspace", "package", "type", "member", "probe-workspace-scope"] as const;',
+    find: '  "member",\n] as const;\n\nexport type WorkspaceScope',
+    replace: '  "member",\n  "probe-workspace-scope",\n] as const;\n\nexport type WorkspaceScope',
     token: "probe-workspace-scope",
     dispatches: ["onScopeSelect", "renderScopeBar", "selectScopeLensByIndex"],
   },
@@ -221,7 +229,7 @@ test("every closed UI vocabulary is covered by this gate", () => {
   // derives an empty roster and passes.
   assert.deepEqual(
     [...declared].sort((a, b) => a.localeCompare(b)),
-    ["MemberSection", "PackageLens", "SpotlightScope", "TypeLens", "WorkspaceScope"],
+    ["LibraryLens", "MemberSection", "PackageLens", "SpotlightScope", "TypeLens", "WorkspaceScope"],
     "the catalog-union anchor stopped matching the vocabularies it is meant to discover");
 
   const covered = new Set<string>(widenings.map(widening => widening.vocabulary));

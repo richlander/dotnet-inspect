@@ -36,6 +36,7 @@ public static class NuGetCache
 {
     private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
+    internal const string AuthorityPackageContentCategory = "package-authority-content-v1";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static readonly Encoding s_utf8Strict =
         new UTF8Encoding(
@@ -61,6 +62,9 @@ public static class NuGetCache
         CoreCache.RegisterVersionedCategory(
             PackageContentCategoryPrefix,
             PackageContentCategory);
+        CoreCache.RegisterVersionedCategory(
+            "package-authority-content-v",
+            AuthorityPackageContentCategory);
     }
 
     private static string AppName => _appName
@@ -424,7 +428,7 @@ public static class NuGetCache
         // retained nupkg or extracted tree is usable. A damaged global-packages
         // slot must still surface so offline errors are not "not found".
         if (!Directory.Exists(packageDirectory)
-            || !TryReadGlobalPackageSourceKey(
+            || !TryReadGlobalPackageSource(
                 packageDirectory,
                 out string? producerKey)
             || !(allowedSourceKeys?.Contains(producerKey) ?? false))
@@ -454,9 +458,10 @@ public static class NuGetCache
     /// </summary>
     internal const int MaxCommitMarkerBytes = 4 * 1024;
 
-    private static bool TryReadGlobalPackageSourceKey(
+    internal static bool TryReadGlobalPackageSource(
         string packageDirectory,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey)
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey,
+        bool rawSource = false)
     {
         string metadataPath = Path.Combine(packageDirectory, ".nupkg.metadata");
         try
@@ -507,7 +512,7 @@ public static class NuGetCache
                 return false;
             }
 
-            sourceKey = GetSourceKey(source.GetString());
+            sourceKey = rawSource ? source.GetString()! : GetSourceKey(source.GetString());
             return true;
         }
         catch (Exception ex) when (ex is
@@ -582,41 +587,63 @@ public static class NuGetCache
             normalizedName,
             normalizedVersion,
             sourceKey);
+        return CommitPackageToSlot(
+            extractedPath,
+            nupkgPath,
+            normalizedName,
+            normalizedVersion,
+            sourceKey,
+            targetPath,
+            GetCommitMarkerContent(normalizedName, normalizedVersion, sourceKey),
+            useAppCache: true);
+    }
+
+    /// <summary>
+    /// Publishes to a product-owned slot using the caller's marker contract.
+    /// Temporary slots use the same transaction without claiming an app-cache path.
+    /// </summary>
+    internal static CommittedPackage CommitPackageToSlot(
+        string extractedPath,
+        string? nupkgPath,
+        string packageName,
+        string version,
+        string producerKey,
+        string targetPath,
+        string markerContent,
+        bool useAppCache)
+    {
+        ValidatePathComponent(packageName, "package name");
+        ValidatePathComponent(version, "version");
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
         string? parentDir = Path.GetDirectoryName(targetPath)
             ?? throw new InvalidOperationException(
                 $"Package cache path has no parent: {targetPath}");
 
-        CoreCache.EnsurePathInCacheContext(targetPath);
+        if (useAppCache)
+            CoreCache.EnsurePathInCacheContext(targetPath);
         Directory.CreateDirectory(parentDir);
 
-        if (IsCommittedPackageValid(
-            targetPath,
-            normalizedName,
-            normalizedVersion,
-            sourceKey))
+        if (IsCommittedPackageValid(targetPath, markerContent))
         {
             return OpenCommittedPackage(
                 targetPath,
                 normalizedName,
                 normalizedVersion,
-                sourceKey);
+                producerKey);
         }
 
         if (Directory.Exists(targetPath))
         {
             // A concurrent winner may have published between the validity
             // check and Exists. Re-check before treating the slot as corrupt.
-            if (IsCommittedPackageValid(
-                targetPath,
-                normalizedName,
-                normalizedVersion,
-                sourceKey))
+            if (IsCommittedPackageValid(targetPath, markerContent))
             {
                 return OpenCommittedPackage(
                     targetPath,
                     normalizedName,
                     normalizedVersion,
-                    sourceKey);
+                    producerKey);
             }
 
             throw new InvalidDataException(
@@ -625,8 +652,9 @@ public static class NuGetCache
 
         string stagingPath = Path.Combine(
             parentDir,
-            $".{sourceKey}.tmp-{Guid.NewGuid():N}");
-        CoreCache.EnsurePathInCacheContext(stagingPath);
+            $".{Path.GetFileName(targetPath)}.tmp-{Guid.NewGuid():N}");
+        if (useAppCache)
+            CoreCache.EnsurePathInCacheContext(stagingPath);
 
         try
         {
@@ -654,7 +682,7 @@ public static class NuGetCache
             {
                 string tempNupkg = Path.Combine(
                     parentDir,
-                    $".{sourceKey}.nupkg-{Guid.NewGuid():N}");
+                    $".{Path.GetFileName(targetPath)}.nupkg-{Guid.NewGuid():N}");
                 try
                 {
                     ZipFile.CreateFromDirectory(
@@ -678,28 +706,20 @@ public static class NuGetCache
                 FileShare.None))
             using (var writer = new StreamWriter(marker))
             {
-                writer.Write(
-                    GetCommitMarkerContent(
-                        normalizedName,
-                        normalizedVersion,
-                        sourceKey));
+                writer.Write(markerContent);
             }
 
             try
             {
                 Directory.Move(stagingPath, targetPath);
             }
-            catch (IOException) when (IsCommittedPackageValid(
-                targetPath,
-                normalizedName,
-                normalizedVersion,
-                sourceKey))
+            catch (IOException) when (IsCommittedPackageValid(targetPath, markerContent))
             {
                 return OpenCommittedPackage(
                     targetPath,
                     normalizedName,
                     normalizedVersion,
-                    sourceKey);
+                    producerKey);
             }
 
             CacheTelemetry.Record(
@@ -710,7 +730,7 @@ public static class NuGetCache
             return new CommittedPackage(
                 targetPath,
                 Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
-                sourceKey);
+                producerKey);
         }
         finally
         {
@@ -883,12 +903,13 @@ public static class NuGetCache
         string packageName,
         string version,
         string sourceKey) =>
-        IsCachedPackageValid(cachedPath)
-        && IsCommittedPackageSlotPresent(
+        IsCommittedPackageValid(
             cachedPath,
-            packageName,
-            version,
-            sourceKey);
+            GetCommitMarkerContent(packageName, version, sourceKey));
+
+    private static bool IsCommittedPackageValid(string cachedPath, string markerContent) =>
+        IsCachedPackageValid(cachedPath)
+        && IsCommittedPackageSlotPresent(cachedPath, markerContent);
 
     /// <summary>
     /// True when the app-cache slot exists and carries this source's commit
@@ -899,7 +920,12 @@ public static class NuGetCache
         string cachedPath,
         string packageName,
         string version,
-        string sourceKey)
+        string sourceKey) =>
+        IsCommittedPackageSlotPresent(
+            cachedPath,
+            GetCommitMarkerContent(packageName, version, sourceKey));
+
+    internal static bool IsCommittedPackageSlotPresent(string cachedPath, string markerContent)
     {
         try
         {
@@ -943,7 +969,7 @@ public static class NuGetCache
 
             string actual = Encoding.UTF8.GetString(markerBytes);
             return actual.Equals(
-                GetCommitMarkerContent(packageName, version, sourceKey),
+                markerContent,
                 StringComparison.Ordinal);
         }
         catch (IOException)

@@ -8,6 +8,7 @@ import type {
 import {
   decodeBoundMainToWorkerEnvelope,
   decodeEpochFailedPayload,
+  decodeEventsPayload,
   decodeInitializePayload,
   decodeProgressPayload,
   decodeRejectedPayload,
@@ -34,6 +35,7 @@ import {
   type WorkerWireEpochToken,
   type WorkerWireOperationReference,
   WORKER_RUNTIME_PROTOCOL_VERSION,
+  WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE,
 } from "../src/worker-runtime-protocol.ts";
 
 const EPOCH_TOKEN = 7;
@@ -192,6 +194,122 @@ const mainToWorkerFixtures: readonly {
   },
 ];
 
+function eventBatch(entries: unknown): unknown {
+  return { ...header, kind: "events", operation, entries };
+}
+
+test("event batches keep the complete nonterminal order and separate payload codecs", () => {
+  const envelope = requireKind(decoded(decodeWorker(eventBatch([
+    { kind: "progress", payload: 1 },
+    { kind: "durable", payload: "Package.One" },
+    { kind: "progress", payload: 2 },
+    { kind: "durable", payload: "Package.Two failed" },
+  ]))), "events");
+  const result = decoded(decodeEventsPayload(
+    envelope,
+    numberDecoder(),
+    boundedStringDecoder(),
+  ));
+  assert.deepEqual(result.entries, envelope.entries);
+});
+
+test("event batches accept singleton and maximum-sized batches", () => {
+  for (const count of [1, WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE]) {
+    const entries = Array.from({ length: count }, (_, index) => ({
+      kind: "durable",
+      payload: `item-${index}`,
+    }));
+    const envelope = requireKind(
+      decoded(decodeWorker(eventBatch(entries))),
+      "events",
+    );
+    assert.equal(envelope.entries.length, count);
+  }
+});
+
+test("event batch size is bounded before any entry is read", () => {
+  assertDecodeFailure(decodeWorker(eventBatch([])), "invalid-integer", "$.entries.length");
+  assertDecodeFailure(decodeWorker(eventBatch({})), "not-array", "$.entries");
+  const entries: unknown[] = [];
+  entries.length = WORKER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1;
+  Object.defineProperty(entries, "0", {
+    get: () => assert.fail("An over-budget batch must not inspect entries."),
+  });
+  assertDecodeFailure(decodeWorker(eventBatch(entries)), "payload-oversized", "$.entries");
+});
+
+test("event batches require dense closed own-data entries", () => {
+  const sparse: unknown[] = [];
+  sparse.length = 1;
+  assertDecodeFailure(
+    decodeWorker(eventBatch(sparse)),
+    "missing-property",
+    '$.entries["0"]',
+  );
+  const entries: unknown[] = [null];
+  Object.defineProperty(entries, "0", {
+    get: () => assert.fail("Batch decoding must not invoke an entry accessor."),
+  });
+  assertDecodeFailure(
+    decodeWorker(eventBatch(entries)),
+    "accessor-property",
+    '$.entries["0"]',
+  );
+  const extra = Object.assign([{ kind: "durable", payload: "item" }], { extra: true });
+  assertDecodeFailure(
+    decodeWorker(eventBatch(extra)),
+    "unexpected-property",
+    "$.entries.extra",
+  );
+  assertDecodeFailure(
+    decodeWorker(eventBatch([{ kind: "durable", payload: "item", extra: true }])),
+    "unexpected-property",
+    "$.entries[0].extra",
+  );
+});
+
+test("an event batch cannot carry semantic completion", () => {
+  assertDecodeFailure(
+    decodeWorker(eventBatch([{ kind: "completed", payload: "done" }])),
+    "invalid-discriminator",
+    "$.entries[0].kind",
+  );
+});
+
+test("event payload failure rejects the complete typed batch at its indexed path", () => {
+  const envelope = requireKind(decoded(decodeWorker(eventBatch([
+    { kind: "durable", payload: "valid" },
+    { kind: "durable", payload: "over the declared budget" },
+  ]))), "events");
+  assertDecodeFailure(
+    decodeEventsPayload(envelope, numberDecoder(), boundedStringDecoder(5)),
+    "payload-oversized",
+    "$.entries[1].payload",
+  );
+});
+
+test("progress-only registrations cannot decode durable entries", () => {
+  const envelope = requireKind(decoded(decodeWorker(eventBatch([
+    { kind: "durable", payload: "item" },
+  ]))), "events");
+  assertDecodeFailure(
+    decodeEventsPayload(envelope, numberDecoder(), undefined),
+    "payload-rejected",
+    "$.entries[0].payload",
+  );
+});
+
+test("structural event decoding does not inspect or reinterpret feature payloads", () => {
+  const payload = Object.defineProperty({}, "featureOwned", {
+    get: () => assert.fail("Only the owner may decode its feature payload."),
+  });
+  const source = [{ kind: "durable", payload }];
+  const envelope = requireKind(decoded(decodeWorker(eventBatch(source))), "events");
+  assert.equal(envelope.entries[0]?.payload, payload);
+  source.length = 0;
+  assert.equal(envelope.entries.length, 1);
+});
+
 for (const fixture of mainToWorkerFixtures) {
   test(`structurally decodes the bound ${fixture.name} main envelope`, () => {
     assert.deepEqual(
@@ -205,6 +323,19 @@ const workerToMainFixtures: readonly {
   readonly name: string;
   readonly envelope: unknown;
 }[] = [
+  {
+    name: "Events",
+    envelope: {
+      ...header,
+      kind: "events",
+      operation,
+      entries: [
+        { kind: "progress", payload: 1 },
+        { kind: "durable", payload: "Package.One" },
+        { kind: "durable", payload: "Package.Two failed" },
+      ],
+    },
+  },
   {
     name: "Ready",
     envelope: {

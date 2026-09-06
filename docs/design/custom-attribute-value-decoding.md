@@ -9,19 +9,22 @@ where every element begins and ends.
 
 **We own that decode.** This document owns the contract that makes it safe.
 
-**Status: slice 2 implementation candidate; D1/D2/D3 gates still open.** This
+**Status: owned decoder and fixtures-first D3 gate landed; broader gates remain
+open.** This
 document states the contract established by
 [#5288](https://github.com/richlander/dotnet-inspect/issues/5288), which inverts
 this subsystem's relationship to `System.Reflection.Metadata`.
-Slice 1 is this document; the current slice 2 candidate is the owned decoder:
-`AttributeDecoder.TryDecode` now consumes `CustomAttributeValueGuard`'s owned
-walk directly and no production path calls `CustomAttribute.DecodeValue`. The
+Slice 1 is this document; slice 2 landed the owned decoder in #5815.
+`AttributeDecoder.TryDecode` consumes the internal `CustomAttributeValueDecoder`
+directly and no production path calls `CustomAttribute.DecodeValue`. The
 paired-walker hazards described under
 [How this design changed](#how-this-design-changed) are gone from the code.
-The remaining slices are the D3 gate (slice 3) and cleanup (slice 4); D1's
-generative cost gate (#5733) and D3's value-equality gate (#5148) are still
-open, so the invariants below remain the target the implementation is held to
-rather than gated facts.
+Slice 3's compiler-produced fixture gate landed in #5148; it does not establish
+real-package certification or a certified producer-SDK range. Slice 4 retires
+the temporary guard bridge and its validation-only mode. D1's generative cost
+gate (#5733), D2's internal-exhaustion evidence (#5397), and broader D3
+certification remain open, so the full invariants below remain targets rather
+than gated facts.
 
 ## Responsibility
 
@@ -30,7 +33,7 @@ untrusted metadata: what the decoder promises, how enum widths are resolved,
 what it refuses, and what must remain true of its cost and its output.
 
 The implementation lives in `src/ILInspector.MetadataPrimitives/`:
-`CustomAttributeValueGuard.cs`, `AttributeDecoder.cs`, and
+`CustomAttributeValueDecoder.cs`, `AttributeDecoder.cs`, and
 `EnumUnderlyingPrimitive.cs`.
 
 ## Boundaries
@@ -64,8 +67,8 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   The converse — that we produce a value wherever SRM does — is a D3 claim, and
   only over certified-range output. On illegal input the obligation is D1 and
   D2 only.
-- Not a change to the decoder's **output shape**, and not a redesign of its
-  public surface. It produces the same `CustomAttributeValue<string>` it
+- Not a change to `AttributeDecoder`'s **output shape** or existing overloads.
+  It produces the same `CustomAttributeValue<string>` it
   produced before slice 2, and every existing overload keeps its **signature**
   and its **successful-result shape**. Three deliberate behavior corrections
   are carved out and are not compatibility violations: slice 2 kept observer
@@ -76,6 +79,9 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   defaulted-width signal D2 requires is **additive** surface — a new overload or
   a richer observer — because the current observer is `Action<int>` and cannot
   carry it. A caller that wants the signal must opt in.
+  Slice 4 intentionally removes the temporary public
+  `CustomAttributeValueGuard.IsSafeToDecode` bridge; its callers must consume
+  `AttributeDecoder.TryDecode`'s value or refusal instead.
 
 ## The trust boundary
 
@@ -247,14 +253,13 @@ evidence and remains the place to revisit the bound if the output-shape hold is
 lifted. D1 still forbids a small blob from sizing a large allocation through
 `count > RemainingBytes`.
 
-**Charging is now materialization accounting.** Under the previous design the
+**Charging precedes materialization.** Under the previous design the
 `beforeMaterialize` observer reported work the guard had *declined* to do, so a
 large charge could appear next to a refusal and look like allocation accounting.
-With one walker that actually materializes, the charge means what its name says:
-this is what we are about to allocate. Keep it, and keep it before the
-allocation. The non-production `IsSafeToDecode` compatibility bridge makes no
-output allocation but reports the equivalent prospective charge stream while
-running the same parser in validation mode.
+With one walker that actually materializes, the observer reports upcoming
+decode work before the corresponding materialization. The preserved
+`DeclaredSlotCharge = 16` is a conservative work proxy, not exact retained-byte
+accounting. There is no separate validation-only mode.
 
 **Charging is not an escape hatch for the cost clause.** The observer is
 optional and frequently absent, and `Charge` returns immediately when it is
@@ -395,7 +400,7 @@ resolution logic returns our answer and the comparison proves nothing.
 
 | Where the width comes from | Oracle | Is the decoder obliged to be right? |
 | --- | --- | --- |
-| The value's type is decoded without consulting our resolution logic — primitives, strings, `System.Type` names, arrays of these | SRM equality. Cheap, broad, and sufficient. **Independent** is the load-bearing word: the oracle's `ICustomAttributeTypeProvider` must be test-owned and trivial. After slice 2 deletes `ArgTypeProvider` there is no product provider left to borrow, so this holds by construction. | Yes |
+| The value's type is decoded without consulting our resolution logic — primitives, strings, `System.Type` names, arrays of these | SRM equality. Cheap, broad, and sufficient. **Independent** is the load-bearing word: the oracle's `ICustomAttributeTypeProvider` must be test-owned and trivial. Slice 2 deleted `ArgTypeProvider`; the fixture gate uses its own provider. | Yes |
 | Our frozen adapter resolves the width from a retained defining image, where a faithful SRM oracle would have to consult that **same** adapter | **The certified corpus**, which built the assemblies and knows each enum's underlying type from source. SRM equality here is degenerate, not independent. | Yes — the information is present, so a wrong width is a fidelity defect |
 | No resolution path can establish the width, because the defining image is genuinely absent | **None exists.** Both decoders default to `Int32`. | **No.** See the carve-out below |
 
@@ -599,18 +604,16 @@ count read out of the middle of `"tico"` exceeds the remaining bytes of an 80-by
 blob and D1's allocation clause refuses it without consulting the parse at all.
 
 That is the argument for stating the allocation clause independently rather than
-deriving it from correct parsing. `CustomAttributeValueGuardTests`'s
-`SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` gates the
+deriving it from correct parsing. `CustomAttributeValueDecoderTests`'s
+`SystemTypeArgumentReadAsEnum_IsRefusedBeforeAmplifiedCharge` gates the
 refusal over the captured 80-byte blob, paired with
 `SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded` for the fidelity
 half; the two differ only in the first parameter's declared type.
 
-Read the refusal gate for what it proves and no more. The per-slot charge
-saturates at `int.MaxValue` for any count above 134,217,727, and all four
-plausible misread widths land on four bytes of this type name that exceed it, so
-the charge assertion cannot distinguish the offset named above from a different
-misread. It gates amplification-and-refusal; the offset itself is pinned
-separately as an assertion over the captured bytes.
+Read the refusal gate for what it proves and no more. It asserts refusal
+before charging the amplified count; that does not distinguish the offset
+named above from a different misread. The offset itself is pinned separately
+as an assertion over the captured bytes.
 
 ## Classification is a display-name comparison, not an identity test
 
@@ -676,7 +679,7 @@ type with `.`, exactly as a namespace joins a type name, so a nested `Kind`
 declared in `Samples.E` and a top-level `Kind` in namespace `Samples.E` both
 render `Samples.E.Kind`. A reference additionally carries a resolution scope that
 its flattened spelling discards. Any name-keyed index must therefore drop one
-colliding definition. `NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates
+colliding definition. `NestedTypeNameCollision_DecodesAndStaysBounded` gates
 both handle forms and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the
 premise.
 
@@ -726,7 +729,7 @@ A repeated enum name resolves once rather than once per array element, because
 the element count is attacker-chosen and per-element resolution is the
 amplification D1 exists to prevent.
 `EnumArrayElements_ResolveTheWidthOncePerName` and
-`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` gate these.
+`EscapedTypeDefEnumName_DecodesAndStaysBounded` gate these.
 
 ### The two resolution paths are not symmetric
 
@@ -825,15 +828,15 @@ encoding.
 
 ## Enforcement gates
 
-**Current candidate state: the defaulted-width signal is gated; D1, D2, and D3
+**Current state: the defaulted-width signal is gated; full D1, D2, and D3
 remain `unverified`.**
 
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
-| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial in the slice 2 candidate; resource-exhaustion propagation remains unverified. |
+| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial, landed in #5815; resource-exhaustion propagation remains unverified. |
 | **D3** | #5148's fixtures-first gate compares compiler-produced values with independent SRM results and source-owned cross-assembly enum expectations. `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce this fixture subset. | Partial fixture coverage; real-package certification and its producer range remain unverified. |
-| **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated in the slice 2 candidate. |
+| **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated, landed in #5815. |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -1009,40 +1012,41 @@ slice 2. Both are now settled.
   index charges are also preserved. Every count is validated before its slot
   charge, and every observer invocation is wrapped in a provenance sentinel so
   a throwing observer is never absorbed as malformed metadata.
-- **The decoder's name.** The component keeps the name `CustomAttributeValueGuard`
-  because roughly twenty call sites and the whole test suite reference it, but
-  it is now the owned value-producing decoder rather than a guard.
-  `IsSafeToDecode` remains public as a temporary, inverted-semantics bridge that
-  runs the same walk in a non-materializing configuration and discards the
-  value; it is not on the production `TryDecode` path. `ArgTypeProvider` is
-  deleted as an SRM `ICustomAttributeTypeProvider`; its rendering and resolution
-  fold into the decoder's `Classifier`. The additive defaulted-width signal
-  rides a new `AttributeDecoder.TryDecodeDetailed` returning
-  `DetailedCustomAttributeValue`, with a new `EnumWidthResolver` delegate for
-  callers that must report a width unresolved. Slice 4 retires the remaining
-  guard-era test names.
+- **The decoder's name and surface.** Slice 2 retained
+  `CustomAttributeValueGuard` and a temporary public `IsSafeToDecode` bridge
+  while tests migrated. Slice 4 replaces that component with the internal
+  `CustomAttributeValueDecoder`, removes the bridge and validation-only mode,
+  and exercises decoded values and refusals through `AttributeDecoder`.
+  Removing the temporary public helper is intentional; `AttributeDecoder`'s
+  public decode signatures and successful-result shapes stay unchanged.
+  Slice 2 also deleted `ArgTypeProvider` as an SRM
+  `ICustomAttributeTypeProvider`; its rendering and resolution moved into the
+  decoder's `Classifier`. The additive defaulted-width signal rides
+  `AttributeDecoder.TryDecodeDetailed` returning `DetailedCustomAttributeValue`,
+  with an `EnumWidthResolver` delegate for callers that must report an
+  unresolved width.
 
-## Open work
+## Work status
 
 | Issue | Concern |
 | --- | --- |
-| #5288 | This inversion. Slice 2 landed in #5815; slice 3 starts with the fixtures-first D3 gate, with package certification and slice 4 cleanup still outstanding. |
-| #5047 | Slice 2 resolves each array element type once; close after the candidate lands. |
+| #5288 | This inversion. Slice 2 landed in #5815 and the fixtures-first slice 3 gate in #5148. Slice 4 retires the legacy bridge; broader package certification remains outstanding. |
+| #5047 | Repaired in #5815: each array element type is resolved once. |
 | #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
-| #5065 | The differential oracle. To be **retitled to D3** by #5288 slice 4; it is not D1's gate. |
-| #5085 | Slice 2 preserves observer-exception provenance; close after the candidate lands. |
+| #5065 | D3 fidelity and producer certification; the fixture subset landed in #5148. It is not D1's gate. |
+| #5085 | Repaired in #5815: observer-exception provenance is preserved. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
-| #5130 | Slice 2 deletes the paired walk's single-slot memos; close after the candidate lands. |
+| #5130 | #5815 retired the paired walk's single-slot memos; the remaining generic-context cost is tracked by #5098. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
-| #5148 | Fixtures-first D3 value equality and retained-image producer truth; broader package certification remains outstanding. |
+| #5148 | Merged: fixtures-first D3 value equality and retained-image producer truth. Broader package certification remains outstanding in #5065. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
 | #5397 | Slice 2 no longer catches internal `OutOfMemoryException`; dedicated propagation evidence remains absent, so D2 stays partially unverified. |
 | #5733 | The D1 generative bounded-cost gate; #5065 does not measure cost. |
-| #5742 | Slice 2 adds the defaulted-width signal that mitigates D3's row-three carve-out; close after the candidate lands. |
+| #5742 | Implemented in #5815: the opt-in defaulted-width signal mitigates D3's row-three carve-out. |
 | #5755 | Retained-name evidence and the representation-bound revisit point if the output-shape hold is lifted. |
 | #5757 | Type-definition index construction costs `Θ(P × L)`. Gap 7. |
 | #5758 | Definition scanning costs `Θ(T × L)` on a loop-invariant name. Gap 8. |
-| #5759 | Slice 2 preserves resolver-exception provenance; close after the candidate lands. |
+| #5759 | Repaired in #5815: resolver-exception provenance is preserved. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |

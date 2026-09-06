@@ -60,7 +60,9 @@ function inspectionState(
   return {
     packages: [],
     atPackageRoot: false,
+    atLibraryRoot: false,
     packageLens: "overview",
+    libraryLens: "overview",
     packageDependencies: null,
     packageDependenciesLoading: false,
     packageDependenciesError: "",
@@ -276,6 +278,26 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+test("Library References does not acquire other workspace dependencies", async () => {
+  const selected = packageModel();
+  const other = packageModel({ id: "Other.Package" });
+  const state = inspectionState({
+    packages: [selected, other],
+    atLibraryRoot: true,
+    libraryLens: "references",
+  });
+  const calls: string[] = [];
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async pkg => {
+        calls.push(`${pkg.id}#${pkg.assemblyId}`);
+        return dependencyResult(pkg.id);
+      },
+    }));
+  await coordinator.loadDependencies(selected, "library:references");
+  assert.deepEqual(calls, ["Example.Package#example-package"]);
+});
 
 type PackageInspectionCoordinator =
   ReturnType<typeof createPackageInspectionCoordinator>;
@@ -531,7 +553,7 @@ test("dependency results cache for a resident package after the foreground lens 
   assert.equal(
     state.workspaceDependencyErrors[key],
     "partial dependency data");
-  assert.deepEqual(events, ["render", "stats", "render", "graph"]);
+  assert.deepEqual(events, ["render", "stats", "render"]);
 });
 
 test("foreground dependency success refreshes cached groups and clears a prior error", async () => {
@@ -862,8 +884,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
   const workspaceDependencyErrors = { [key]: "retained partial data" };
   const retainedState = {
     packages: [remaining],
-    atPackageRoot: true,
-    packageLens: "analysis" as const,
+    atPackageRoot: false,
+    atLibraryRoot: true,
+    packageLens: "dependencies" as const,
+    libraryLens: "analysis" as const,
     workspaceDependencies,
     workspaceDependencyErrors,
   };
@@ -1212,13 +1236,14 @@ test("workspace dependency loading is sequential and only renders the active len
   assert.equal(stats, 1);
 });
 
-test("workspace dependency loading does not render another active package lens", async () => {
+test("workspace dependency loading does not render an active library lens", async () => {
   const packageItem = packageModel();
   let renders = 0;
   const state = inspectionState({
     packages: [packageItem],
-    atPackageRoot: true,
-    packageLens: "metadata",
+    atPackageRoot: false,
+    atLibraryRoot: true,
+    libraryLens: "metadata",
   });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {

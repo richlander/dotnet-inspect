@@ -17,7 +17,7 @@ namespace ILInspector.Metadata;
 /// escapes before lookup. Both then <see cref="Normalize"/> the returned code
 /// so an assembly-qualified SerString or a non-fixed-width callback cannot
 /// select an unexpected width.
-/// <c>CustomAttributeValueGuardTests</c>'s
+/// <c>CustomAttributeValueDecoderTests</c>'s
 /// <c>EscapedNamedEnum_MalformedAssemblySuffix_SeesOverlappingHostileCount</c>
 /// and <c>EscapedNamedEnum_OverBudgetAssemblySuffix_SeesOverlappingHostileCount</c>
 /// gate that resolution.

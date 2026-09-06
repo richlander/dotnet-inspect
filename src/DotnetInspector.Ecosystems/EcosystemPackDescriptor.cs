@@ -17,7 +17,8 @@ public sealed class EcosystemPackDescriptor
         IEnumerable<EcosystemDemoDescriptor> demos,
         bool hasScanner,
         ImmutableArray<string> namespaceRoots,
-        ImmutableArray<PackageCoordinate> corePackages)
+        ImmutableArray<PackageCoordinate> corePackages,
+        ImmutableArray<PackageCoordinate> toolPackages)
     {
         Id = id;
         Title = title;
@@ -28,6 +29,7 @@ public sealed class EcosystemPackDescriptor
         HasScanner = hasScanner;
         NamespaceRoots = namespaceRoots;
         CorePackages = corePackages;
+        ToolPackages = toolPackages;
     }
 
     public EcosystemPackId Id { get; }
@@ -49,6 +51,9 @@ public sealed class EcosystemPackDescriptor
 
     /// <summary>Unversioned starting points in pack-local preference order, independent of curated membership.</summary>
     public ImmutableArray<PackageCoordinate> CorePackages { get; }
+
+    /// <summary>Explicit unversioned .NET tool references in authored order, not installation requests.</summary>
+    public ImmutableArray<PackageCoordinate> ToolPackages { get; }
 }
 
 /// <summary>Immutable product metadata for one ecosystem demo.</summary>

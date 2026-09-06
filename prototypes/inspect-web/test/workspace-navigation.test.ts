@@ -153,7 +153,9 @@ function workspaceView(
     bodyTarget: graphTarget,
     memberSection: "overview",
     atPackageRoot: false,
+    atLibraryRoot: false,
     packageLens: "overview",
+    libraryLens: "overview",
     libraryScope: null,
     ...overrides,
   };
@@ -409,6 +411,32 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
   assert.equal(parsed.tabs.length, 2);
   assert.equal(parsed.package, "Example.Second");
   assert.equal(parsed.workspaceNotice, "");
+});
+
+test("canonical Library views restore one exact library and its lens", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "library:metadata",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: ["Example.Second"],
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Example.Second&w=canonical"),
+    () => decoded(state));
+
+  assert.equal(parsed.atPackageRoot, false);
+  assert.equal(parsed.atLibraryRoot, true);
+  assert.equal(parsed.libraryLens, "metadata");
+  assert.equal(parsed.library, "Example.Second");
+  assert.equal(parsed.type, null);
 });
 
 test("canonical context capture does not broaden a selected subset for Call Graph", () => {
@@ -1069,6 +1097,24 @@ test("history signatures distinguish Workspace from Package", () => {
     }));
 });
 
+test("history signatures distinguish Package, Library, and Type roots", () => {
+  const typeView = workspaceView();
+  const libraryView = workspaceView({
+    atLibraryRoot: true,
+    libraryLens: "references",
+  });
+  const packageView = workspaceView({
+    atPackageRoot: true,
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(typeView),
+    workspaceViewSignature(libraryView));
+  assert.notEqual(
+    workspaceViewSignature(libraryView),
+    workspaceViewSignature(packageView));
+});
+
 test("unknown workspace view and member-section tokens are ignored", () => {
   const unknownLens = parseWorkspaceLocation(locationSnapshot(
     "https://inspect.example/?package=Example.Package"
@@ -1083,6 +1129,12 @@ test("unknown workspace view and member-section tokens are ignored", () => {
   () => rejected("unused"));
   assert.equal(unknownPackageLens.atPackageRoot, true);
   assert.equal(unknownPackageLens.packageLens, "overview");
+
+  const unknownLibraryLens = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package#library:files"),
+  () => rejected("unused"));
+  assert.equal(unknownLibraryLens.atLibraryRoot, true);
+  assert.equal(unknownLibraryLens.libraryLens, "overview");
 });
 
 test("product decoder failures preserve visible location authority", () => {

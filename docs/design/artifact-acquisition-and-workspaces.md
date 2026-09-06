@@ -2827,12 +2827,30 @@ The initial implementation verifies the Package correspondence arm through:
   and
 - `PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance`.
 
+The Package producer now issues generation references from the
+ArtifactSetSession-backed realization established by #5607. It exposes
+`GetCurrentArtifactRootCompositionGenerationAsync` and
+`GetCurrentRootScopeProjectionAsync` on `InspectionWorkspace`. The internal
+`EnterArtifactRootQueryAsync` gate checks generation before binding policy,
+issues an existing artifact query lease, and protects the exact role lifetime
+until the admitted operation releases it. Omitted Roots stop admitting new
+operations immediately; existing group work and content streams drain before
+session release.
+
+Package runtime evidence is in `ArtifactRootPublicationTests`:
+
+| Gate | Package evidence |
+| --- | --- |
+| `PackageArtifactRootProjection_RefreshReturnsCurrentPointInTimeStatus` | Ready, owner-internal retirement to Pending, failed settlement, and corresponding successful replacement advance composition identity without making a historical projection live. |
+| `PackageArtifactRootGenerationReference_StaleForeignAndUnknownPrecedePolicyChecks` | Stale, foreign, and unknown references fail before policy validation or entry. |
+| `PackageArtifactRootPublication_RetirementStopsNewEntryAndDrainsLeases` | A corresponding replacement preserves correspondence, changes generation, refuses old entry, and drains admitted work. |
+| `PackageArtifactRootPreparation_TerminalReceiptAndProjectionRetainNoPackageResources` | Retained terminal receipts and historical projections do not keep in-memory package content, bindings, realizations, or groups alive after release. |
+
 The generic target gates remain **unverified** until the non-package adapter
-exists. Generation-reference, current-status, stale-access, and byte-drain
-targets also remain **unverified**. #5727 must issue physical-generation
-identity from the ArtifactSetSession-backed realization established by #5607,
-publish it through the owner gate, and validate it at physical access; the
-older direct-group completion does not define Workspace current composition.
+exists. Actual Browser/Wasm deployment and browser byte-drain gates remain
+**unverified**; managed in-memory package evidence is not a browser-host gate.
+The older direct-group completion does not define Workspace current
+composition.
 
 This focused addition does not define logical Workspace membership, Root
 occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
@@ -3112,8 +3130,74 @@ The target Release gates are:
 | `BrowserArtifactRootPreparation_ReleaseDoesNotRetainPackageBytes` | Abandoned Browser preparation bytes become collectible after receipt release and lower-level lease drainage. |
 | `BrowserArtifactRootPublication_GateDoesNotBlockOrYieldDuringCommit` | Single-threaded Browser/Wasm waits asynchronously and the final old-to-new commit region performs no yield or blocking wait. |
 
-Every target is **unverified** until its named Release gate exists. Before
-implementation, a focused model under
+The Package-only producer is implemented in
+`InspectionWorkspace.ArtifactRoots.cs` and
+`InspectionWorkspace.ArtifactRootPublication.cs`. Its internal handoff for
+issue #5821 is `PreparePackageArtifactRootsAsync`,
+`ReleaseArtifactRootPreparationAsync`, and
+`PublishArtifactRootCompositionAsync`, using opaque receipts and the sealed
+`ArtifactRootScopePublicationParticipant`. `ReadArtifactRootCompositionAsync`
+gives Scope an exclusion lease over the same asynchronous gate for its own
+snapshot reads and Scope-only transitions. It is not a separate Scope
+publication API. Scope must release that lease before requesting Artifact
+publication.
+
+Construction is extracted from the existing artifact-backed package role
+realizer, not reconstructed by a host. Provisional groups are private to Root
+ownership rather than registered for legacy Workspace-close-only retention.
+Before construction, Root admission atomically reserves the complete batch's
+Root count and one finite image-byte envelope against in-flight, prepared,
+current, and draining Roots. That envelope is capped by available Workspace
+capacity and the sum of caller per-Root ceilings, without multiplying past the
+available capacity. Construction is sequential: each Root receives at most
+its caller ceiling and the envelope remainder after earlier Roots' fully
+materialized artifact and role-image bytes. A required Root that cannot fit
+rejects and releases the whole batch; it is never omitted.
+
+Complete preparation returns unused envelope capacity and retains each Root's
+actual materialized-byte charge. Publication transfers that charge unchanged;
+release or retirement returns it only after quiescence. Explicit caller
+per-Root, per-entry, and participant limits remain ceilings, not minimum
+reservations. Thus omitted options admit a small multi-package batch and a
+small replacement while the prior Root remains current, without raising a
+default. These are the Package Root producer's bounds, not implementation
+evidence for the broader
+multi-source acquisition/expansion reservation or legacy group-admission
+targets elsewhere in this document. Root-only and explicit empty compile
+groups remain entries; unmatched targets and failed required participants
+reject the batch rather than shortening it.
+
+The Scope-owned candidate/result/token types are an internal integration seam.
+There is no public callback or plugin participant, no Scope membership or
+revision implementation, and no complete-restoration participant in this
+slice. Tests supply an internal Scope candidate double but obtain every
+physical preparation receipt through product construction. Actual Scope
+snapshot/Replace/Clear adoption remains #5821, followed by the Browser and CLI
+consumers under #5697 and #5513.
+
+The focused Release suite is `ArtifactRootPublicationTests` in
+`DotnetInspector.Queries.Tests`. Its `PackageArtifactRootPreparation_*` and
+`PackageArtifactRootPublication_*` gates cover complete preparation,
+exact authority and distinct batch identity, shape-before-consumption,
+independent-batch publication, duplicate correspondence, stale physical and
+Scope bases, participant refusal and replay, empty and retain-only plans,
+receipt-state precedence, final cancellation/deadline checks, abandoned and
+gate-waiting expiry, old-or-new observation, runtime close, and query/group
+drainage. The corresponding generic and actual Browser/Wasm target gates
+remain **unverified**; this Package coverage does not claim their completion.
+
+`PackageArtifactRootPreparation_DefaultOptionsAdmitTwoSmallPackages` and
+`PackageArtifactRootPreparation_DefaultOptionsPrepareReplacementWhileOldRootRemainsCurrent`
+gate the omitted-options scenarios. The `ChargesActualBytesAcrossPreparedCurrentAndDrainingRoots`,
+`InsufficientBatchEnvelopeReleasesEveryRootAndReservation`,
+`BatchEnvelopePreservesExplicitCallerLimits`, and
+`ReentrantAdmissionCannotSpendReservedEnvelope` gates in the same suite cover
+capacity reuse and refusal boundaries. The terminal-receipt GC gate captures
+the product retirement settlement before publication and awaits it after
+Clear, including an admitted query that deliberately delays drainage; GC
+retries are not used to wait for physical cleanup.
+
+The prerequisite focused model under
 `docs/design/models/artifact-root-publication/` must check receipt states,
 plan/receipt authority association, validation and cancellation precedence,
 participant refusal, old-or-new visibility, and eventual settlement under a

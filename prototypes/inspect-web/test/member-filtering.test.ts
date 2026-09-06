@@ -217,6 +217,7 @@ test("member scope follows the resolved type identity", () => {
   assert.equal(memberScopeIsActive(state, "Type0"), true);
   assert.equal(memberScopeIsActive(state, "Type1"), false);
   assert.equal(memberScopeIsActive({ ...state, atPackageRoot: true }, "Type0"), false);
+  assert.equal(memberScopeIsActive({ ...state, atLibraryRoot: true }, "Type0"), false);
   assert.equal(memberScopeIsActive({ ...state, lens: "metadata" }, "Type0"), false);
 });
 
@@ -315,5 +316,7 @@ test("library scope round-trips only within the restored package", () => {
   assert.equal(
     restoreLibraryScope(["System.Private.CoreLib"], ["Newtonsoft.Json"]),
     null);
-  assert.equal(restoreLibraryScope(["Newtonsoft.Json"], ["Newtonsoft.Json"]), null);
+  assert.deepEqual(
+    restoreLibraryScope(["Newtonsoft.Json"], ["Newtonsoft.Json"]),
+    new Set(["Newtonsoft.Json"]));
 });

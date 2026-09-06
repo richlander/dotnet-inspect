@@ -81,7 +81,9 @@ export function decideContentFrameResize(
   };
 }
 
-export function renderContentNavigationBar(label: "Types" | "Members") {
+export function renderContentNavigationBar(
+  label: "Libraries" | "Types" | "Members",
+) {
   return `
     <div class="content-navigation-bar">
       <button id="content-navigation-toggle" class="content-navigation-toggle"
@@ -129,9 +131,9 @@ export function bindContentFrameMedia(
 }
 
 export function focusContentNavigation(root: ParentNode) {
-  const list = root.querySelector<HTMLElement>("#type-list");
+  const list = root.querySelector<HTMLElement>("[data-nav-scope]");
   list?.focus({ preventScroll: true });
-  root.querySelector<HTMLElement>("#type-list .selected")
+  root.querySelector<HTMLElement>("[data-nav-scope] .selected")
     ?.scrollIntoView({ block: "nearest" });
 }
 

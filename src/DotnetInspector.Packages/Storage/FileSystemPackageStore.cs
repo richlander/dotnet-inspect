@@ -66,12 +66,28 @@ public sealed class FileSystemPackageStore : IPackageStore
     }
 
     /// <inheritdoc />
-    public async ValueTask<IPackageContent> CommitAsync(
+    public ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
         string sourceKey,
         Stream nupkg,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        CommitAsync(
+            packageName,
+            version,
+            nupkg,
+            () => Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName,
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackage(
+                extractedPath, nupkgPath, packageName, version, sourceKey),
+            cancellationToken);
+
+    internal static async ValueTask<IPackageContent> CommitAsync(
+        string packageName,
+        string version,
+        Stream nupkg,
+        Func<string> createTemporaryDirectory,
+        Func<string, string, CommittedPackage> commit,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(nupkg);
 
@@ -81,7 +97,7 @@ public sealed class FileSystemPackageStore : IPackageStore
         NuGetCache.ValidatePathComponent(packageName, "package name");
         NuGetCache.ValidatePathComponent(version, "version");
 
-        string tempDir = Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName;
+        string tempDir = createTemporaryDirectory();
         try
         {
             // Fixed temp file name; the committed nupkg name is derived by
@@ -95,12 +111,7 @@ public sealed class FileSystemPackageStore : IPackageStore
             string extractPath = Path.Combine(tempDir, "extracted");
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
 
-            CommittedPackage committed = NuGetCache.CommitPackage(
-                extractPath,
-                nupkgPath,
-                packageName,
-                version,
-                sourceKey);
+            CommittedPackage committed = commit(extractPath, nupkgPath);
 
             return new FileSystemPackageContent(
                 committed.ExtractPath,
@@ -128,7 +139,7 @@ public sealed class FileSystemPackageStore : IPackageStore
         }
     }
 
-    private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
+    internal static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
     {
         // Standard NuGet cache layout: {package}/{version}/{package}.{version}.nupkg
         // Only the expected retained archive name is admissible. Scanning for

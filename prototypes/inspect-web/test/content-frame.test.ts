@@ -59,8 +59,8 @@ test("content frame binding and focus target the visible pane", () => {
     querySelector(selector: string) {
       if (selector === "#content-navigation-toggle") return toggle;
       if (selector === "#content-navigation-close") return close;
-      if (selector === "#type-list") return list;
-      if (selector === "#type-list .selected") return selected;
+      if (selector === "[data-nav-scope]") return list;
+      if (selector === "[data-nav-scope] .selected") return selected;
       return null;
     },
   };
@@ -88,7 +88,7 @@ test("content navigation focuses an empty inventory", () => {
   const list = new FakeElement();
   const root = {
     querySelector(selector: string) {
-      if (selector === "#type-list") return list;
+      if (selector === "[data-nav-scope]") return list;
       return null;
     },
   };

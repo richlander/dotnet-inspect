@@ -133,8 +133,8 @@ This is the API-surface slice in
 [#5853](https://github.com/richlander/dotnet-inspect/issues/5853), not complete
 descriptor adoption for every `type` operation. Existing source/PDB policy
 consumers keep receiving the selected type's descriptor; the next subsection
-owns source-context opening, and the following subsection owns type Analysis
-index acquisition. Runtime acquisition, remaining deep-body/decompiler
+owns source-context opening; later subsections own type Analysis-index
+acquisition and exception-region context opening. Runtime acquisition, remaining deep-body/decompiler
 acquisition, and acquired-PDB propagation remain focused successors under
 [#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
 
@@ -206,8 +206,38 @@ consumer, not a new CLI dependency. Browser adoption remains under #4867.
 
 Descriptorless and standalone-member callers retain their path route. This
 does not select a runtime implementation or establish cross-image
-correspondence. Exception Regions, Body Shapes, whole-type decompiler
-acquisition, and acquired-PDB propagation remain separate successors.
+correspondence. The next subsection owns Exception Regions context opening;
+Body Shapes, whole-type decompiler acquisition, and acquired-PDB propagation
+remain separate successors.
+
+### Type exception-region context opening
+
+When type Exception Regions receives a selected API supplier descriptor, that
+descriptor opens the Metadata context, including for forwarded suppliers.
+Normal/projected output and effective discovery preserve the supplier through
+filtering. Its path projection is not an alternative opener: opening failures
+reach the command error boundary, not a path retry or successful empty output.
+
+`TypeExceptionRegionsAcquisition_UsesSelectedSupplier` and
+`TypeExceptionRegionsAcquisition_ReportsSelectedOpenFailure` gate this
+composition. Existing Exception Regions section cases cover catch/finally rows,
+genuine empty regions, and standalone member output;
+`TypeAnalysisAcquisition_SkipsOrdinaryApiOutput` also gates ordinary type output
+without selected-context acquisition.
+
+This is [#5999](https://github.com/richlander/dotnet-inspect/issues/5999)'s
+three-step production adoption under #4867: TypeCommand retains the supplier;
+the shared CLI exception-region helper consumes Metadata's existing
+descriptor opener; typed rows and Markout rendering, or command error
+reporting, publish the result. Type source-context opening is the analogous
+consumer. No new shared acquisition or rendering API is needed.
+
+Metadata still owns context validation, local symbol probing and region
+decoding. Their behavior and the section authorization policy are unchanged;
+this does not add network acquisition or a new per-method decode diagnostic
+policy. Descriptorless and standalone-member callers keep their existing path
+routes. API/runtime correspondence, runtime-image selection, Body Shapes,
+whole-type decompilation and other hosts remain separate adoption work.
 
 ## Command families
 

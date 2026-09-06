@@ -540,7 +540,8 @@ public sealed partial class InspectionWorkspace
         PackageRoleRealizationPreparation preparation,
         ImmutableArray<RoleAssembly> surfaceRole,
         ImmutableArray<RoleAssembly> implementationRole,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool provisional = false)
     {
         ImmutableArray<PackageAssemblyRoleCorrespondence> correspondences =
             Correspondences(surfaceRole, implementationRole);
@@ -550,7 +551,8 @@ public sealed partial class InspectionWorkspace
             MaxRetainedImageBytes = preparation.GroupBudget,
         };
 
-        PackageAssemblyContextRoles roles = CreatePackageAssemblyContextRoles(
+        var roles = new PackageAssemblyContextRoles(
+            this,
             surfaceRole.Select(entry => entry.Assembly),
             implementationRole.IsEmpty
                 ? null
@@ -558,7 +560,14 @@ public sealed partial class InspectionWorkspace
             correspondences,
             shareImplementationGroup: preparation.Shared,
             surfaceOptions: roleOptions,
-            implementationOptions: roleOptions);
+            implementationOptions: roleOptions,
+            createRole: provisional
+                ? static (_, participants, options) => new AssemblyContextGroup(
+                    participants,
+                    options,
+                    static _ => { },
+                    captureReleaseFailuresByDefault: true)
+                : null);
         try
         {
             return new PackageAssemblyContextRealization(

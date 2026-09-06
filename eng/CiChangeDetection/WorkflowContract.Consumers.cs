@@ -169,6 +169,7 @@ internal static partial class WorkflowContract
         {
             "test/Restore vendored ILAssembler",
             "test/Run IL round-trip tests (fast)",
+            "test/Run decompiler unit tests (fast)",
         };
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)

@@ -121,9 +121,12 @@ internal static class ApiAnalysisInspection
 
     internal static IReadOnlyList<MemberExceptionRegion> ResolveExceptionRegions(
         string assemblyPath,
-        IEnumerable<ApiMember> members)
+        IEnumerable<ApiMember> members,
+        ResolvedAssemblyReference? sourceAssembly = null)
     {
-        using var context = PdbContext.Open(assemblyPath);
+        using var context = sourceAssembly is null
+            ? PdbContext.Open(assemblyPath)
+            : PdbContext.Open(sourceAssembly);
         return members
             .Where(member => member.MetadataToken is not null)
             .SelectMany(member => context.ResolveExceptionRegions(member.MetadataToken!.Value, out _)

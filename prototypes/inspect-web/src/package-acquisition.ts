@@ -142,6 +142,18 @@ export interface AppPackage {
 
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
 
+export function resolvePackageLibrary(
+  assemblies: readonly InspectedAssemblySurface[],
+  key: string,
+): InspectedAssemblySurface | null {
+  const exact = assemblies.find(assembly => assembly.id === key);
+  if (exact) return exact;
+  const name = key.replace(/\.dll$/i, "").toLowerCase();
+  const matches = assemblies.filter(assembly =>
+    assembly.name.replace(/\.dll$/i, "").toLowerCase() === name);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 export function runtimeAssemblyIsResident(
   packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
   assemblyName: string,

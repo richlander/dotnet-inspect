@@ -159,10 +159,9 @@ tablists:
 
 The subject tablist renders the ordered root, Library, Type, and Member subject
 descriptors supplied by Inspection Subject Navigation. The prototype
-establishes `Package`, `Type`, and `Member` now; Library joins when its product
-descriptor and behavior are ready. While Workspace is selected, Package is the
-roving-tab entry without being selected. The current subject is selected
-programmatically and is not conveyed by color alone.
+establishes `Package`, `Library`, `Type`, and `Member`. While Workspace is
+selected, Package is the roving-tab entry without being selected. The current
+subject is selected programmatically and is not conveyed by color alone.
 
 The inspector tablist follows the subjects and contains the active subject's
 owner-ordered lenses or, for Member, its applicable sections. Subject changes

@@ -1656,6 +1656,120 @@ public class SourceForwarderResolutionTests
     [InlineData(true, false, false)]
     [InlineData(true, true, false)]
     [InlineData(false, false, true)]
+    public async Task TypeExceptionRegionsAcquisition_UsesSelectedSupplier(
+        bool isForwarded, bool discover, bool project)
+    {
+        int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(MemberExceptionRegionsFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-exception-regions"),
+            isForwarded,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(MemberExceptionRegionsFixture));
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                RuntimeAssemblyPath = typeof(object).Assembly.Location,
+                Context = new CommandContext(verbose: false, client),
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter = [nameof(MemberExceptionRegionsFixture.TryCatch)],
+                        Select = [SectionNames.ExceptionRegions],
+                        Discover = discover ? [SectionNames.ExceptionRegions] : null,
+                        Columns = project ? ["Clause"] : null,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains(discover ? "Clause" : "catch", output);
+            Assert.Equal(1, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task TypeExceptionRegionsAcquisition_ReportsSelectedOpenFailure(
+        bool discover, bool invalidImage)
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-exception-regions"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                return invalidImage
+                    ? new MemoryStream([1, 2, 3], writable: false)
+                    : throw new IOException("Selected exception-region image could not be opened.");
+            },
+            typeof(MemberExceptionRegionsFixture));
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                Context = new CommandContext(verbose: false, client),
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        Select = [SectionNames.ExceptionRegions],
+                        Discover = discover ? [SectionNames.ExceptionRegions] : null,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Error:", error);
+            if (!invalidImage)
+                Assert.Contains("Selected exception-region image could not be opened.", error);
+            Assert.DoesNotContain("No exception regions", output);
+            Assert.Equal(1, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
     public async Task TypeAnalysisAcquisition_UsesSelectedSupplier(
         bool isForwarded, bool discover, bool project)
     {

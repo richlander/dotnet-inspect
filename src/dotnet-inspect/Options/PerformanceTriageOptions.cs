@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using DotnetInspector.Sections;
 using ILInspector.CSharp;
 
 namespace DotnetInspector.Options;
@@ -118,6 +120,32 @@ public sealed record PerformanceTriageOptions
         "sync-call-in-async",
         "temporary-byte-array-copy",
     ];
+
+    public static ImmutableArray<SectionQueryFacet> QueryFacets { get; } =
+        [.. FilterableFields.Concat(SortableFields).Distinct(StringComparer.Ordinal)
+            .Select(CreateQueryFacet)];
+
+    private static SectionQueryFacet CreateQueryFacet(string field)
+    {
+        bool filterable = FilterableFields.Contains(field);
+        bool sortable = SortableFields.Contains(field);
+        bool ranked = IsRankedField(field);
+        string value = IsNumericField(field) ? "10" : ranked ? "high" : "*";
+        return new(
+            field,
+            [.. filterable ? new[] { "--where" } : [],
+                .. sortable ? new[] { "--order-by", "--top" } : []],
+            filterable
+                ? SupportsOrderedComparison(field) ? ["=", "!=", ">=", "<="] : ["=", "!="]
+                : [],
+            filterable
+                ? IsNumericField(field) ? "integer" : ranked ? "rank" : "text/glob"
+                : "order",
+            ranked ? ["low", "medium", "high"] : [],
+            filterable
+                ? $"--where \"{field}{(SupportsOrderedComparison(field) ? ">=" : "=")}{value}\""
+                : $"--top 10 --order-by \"{field} desc\"");
+    }
 
     public bool LoopOnly { get; init; }
     public string? MinConfidence { get; init; }
@@ -291,8 +319,7 @@ public sealed record PerformanceTriageOptions
             };
             var value = syntax.Value;
             if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
-                && !IsNumericField(field)
-                && field is not ("Priority" or "Confidence" or "Weight"))
+                && !SupportsOrderedComparison(field))
             {
                 error = $"Field '{Contain(field)}' supports only = and != predicates.";
                 return false;
@@ -303,7 +330,7 @@ public sealed record PerformanceTriageOptions
                 error = $"Field '{Contain(field)}' expects an integer value in --where predicate '{Contain(expression)}'.";
                 return false;
             }
-            if (field is "Priority" or "Confidence" or "Weight" && !IsKnownConfidence(value))
+            if (IsRankedField(field) && !IsKnownConfidence(value))
             {
                 error = $"Field '{Contain(field)}' expects one of low, medium, high in --where predicate '{Contain(expression)}'.";
                 return false;
@@ -321,6 +348,12 @@ public sealed record PerformanceTriageOptions
         => value.Equals("low", StringComparison.OrdinalIgnoreCase)
            || value.Equals("medium", StringComparison.OrdinalIgnoreCase)
            || value.Equals("high", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRankedField(string field)
+        => field is "Priority" or "Confidence" or "Weight";
+
+    private static bool SupportsOrderedComparison(string field)
+        => IsNumericField(field) || IsRankedField(field);
 
     internal static bool IsNumericField(string field)
         => field is "RootReach"

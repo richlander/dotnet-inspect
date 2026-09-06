@@ -444,6 +444,7 @@ public static class CommandLineBuilder
             return 0;
         });
 
+        QueryDiscoveryCommand.Register(rootCommand, opts);
         return rootCommand;
     }
 

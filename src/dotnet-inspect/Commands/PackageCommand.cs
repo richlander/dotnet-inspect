@@ -830,14 +830,21 @@ public class PackageCommand
 
         try
         {
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                client,
-                target.IsLocalFile ? target.OriginalArgument : packageName,
-                logger.Log,
-                sourceOptions: options.SourceOptions,
-                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
-                forceLatest: options.ForceLatest,
-                includePrerelease: options.IncludePrerelease);
+            PackageExtractionOutcome outcome = !target.IsLocalFile
+                && !Core.HttpClientFactory.IsOffline
+                && PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
+                ? await PackageExtractor.ExtractPinnedPackageAsync(
+                    client, packageName, pinnedVersion, logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    createComposition: context.CreatePackageSourceComposition)
+                : await PackageExtractor.ExtractPackageAsync(
+                    client,
+                    target.IsLocalFile ? target.OriginalArgument : packageName,
+                    logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                    forceLatest: options.ForceLatest,
+                    includePrerelease: options.IncludePrerelease);
 
             if (!outcome.IsSuccess)
             {
@@ -898,6 +905,7 @@ public class PackageCommand
 
             if (options.AllLibraries)
             {
+                // Authority-backed input must not be reacquired through a legacy producer key.
                 return await ExecutePackageAllLibrariesAsync(
                     client,
                     extractPath,
@@ -905,7 +913,7 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
-                    resolution.ProducerKey,
+                    resolution.Authority is null ? resolution.ProducerKey : null,
                     target.IsLocalFile
                         ? PackageIntegrationAcquisition.Local(
                             nuspec?.PackageName,
@@ -1214,18 +1222,7 @@ public class PackageCommand
         }
         finally
         {
-            // Only clean up temp directory if we created one (not using cache)
-            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
-            {
-                try
-                {
-                    Directory.Delete(resolution.TempDir, recursive: true);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-            }
+            PackageExtractor.Cleanup(resolution?.TempDir);
         }
     }
 

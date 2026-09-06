@@ -29,6 +29,11 @@ internal static class BrowserPackageSurfaceProjection
         BrowserPackageCoordinate coordinate) =>
         Project(scope, coordinate).Surface;
 
+    internal static BrowserSurfaceProjection.Surface ProjectParticipantSurface(
+        BrowserInspectionScope scope,
+        BrowserWorkspaceParticipant participant) =>
+        ProjectSurfaces(scope, [participant]).Surface;
+
     internal static BrowserPackageProjectionInfo Project(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate)
@@ -72,27 +77,9 @@ internal static class BrowserPackageSurfaceProjection
                     coordinate.Root.Identity)),
         ];
 
-        // The site's default path shows public types by default and reaches non-public ones
-        // through the accessibility filter, so it asks for the composed scope: a public type
-        // keeps its public member list even though non-public types are present. The projection
-        // runs under the browser's explicit bounds; an early stop is reported, never silent.
-        AssemblyContextApiSurfaceResult surfaces = scope.UseSurface(group =>
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                group,
-                ApiSurfaceScope.PublicWithNonPublicTypes,
-                BrowserApiSurfacePolicy.Limits,
-                [.. requested.Select(participant => participant.Participant)]));
-        BrowserSurfaceProjection.Surface projected =
-            BrowserSurfaceProjection.Project(
-                surfaces,
-                [
-                    .. requested.Select(participant =>
-                        new BrowserSurfaceProjection.Participant(
-                            participant.Participant,
-                            participant.Asset.AssemblyName,
-                            participant.Asset.Id,
-                            participant.Asset.Path)),
-                ]);
+        (AssemblyContextApiSurfaceResult surfaces,
+            BrowserSurfaceProjection.Surface projected) =
+            ProjectSurfaces(scope, requested);
         if (projected.Assemblies.Length == 0
             && !projected.IsTruncated)
         {
@@ -128,5 +115,31 @@ internal static class BrowserPackageSurfaceProjection
                 projected.InspectionErrors,
                 projected.InspectionError),
             surfaces);
+    }
+
+    static (AssemblyContextApiSurfaceResult ApiSurfaces,
+        BrowserSurfaceProjection.Surface Surface) ProjectSurfaces(
+            BrowserInspectionScope scope,
+            IReadOnlyList<BrowserWorkspaceParticipant> requested)
+    {
+        // Public types retain their public member lists while non-public types remain
+        // reachable through the accessibility filter. Only requested participants share
+        // this operation's extraction and transport budgets.
+        AssemblyContextApiSurfaceResult surfaces = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits,
+                [.. requested.Select(participant => participant.Participant)]));
+        return (surfaces, BrowserSurfaceProjection.Project(
+            surfaces,
+            [
+                .. requested.Select(participant =>
+                    new BrowserSurfaceProjection.Participant(
+                        participant.Participant,
+                        participant.Asset.AssemblyName,
+                        participant.Asset.Id,
+                        participant.Asset.Path)),
+            ]));
     }
 }

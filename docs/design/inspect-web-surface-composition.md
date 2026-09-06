@@ -409,13 +409,30 @@ than moving an unrelated graph into it. Empty, query-failed, render-failed,
 partial-workspace, and truncated results remain visible; graph controls do not
 cover truncation diagnostics.
 
+Type Metadata uses the same viewer when its current projection contains a
+relationship graph. Only that graph and its relationship warnings move; type
+shape, member composition, related-type lists, attributes, and the coordinate
+footer stay inline. Pending diagram rendering can complete in either placement.
+Browsable nodes use the shared keyboard activation and drag suppression;
+unavailable types remain non-interactive with an accessible explanation. Type
+activation closes Explore before the existing typed navigation path runs. It
+does not acquire another assembly or reinterpret a display label as identity.
+Leaving the selected type, package, framework, assembly, or Metadata inspector
+closes Explore. Same-owner projection loading and failure remain visible in an
+already-open viewer. A replacement without a relationship graph returns to inline
+Metadata and focuses its heading rather than leaving an empty explorer.
+
 The browser-only presentation scope was explicitly approved for
 [the two-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/5867).
 Step 1 is [Member Call graph](https://github.com/richlander/dotnet-inspect/issues/5868);
 step 2 is [Package Dependencies](https://github.com/richlander/dotnet-inspect/issues/5904)
-using the same placement component. Inline presentation is not retired.
+using the same placement component. The separately approved
+[Type Metadata adoption](https://github.com/richlander/dotnet-inspect/issues/5943)
+is a one-step end-to-end tracker: connect that production browser consumer to the
+existing viewer. Inline presentation is not retired.
 Existing typed `BrowserCallGraph`/`InspectedCallGraph` and
-`DependencyGraphModel`/`DependencyGraphResult` results, target bindings, and
+`DependencyGraphModel`/`DependencyGraphResult` results, Type Metadata's
+`TypeGraphMeta`, target bindings, and
 Mermaid lowering continue to supply graph data and node identity. This host-only
 placement change bypasses Markout for the interactive browser canvas, adds no
 graph-analysis substrate, and does not change CLI output, query scope, traversal,
@@ -428,6 +445,10 @@ the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
 and package navigation/failure. Live platform drill/back evidence is reported
 separately from component coverage when acquisition is unavailable.
+Type coverage exercises the production Metadata renderer, relationship-warning
+placement, available/unavailable nodes, pending completion, projection replacement,
+and type navigation; published Wasm evidence covers the real action row and typed
+destination.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become

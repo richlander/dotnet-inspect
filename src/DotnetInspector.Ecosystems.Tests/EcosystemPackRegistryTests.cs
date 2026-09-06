@@ -106,7 +106,7 @@ public sealed class EcosystemPackRegistryTests
         Assert.Equal(0, s_firstInvocations);
     }
 
-    public static TheoryData<PackageCoordinate[]> InvalidCorePackages => new()
+    public static TheoryData<PackageCoordinate[]> InvalidPackageReferences => new()
     {
         { [null!] },
         { [new(null!)] },
@@ -122,7 +122,7 @@ public sealed class EcosystemPackRegistryTests
     };
 
     [Theory]
-    [MemberData(nameof(InvalidCorePackages))]
+    [MemberData(nameof(InvalidPackageReferences))]
     public void InvalidCorePackagesFailBeforePublication(PackageCoordinate[] corePackages)
     {
         s_firstInvocations = 0;
@@ -138,11 +138,77 @@ public sealed class EcosystemPackRegistryTests
     }
 
     [Fact]
+    public void ToolReferencesRemainIndependentAndInert()
+    {
+        s_firstInvocations = 0;
+        s_secondInvocations = 0;
+        s_firstScannerInvocations = 0;
+        PackageCoordinate[] tools = [new("Example.Tool.Zeta"), new("Example.Tool.Alpha")];
+        var scanner = EcosystemIntegrationScannerBinding.Create(ScanFirst);
+        EcosystemPackRegistry registry = Registry(
+            Pack("ecosystem.first", 100, "package-set.not-registered", Demo("first", 100, CreateFirstRecords))
+            with
+            {
+                NamespaceRoots = ["Unrelated"],
+                CorePackages = [new("Example.Tool.Alpha")],
+                ToolPackages = tools,
+                Scanner = scanner,
+            },
+            Pack("ecosystem.second", 200, null, Demo("second", 200, CreateSecondRecords))
+            with { ToolPackages = [new("example.tool.alpha")] });
+        tools[0] = new("Changed");
+
+        EcosystemPackDescriptor first = registry.Packs[0];
+        EcosystemPackDescriptor second = registry.Packs[1];
+        Assert.Equal(["Example.Tool.Zeta", "Example.Tool.Alpha"],
+            first.ToolPackages.Select(package => package.PackageId));
+        Assert.Equal("Example.Tool.Alpha", Assert.Single(first.CorePackages).PackageId);
+        Assert.Equal(["Unrelated"], first.NamespaceRoots);
+        Assert.Equal("package-set.not-registered", first.PackageSet!.Value);
+        Assert.Equal("ecosystem.second", second.Id.Value);
+        Assert.Equal("example.tool.alpha", Assert.Single(second.ToolPackages).PackageId);
+        Assert.Empty(second.CorePackages);
+        Assert.Empty(second.NamespaceRoots);
+        Assert.All(registry.Packs, pack => Assert.Same(
+            pack,
+            Assert.IsType<EcosystemPackLookupResult.Known>(registry.Lookup(pack.Id)).Descriptor));
+        Assert.Equal(0, s_firstInvocations);
+        Assert.Equal(0, s_secondInvocations);
+        Assert.Equal(0, s_firstScannerInvocations);
+
+        _ = registry.SelectDemo("first");
+        Assert.Same(scanner, Assert.IsType<EcosystemScannerSelectionResult.Known>(
+            registry.SelectScanner(first.Id)).Binding);
+        Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
+            registry.SelectScanner(second.Id));
+        Assert.Equal(1, s_firstInvocations);
+        Assert.Equal(0, s_secondInvocations);
+        Assert.Equal(0, s_firstScannerInvocations);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidPackageReferences))]
+    public void InvalidToolPackagesFailBeforePublication(PackageCoordinate[] toolPackages)
+    {
+        s_firstInvocations = 0;
+        ArgumentException error = Assert.Throws<ArgumentException>(() => Registry(
+            Pack("ecosystem.first", 100, null, Demo("first", 100, CreateFirstRecords)),
+            Pack("ecosystem.second", 200, "package-set.second")
+            with { ToolPackages = toolPackages }));
+
+        Assert.Contains("ecosystem.second", error.Message);
+        Assert.Contains("tool", error.Message);
+        Assert.Equal("registrations", error.ParamName);
+        Assert.Equal(0, s_firstInvocations);
+    }
+
+    [Fact]
     public void MissingKnowledgeSequencesFailBeforePublication()
     {
         EcosystemPackRegistration pack = Pack("ecosystem.first", 100, "package-set.first");
         Assert.Throws<ArgumentException>(() => Registry(pack with { NamespaceRoots = null! }));
         Assert.Throws<ArgumentException>(() => Registry(pack with { CorePackages = null! }));
+        Assert.Throws<ArgumentException>(() => Registry(pack with { ToolPackages = null! }));
     }
 
     [Fact]
@@ -154,6 +220,7 @@ public sealed class EcosystemPackRegistryTests
 
         Assert.Empty(descriptor.NamespaceRoots);
         Assert.Empty(descriptor.CorePackages);
+        Assert.Empty(descriptor.ToolPackages);
         Assert.False(descriptor.HasScanner);
         Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
             registry.SelectScanner(descriptor.Id));
@@ -163,6 +230,9 @@ public sealed class EcosystemPackRegistryTests
         Assert.Throws<ArgumentException>(() => Registry(
             Pack("ecosystem.core-only", 100, null)
             with { CorePackages = [new("Example.Core")] }));
+        Assert.Throws<ArgumentException>(() => Registry(
+            Pack("ecosystem.tools-only", 100, null)
+            with { ToolPackages = [new("Example.Tool")] }));
     }
 
     [Fact]

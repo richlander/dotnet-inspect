@@ -1,3 +1,4 @@
+using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
 
@@ -10,6 +11,14 @@ public sealed record BodyKindQueryOptions
 {
     /// <summary>No body-kind predicate.</summary>
     public static BodyKindQueryOptions Default { get; } = new();
+
+    public static SectionQueryFacet QueryFacet { get; } = new(
+        "Kind",
+        ["--where"],
+        ["="],
+        "C# body kind (case-sensitive; exactly one required)",
+        [.. BodyShapeSearch.SupportedKinds],
+        "--where \"Kind=ObjectCreationExpression\"");
 
     /// <summary>The exact stable ID from the C# Body Kinds vocabulary.</summary>
     public string? Kind { get; init; }

@@ -190,6 +190,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("copy-type-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onLibraryOpen: () => calls.push("library"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
       return true;
@@ -302,6 +303,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
+  const library = root.add("[data-library-root]", new FakeElement());
 
   const calls: string[] = [];
   let forwardedListEvent: KeyboardEvent | null = null;
@@ -316,6 +318,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   filter.value = "json";
 
   type.dispatch("click");
+  library.dispatch("click");
   secondType.dispatch("click");
   namespace.dispatch("click");
   secondNamespace.dispatch("click");
@@ -331,6 +334,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
 
   assert.deepEqual(calls, [
     "type:System.String",
+    "library",
     "type:System.Int32",
     "namespace:System",
     "namespace:System.Collections",
@@ -551,7 +555,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
     namespaceOptionsHtml: '<option value="System.Text.Json">System.Text.Json · 2</option>',
     kindFilters: ["class"],
     accessibilityControlHtml: "",
-    libraryControlHtml: "",
+    library: "System.Text.Json",
     filtersExpanded: false,
     filterSummary: "public",
     escapeHtml,
@@ -579,6 +583,9 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /id="content-navigation-pane"/);
   assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
+  assert.match(html, /data-library-root/);
+  assert.match(html, />System\.Text\.Json<\/span>/);
+  assert.doesNotMatch(html, /type-library-context/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
 });
 
@@ -594,7 +601,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
     namespaceOptionsHtml: "",
     kindFilters: [],
     accessibilityControlHtml: "",
-    libraryControlHtml: "",
+    library: "System.Text.Json",
     filtersExpanded: true,
     filterSummary: "nothing-matches · public",
     escapeHtml,
@@ -619,7 +626,7 @@ test("the type nav handles a package with no projected types", () => {
     namespaceOptionsHtml: "",
     kindFilters: [],
     accessibilityControlHtml: "",
-    libraryControlHtml: "",
+    library: "System.Text.Json",
     filtersExpanded: false,
     filterSummary: "All types",
     escapeHtml,
@@ -905,7 +912,38 @@ test("type metadata keeps projection failures inside the full-area surface", () 
   assert.match(
     html,
     /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+  assert.match(html, /data-type-graph-surface/);
 });
+
+for (const nodeCount of [0, 1, 2]) {
+  test(`type metadata keeps relationship warnings visible with ${nodeCount} graph nodes`, () => {
+    const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+    const html = renderTypeMetadata({
+      item: jsonSerializer,
+      packageContext,
+      metadataState: {
+        typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+        typeMetadataLoading: false,
+        typeMetadataError: null,
+        typeMetadata: {
+          graphNodes: Array.from({ length: nodeCount }, (_, index) => ({ id: `Type${index}` })),
+          inspectionFailures: ["Unable to project <related> type"],
+        },
+      },
+      memberCompositionHtml: "",
+      escapeHtml,
+      relatedTypeChip: escapeHtml,
+      factRows,
+    });
+    assert.match(html, /Unable to project &lt;related&gt; type/);
+    assert.equal(html.includes("data-type-graph-surface"), nodeCount > 1);
+    if (nodeCount > 1) {
+      assert.match(html, /data-type-graph-surface>[\s\S]*?type-graph-diagram[\s\S]*?metadata-warning/);
+    }
+    assert.match(html, /Type shape/);
+    assert.match(html, /metadata-surface-footer/);
+  });
+}
 
 test("type PDB source renders code above provenance once loaded", () => {
   const html = renderTypeSource({

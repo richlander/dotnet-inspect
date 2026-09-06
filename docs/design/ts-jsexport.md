@@ -899,6 +899,17 @@ issue references below.
   mappings, compiles all seven `.js` and `.d.ts` outputs against the SDK-owned
   `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm runtime pack
   with host-independent LF output, and proves all 21 files are current;
+- the deployment and promotion verifiers pin the exact rooted-assembly set (the
+  seven names above) and structural invariants such as exactly one SDK
+  `create()` call, one runtime, and zero entry-point invocations, but assert
+  only `js_export_method_count > 0` rather than an exact total: the total
+  drifts with ordinary per-method feature work across seven independently
+  owned export classes, while the byte-for-byte source, declaration, and
+  published-JavaScript comparisons already in the same verifiers catch any
+  change to the exported surface. An exact-count assertion here would
+  duplicate that coverage while adding a value contributors must remember to
+  bump in lockstep across every workflow copy — see
+  [#6051](https://github.com/richlander/dotnet-inspect/issues/6051);
 - `verify-engine-facade-runtime.ts` executes the compiler-derived JavaScript
   without a `window` global, proves initialization performs no managed
   operation or entry-point call, and then exercises explicit host

@@ -85,6 +85,26 @@ public sealed class PackageSetRegistryConsumerTests
     }
 
     [Fact]
+    public void PublicSurfaceSeparatesToolsFromInspectionPackages()
+    {
+        EcosystemPackDescriptor aspire = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Aspire)).Descriptor;
+        ImmutableArray<PackageCoordinate> tools = aspire.ToolPackages;
+
+        Assert.Same(aspire, EcosystemPackCatalog.Discover().Single(
+            pack => pack.Id == EcosystemPackIds.Aspire));
+        Assert.Equal(new PackageCoordinate("Aspire.Cli"), Assert.Single(tools));
+        Assert.Equal(new PackageCoordinate("Aspire.Hosting"), Assert.Single(aspire.CorePackages));
+        Assert.Equal(PackageSetIds.Aspire, aspire.PackageSet);
+        PackageSetDescriptor curated = Assert.IsType<PackageSetLookupResult.Known>(
+            PackageSetCatalog.Lookup(aspire.PackageSet!)).Descriptor;
+        Assert.DoesNotContain(curated.Members, package => package.PackageId == "Aspire.Cli");
+        Assert.All(
+            EcosystemPackCatalog.Discover().Where(pack => pack.Id != EcosystemPackIds.Aspire),
+            pack => Assert.Empty(pack.ToolPackages));
+    }
+
+    [Fact]
     public void PublicSurfaceHandsSelectedScannerToIntegrationOwner()
     {
         EcosystemPackDescriptor aspire = Assert.Single(

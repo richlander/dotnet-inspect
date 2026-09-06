@@ -69,9 +69,29 @@ readable feed, with peer failures disclosed. `--include-unlisted` and
 `--versions-with-feed` retain their listing and feed columns; local versions
 use the non-Gallery `listed` convention.
 
-These are metadata-only queries without `--offline`. Local-feed payload
-inspection, including latest/wildcard/range selection that downloads packages,
-has not migrated yet.
+These version queries are metadata-only and do not use `--offline`.
+
+### Inspect an exact package from a folder feed
+
+Pin one coordinate to inspect its payload through the configured folder source:
+
+```bash
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed \
+  --path @readme --content --bare
+```
+
+Online caller-pinned acquisition tries local sources before HTTP sources.
+Declaration order is not precedence within a tier. One eligible source can
+supply the exact package even when an earlier peer fails; `--verbose` retains
+those diagnostics. Tool-wrapper redirects independently reapply mapping.
+
+Local payload caches are scoped to the canonical configured folder, not just
+package ID/version or producer identity. HTTP pins currently use temporary
+authority-scoped materialization and do not reuse persistent payload caches.
+Multi-package inspection, local-feed latest/wildcard/range payload selection,
+package-scoped API and dependency commands, offline extraction, symbols, and
+manifest-only requests have not migrated yet.
 
 ### Restrict package ids to feeds
 
@@ -154,10 +174,12 @@ Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
 succeeds only from producer-authorized caches. Online version queries bypass
-these legacy caches. Outside metadata-only online version queries,
-configured folder feeds remain on legacy paths that skip them;
-`--verbose` reports the skip. Pass a local `.nupkg` path directly for package
-inspection when the package is available as a file.
+these legacy caches. Online caller-pinned extraction uses the new authority
+cache instead: old producer-keyed entries cannot authorize it, and HTTP
+global-packages entries are not reused. A local global-packages entry must
+name the same canonical configured folder in `.nupkg.metadata.source`.
+Other unmigrated paths still skip configured folder feeds; `--verbose`
+reports the skip. Passing a local `.nupkg` file remains supported separately.
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \

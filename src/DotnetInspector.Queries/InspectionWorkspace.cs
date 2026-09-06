@@ -1446,6 +1446,7 @@ public sealed partial class InspectionWorkspace :
     {
         WorkspaceClosePlan plan =
             await start.ConfigureAwait(false);
+        Task<ImmutableArray<Exception>> rootClose = CloseArtifactRootsAsync();
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
                 plan.GroupAdmissions.Length];
@@ -1489,6 +1490,7 @@ public sealed partial class InspectionWorkspace :
         }
         ImmutableArray<Exception>.Builder artifactCleanupFailures =
             ImmutableArray.CreateBuilder<Exception>();
+        artifactCleanupFailures.AddRange(await rootClose.ConfigureAwait(false));
         foreach (WorkspaceArtifactSessionRegistration registration
             in plan.ArtifactSessions)
         {
