@@ -417,6 +417,7 @@ public sealed class IrFunction : IrNode
     public MethodSignature Signature { get; }
     internal Parameter? ReceiverParameter { get; }
     public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
+    public ImmutableArray<GenericParameterConstraintInfo> DeclaringTypeParameters { get; set; } = [];
     /// <summary>
     /// Typed constructor evidence decoded from the reserved metadata method name
     /// (<c>.ctor</c>/<c>.cctor</c>) at import time. Consumers (e.g. compile-back
@@ -846,7 +847,32 @@ public sealed class IrFunction : IrNode
     internal IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes { get; set; }
         = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
 
+    /// <summary>
+    /// An immutable snapshot of every type fact this function carries. A
+    /// cross-method raise that must survive its source body being mutated or
+    /// discarded captures this instead of retaining the function.
+    /// </summary>
+    internal IrTypeFactSnapshot CaptureTypeFacts()
+        => new(
+            TypeShapes.ToImmutableDictionary(),
+            TypeFactIdentities.ToImmutableDictionary(),
+            AmbiguousTypeFacts.ToImmutableHashSet(),
+            EnumMembers.ToImmutableDictionary(
+                static pair => pair.Key,
+                static pair => (IReadOnlyDictionary<long, string>)
+                    pair.Value.ToImmutableDictionary()),
+            EnumUnderlyingTypes.ToImmutableDictionary(),
+            CollectionInitializerTypes.ToImmutableHashSet(),
+            UnionTypes.ToImmutableHashSet(),
+            ByRefLikeTypes.ToImmutableHashSet(),
+            InterfaceTypes.ToImmutableHashSet(),
+            EqualityOperatorFreeTypes.ToImmutableHashSet(),
+            InequalityOperatorFreeTypes.ToImmutableHashSet());
+
     internal void MergeTypeFactsFrom(IrFunction body)
+        => MergeTypeFactsFrom(body.CaptureTypeFacts());
+
+    internal void MergeTypeFactsFrom(IrTypeFactSnapshot body)
     {
         var ambiguous = MergeSet(AmbiguousTypeFacts, body.AmbiguousTypeFacts).ToImmutableHashSet();
         foreach (var (type, bodyIdentity) in body.TypeFactIdentities)
@@ -2638,16 +2664,19 @@ public sealed class NewObject : IrExpression
     witness: "AnonymousObjectPassTests, corpus compile-back")]
 public sealed class AnonymousObject : IrExpression
 {
-    public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values)
+    public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values,
+        MethodRef? constructor = null)
     {
         Type = type;
         PropertyNames = propertyNames;
+        Constructor = constructor;
         foreach (var value in values)
             AddChild(value);
     }
 
     public TypeRef Type { get; }
     public ImmutableArray<string> PropertyNames { get; }
+    public MethodRef? Constructor { get; }
     public IReadOnlyList<IrExpression> Values => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => Type;
     public override IEnumerable<TypeRef> DirectTypes => [Type];
@@ -2685,14 +2714,18 @@ public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex
     witness: "StringInterpolationPassTests, corpus compile-back")]
 public sealed class InterpolatedStringExpression : IrExpression
 {
-    public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts, IEnumerable<IrExpression> formattedValues)
+    public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts,
+        IEnumerable<IrExpression> formattedValues, ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         Parts = [.. parts];
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
         foreach (var value in formattedValues)
             AddChild(value);
     }
 
     public ImmutableArray<InterpolatedStringPart> Parts { get; }
+    /// <summary>The constructor, one append per part, and final conversion, in source order.</summary>
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IReadOnlyList<IrExpression> FormattedValues => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => TypeRef.CoreLib("System", "String");
 
@@ -3055,12 +3088,14 @@ public sealed class ObjectInitializerExpression : IrExpression
         var argumentCounts = ImmutableArray.CreateBuilder<int>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
         var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
+        var consumedMethodsAreVirtual = ImmutableArray.CreateBuilder<bool>();
         foreach (var entry in entries)
         {
             members.Add(entry.Member);
             argumentCounts.Add(entry.Arguments.Count);
             consumedMethods.Add(entry.ConsumedMethod);
             consumedFields.Add(entry.ConsumedField);
+            consumedMethodsAreVirtual.Add(entry.ConsumedMethodIsVirtual);
             foreach (var argument in entry.Arguments)
                 AddChild(argument);
         }
@@ -3068,6 +3103,7 @@ public sealed class ObjectInitializerExpression : IrExpression
         ArgumentCounts = argumentCounts.ToImmutable();
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
+        ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
     }
 
     /// <summary>Collection-initializer (<c>{ e0, e1 }</c> / <c>{ {k, v} }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> / <c>{ [k] = v }</c> via member or indexer stores).</summary>
@@ -3088,8 +3124,16 @@ public sealed class ObjectInitializerExpression : IrExpression
     /// <summary>Consumed field evidence per entry, when a raised initializer entry came from a field store.</summary>
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
 
+    /// <summary>
+    /// Whether each entry's consumed setter/<c>Add</c> call dispatched
+    /// virtually, parallel to <see cref="ConsumedMethods"/>. The fact is
+    /// retained rather than re-derived from the member reference, which does
+    /// not carry call-site dispatch.
+    /// </summary>
+    public ImmutableArray<bool> ConsumedMethodsAreVirtual { get; }
+
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts, ConsumedMethods, ConsumedFields);
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts, ConsumedMethods, ConsumedFields, ConsumedMethodsAreVirtual);
 
     public override TypeRef? ResultType => Creation.ResultType;
 
@@ -3101,31 +3145,34 @@ public sealed class ObjectInitializerExpression : IrExpression
 /// A raised C# record nondestructive mutation expression:
 /// <c>receiver with { X = value, ... }</c>. Produced from the compiler's
 /// clone-then-member-set lowering when the synthesized record clone and the
-/// single non-escaping mutation target are proven.
+/// single non-escaping mutation target are proven. The consumed clone member
+/// and dispatch remain attached as semantic evidence.
 /// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundWithExpression,
     naming: Inverse.NameProvenance.Inherited,
     forwardName: "BoundWithExpression (receiver with { X = value })",
-    precondition: "result is the receiver's record type; raised only when the compiler-synthesized clone call and the single non-escaping mutation target are proven; every entry names a member and carries exactly one value",
+    precondition: "result is the receiver's record type; raised only when the compiler-synthesized clone call, its faithful dispatch, and the single non-escaping mutation target are proven; every entry names a member and carries exactly one value",
     witness: "WithExpressionPassTests, corpus compile-back")]
 public sealed class WithExpression : IrExpression
 {
-    public WithExpression(IrExpression receiver, IEnumerable<InitializerEntry> entries)
-        : this(receiver, entries, cloneMethod: null)
-    {
-    }
-
     public WithExpression(
         IrExpression receiver,
         IEnumerable<InitializerEntry> entries,
-        MethodRef? cloneMethod)
+        MethodRef? consumedCloneMethod = null,
+        bool consumedCloneIsVirtual = false)
     {
-        CloneMethod = cloneMethod;
+        if (consumedCloneMethod is null && consumedCloneIsVirtual)
+        {
+            throw new ArgumentException(
+                "Clone dispatch requires a consumed clone method.",
+                nameof(consumedCloneIsVirtual));
+        }
         AddChild(receiver);
         var members = ImmutableArray.CreateBuilder<string>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
         var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
+        var consumedMethodsAreVirtual = ImmutableArray.CreateBuilder<bool>();
         foreach (var entry in entries)
         {
             if (entry.Member is null)
@@ -3136,18 +3183,32 @@ public sealed class WithExpression : IrExpression
             members.Add(entry.Member);
             consumedMethods.Add(entry.ConsumedMethod);
             consumedFields.Add(entry.ConsumedField);
+            consumedMethodsAreVirtual.Add(entry.ConsumedMethodIsVirtual);
             AddChild(entry.Arguments[0]);
         }
         Members = members.ToImmutable();
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
+        ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
+        ConsumedCloneMethod = consumedCloneMethod;
+        ConsumedCloneIsVirtual = consumedCloneIsVirtual;
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
-    public MethodRef? CloneMethod { get; }
+    public MethodRef? CloneMethod => ConsumedCloneMethod;
     public ImmutableArray<string> Members { get; }
     public ImmutableArray<MethodRef?> ConsumedMethods { get; }
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
+    public MethodRef? ConsumedCloneMethod { get; }
+    public bool ConsumedCloneIsVirtual { get; }
+
+    /// <summary>
+    /// Whether each entry's consumed setter dispatched virtually, parallel to
+    /// <see cref="ConsumedMethods"/>. <c>receiver with { X = v }</c> spells a
+    /// virtual setter call, so a raise is faithful only when the consumed call
+    /// was virtual.
+    /// </summary>
+    public ImmutableArray<bool> ConsumedMethodsAreVirtual { get; }
     public IReadOnlyList<InitializerEntry> Entries
         => InitializerEntry.Slice(
             Children,
@@ -3155,7 +3216,8 @@ public sealed class WithExpression : IrExpression
             [.. Members.Select(m => (string?)m)],
             [.. Members.Select(_ => 1)],
             ConsumedMethods,
-            ConsumedFields);
+            ConsumedFields,
+            ConsumedMethodsAreVirtual);
     public override TypeRef? ResultType => Receiver.ResultType;
     public override string Describe()
         => $"WithExpression ({Members.Length} members)";
@@ -3186,12 +3248,14 @@ public sealed class InitializerBlock : IrExpression
         var argumentCounts = ImmutableArray.CreateBuilder<int>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
         var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
+        var consumedMethodsAreVirtual = ImmutableArray.CreateBuilder<bool>();
         foreach (var entry in entries)
         {
             members.Add(entry.Member);
             argumentCounts.Add(entry.Arguments.Count);
             consumedMethods.Add(entry.ConsumedMethod);
             consumedFields.Add(entry.ConsumedField);
+            consumedMethodsAreVirtual.Add(entry.ConsumedMethodIsVirtual);
             foreach (var argument in entry.Arguments)
                 AddChild(argument);
         }
@@ -3199,6 +3263,7 @@ public sealed class InitializerBlock : IrExpression
         ArgumentCounts = argumentCounts.ToImmutable();
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
+        ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
     }
 
     /// <summary>Collection body (<c>{ e0, e1 }</c> via <c>Add</c>) vs object body (<c>{ X = a }</c> via member stores).</summary>
@@ -3216,8 +3281,16 @@ public sealed class InitializerBlock : IrExpression
     /// <summary>Consumed field evidence per entry, when a raised initializer entry came from a field store.</summary>
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
 
+    /// <summary>
+    /// Whether each entry's consumed setter/<c>Add</c> call dispatched
+    /// virtually, parallel to <see cref="ConsumedMethods"/>. The fact is
+    /// retained rather than re-derived from the member reference, which does
+    /// not carry call-site dispatch.
+    /// </summary>
+    public ImmutableArray<bool> ConsumedMethodsAreVirtual { get; }
+
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts, ConsumedMethods, ConsumedFields);
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts, ConsumedMethods, ConsumedFields, ConsumedMethodsAreVirtual);
 
     /// <summary>A nested body initializes an existing member in place; it has no standalone result type.</summary>
     public override TypeRef? ResultType => null;
@@ -3242,7 +3315,8 @@ public sealed record InitializerEntry(
     string? Member,
     IReadOnlyList<IrExpression> Arguments,
     MethodRef? ConsumedMethod = null,
-    FieldRef? ConsumedField = null)
+    FieldRef? ConsumedField = null,
+    bool ConsumedMethodIsVirtual = false)
 {
     /// <summary>
     /// Reconstructs the entries from a node's flat children: the run starting at
@@ -3257,7 +3331,8 @@ public sealed record InitializerEntry(
         ImmutableArray<string?> members,
         ImmutableArray<int> argumentCounts,
         ImmutableArray<MethodRef?> consumedMethods,
-        ImmutableArray<FieldRef?> consumedFields)
+        ImmutableArray<FieldRef?> consumedFields,
+        ImmutableArray<bool> consumedMethodsAreVirtual)
     {
         var entries = new List<InitializerEntry>(members.Length);
         int index = start;
@@ -3268,7 +3343,12 @@ public sealed record InitializerEntry(
             for (int j = 0; j < count; j++)
                 arguments[j] = (IrExpression)children[index + j];
             index += count;
-            entries.Add(new InitializerEntry(members[e], arguments, consumedMethods[e], consumedFields[e]));
+            entries.Add(new InitializerEntry(
+                members[e],
+                arguments,
+                consumedMethods[e],
+                consumedFields[e],
+                consumedMethodsAreVirtual[e]));
         }
         return entries;
     }
@@ -3365,15 +3445,18 @@ public sealed class AddressOfMethod : IrExpression
     witness: "function-pointer/delegate fixtures; corpus compile-back")]
 public sealed class DelegateCreation : IrExpression
 {
-    public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target)
+    public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target,
+        MethodRef? constructor = null)
     {
         DelegateType = delegateType;
         Method = method;
         IsVirtual = isVirtual;
+        Constructor = constructor;
         AddChild(target);
     }
 
     public TypeRef DelegateType { get; }
+    public MethodRef? Constructor { get; }
     public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
 
@@ -3857,15 +3940,18 @@ public sealed class RangeExpression : IrExpression
     witness: "range/index fixtures; corpus compile-back")]
 public sealed class SliceExpression : IrExpression
 {
-    public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType)
+    public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType,
+        MethodRef? sliceMethod = null)
     {
         AddChild(receiver);
         AddChild(range);
         ResultType = resultType;
+        SliceMethod = sliceMethod;
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
     public RangeExpression Range => (RangeExpression)Children[1];
+    public MethodRef? SliceMethod { get; }
     public override TypeRef? ResultType { get; }
 
     public override string Describe() => "SliceExpression";
@@ -4283,16 +4369,19 @@ public sealed class SpanLiteral : IrExpression
     witness: "CollectionExpressionFrontierTests, corpus compile-back")]
 public sealed class CollectionExpression : IrExpression
 {
-    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements)
+    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements,
+        ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         ElementType = elementType;
         TargetType = targetType;
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
     public TypeRef TargetType { get; }
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => TargetType;
     public override IEnumerable<TypeRef> DirectTypes => [ElementType, TargetType];
@@ -4335,16 +4424,19 @@ public sealed class CollectionSpreadElement : IrExpression
     witness: "InitializeArrayTests, corpus compile-back")]
 public sealed class ArrayLiteral : IrExpression
 {
-    public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements)
+    public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements,
+        MethodRef? initializationMethod = null)
     {
         ElementType = elementType;
         ArrayType = arrayType;
+        InitializationMethod = initializationMethod;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
     public TypeRef ArrayType { get; }
+    public MethodRef? InitializationMethod { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => ArrayType;
     public override IEnumerable<TypeRef> DirectTypes => [ElementType, ArrayType];

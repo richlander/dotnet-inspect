@@ -32,6 +32,7 @@ public sealed class TupleCreationPass : IIrPass
             foreach (var element in elements)
                 element.Detach();
             var tuple = new TupleExpression(newObject.Constructor.DeclaringType, elements);
+            tuple.InheritSourceOffset(newObject);
             context.Stepper.StepOver("raise ValueTuple constructor to tuple literal", newObject);
             newObject.ReplaceWith(tuple);
         }

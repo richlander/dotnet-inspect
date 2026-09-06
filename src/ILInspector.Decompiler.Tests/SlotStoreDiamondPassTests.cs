@@ -437,6 +437,34 @@ public class SlotStoreDiamondPassTests
     }
 
     [Fact]
+    public void SlotDiamond_GuardStorePreservesBranchOrigin()
+    {
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new StoreStackSlot(0, new LoadArgument(0, "value", Object)));
+        var branch = new ConditionalBranch(new LoadStackSlot(0, Object), 8);
+        branch.SetSourceOffset(2);
+        head.Add(branch);
+        var fallback = new Block(4);
+        fallback.Add(new StoreStackSlot(0, new LoadArgument(1, "fallback", Object)));
+        var merge = new Block(8);
+        merge.Add(new Return(new LoadStackSlot(0, Object)));
+        foreach (Block block in new[] { head, fallback, merge })
+            body.Add(block);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(Object,
+                [new Parameter("value", Object), new Parameter("fallback", Object)],
+                HasThis: false, GenericParameterCount: 0), [], body);
+
+        new SlotDiamondPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        IfStatement guard = Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Equal(branch.SourceOffset, guard.SourceOffset);
+        Assert.IsType<LogicalNot>(guard.Condition);
+    }
+
+    [Fact]
     public void BooleanFolding_PreservesNegatedBranchPolarityWhenFoldingStoreDiamond()
     {
         static Block BlockOf(params IrNode[] nodes)

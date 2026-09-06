@@ -634,6 +634,7 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            DeclaringTypeParameters = method.DeclaringTypeParameters,
             DeclaringTypeGenericParameterNames =
                 method.DeclaringTypeGenericParameterNames.IsDefault
                     ? []
