@@ -99,6 +99,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
+  references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
 ) {
   const common = "export async function initializeRuntime() {}";
   const surfaceLookup = `
@@ -139,10 +140,23 @@ async function installFacades(
         const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
+        const scenario = ${JSON.stringify(references)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-references-ready:" + asset, resolve, { once: true }));
+        }
+        if (scenario === "query-error") throw new Error("Reference query unavailable.");
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], dependencyGroupError: null, assemblyReferenceError: null,
-          assemblyReferences: [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }],
+          dependencyGroups: [], dependencyGroupError: null,
+          assemblyReferenceError: scenario === "inspection-error" ? "Cannot decode AssemblyRef." : null,
+          assemblyReferences: scenario === "empty" ? [] : scenario === "long"
+            ? Array.from({ length: 80 }, (_, index) => ({
+                name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
+                version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
+                publicKeyToken: "0123456789abcdef"
+              }))
+            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }],
           compileLibrary: surface.compileLibrary
         };
       }`,
@@ -208,6 +222,116 @@ async function installFacades(
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+async function openReferences(page: Page) {
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+}
+
+for (const width of [1440, 390]) {
+  test(`production References fills the pane and retains context at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await openReferences(page);
+    const frame = page.locator(".library-references-surface");
+    await expect(frame.locator(".dep-list li")).toHaveCount(1);
+    await expect(frame.locator("header")).toContainText("1 direct reference");
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(frame.locator("footer")).toContainText("Example.Package@1.0.0");
+    await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
+    await expect(frame.locator("h2")).toHaveCount(0);
+    const panelBox = await page.locator("#inspector-panel").boundingBox();
+    const frameBox = await frame.boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(frameBox).not.toBeNull();
+    expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
+    const listBox = await frame.locator(".dep-list").boundingBox();
+    expect(Math.abs(listBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(listBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    await page.screenshot({ path: testInfo.outputPath("references.png") });
+    if (width === 390) {
+      const back = page.getByRole("button", { name: "Types", exact: true });
+      await expect(back).toBeVisible();
+      await back.click();
+      await expect(page.locator("#type-list")).toBeFocused();
+      await page.getByRole("button", { name: "Show details", exact: true }).click();
+      await expect(back).toBeFocused();
+      await expect(frame).toBeVisible();
+    }
+  });
+
+  test(`production References contains long fields and scrolls only its list at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
+    await installFacades(page, {
+      ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
+    }, [], "long");
+    await openReferences(page);
+    const frame = page.locator(".library-references-surface");
+    await expect(frame.locator(".dep-list li")).toHaveCount(80);
+    await expect(frame.locator("header")).toContainText("80 direct references");
+    await expect(frame.locator("footer span").first()).toHaveAttribute("title", new RegExp(longCore.name));
+    const headerBox = await frame.locator("header").boundingBox();
+    const footerBox = await frame.locator("footer").boundingBox();
+    const scroller = frame.locator(".library-references-scroll");
+    const geometry = await scroller.evaluate(element => ({
+      width: element.clientWidth, scrollWidth: element.scrollWidth,
+      height: element.clientHeight, scrollHeight: element.scrollHeight,
+      pageWidth: document.documentElement.clientWidth,
+      pageScrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+    expect(geometry.pageScrollWidth).toBeLessThanOrEqual(geometry.pageWidth + 1);
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.height);
+    await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(frame.locator(".dep-list li").last()).toBeInViewport();
+    expect(await frame.locator("header").boundingBox()).toEqual(headerBox);
+    expect(await frame.locator("footer").boundingBox()).toEqual(footerBox);
+  });
+
+  for (const scenario of ["empty", "query-error", "inspection-error"] as const) {
+    test(`production References preserves its ${scenario} frame at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installFacades(page, surface, [], scenario);
+      await openReferences(page);
+      const frame = page.locator(".library-references-surface");
+      await expect(frame.locator("h2")).toHaveText(scenario === "empty"
+        ? "No direct references" : scenario === "query-error"
+          ? "Reference query failed" : "Reference inspection failed");
+      await expect(frame.locator("footer")).toBeInViewport();
+      await expect(frame.locator("footer")).toContainText(core.asset);
+      await expect(frame.locator(".dep-list")).toHaveCount(0);
+      if (scenario !== "empty") {
+        await expect(frame).not.toContainText("0 direct references");
+        await expect(frame).toContainText(scenario === "query-error"
+          ? "Reference query unavailable." : "Cannot decode AssemblyRef.");
+      }
+    });
+  }
+}
+
+test("production References retains a loading frame and does not show a previous Library's rows", async ({ page }) => {
+  await installFacades(page, surface, [], "deferred");
+  await openReferences(page);
+  await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
+  await expect(page.locator(".library-references-surface footer")).toContainText(core.asset);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-references-ready:asset:core")));
+  await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
+  await expect(page.locator(".library-references-surface footer")).toContainText(other.asset);
+  await expect(page.locator(".library-references-surface")).not.toContainText("Example.Core");
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-references-ready:asset:other")));
+  await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
+});
 
 for (const width of [1440, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
