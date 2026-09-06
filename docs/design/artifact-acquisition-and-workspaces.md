@@ -2477,18 +2477,95 @@ ordinary inspection still receives the surface while the typed implementation
 failure remains visible. Existing package command gates continue to own Markout
 output compatibility.
 
-Local archives, `--tfm all`, and framework spellings outside the
-acquisition-coordinate grammar remain on the legacy grouped workspace.
-An explicit single-framework selection is eligible for the shared
-path, but it can still include tools or multiple package layout roles that
-are not one compile-role projection; silently narrowing its visible library
-set would not be a behavior-preserving adoption. Any selection
-retains the legacy workspace when it includes nested or implementation-only
-libraries, resolves an explicit empty compile group, or cannot form exact
-surface/implementation assembly-identity correspondence. These are ordinary
-package shapes but not valid inputs to the shared compile-role realization;
-falling back preserves the command's existing visible library set and output.
-Browser/Wasm adoption remains the separate #5576 slice.
+#### Explicit package inspection selection
+
+The #6035 prerequisite and #5840 retirement use a second, distinct Package
+adapter selection: the exact entries selected for inspection from one retained
+authorized package input. Inspection selection is not compile-role selection.
+It can include tools, nested assets, multiple frameworks, legacy framework
+spellings, or implementation entries beside an `EmptyCompileGroup`. None of
+these inputs changes the compile selector's outcome or issues a
+`PackageCompileAsset` occurrence.
+
+`PackageInspectionInput` retains the actual `IPackageContent` and its
+generation identity. Remote construction consumes an acquisition-issued
+`PackageRootBinding`, preserving its exact producer/content correspondence.
+Local construction consumes explicitly supplied package content and optional
+nuspec identity. A valid nuspec ID and normalized version provide descriptive
+package provenance; missing or invalid identity provides local-archive
+provenance. Neither archive filenames nor display fallbacks create a canonical
+NuGet coordinate. Local inspection input does not issue a `PackageRootBinding`.
+
+The input freezes the ordered inspection selections, including each exact
+package-relative entry path, original framework spelling, and binding-context
+key. Entry names must be present in that content's manifest; a missing selected
+entry remains a visible unavailable outcome, not permission to reopen another
+source. Framework and binding-context strings are selection facts, never
+acquisition coordinates. Binding universes group the context key, falling back
+to the framework, case-insensitively, without merging different asset
+directories. The host supplies its existing binding policy over the projected
+descriptors; filesystem resolution remains CLI-owned. A pathless host can use
+the same realizer with in-group reference binding.
+
+Compile-role and explicit-selection realization share artifact registration,
+bounded materialization, admission-scoped Metadata projection, and compatibility
+descriptor construction. Explicit inspection uses one publication attempt per
+selected entry so an unreadable or over-limit entry cannot erase successful
+neighbors. Each successful publication transfers to its exact dependent group.
+No group or source-path substitute is created for a failed publication.
+For a non-projectable image, the adapter consumes Metadata's existing
+descriptor-selection compatibility result over the published snapshot.
+Descriptor-less images remain a distinct no-assembly result, carrying the
+typed projection outcome; descriptor-selection exceptions remain unavailable
+preflight outcomes. An image
+that supplies a descriptor but fails group admission retains the existing
+typed participant rejection. The ordered result therefore contains the exact
+participant, no-assembly result, or unavailable reason for every selection.
+
+A no-assembly result is outside grouped Integration realization, not a rejected
+Integration participant. The CLI preserves its existing ordinary file
+inspection for these entries, including native-image metadata and managed
+metadata without a usable assembly name. It supplies no grouped Integration
+evidence and does not invent an assembly identity. This ordinary reader remains
+an extraction consumer outside #5840's retirement; this slice does not claim
+artifact-backed ordinary inspection for descriptor-less images.
+`PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities` and the
+native-image case of
+`PackageCommand_LocalInspectionSelectionPreservesSupportedShapes` gate that
+boundary. Unavailable entries and rejected Integration participants never take
+this ordinary-inspection route.
+
+The aggregate retained-byte limit is divided between artifact snapshots and
+group images. Successful artifacts consume the artifact share in selection
+order; a rejected entry consumes no retained capacity. Each group's image
+budget covers its successful entries' exact retained lengths, and a caller may
+impose a smaller per-group limit. Entry reads also consume the existing
+bounded-entry contract; a package-content `InvalidDataException` is an
+entry-level unavailable result, not a change to Artifact failure classification.
+These are Package adapter
+admission choices, not new Artifact publication or group-budget contracts.
+Disposing the realization settles every group independently; workspace close
+retains each artifact session until its dependent group is quiescent.
+Cancellation and unexpected failures propagate after cleanup, preserving
+secondary release failures.
+
+The CLI first keeps compatible compile-role behavior: ordinary inspection uses
+the selected surface, and Integration queries use its exact implementation
+participant. A non-exact surface selection or identity-correspondence mismatch
+instead realizes the original inspection selection through the same artifact
+machinery, not the legacy path-opening workspace. Acquisition failure and a
+rejected implementation never trigger source reopening. All-enabled Integration
+production, typed evidence/opportunities, Markout rendering, and extraction
+consumers outside this workspace remain unchanged.
+
+The shared implementation is pathless and sequential for CLI and Browser/Wasm.
+The CLI is this slice's explicit-selection consumer; Browser compile-role
+production consumes the extracted common machinery without UI changes. Both
+adoptions belong to #5577, with #6035 supplying the prerequisite for #5840.
+Release gates are `PackageInspectionAssemblyContextTests`,
+`PackageIntegrationsWorkspaceTests`, the artifact-backed cases in
+`PackageAssemblyContextRealizationTests`, and the existing Browser package
+artifact-scope and compile-role cases in `BrowserEngineBoundaryTests`.
 
 `PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles`
 gates the real CLI command over a source-scoped cached package, including
@@ -2496,11 +2573,11 @@ default, explicit, legacy framework spellings, all-framework, and mixed
 surface/implementation selections.
 The verbose artifact-backed route message is emitted only after successful
 shared realization, so the gate covers actual adoption rather than eligibility
-alone. #5917 owns this bounded expansion under #5577; legacy deletion remains
-the later #5840 cutover.
+alone. #5917 supplied the bounded compile-role expansion; #5840 preserves that
+command selection and the descriptor-less ordinary inspection boundary above.
 
 A host may project Root-owned facts such as exact identity, package documents,
-or manifest dependencies from a Root-only coordinate. Assembly-backed
+or manifest dependencies from a Root-only coordinate. Compile-role
 operations must report the retained compile-library outcome as unavailable or
 failed. They must not invent an assembly participant, reinterpret an absent
 group as an empty API surface, or route package-root access through an
