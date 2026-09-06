@@ -49,6 +49,9 @@ public record PackageExtractionResult(
     public bool SelectedVersionUsesOriginalSources { get; init; }
     public ConfiguredPackageAuthority? Authority { get; init; }
 
+    /// <summary>The admitted payload retained until the caller cleans up this extraction.</summary>
+    public AcquiredPackageSourcePayload? AcquiredPayload { get; internal init; }
+
     public string? CacheScopeKey => Authority is null ? ProducerKey : Authority.PersistentCacheKey;
 
     /// <summary>

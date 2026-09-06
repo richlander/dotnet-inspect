@@ -657,17 +657,27 @@ public sealed partial class InspectionWorkspace
     static Stream OpenEntry(
         RoleAsset asset,
         long maxExpandedBytes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        OpenPackageEntry(
+            asset.Package.Content,
+            asset.Asset.Path,
+            maxExpandedBytes,
+            cancellationToken);
+
+    static Stream OpenPackageEntry(
+        IPackageContent content,
+        string path,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!asset.Package.Content.TryOpenEntry(
-                asset.Asset.Path,
+        if (!content.TryOpenEntry(
+                path,
                 maxExpandedBytes,
                 out Stream? stream))
         {
             throw new InvalidOperationException(
-                "A selected assembly entry disappeared from "
-                + $"{asset.Package.PackageId} {asset.Package.PackageVersion}.");
+                "A selected assembly entry is unavailable in the retained package content.");
         }
 
         try
