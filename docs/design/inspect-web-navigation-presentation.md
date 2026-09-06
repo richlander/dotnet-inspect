@@ -17,7 +17,7 @@ This owner defines:
 
 - the application-scope strip that composes the presentation-owned Query route
   entry with the product-issued Workspace subject entry;
-- the Package, Library, Type, and Member subject hierarchy, the inspected-target
+- the Package or Platform, Library, Type, and Member subject hierarchy, the inspected-target
   rendering, and the Slideable Subject Strip that first adopts the reusable
   [SlideStrip](inspect-web-slide-strip.md) control;
 - the separately presented Workspace subject that owns retained-coordinate
@@ -91,11 +91,12 @@ owners:
 
 Inspection Subject Navigation continues to own Workspace, Package or
 non-package Root, Library, Type, and Member identity. Inspect Web presents
-Workspace separately because it manages retained coordinates, while Package,
-Library, Type, and Member form the progressively narrower active-coordinate
+Workspace separately because it manages retained coordinates, while Package
+or Platform, Library, Type, and Member form the progressively narrower active-coordinate
 subject strip:
 
 - **Package** means one selected package-adapter coordinate.
+- **Platform** means the library catalog for one exact selected platform target.
 - **Library** means all admitted libraries or one library in that coordinate.
 - **Type** means one selected type in the active Library subject.
 - **Member** means one selected member of the active Type.
@@ -740,8 +741,69 @@ coordinate or Package Overview.
 Non-package inputs use their product-owned coordinate display instead of
 inventing package/version/TFM fields.
 
-Platform libraries may be present in the workspace, but Platform is not a
-workspace entry or subject.
+## Platform subject
+
+Issue #6013 adopts Platform as a distinct non-package Root in the existing
+Workspace. It is not a Package renamed for runtime-pack inputs, another live
+Workspace, or a new Library inspector hierarchy. Existing package-shaped
+acquisition transport may remain internal while subject state, controls,
+history, and target presentation distinguish Platform from Package.
+
+The production path is Spotlight -> Platform -> Library -> Type -> Member.
+Opening Platform selects its catalog, with no implicit Library or Type.
+Selecting a platform-library search result opens that exact Library with
+Platform as its parent. A search such as `System.Text.Json` can offer both the
+NuGet package and the platform library; source and target labeling distinguish
+the destinations rather than merging names.
+
+Platform content owns its target/version control, library-name filter, and
+`Include all libraries` control. It does not expose package version/TFM editors
+or package-only inspectors. The default release line is .NET 11, including
+previews. The platform source supplies the exact version and matching catalog
+under [Version resolution](version-resolution.md#browser-platform-catalog-targets).
+An already-open target does not change when newer versions are discovered.
+
+The default inventory contains libraries represented in the selected
+reference pack. This is an inventory policy, not a request to inspect
+reference bytes: selecting a Library opens its runtime implementation.
+`Include all libraries` expands the inventory to all managed platform
+libraries. It is not the aggregate `All libraries` inspection subject and
+does not grant traversal permission.
+
+Rows consistently distinguish three source-supplied roles:
+
+| Role | Presentation meaning |
+| --- | --- |
+| Facade | A forwarding library, identified with a distinct outline/forwarding mark. |
+| Implementation | An implementation represented in the reference pack, using ordinary library styling. |
+| Private implementation | An implementation outside the reference-pack inventory, with an internal-library mark and secondary styling. |
+
+Role remains distinct from type accessibility. `System.Private.CoreLib` has
+public Types despite its private-implementation platform role. Text or an
+accessible label accompanies the mark; color alone is insufficient. Private
+implementations are selectable, not disabled. A catalog entry without an
+inspectable runtime counterpart instead exposes its actual unavailability.
+
+The small shipped catalog supplies search and browsing before pack acquisition
+or library decoding. Opening Platform may warm the exact runtime archives in
+parallel; typing into Search does not. Catalog rows remain usable while that
+operation runs or fails, with visible progress, failure, and retry. Selecting
+a Library shares acquisition and requests only its existing inspection
+surface. Missing or failed catalog information is not an empty Platform.
+
+Back, Forward, refresh, and shared locations retain the Platform target and
+explicit Library selection. Returning from Library reaches Platform without
+selecting a neighboring library. A Library with no Types still opens its
+Library inspectors. The existing Library selection and consumer
+history/focus contracts continue to apply.
+
+This is the user-approved Browser experience, rendered through the existing
+typed browser UI rather than a new multi-format renderer. #6013 tracks four
+adoption steps: exact catalog/discovery production, Platform-root and shared
+Library integration, end-to-end browser adoption with retirement of the
+package-root presentation, and separately authorized release/site deployment.
+The generator and catalog tests, engine Platform catalog/acquisition tests,
+and built-frontend Platform/Library browser cases provide the respective gates.
 
 ## Type navigation
 

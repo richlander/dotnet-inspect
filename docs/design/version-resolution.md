@@ -138,6 +138,43 @@ This describes the current gate. The target
 narrows it further when package source mapping is enabled: NuGet.org must be
 eligible for the package id, not merely active somewhere in configuration.
 
+### Browser platform catalog targets
+
+Issue #6013's Platform subject defaults to the .NET 11 release line, including
+preview and release-candidate versions. Browser discovery orders NuGet versions
+semantically and selects from the common versions of the reference and
+representative `linux-x64` runtime packs required by the target. The catalog
+includes the .NET and ASP.NET Core families, so both families' reference and
+runtime packages must publish the selected version. A missing common version
+or discovery failure remains visible rather than selecting an older major.
+
+A catalog identifies its exact TFM and pack version. Each library retains its
+supplying family, assembly/file identity, reference-pack membership, runtime
+availability, and metadata-derived facade role. Reference membership and
+facade classification are independent, not assembly-name heuristics or a
+classification of contained Types' accessibility. The reference pack supplies
+the logical API inventory; runtime bytes supply implementation inspection.
+
+The shipped catalog is an exact-version fast-start snapshot, not a claim that
+its version is forever latest. Lightweight discovery may reveal newer
+versions; it does not replace an open coordinate. Selecting another version
+requires its matching catalog before committing the target. Old inventory
+must never be relabeled with a newly discovered version.
+
+The browser uses the existing Gallery source, package acquisition, deadlines,
+single-flight, and retained-archive capacity policy. A Platform-open gesture
+may prefetch exact runtime archives without projecting every assembly's API.
+Later Library demand reuses acquisition and existing platform realization.
+Search alone does not authorize runtime-pack acquisition. None of these
+operations registers a Workspace traversal scope.
+
+Platform-pack selection preserves ordinary framework-qualified `lib`
+selection and satellite exclusion, while admitting additional DLL candidates
+outside `lib` under the exact selected RID. Product metadata admission
+distinguishes managed libraries from native images; malformed or unsupported
+metadata remains a failure. Catalog generation and runtime realization consume
+the same platform selector. Ordinary NuGet package asset selection is unchanged.
+
 ### Always check (`Name@latest`)
 
 Forces a full network refresh. Bypasses the disk scan, version cache, and

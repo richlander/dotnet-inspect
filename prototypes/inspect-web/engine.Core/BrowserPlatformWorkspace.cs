@@ -491,6 +491,16 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
+        if (ReferenceEquals(host, ProductionHost) && platformVersion is not null)
+        {
+            foreach (string family in selections.Select(selection => selection.Family).Distinct())
+            {
+                BrowserPackage package = await BrowserPlatformCatalog.AcquireRuntimeAsync(
+                    targetFramework, family, platformVersion,
+                    deadline.Remaining, deadline.Token).ConfigureAwait(false);
+                packageLeases.Lease(BrowserPackageWorkspace.PackageKey(package.PackageId, package.Version));
+            }
+        }
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
         await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =

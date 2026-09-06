@@ -308,7 +308,7 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   library: string;
-  parentSubject: "package" | "library";
+  parentSubject: "package" | "platform" | "library";
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;

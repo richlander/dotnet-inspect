@@ -232,6 +232,24 @@ export interface BrowserParameterSurface {
     readonly defaultValue: string | null;
     readonly description: string | null;
 }
+export interface BrowserPlatformCatalog {
+    readonly tfm: string;
+    readonly version: string;
+    readonly rows: ReadonlyArray<BrowserPlatformLibrary>;
+}
+export interface BrowserPlatformLibrary {
+    readonly tfm: string;
+    readonly pack: string;
+    readonly assembly: string;
+    readonly file: string;
+    readonly kind: string;
+    readonly forwardsTo: string | null;
+    readonly version: string;
+    readonly publicTypes: number;
+    readonly inReferencePack: boolean;
+    readonly hasImplementation: boolean;
+    readonly packVersion: string;
+}
 export interface BrowserTypeCandidate {
     readonly key: string;
     readonly name: string;
@@ -291,12 +309,15 @@ export declare function activateWorkspacePackageOccurrence(action: string): Prom
 export declare function cancelPackageQuery(): void;
 export declare function clearWorkspacePackageOccurrences(): void;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
+export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
+export declare function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>>;
 export declare function listGalleryDiscoveryCatalog(): BrowserGalleryDiscoveryCatalog;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
+export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;

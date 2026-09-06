@@ -1,4 +1,5 @@
 import type { PackageControlPackage } from "./package-controls.ts";
+import type { PlatformNavigationState } from "./platform-subject.ts";
 import { packageIdentityKey } from "./data.ts";
 import { packageRemoveButton } from "./package-removal.ts";
 import type { SavedWorkspaceFocus } from "./saved-workspaces.ts";
@@ -29,6 +30,7 @@ export interface WorkspaceViewRenderOptions {
   savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
+  platform?: PlatformNavigationState | null;
   demos: readonly ProductHomeDemoCatalogEntry[];
   demoError: string;
   loading: boolean;
@@ -43,6 +45,7 @@ export interface WorkspaceSubjectBindingActions {
   onRetry: () => void;
   onRemove?: (key: string) => void;
   onAddPackage?: () => void;
+  onPlatform?: () => void;
 }
 
 export interface WorkspaceOccurrenceVisibility {
@@ -129,13 +132,15 @@ export function renderWorkspaceView(
       ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
     </li>`;
   }).join("");
-  const platformRows = packages.filter(item => item.isRuntimePack).map(item =>
-    `<li>
-      <span>Platform</span>
-      <strong>${escapeHtml(item.id)}</strong>
-      <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
-    </li>`).join("");
-  const rows = `${packageRows}${platformRows}`;
+  const platform = options.platform;
+  const platformRows = platform ? `<li class="workspace-occurrence-row">
+    <button class="workspace-occurrence" type="button" data-workspace-platform aria-label="Inspect Platform ${escapeHtml(platform.tfm)} ${escapeHtml(platform.version)}">
+      <span>Platform</span><strong>.NET Platform</strong>
+      <small>${escapeHtml(platform.version)} · ${escapeHtml(platform.tfm)}</small>
+    </button></li>` : "";
+  const rows = packageRows;
+  const packageCount = packages.filter(item => !item.isRuntimePack).length;
+  const coordinateCount = packageCount + (platform ? 1 : 0);
   const status = loading
     ? `<p class="workspace-empty">Reading Workspace package occurrences…</p>`
     : error
@@ -165,7 +170,7 @@ export function renderWorkspaceView(
     <div>
       <div class="type-namespace">Workspace</div>
       <h1>Workspace</h1>
-      <code class="type-signature">${packages.length} loaded coordinate${packages.length === 1 ? "" : "s"}</code>
+      <code class="type-signature">${coordinateCount} loaded coordinate${coordinateCount === 1 ? "" : "s"}</code>
     </div>
     ${options.savedWorkspaces ? renderWorkspaceSaveButton(options.savedWorkspaces) : ""}
   </header>
@@ -177,10 +182,11 @@ export function renderWorkspaceView(
       ${demoContent}
     </section>
     <section class="document-section workspace-section">
-      <div class="section-title"><h2>Packages</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
+      <div class="section-title"><h2>Packages</h2><span>${packageCount} coordinate${packageCount === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
       <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
       ${content}
     </section>
+    ${platformRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Platform</h2></div><ul class="workspace-detail-list loaded">${platformRows}</ul></section>` : ""}
   </div>`;
 }
 
@@ -204,6 +210,8 @@ export function bindWorkspaceSubject(
     ?.addEventListener("click", actions.onRetry);
   root.querySelector<HTMLElement>("[data-workspace-add-package]")
     ?.addEventListener("click", () => actions.onAddPackage?.());
+  root.querySelector<HTMLElement>("[data-workspace-platform]")
+    ?.addEventListener("click", () => actions.onPlatform?.());
   root.querySelectorAll<HTMLElement>("[data-workspace-remove]").forEach(button =>
     button.addEventListener("click", () => {
       const key = button.dataset.workspaceRemove;

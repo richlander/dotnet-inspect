@@ -44,6 +44,52 @@
   --graph-different-assembly-text: #ffffff;
 }
 
+.platform-workspace { grid-template-columns: minmax(0, 1fr); }
+.platform-subject { padding: 0 24px 24px; }
+.platform-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.platform-controls label { display: flex; align-items: center; gap: 8px; }
+.platform-filter { flex: 1 1 220px; }
+.platform-filter input { min-width: 0; width: 100%; }
+.platform-controls select { max-width: 100%; }
+.platform-controls select, .platform-filter input {
+  color: var(--text); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 5px; padding: 8px;
+}
+.platform-status { padding: 10px 0; }
+.platform-library-list { padding: 0; list-style: none; }
+.platform-library-row > button, .platform-library-row > div {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center; gap: 6px 12px; width: 100%; padding: 12px;
+  color: var(--text); background: var(--panel); text-align: left;
+  border: 1px solid var(--line); border-radius: 5px; margin-bottom: 6px;
+}
+.platform-library-row > button:hover { background: var(--panel-active); }
+.platform-library-row small { grid-column: 2 / -1; color: var(--muted); }
+.platform-library-name { overflow-wrap: anywhere; font-family: var(--mono); }
+.platform-role-icon {
+  display: inline-grid; place-items: center; width: 24px; height: 24px;
+  border: 1px solid var(--line-strong); border-radius: 4px; font-weight: 700;
+}
+.platform-library-role { font-size: 12px; }
+.platform-library-row[data-platform-role="facade"] .platform-role-icon {
+  border-style: dashed; border-radius: 50%;
+}
+.platform-library-row[data-platform-role="implementation"] .platform-role-icon {
+  background: var(--panel-active);
+}
+.platform-library-row[data-platform-role="private"] .platform-role-icon {
+  border-style: double; border-width: 3px; background: var(--panel-raised);
+}
+.platform-library-row[data-platform-role="private"] .platform-library-role {
+  color: var(--muted);
+}
+@media (max-width: 600px) {
+  .platform-subject { padding-inline: 12px; }
+  .platform-library-row > button, .platform-library-row > div { grid-template-columns: 28px minmax(0, 1fr); }
+  .platform-library-role { grid-column: 2; }
+  .platform-controls label { max-width: 100%; }
+}
+
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #ffffff;

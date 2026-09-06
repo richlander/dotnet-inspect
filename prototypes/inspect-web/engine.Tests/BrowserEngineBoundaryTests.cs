@@ -48,7 +48,7 @@ using BrowserHomeDemoRunMember = InspectWeb.Engine.CatalogFacade.BrowserHomeDemo
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
-public sealed class BrowserEngineBoundaryTests
+public sealed partial class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
 
@@ -5830,7 +5830,8 @@ public sealed class BrowserEngineBoundaryTests
             "1.0.0",
             source,
             PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromMilliseconds(200));
+            TimeSpan.FromMilliseconds(200),
+            TestContext.Current.CancellationToken);
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
             TestContext.Current.CancellationToken);
@@ -5862,7 +5863,8 @@ public sealed class BrowserEngineBoundaryTests
             version,
             source,
             PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(version, package.Version);
         Assert.Equal(archive, package.RetainedBytes);
@@ -6263,7 +6265,8 @@ public sealed class BrowserEngineBoundaryTests
                     "1.0.0",
                     source,
                     PackageSourceIdentity.NuGetOrg,
-                    TimeSpan.FromSeconds(5)));
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
 
         Assert.Contains(
             "transport failed",
@@ -6293,7 +6296,8 @@ public sealed class BrowserEngineBoundaryTests
                     "1.0.0",
                     source,
                     PackageSourceIdentity.NuGetOrg,
-                    TimeSpan.FromSeconds(5)));
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
 
         Assert.Contains(
             "did not declare its byte length",
@@ -6319,7 +6323,8 @@ public sealed class BrowserEngineBoundaryTests
             version: null,
             source,
             PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(version, package.Version);
         Assert.Equal(2, handler.Requested.Count);
@@ -6354,7 +6359,8 @@ public sealed class BrowserEngineBoundaryTests
             version: null,
             source,
             PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(10),
             TestContext.Current.CancellationToken);
@@ -6382,7 +6388,8 @@ public sealed class BrowserEngineBoundaryTests
             "1.0.0",
             source,
             PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromMilliseconds(500));
+            TimeSpan.FromMilliseconds(500),
+            TestContext.Current.CancellationToken);
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
             TestContext.Current.CancellationToken);
@@ -6391,7 +6398,8 @@ public sealed class BrowserEngineBoundaryTests
             "1.0.0",
             source,
             PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromMilliseconds(100));
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
 
         TimeoutException secondFailure =
             await Assert.ThrowsAsync<TimeoutException>(() => second);
@@ -6482,7 +6490,8 @@ public sealed class BrowserEngineBoundaryTests
                 version,
                 stalledSource,
                 PackageSourceIdentity.NuGetOrg,
-                TimeSpan.FromMilliseconds(500));
+                TimeSpan.FromMilliseconds(500),
+                TestContext.Current.CancellationToken);
         await stalledHandler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
             TestContext.Current.CancellationToken);
@@ -6493,7 +6502,8 @@ public sealed class BrowserEngineBoundaryTests
                 version,
                 servingSource,
                 PackageSourceIdentity.NuGetOrg,
-                TimeSpan.FromSeconds(5));
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
 
         Assert.Equal(packageId, served.PackageId);
         Assert.Equal(version, served.Version);
@@ -6730,7 +6740,8 @@ public sealed class BrowserEngineBoundaryTests
                 () => BrowserPackageWorkspace.GetVersionsAsync(
                     "contoso",
                     source,
-                    TimeSpan.FromSeconds(10)));
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken));
 
         Assert.Equal(
             "The package source operation exceeded its configured deadline.",

@@ -810,7 +810,7 @@ test("platform library selection remains distinct from canonical Platform identi
     /id: "Microsoft\.NETCore\.App"/);
   assert.match(
     appSource,
-    /platformPackForAssembly\(key,\s*libraryPack\)/);
+    /platformLibraryKey\(row\) === assembly[\s\S]*target\.tfm, platformAssemblyRequest\(row\), row\.pack/);
 });
 
 test("platform inspection notices survive cumulative surface loads", () => {
@@ -912,7 +912,7 @@ test("typed status bar owns its rendered toggle binding", () => {
     /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
   assert.equal(
     appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    4);
+    5);
 });
 
 test("typed package controls own framework and version selection bindings", () => {
@@ -1295,7 +1295,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     2);
   assert.match(
     renderWorkspaceFocus,
-    /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*restoreWorkspaceFocus\(document, workspaceFocus\);[\s\S]*recordNav\(\);\s*return;/);
+    /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*restoreWorkspaceFocus\(document, workspaceFocus\);[\s\S]*recordNav\(\);[\s\S]*return;/);
   const catalogRenderer =
     appSource.match(/function renderWorkspaceCatalogView\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
@@ -1369,7 +1369,7 @@ test("the shell separates typed target and Subject navigation rows", () => {
     /<section class="detail-pane">\s*<header class="detail-head">/);
   assert.match(
     subjectPath,
-    /kind: "package"[\s\S]*label: packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
+    /kind: state\.rootKind[\s\S]*label: state\.rootKind === "platform" \? platformTargetLabel\(\) : packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
   assert.match(
     renderer,
     /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
@@ -1505,7 +1505,7 @@ test("typed document inspection owns package document request coordination", () 
 
 test("typed catalog requests own release and package-version coordination", () => {
   const releaseLoader =
-    appSource.match(/function ensureDotnetReleases\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function discoverPlatformVersions\([\s\S]*?\n}/)?.[0]
     ?? "";
   const versionLoader =
     appSource.match(/function ensurePackageVersions\(pkg: AppPackage \| null\)[\s\S]*?\n}/)?.[0]
@@ -1516,7 +1516,7 @@ test("typed catalog requests own release and package-version coordination", () =
   assert.match(
     appSource,
     /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
-  assert.match(releaseLoader, /return catalogRequests\.ensureDotnetReleases\(\)/);
+  assert.match(releaseLoader, /parsePlatformVersions[\s\S]*inspectPlatformVersions\(tfm\)/);
   assert.match(versionLoader, /return catalogRequests\.ensurePackageVersions\(pkg\)/);
   assert.doesNotMatch(
     `${releaseLoader}\n${versionLoader}`,
@@ -1673,7 +1673,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   const rootEventBinder = functionDeclaration("bindEvents");
   const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
   const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
-  assert.equal(rootScopeCalls.length, 2);
+  assert.equal(rootScopeCalls.length, 3);
   for (const rootScopeCall of rootScopeCalls)
     assert.equal(rootScopeCall.arguments.length, 0);
   const innerScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBar");
@@ -1725,8 +1725,9 @@ test("typed scope bar owns its rendered control bindings", () => {
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
+  assert.match(appSource.slice(scope.start, scope.end), /target === "platform"[\s\S]*showPlatformRoot\(\)/);
   assert.deepEqual(
-    statementSignatures(scope.body.body),
+    statementSignatures(scope.body.body.slice(1)),
     [
       'assign:contentFramePane = "detail"',
       {
@@ -1845,13 +1846,13 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 3);
+  assert.equal(eventBinderCalls.length, 4);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    4);
+    5);
   const settingsBinders: readonly (readonly [
     DeclaredFunction,
     string,
@@ -2279,7 +2280,7 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
   assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /if \(!state\.spotlightOpen && !state\.home\) return undefined;[\s\S]*spotlight\.refresh\(\)/);
+    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
@@ -2642,7 +2643,7 @@ test("shared member views use portable product identity and omit UI-local filter
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.match(
     capture,
-    /const library = selectedLibraryRequest\(\);\s*const libraries = workspaceSubjectOpen \|\| !library \? \[\] : \[library\]/);
+    /const library = selectedLibraryShareKey\(\);\s*const libraries = workspaceSubjectOpen \|\| platformRoot \|\| !library \? \[\] : \[library\]/);
   assert.match(
     capture,
     /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
@@ -2652,7 +2653,7 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.match(
     capture,
     /overload\.graphOnly[\s\S]*Graph-discovered members cannot be shared/);
-  assert.match(capture, /package: state\.package\.id/);
+  assert.match(capture, /package: state\.rootKind === "platform" \? "" : state\.package\?\.id/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);
   assert.doesNotMatch(capture, /memberAccessibilityFilter:/);
@@ -2798,10 +2799,10 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
   assert.match(
     stateUrl,
-    /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
+    /state\.atPackageRoot && state\.rootKind === "package" && state\.package[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     scopePlatform,
-    /resolvePackageLibrary\(pkg\.assemblies, key\)[\s\S]*scopeOnly\) return hasLib \? pkg : undefined/);
+    /platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\)[\s\S]*if \(scopeOnly\) return pkg/);
   assert.match(
     validateView,
     /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
@@ -2884,7 +2885,7 @@ test("malformed package routes use the contained restore failure path", () => {
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    2);
+    3);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
@@ -2997,7 +2998,7 @@ test("loaded-package Spotlight selection reuses the complete package transition"
 
 test("foreground package reload resets filters before selecting its first type", () => {
   const loadPackage =
-    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction runtimePackLoaded/)?.[0]
+    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction platformSurfaceLoaded/)?.[0]
     ?? "";
   assert.match(
     loadPackage,
@@ -3027,7 +3028,7 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
@@ -3100,7 +3101,7 @@ test("catalog package acquisition failure restores warm and cold workspaces loca
   assert.doesNotMatch(catalogFailure, /workspaceLocation\.(?:push|replace)/);
 
   const loadPackage =
-    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction runtimePackLoaded/)?.[0]
+    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction platformSurfaceLoaded/)?.[0]
     ?? "";
   assert.match(
     loadPackage,
@@ -3111,10 +3112,10 @@ test("catalog package acquisition failure restores warm and cold workspaces loca
     ?? "";
   assert.match(
     platformLibraryLoad,
-    /const openedFromProductDemos =\s*!scopeOnly && isProductHomeDemosPath\(location\.pathname\);\s*spotlight\.reset\(\);\s*const catalogSnapshot = openedFromProductDemos\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
+    /ensurePlatformCatalog\(tfm, version\)[\s\S]*installPlatformTarget\(target\)[\s\S]*state\.platformOpeningStatus = \{ loading: true/);
   assert.match(
     platformLibraryLoad,
-    /if \(!loaded\) \{[\s\S]*const message = failureMessage[\s\S]*if \(catalogSnapshot\) \{\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack\),\s*focusWorkbenchSearchOrHeading,\s*\);[\s\S]*return undefined;[\s\S]*\}\s*state\.error = message;/);
+    /if \(!pkg\) throw new Error\(runtimeResult\.failureMessage[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
   assert.match(
     appSource,
     /function focusWorkbenchSearchOrHeading\(\): boolean \{\s*return focusWorkbenchSearch\(document\) \|\| focusLevelOneHeading\(\);\s*}/);
@@ -3207,7 +3208,7 @@ test("Platform Spotlight distinguishes resident content from core readiness", ()
     /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
   assert.match(
     results,
-    /if \(!roster\.length && !runtimePackLoaded\(\)\)/);
+    /const target = selectedPlatformTarget\(\);[\s\S]*kind: "platform", tfm: target\.tfm, version: target\.version/);
 });
 
 test("Package query is a routed Spotlight action with typed workspace handoff", () => {
@@ -3357,7 +3358,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) return;\s*navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+    /function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) \{[\s\S]*state\.platformSelection[\s\S]*openDefaultWorkspace\(\);[\s\S]*navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
   assert.match(
     appSource,
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*selectWorkspaceApplicationScope\(\)/);
@@ -3388,7 +3389,7 @@ test("authoritative location restore clears filters and applies aggregate Platfo
   assert.match(workspaceRestore, /resetLocationFilters\(\);\s*clearWorkspacePackages\(\)/);
   assert.match(
     workspaceRestore,
-    /if \(isRuntimePackId\(targetModel\.id\)\) \{\s*const scoped = await applyPlatformLibraryScope\(\s*loc\.library/);
+    /if \(targetModel\.source\.kind === "platform"\) \{\s*const scoped = await applyPlatformLibraryScope\(\s*loc\.library/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -3542,7 +3543,7 @@ test("Platform scope restoration defers selection, rendering, and data loading",
     ?? "";
   assert.match(
     openPlatformLibrary,
-    /const scopeOnly = options\.scopeOnly === true;[\s\S]*resolvePackageLibrary\(pkg\.assemblies, key\)[\s\S]*state\.libraryScope = library \? new Set\(\[library\.id\]\) : null;[\s\S]*if \(scopeOnly\) return hasLib \? pkg : undefined;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*render\(\);[\s\S]*await loadSelectionData\(\)/);
   const applyScope =
     appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\n\/\/ History/)?.[0]
     ?? "";
@@ -6425,7 +6426,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.match(
     appSource,
-    /state\.retryAction = options\.retryAction/);
+    /platformLibraryRetry = options\.retryAction/);
   assert.match(
     appSource,
     /state\.retryAction = retry/);

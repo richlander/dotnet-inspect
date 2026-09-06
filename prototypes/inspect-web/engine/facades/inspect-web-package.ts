@@ -273,6 +273,26 @@ export interface BrowserParameterSurface {
   readonly description: string | null;
 }
 
+export interface BrowserPlatformCatalog {
+  readonly tfm: string;
+  readonly version: string;
+  readonly rows: ReadonlyArray<BrowserPlatformLibrary>;
+}
+
+export interface BrowserPlatformLibrary {
+  readonly tfm: string;
+  readonly pack: string;
+  readonly assembly: string;
+  readonly file: string;
+  readonly kind: string;
+  readonly forwardsTo: string | null;
+  readonly version: string;
+  readonly publicTypes: number;
+  readonly inReferencePack: boolean;
+  readonly hasImplementation: boolean;
+  readonly packVersion: string;
+}
+
 export interface BrowserTypeCandidate {
   readonly key: string;
   readonly name: string;
@@ -334,12 +354,15 @@ type $ManagedExports = {
     readonly "CancelPackageQuery.19325221": () => void;
     readonly "ClearWorkspacePackageOccurrences.19325221": () => void;
     readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
+    readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
+    readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
     readonly "ListGalleryDiscoveryCatalog.1310674786": () => string;
     readonly "ListPackageQueryFacets.1310674786": () => string;
     readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
     readonly "LoadRuntimePackAssembly.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
     readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
     readonly "PackageCacheStats.1310674786": () => string;
+    readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
     readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
     readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
     readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
@@ -429,6 +452,22 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "GetPlatformCatalog.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.GetPlatformCatalog.451505237\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "GetPlatformVersions.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.GetPlatformVersions.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "ListGalleryDiscoveryCatalog.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027PackageExports.ListGalleryDiscoveryCatalog.1310674786\u0027 is not callable.");
@@ -472,6 +511,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "PackageCacheStats.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027PackageExports.PackageCacheStats.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "PrefetchPlatformPacks.1782598084");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.PrefetchPlatformPacks.1782598084\u0027 is not callable.");
     }
   }
   {
@@ -603,6 +650,18 @@ export async function getPackageDocument(packageId: string, version: string, pat
   return $parsed as BrowserPackageDocumentContent;
 }
 
+export async function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog> {
+  const $result = await $requireManagedExports()["PackageExports"]["GetPlatformCatalog.451505237"](targetFramework, platformVersion);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPlatformCatalog;
+}
+
+export async function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>> {
+  const $result = await $requireManagedExports()["PackageExports"]["GetPlatformVersions.976702342"](targetFramework);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as ReadonlyArray<string>;
+}
+
 export function listGalleryDiscoveryCatalog(): BrowserGalleryDiscoveryCatalog {
   const $result = $requireManagedExports()["PackageExports"]["ListGalleryDiscoveryCatalog.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
@@ -633,6 +692,10 @@ export function packageCacheStats(): BrowserPackageCacheStats {
   const $result = $requireManagedExports()["PackageExports"]["PackageCacheStats.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageCacheStats;
+}
+
+export async function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void> {
+  return await $requireManagedExports()["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
 }
 
 export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation> {

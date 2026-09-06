@@ -228,7 +228,8 @@ internal static class BrowserPackageWorkspace
         string? version,
         IPackageSourceClient source,
         PackageSourceIdentity configuredSourceIdentity,
-        TimeSpan operationTimeout) =>
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             deadline => AcquireCoreAsync(
                 packageId,
@@ -236,8 +237,9 @@ internal static class BrowserPackageWorkspace
                 source,
                 configuredSourceIdentity,
                 deadline,
-                CancellationToken.None),
-            operationTimeout);
+                cancellationToken),
+            operationTimeout,
+            cancellationToken);
 
     static async Task<BrowserPackage> AcquireCoreAsync(
         string packageId,
@@ -1306,13 +1308,15 @@ internal static class BrowserPackageWorkspace
     internal static Task<string[]> GetVersionsAsync(
         string packageId,
         IPackageSourceClient source,
-        TimeSpan timeout) =>
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             deadline => GetVersionsCoreAsync(
                 packageId,
                 source,
                 deadline.Token),
-            timeout);
+            timeout,
+            cancellationToken);
 
     static async Task<string[]> GetVersionsCoreAsync(
         string packageId,
@@ -2587,6 +2591,12 @@ internal sealed class BrowserPackage
                 "Only an acquisition-issued Browser package can create a bound package Root."),
             targetFramework,
             displayPackageId: PackageId);
+
+    internal PackageInspectionInput CreateInspectionInput() =>
+        PackageInspectionInput.CreateFromPayload(
+            _acquiredPayload
+            ?? throw new InvalidOperationException(
+                "Only an acquisition-issued Browser package can create an inspection input."));
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any

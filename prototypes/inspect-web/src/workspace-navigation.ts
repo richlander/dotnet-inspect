@@ -1,3 +1,4 @@
+import type { PlatformNavigationState } from "./platform-subject.ts";
 import {
   graphMemberShareTarget,
   isLibraryLens,
@@ -29,6 +30,8 @@ import type {
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.
 export interface WorkspaceView {
+  rootKind?: "package" | "platform";
+  platform?: PlatformNavigationState | null;
   package: string;
   packageKey: string;
   workspaceSubjectOpen: boolean;
@@ -53,6 +56,8 @@ export interface WorkspaceView {
 export function workspaceViewSignature(view: WorkspaceView): string {
   const graphTarget = graphMemberShareTarget(view.bodyTarget);
   return JSON.stringify({
+    root: view.rootKind ?? "package",
+    platform: view.platform ?? null,
     p: view.packageKey,
     ws: view.workspaceSubjectOpen,
     l: view.lens,
@@ -879,7 +884,12 @@ function resolveWorkspaceLocation(
   }
 
   const view = resolveView(viewToken);
+  const platform = tabs[active]?.shareKind === "group"
+    && tabs[active]?.shareSource === ":Platform";
+  const atPlatformRoot = platform && !viewToken && !library && !type
+    && !memberAnchor && !memberSignature;
   return {
+    rootKind: platform ? "platform" as const : "package" as const,
     package: pkg,
     version,
     framework,
@@ -892,7 +902,7 @@ function resolveWorkspaceLocation(
     bodyTarget,
     lens: view.lens,
     workspaceSubjectOpen: view.workspaceSubjectOpen,
-    atPackageRoot: view.atPackageRoot,
+    atPackageRoot: view.atPackageRoot || atPlatformRoot,
     atLibraryRoot: view.atLibraryRoot,
     packageLens: view.packageLens,
     libraryLens: view.libraryLens,
@@ -963,7 +973,7 @@ export function buildWorkspaceStateUrl(
   const url = new URL(base);
   url.pathname = "/";
   const params = new URLSearchParams();
-  params.set("package", state.package);
+  if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
   url.search = params.toString();

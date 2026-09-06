@@ -66,6 +66,22 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "GetPlatformCatalog.451505237");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.GetPlatformCatalog.451505237\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "GetPlatformVersions.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.GetPlatformVersions.976702342\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ListGalleryDiscoveryCatalog.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.ListGalleryDiscoveryCatalog.1310674786\u0027 is not callable.");
@@ -109,6 +125,14 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "PackageCacheStats.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.PackageCacheStats.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "PrefetchPlatformPacks.1782598084");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.PrefetchPlatformPacks.1782598084\u0027 is not callable.");
         }
     }
     {
@@ -224,6 +248,16 @@ export async function getPackageDocument(packageId, version, path) {
     const $parsed = JSON.parse($result);
     return $parsed;
 }
+export async function getPlatformCatalog(targetFramework, platformVersion) {
+    const $result = await $requireManagedExports()["PackageExports"]["GetPlatformCatalog.451505237"](targetFramework, platformVersion);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function getPlatformVersions(targetFramework) {
+    const $result = await $requireManagedExports()["PackageExports"]["GetPlatformVersions.976702342"](targetFramework);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export function listGalleryDiscoveryCatalog() {
     const $result = $requireManagedExports()["PackageExports"]["ListGalleryDiscoveryCatalog.1310674786"]();
     const $parsed = JSON.parse($result);
@@ -249,6 +283,9 @@ export function packageCacheStats() {
     const $result = $requireManagedExports()["PackageExports"]["PackageCacheStats.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
+}
+export async function prefetchPlatformPacks(targetFramework, platformVersion) {
+    return await $requireManagedExports()["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
 }
 export async function queryMemberDocumentation(packageId, version, framework, assemblyName, documentationId) {
     const $result = await $requireManagedExports()["PackageExports"]["QueryMemberDocumentation.1330709314"](packageId, version, framework, assemblyName, documentationId);

@@ -328,7 +328,7 @@ jobs:
         run: eng/run-local-path-admission-platform-probe.sh browser
 
       - name: Build platform-index generator
-        run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs
+        run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs -c Release
 
       - name: Build browser frontend
         working-directory: prototypes/inspect-web

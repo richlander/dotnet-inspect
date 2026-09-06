@@ -14,6 +14,41 @@ using InspectWeb.Engine.PackageFacade;
 public static partial class PackageExports
 {
     [JSExport]
+    public static async Task<string> GetPlatformVersions(string targetFramework) =>
+        JsonSerializer.Serialize(
+            await InspectWeb.Engine.BrowserPlatformCatalog.GetVersionsAsync(targetFramework),
+            BrowserPackageJsonContext.Default.StringArray);
+
+    [JSExport]
+    public static async Task<string> GetPlatformCatalog(
+        string targetFramework,
+        string platformVersion)
+    {
+        BrowserPlatformCatalogResult catalog =
+            await InspectWeb.Engine.BrowserPlatformCatalog.GetCatalogAsync(
+                targetFramework, platformVersion);
+        return JsonSerializer.Serialize(
+            ProjectPlatformCatalog(catalog),
+            BrowserPackageJsonContext.Default.BrowserPlatformCatalog);
+    }
+
+    internal static InspectWeb.Engine.PackageFacade.BrowserPlatformCatalog ProjectPlatformCatalog(
+        BrowserPlatformCatalogResult catalog) =>
+            new(
+                catalog.Tfm, catalog.Version,
+                [.. catalog.Rows.Select(row => new BrowserPlatformLibrary(
+                    row.Tfm, row.Pack, row.Assembly, row.File, row.Kind, row.ForwardsTo,
+                    row.Version, row.PublicTypes, row.InReferencePack,
+                    row.HasImplementation, row.PackVersion))]);
+
+    [JSExport]
+    public static Task PrefetchPlatformPacks(
+        string targetFramework,
+        string platformVersion) =>
+        InspectWeb.Engine.BrowserPlatformCatalog.PrefetchAsync(
+            targetFramework, platformVersion);
+
+    [JSExport]
     public static async Task<string> LoadRuntimePack(
         string targetFramework,
         string platformVersion)

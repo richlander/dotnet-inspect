@@ -83,6 +83,7 @@ export function isMemberSection(
 const workspaceScopes = [
   "workspace",
   "package",
+  "platform",
   "library",
   "type",
   "member",

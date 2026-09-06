@@ -89,6 +89,7 @@ test("Workspace details render product occurrences as opaque actions", () => {
       framework: "net10.0",
     }],
     packages,
+    platform: { tfm: "net11.0", version: "11.0.0-preview.7.26381.103", includeAllLibraries: false, filter: "" },
     demos: [{
       id: "stj-serializer",
       title: "System.Text.Json",
@@ -106,7 +107,8 @@ test("Workspace details render product occurrences as opaque actions", () => {
   assert.match(
     html,
     /data-workspace-activate="opaque-action"[\s\S]*System\.Text\.Json/);
-  assert.match(html, /Platform[\s\S]*Microsoft\.NETCore\.App/);
+  assert.match(html, /data-workspace-platform[\s\S]*\.NET Platform/);
+  assert.doesNotMatch(html, /Microsoft\.NETCore\.App/);
   assert.doesNotMatch(html, /data-workspace-close/);
 });
 

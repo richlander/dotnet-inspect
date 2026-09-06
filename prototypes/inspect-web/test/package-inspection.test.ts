@@ -259,7 +259,9 @@ function inspectionDependencies(
     queryPlatformPerformance: async () => performanceResult(),
     queryPackageMetadata: async () => metadataResult(),
     queryPlatformMetadata: async () => metadataResult(),
-    platformPackForAssembly: assemblyName => `pack:${assemblyName}`,
+    platformLibraryCoordinates: (_package, assemblyName) => ({
+      assemblyFileName: `${assemblyName}.dll`, pack: `pack:${assemblyName}`,
+    }),
     describeError: error =>
       error instanceof Error ? error.message : String(error),
     refreshPackageStats: () => {},

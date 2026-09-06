@@ -1673,7 +1673,7 @@ public static class WorkspaceContextLoader
         CancellationToken cancellationToken)
     {
         string family = members[0].Family;
-        PackageAssetSelection selection = PackageAssetSelector.Select(
+        PackageAssetSelection selection = PackageAssetSelector.SelectPlatformPack(
             acquired.Content,
             framework,
             RepresentativeRuntimeIdentifier);

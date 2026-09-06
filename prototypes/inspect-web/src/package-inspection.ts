@@ -119,7 +119,10 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackageMetadata>;
-  platformPackForAssembly(assemblyName: string): string;
+  platformLibraryCoordinates(
+    packageModel: AppPackage,
+    library: string,
+  ): { assemblyFileName: string; pack: string };
   describeError(error: unknown): string;
   refreshPackageStats(): void;
   render(): void;
@@ -184,8 +187,7 @@ export function createPackageInspectionCoordinator(
   ) => ({
     framework: packageModel.activeFramework,
     platformVersion: packageModel.version,
-    assemblyFileName: `${scopedLibrary}.dll`,
-    pack: dependencies.platformPackForAssembly(scopedLibrary),
+    ...dependencies.platformLibraryCoordinates(packageModel, scopedLibrary),
   });
 
   const ensureWorkspaceDependencies = async () => {
