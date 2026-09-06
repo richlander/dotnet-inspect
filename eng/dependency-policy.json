@@ -345,7 +345,8 @@
         "ILInspector.Findings",
         "ILInspector.Instructions",
         "ILInspector.Metadata",
-        "ILInspector.MetadataPrimitives"
+        "ILInspector.MetadataPrimitives",
+        "InertText"
       ]
     },
     {
