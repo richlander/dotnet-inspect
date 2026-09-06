@@ -23,6 +23,8 @@ public sealed class AssemblyContextApiComparisonEndpoint
         && Projection.Assemblies.Assemblies is
             [AssemblyContextEntry<AssemblyApiSurface>.Available available]
         && available.Value.InspectionFailures.IsEmpty
+        && available.Value.Surface.Types.All(type =>
+            type.Members.All(member => member.SignatureDecodeStatus is null))
             ? available.Value.Surface
             : null;
 }

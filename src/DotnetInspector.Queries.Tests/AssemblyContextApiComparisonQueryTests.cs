@@ -313,6 +313,61 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
         WriteOutcome(failBefore ? "Row failure Before" : "Row failure After", result);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Execute_DegradedSignature_SuppressesComparisonButRetainsEndpointEvidence(
+        bool degradeBefore)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).FieldSignature().Object();
+        var guardedSignature = new BlobBuilder();
+        SignatureTypeEncoder fieldType = new BlobEncoder(guardedSignature).FieldSignature();
+        for (int depth = 0; depth <= SignatureBlobGuard.DefaultMaxDepth; depth++)
+            fieldType = fieldType.SZArray();
+        fieldType.Object();
+        byte[] degradedImage = BuildTypedApiSurfaceImage(
+            1, "SignatureComparison", guardedSignature.ToArray());
+        byte[] healthyImage = BuildTypedApiSurfaceImage(
+            1, "SignatureComparison", signature.ToArray());
+        var policy = new TestBindingPolicy();
+        AssemblyContextParticipant degradedParticipant = Participant(
+            IdentityOf(degradedImage), degradedImage, null, "degraded", policy);
+        AssemblyContextParticipant healthyParticipant = Participant(
+            IdentityOf(healthyImage), healthyImage, null, "healthy", policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup beforeGroup = workspace.CreateAssemblyContextGroup(
+            [degradeBefore ? degradedParticipant : healthyParticipant]);
+        using AssemblyContextGroup afterGroup = workspace.CreateAssemblyContextGroup(
+            [degradeBefore ? healthyParticipant : degradedParticipant]);
+
+        AssemblyContextApiComparisonResult result = AssemblyContextApiComparisonQuery.Execute(
+            beforeGroup,
+            Assert.Single(beforeGroup.Participants),
+            afterGroup,
+            Assert.Single(afterGroup.Participants),
+            ApiSurfaceScope.Public,
+            GenerousLimits);
+        AssemblyContextApiComparisonEndpoint degraded =
+            degradeBefore ? result.Before : result.After;
+        AssemblyContextApiComparisonEndpoint healthy =
+            degradeBefore ? result.After : result.Before;
+        AssemblyApiSurface degradedSurface = Available(degraded.Projection.Assemblies);
+        Assert.True(degraded.Projection.IsComplete);
+        Assert.Empty(degradedSurface.InspectionFailures);
+        ApiType degradedType = Assert.Single(degradedSurface.Surface.Types);
+        ApiMember degradedMember = Assert.Single(degradedType.Members);
+        Assert.Equal(SignatureDecodeStatus.Degraded, degradedMember.SignatureDecodeStatus);
+        Assert.Same(degradedParticipant.Assembly.Registration, degraded.Subject.Registration);
+        WriteOutcome(degradeBefore ? "Degraded signature Before" : "Degraded signature After", result);
+
+        Assert.False(degraded.IsComplete);
+        Assert.True(healthy.IsComplete);
+        Assert.Null(result.Comparison);
+        Assert.False(result.IsComplete);
+        Assert.False(result.IsExact);
+    }
+
     // Extraction bounds are explicit and per-endpoint: the same nominal per-type budget lets a
     // small enough endpoint complete even though the paired endpoint on the other side overflowed
     // it, proving the budget is never shared or halved across the pair.
@@ -624,13 +679,13 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             .Value;
 
     /// <summary>
-    /// A minimal public API surface with exactly <paramref name="typeCount"/> public types and no
-    /// forwarders, interfaces, or members. Deliberately smaller than
-    /// <c>AssemblyContextApiSurfaceQueryTests.BuildBoundedSurfaceImage</c> — this query's tests
-    /// only need explicit control over the projected type count, not that helper's forwarder and
-    /// interface shapes.
+    /// A minimal public API surface with exactly <paramref name="typeCount"/> public types,
+    /// an optional field on the last type, and no forwarders or interfaces.
     /// </summary>
-    static byte[] BuildTypedApiSurfaceImage(int typeCount, string assemblyName = "ComparisonBudget")
+    static byte[] BuildTypedApiSurfaceImage(
+        int typeCount,
+        string assemblyName = "ComparisonBudget",
+        byte[]? fieldSignature = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -662,6 +717,14 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        if (fieldSignature is not null)
+        {
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(fieldSignature));
         }
 
         var pe = new ManagedPEBuilder(

@@ -1258,12 +1258,15 @@ The same caller-declared budget applies separately to each endpoint, not to
 their combined population.
 
 The query compares only two fully projected surfaces. Rejection, failure,
-projection truncation, or an API-row inspection failure on either side prevents
-comparison, while retaining both endpoint outcomes and any available facts.
+projection truncation, an API-row inspection failure, or a degraded member
+signature on either side prevents comparison, while retaining both endpoint
+outcomes and any available facts.
 In particular, a participant can be available while some API rows failed:
 `AssemblyContextApiSurfaceResult.IsComplete` alone does not establish that its
-surface is eligible for this comparison. The new endpoint's completion
-includes the row-failure check.
+surface is eligible for this comparison. Guarded signature substitution is
+also retained separately as `ApiMember.SignatureDecodeStatus`, without
+necessarily producing a row failure. The endpoint's completion consumes both
+signals; a substituted signature is not complete comparison evidence.
 
 A valid empty public surface is complete evidence and may be compared. An
 unavailable or incomplete surface is not an empty surface and must not produce
@@ -1281,8 +1284,9 @@ query and its CLI consumer remain unchanged.
 
 `AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
 selected-participant projection, complete and empty comparisons, independent
-budgets, unavailable neighbors, and row-level failure admission. The existing
-`AssemblyContextApiSurfaceQueryTests` owns extraction-bound enforcement;
+budgets, unavailable neighbors, row-level failure admission, and degraded
+signature admission. `AssemblyContextApiSurfaceQueryTests` owns
+extraction-bound enforcement;
 `ApiComparisonQueryTests` owns the Metadata-comparison seam.
 
 [#6119](https://github.com/richlander/dotnet-inspect/issues/6119) is the
