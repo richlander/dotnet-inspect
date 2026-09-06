@@ -884,8 +884,7 @@ difficulty profile is selection/analysis metadata the oracle ignores.
 The sweep also answers questions about a pin file without acquiring anything:
 
 ```bash
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
-  eng/prepare-decompiler-package-sweep.cs -- \
+dotnet run eng/prepare-decompiler-package-sweep.cs -- \
   --validate-pin docs/data/nuget-top-packages.lock.json
 ```
 
@@ -902,8 +901,7 @@ short at exit 1.
 It also names the rules it applies, one per line:
 
 ```bash
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
-  eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
+dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
 ```
 
 `EvilPoolPinTests` holds each of those rules with a tampered pin file and asserts the
