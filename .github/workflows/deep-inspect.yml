@@ -247,7 +247,7 @@ jobs:
 
       - name: Run ecosystem registry tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
 
       - name: Run ecosystem consumer tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
