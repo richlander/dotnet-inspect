@@ -42,10 +42,14 @@ It consumes owner-issued facts and does not redefine their construction:
   resolution facts.
 - [Package Source Model](package-source-model.md) owns source authorization,
   authority identity, transport, and source-result association.
-- The typed package dependency traversal planned by
-  [#5996](https://github.com/richlander/dotnet-inspect/issues/5996) owns
-  transitive package version selection, graph identity, source association,
-  failures, and completion.
+- The exact dependency-candidate adapter tracked by
+  [#5765](https://github.com/richlander/dotnet-inspect/issues/5765) owns
+  source-authorized package version-range resolution and exact acquisition
+  candidates.
+- [Package Dependency Traversal](package-dependency-traversal.md) owns
+  package-manifest graph identity, direct source boundaries, root-relative
+  reachability, failures, and completion while preserving owner-issued
+  candidate and source evidence.
 - [Search Scope Resolution](search-scope-resolution.md) owns default source
   activation, explicit-source suppression, and source composition in type
   relationship mode.
@@ -106,20 +110,22 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The delivery plan has six steps:
+The delivery plan has seven steps:
 
 1. Lock this command contract in #5993.
-2. Define typed package dependency traversal under
+2. Supply the shared declaration-to-exact-candidate handoff under
+   [#5765](https://github.com/richlander/dotnet-inspect/issues/5765).
+3. Define typed package dependency traversal under
    [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
-3. Define typed restored-project root and project-reference traversal under
+4. Define typed restored-project root and project-reference traversal under
    [#5998](https://github.com/richlander/dotnet-inspect/issues/5998).
-4. Replace the lossy tree-owned `depends` model with one typed Markout graph
+5. Replace the lossy tree-owned `depends` model with one typed Markout graph
    and edge-row projection under
    [#3320](https://github.com/richlander/dotnet-inspect/issues/3320).
-5. Adopt asset-driven project, assets, nuspec, and normalized package evidence
+6. Adopt asset-driven project, assets, nuspec, and normalized package evidence
    plus depth-controlled traversal under
    [#5994](https://github.com/richlander/dotnet-inspect/issues/5994).
-6. Remove `dependency-evidence`, reserve its token against implicit routing,
+7. Remove `dependency-evidence`, reserve its token against implicit routing,
    and update current README, help, product skills, demos, and machine
    contracts under
    [#5995](https://github.com/richlander/dotnet-inspect/issues/5995).
@@ -128,12 +134,14 @@ This is an alternative to the current two-command architecture. Adoption is
 not complete until the old command and its command-specific projection path are
 removed.
 
-The typed package traversal owner in #5996 is a new host-neutral prerequisite.
-It is separated because this command design consumes its result but does not
-own package version selection, source association, or traversal failure
-semantics. Its first production consumer is CLI `depends`; #5532 also sequences
-its later Browser/Wasm reuse so the algorithm does not become a CLI-only
-substrate.
+The exact-candidate adapter in #5765 and typed package traversal owner in #5996
+are shared host-neutral prerequisites. They are separated because
+source-authorized version selection and exact acquisition correspondence belong
+to the candidate adapter, while graph traversal, root-relative reachability,
+and traversal completion belong to the traversal query. This command consumes
+both results without redefining either contract. Its first production consumer
+is CLI `depends`; #5532 also sequences later Browser/Wasm reuse so neither
+capability becomes CLI-only substrate.
 
 Type-hierarchy and library-reference graph correction remains the existing
 focused work in #3320. This design specifies the command-visible graph
@@ -391,8 +399,10 @@ limit so a leaf caused by the bound cannot be confused with a subject proven
 to have no dependencies.
 
 Cycles and revisits are graph facts, not reasons to delete nodes or edges.
-Traversal terminates by semantic node identity while retaining every distinct
-logical edge encountered within the bound.
+Traversal terminates by the reusable producer's owner-issued expansion
+identity while retaining every distinct logical edge encountered within the
+bound. Package traversal defines that expansion identity separately from its
+exact-coordinate document node identity.
 
 For several roots, traversal retains a finite root-occurrence reachability
 relation:
@@ -402,11 +412,13 @@ relation:
 - for each root occurrence and graph edge, whether that edge is admitted from
   that root within the requested depth.
 
-Cycles terminate because a node is expanded for one root occurrence only when
-that traversal discovers a shorter distance. The document graph is the union
-of the per-root admitted edges. Tree and depth-boundary lowering consume the
-per-root relation, so an edge admitted through a short path from root B is not
-incorrectly rendered below root A when it lies beyond A's depth.
+Cycles terminate because an owner-issued expansion identity is propagated for
+one root occurrence only when traversal discovers a shorter distance. Package
+traversal uses source-relative manifest projection identity while retaining
+exact package coordinate as document node identity. The document graph is the
+union of the per-root admitted edges. Tree and depth-boundary lowering consume
+the per-root relation, so an edge admitted through a short path from root B is
+not incorrectly rendered below root A when it lies beyond A's depth.
 
 A semantic node that is also an explicit root remains one graph node with a
 separate root occurrence. Tree lowering renders that occurrence as its own
@@ -661,6 +673,11 @@ root kind that deliberately exposes only owned direct evidence are successful
 bounded outcomes, not failures. `Partial` and `Failed` mean that evidence
 required inside the authorized boundary was lost or rejected.
 
+`Failed` is a document-level state: traversal was requested but no applicable
+root was admitted or an operation-level producer failure prevented a traversal
+outcome. When at least one root has usable graph evidence, failed sibling root
+attempts make the document `Partial` instead.
+
 An empty edge set is a complete empty graph only when every applicable producer
 established that the admitted roots have no dependency relationships within
 the requested scope. Missing assets, rejected metadata, unavailable package
@@ -700,6 +717,11 @@ root owner:
 
 No matching package group, unavailable restored target selection, and an empty
 selected group remain distinct states.
+
+When `--tfm` is omitted, package-manifest traversal uses the package
+dependency-group owner's per-manifest default selection. Each package retains
+its selected framework, and the resulting graph does not claim one shared
+target framework.
 
 This design does not add `--rid`. A restored target selected by existing
 owner policy retains and discloses its RID. A future explicit RID gesture would

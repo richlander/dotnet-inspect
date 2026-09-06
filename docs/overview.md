@@ -59,8 +59,12 @@ substrates, and inspection producers that will extend that space.
   optimization-opportunity,
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
-  API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content; the
+  API-comparison, progressive call-graph, and group-scoped source queries. Its
+  target [package dependency traversal](design/package-dependency-traversal.md)
+  owner composes normalized declarations, exact source-authorized candidates,
+  and exact manifest results into one depth-bounded graph with root-relative
+  reachability. The source query owns a Decompiler fallback over retained
+  assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The project
