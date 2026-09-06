@@ -177,6 +177,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Design Scope and Composition](../docs/design-scope.md) | Full mechanics for one-owner-per-design, broad-design gating, TLA+ modeling, and over-broad-design recovery. |
 | [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
 | [Fixture Governance](fixture-governance.md) | Placement, project-boundary axes, catalog metadata, consumer rules, and expectation ownership for compiled fixtures and test-local samples. |
+| [Classifying Test Cost](testing-cost-classification.md) | When and how to tag a test `Speed=Slow` so it runs nightly instead of in the PR-blocking fast leg. |
 | [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |
 | [Agent Model Mapping](agent-models.md) | Contributor-guidance model names, exact dispatch IDs, and runtime availability resolution. |
 | [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
