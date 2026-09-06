@@ -113,14 +113,6 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     AssemblyBindingFailureKind.InvalidBindingOrigin));
         }
 
-        if (!_composeParticipantSelections)
-        {
-            return IssueSelection(
-                state,
-                route,
-                SelectDelegate(state, route, request));
-        }
-
         if (request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
             && request.Origin
                 is AssemblyBindingOrigin.RequestingAssembly requesting)
@@ -148,6 +140,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return AssemblyBindingSelection.ValidateForRequest(
                 request,
                 intrinsicSelection!.Value);
+        }
+
+        if (!_composeParticipantSelections)
+        {
+            return IssueSelection(
+                state,
+                route,
+                SelectDelegate(state, route, request));
         }
 
         AssemblyBindingTarget.AssemblyReference? reference =

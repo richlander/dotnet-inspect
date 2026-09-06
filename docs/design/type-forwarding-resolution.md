@@ -1351,8 +1351,8 @@ Services implementation owns version capture, foreign-snapshot propagation, and
 continuation issuance for this path as well as the existing CLI/Browser
 assembly-group consumers.
 
-Routing-only composition deliberately leaves candidate selection and intrinsic
-binding to its delegates or the surrounding composite. Analysis's existing
+Routing-only composition deliberately leaves reference-candidate selection
+to its delegates or the surrounding composite. Analysis's existing
 `ScopeFirstBindingPolicy` remains the caller-scope candidate-selection owner.
 Applying the Services group's canonical-candidate precedence inside that
 fallback would change the CLI's selection rules rather than merely adopt
@@ -1361,7 +1361,21 @@ continuation; a transitive non-participant retains its selecting delegate's
 occurrence. Selecting a transitive dependency does not instantiate another
 resolver.
 
-This is one production-adoption and retirement step under #5274. Its concrete
+Intrinsic core-library facts remain relative to the requesting occurrence's
+image. Retaining its selecting resolver must not re-root those facts at that
+resolver's original target. The shared intrinsic-binding path enforces this
+for both modes; `Select_RoutingOnlyKeepsTheContinuedCoreLibraryAsItsOwnIntrinsic`
+gates a continued core-library selection rather than a return to its caller's
+facade.
+
+Caller-scope reachability follows bound occurrences through forwarders and
+distinguishes visited resolver contexts. It must not reconstruct a seed from a
+physical candidate and mistake that different request for unavailable binding
+evidence. `ApiMemberAnalysisInspectionTests` gates the existing exact-version,
+unrelated-scope, direct-scope narrowing, and caller/callee admission behavior.
+
+This folds the CLI adoption and its Analysis prerequisite (#5668) into one
+coherent production step under #5274. Its concrete
 consumer is CLI `member -S Callers`, through `CallerScopeReachabilityPlan`.
 `CallerBindingContinuationTests.ProjectCallers_RetainTheSelectedProjectContext`
 uses a restored-assets forwarding chain and an unselected same-name DLL beside
@@ -1376,8 +1390,24 @@ foreign-snapshot propagation, state refresh, and null-result failure.
 delegate emits a foreign snapshot without changing its advertised version,
 for both group and routing-only composition. The existing composite-version
 and resolver-lineage models supply the bounded correspondence; these Release
-cases establish the implementation gates. Analysis's own fallback-snapshot
-adoption remains #5668; this step does not claim its completion or add retry.
+cases establish the implementation gates. This step adds no retry.
+
+**Analysis caller-scope adoption (#5668).** `ScopeFirstBindingPolicy` captures
+its fixed target/root inventory, fallback policy and fallback version in
+immutable state with a distinct outer token. Its target/root precedence is
+unchanged. Selected occurrences carry that outer version and retain the exact
+fallback occurrence for continued requests; a locally selected target or root
+continues through the fallback's configured seed rules. Returning a fallback
+continuation under a different outer snapshot version is invalid, even when
+both policies are individually immutable.
+
+Foreign fallback snapshots are forwarded unchanged before interpreting their
+selection and retire the captured outer state, including when the fallback's
+advertised version has not changed. Ordinary selections keep the token stable;
+fallback drift requires a fresh token and rejects retired continuations.
+`CallerScopeReachabilityPlanTests` gates these transitions and the frozen
+Metadata composition: a caller forwarding to a different target definition
+must remain ruled out with either seed or policy-issued fallback occurrences.
 
 #### Resolver-lineage continuations
 

@@ -234,20 +234,26 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
-    public void Select_RoutingOnlyDelegatesIntrinsicBindingWithoutOpeningTheOrigin()
+    public void Select_RoutingOnlyKeepsTheContinuedCoreLibraryAsItsOwnIntrinsic()
     {
-        var owner = NamedDescriptor("Owner");
-        var core = NamedDescriptor("Core");
-        var policy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(core));
+        var owner = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
+        var core = Descriptor(typeof(object).Assembly.Location);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(owner.Path!)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
         var group = SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
-            [(owner, (IAssemblyBindingPolicy)policy)]);
+            [(owner, (IAssemblyBindingPolicy)resolver)]);
+        var selected = Selected(group, Request(core, owner));
         var request = new AssemblyBindingRequest(
             AssemblyBindingTarget.CoreLibrary(),
-            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyBindingOrigin.FromOccurrence(selected.Occurrence),
             AssemblyResolutionScope.Any);
 
-        Assert.Same(core, Selected(group, request).Assembly);
-        Assert.Equal(1, policy.SelectionCount);
+        Assert.Same(selected.Assembly, Selected(group, request).Assembly);
     }
 
     [Theory]
