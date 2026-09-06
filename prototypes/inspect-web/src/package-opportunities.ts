@@ -147,7 +147,8 @@ export function renderPackageOpportunities(options: RenderPackageOpportunitiesOp
   if (isPlatform && !scopedLibrary) {
     return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
   }
-  const scanScope = isPlatform ? `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}` : escapeHtml(activeFramework);
+  const scanScope =
+    `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`;
   if (loading && fresh) {
     return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
   }
@@ -161,7 +162,7 @@ export function renderPackageOpportunities(options: RenderPackageOpportunitiesOp
 
   const categories = resolved.categories || [];
   const warning = resolved.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be scanned</strong><ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul></section>`
+    ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be scanned completely</strong><ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul></section>`
     : "";
 
   if (!categories.length) {
@@ -171,7 +172,7 @@ export function renderPackageOpportunities(options: RenderPackageOpportunitiesOp
   const summary = `
     <section class="document-section">
       <div class="section-title"><h2>Integration opportunities</h2><span>${categories.length} area${categories.length === 1 ? "" : "s"} · ${resolved.totalOpportunities} suggestion${resolved.totalOpportunities === 1 ? "" : "s"} · ${scanScope}</span></div>
-      <p class="lens-note">Ecosystem areas this ${isPlatform ? "library" : "package"}'s surface suggests but does not yet integrate with. Chips are live: the type opens in this package, a suggested package loads on demand, and each "look for" API opens a search.</p>
+      <p class="lens-note">Ecosystem areas this library's surface suggests but does not yet integrate with. Chips are live: the type opens in this package, a suggested package loads on demand, and each "look for" API opens a search.</p>
       <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.items.length}</span></span>`).join("")}</div>
     </section>`;
 

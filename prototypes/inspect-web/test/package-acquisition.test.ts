@@ -9,6 +9,7 @@ import {
   graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
   retainGraphOnlyImplementationBody,
+  resolvePackageLibrary,
   runtimeAssemblyIsResident,
   type AppPackage,
   type PackageAcquisitionDependencies,
@@ -62,6 +63,17 @@ function typeSurface(
     platformPack: null,
   };
 }
+
+test("library selection prefers exact asset identity and rejects ambiguous names", () => {
+  const left = assembly("asset:left", "Shared");
+  const right = assembly("asset:right", "Shared");
+  const empty = assembly("asset:empty", "Empty", 0);
+  const libraries = [left, right, empty];
+  assert.equal(resolvePackageLibrary(libraries, "asset:right"), right);
+  assert.equal(resolvePackageLibrary(libraries, "Shared.dll"), null);
+  assert.equal(resolvePackageLibrary(libraries, "EMPTY.dll"), empty);
+  assert.equal(resolvePackageLibrary(libraries, "missing"), null);
+});
 
 function memberSurface(): BrowserMemberSurface {
   return {
