@@ -132,7 +132,7 @@ fi
 "$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
-  "${generator_build_properties[@]}" \
+  ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
   -- \
   "$source_assembly" \
   --context "$context_type" \
@@ -167,7 +167,7 @@ for index in "${!context_artifacts[@]}"; do
     --project "$repo_root/src/ts-jsexport" \
     -c Release \
     --no-build \
-    "${generator_build_properties[@]}" \
+    ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
     -- \
     "$root_assembly" \
     --runtime-module ./runtime-loader.js \

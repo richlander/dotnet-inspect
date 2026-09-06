@@ -556,6 +556,8 @@ archive responses. Run the gate after building the frontend and publishing
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
+| `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
+| `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `PackageWorkspaceIntegrationsQuery.Execute(realization)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
@@ -797,6 +799,47 @@ graph focus remains deferred to [#4054].
 ambiguity and diagnostic cases gate these host behaviors.
 
 [#4054]: https://github.com/richlander/dotnet-inspect/issues/4054
+
+## Method Body Diff
+
+Choose **Compare method bodies** for an explicitly selected method or accessor.
+The session-local dialog keeps that method as Before and offers the same
+implementation assembly's methods as After. Filtering and selecting do not run
+a comparison: choose **Compare** explicitly. Selecting the same method twice is
+valid, and bodyless methods remain available for native classification.
+
+C# and IL have independent outcomes and typed evidence. A bodyless
+`NoApplicableInput` endpoint is not equality, and one unavailable mechanism
+does not erase the other's evidence. Changing After clears the old result;
+dismissal disposes the dialog's operation session. Ordinary member navigation
+and shared links do not acquire comparison state.
+
+The Source facade consumes the shared Queries result rather than CLI text or
+another comparison algorithm. Its Queries-owned address projection supplies
+the module association for a validated implementation token. A missing retained
+context, a wrong module, or a changed physical designation is visible
+non-success, not a request to reacquire or substitute another assembly.
+
+Execution follows the existing Source host and managed-operation bridge.
+The Worker binding remains a canary, not a migration of these retained
+workspaces. Logical cancellation suppresses stale publication; synchronous
+managed CPU work does not promise prompt physical cancellation.
+
+The focused contract and adoption boundaries live in
+[Inspect Web Method Body Comparison](../../docs/design/inspect-web-method-body-comparison.md).
+The compiled fixture is registered as `FixtureCatalog.InspectWebMethodBodies`.
+An opt-in production-facade Browser case runs against the complete published
+Wasm site, not Vite's frontend-only build:
+
+```bash
+INSPECT_WEB_METHOD_BODY_URL=http://127.0.0.1:5199 \
+  npm run test:browser -- browser/method-body-production.spec.ts
+```
+
+Set `INSPECT_WEB_METHOD_BODY_FIXTURE` to that catalog fixture's `package`
+asset to include its compiled reference/implementation and accessor case.
+Only package acquisition is supplied with fixture bytes; comparison uses the
+published generated facade and product query.
 
 ## Unsupported
 
@@ -1045,16 +1088,33 @@ routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
 Search also exposes a `Package query` action that opens the routed `/query`
-surface. It runs the product-issued nuspec-only facet catalog against
-nuget.org, streams rows and visible partial failures from Browser Wasm, and
-hands an exact result coordinate to the normal Workspace package-opening path.
+surface. Leave search text empty to browse, then select a package type or
+source order from NuGetFetch's Gallery catalog. Basic discovery uses search
+metadata only; the separate inspection facets explicitly add manifest or
+bounded package-content evaluation. Browser Wasm streams shared product rows
+and visible failures, then hands an exact result coordinate to the normal
+Workspace package-opening path. Results disclose one bounded Gallery response,
+not a globally exhaustive or exact top-N result; provider totals are estimates.
 The route keeps request and result state in the current session rather than in
-the URL; a direct load starts with an empty prefix.
+the URL; a direct load starts with empty search text.
+
+The Gallery scenarios in `browser/package-adoption.spec.ts` drive the published
+production page through the existing real-Wasm package-adoption harness.
+Deterministic search responses cover blank tool/template browse, text search,
+source ordering, metadata-only acquisition, and bounded completion. Set
+`INSPECT_WEB_GALLERY_LIVE=1` when running
+`eng/test-inspect-web-package-adoption-gate.sh` to include the opt-in live Gallery
+CORS observation and capture the tool-browse page. Live provider availability
+is point-in-time evidence, not a permanent guarantee.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
-`EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
-Emscripten `tools` directory.
+`-p:EmscriptenSdkToolsPath=/absolute/no-whitespace/link/` pointing to a link to
+the installed Emscripten `tools` directory. The trailing slash is required,
+and an environment variable alone is overwritten by the SDK's property file.
+For the facade-generation script, its `DOTNET` executable override can name a
+worktree-local wrapper that supplies this property without changing `PATH` or
+the installed SDK.
 
 ## Static analysis
 
@@ -1367,14 +1427,14 @@ declared, not by whether its code reaches a browser. Vite is a devDependency and
 its `__vite__mapDeps` helper is in the shipped bundle, so that split was never
 the boundary it resembled.
 
-That check no longer runs in CI. `npm audit` needs npm's advisories endpoint,
+That check no longer gates merges. `npm audit` needs npm's advisories endpoint,
 and it exits non-zero both when it finds an advisory and when it cannot reach
 that endpoint, so the merge gate could not tell a vulnerable dependency from an
 npm outage. On 2026-09-04 the endpoint returned 503s and timeouts for over two
 hours and turned `ci-required` red on unrelated pull requests; a gate that
 blocks merges on a third party's uptime is not measuring this repository.
 
-What watches the lockfile now is Dependabot: the same 168 packages against the
+Dependabot watches the lockfile: the same 168 packages against the
 same advisory database, with vulnerability alerts enabled and a weekly npm
 update schedule for `/prototypes/inspect-web`. The honest difference is timing.
 `npm audit` blocked the merge that introduced an advisory; Dependabot reports
@@ -1383,9 +1443,68 @@ lets the sanitization comment name a gate that is monitoring rather than
 enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
 demand.
 
-A Content-Security-Policy remains separate follow-up work for browser-enforced
-resource restrictions. Bundling Prism does not establish such a policy or
-prohibit intentional package, API, or Wasm acquisition traffic.
+The separate `npm audit scheduled` workflow adds an Actions signal at 05:23 UTC
+daily, or on manual dispatch. It is not part of `ci-required` and has no push or
+pull-request trigger. It audits inspect-web's committed lockfile with npm's
+`--package-lock-only --include=dev --audit-level=info --json`: no dependency
+installation or automatic fixes, and development dependencies are included.
+The annotated-source-viewer prototype currently has neither dependencies nor a
+lockfile, so it is not an additional audit target.
+
+`scripts/audit-dependencies.sh` only orchestrates npm's report. A successful
+audit exits 0; reported advisories exit 1 without retrying. An incomplete audit
+(including endpoint failure) is retried after 10 and 30 seconds, then exits 2
+if it still cannot complete. npm's fetch retries do not retry the audit POSTs,
+so these are whole-command retries. The job has a ten-minute timeout and
+30-second npm fetch timeouts. Both non-success outcomes fail the scheduled job,
+with distinct annotations and step summaries; a failed acquisition is never
+described as a clean audit. Every attempt's JSON and stderr are retained in the
+`npm-audit` artifact for 14 days. Dependabot and this schedule are monitoring,
+not merge enforcement.
+
+Run the same check locally from this directory with:
+
+```bash
+bash scripts/audit-dependencies.sh /tmp/inspect-web-npm-audit
+```
+
+`test/npm-audit.test.ts` exercises orchestration with controlled npm outcomes:
+success, informational advisories, transient recovery, and incomplete or
+malformed reports. It runs in the existing inspect-web Node suite on Unix
+hosts; it does not query the live advisory service or implement advisory rules.
+
+`staticwebapp.config.json` owns the browser's enforcing Content-Security-Policy
+on static responses. It follows the
+[standard CSP directives](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy)
+and [.NET's Wasm CSP guidance](https://learn.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy):
+same-origin scripts and workers, `wasm-unsafe-eval` for .NET, and a SHA-256 hash
+for the SDK-generated inline import map. It does not grant JavaScript
+`unsafe-eval` or `unsafe-inline`. Objects, frames, form submissions, and
+embedding the site are denied; the existing `<base href="/">` remains permitted.
+
+Two compatibility allowances are deliberate. `style-src 'unsafe-inline'`
+preserves application styles and Mermaid's generated style elements and
+attributes. HTTPS connections and images remain permitted for package, symbol,
+SourceLink, icon, and documentation acquisition; `data:` images remain permitted.
+This is script-execution defense in depth, not a destination allow list or a
+replacement for the existing acquisition policies and DOMPurify.
+
+After .NET fills the import map, `publish-content-security-policy.ts` substitutes
+its hash into the published hosting configuration. It hashes browser-normalized
+line endings without trimming the script text, rejects a missing, empty, or
+duplicate map, and regenerates from the source template on every publish.
+Deploy the published configuration alongside its matching `index.html`, not
+the source template or Vite's empty import map.
+
+`test/content-security-policy.test.ts` gates hash generation and republication.
+The existing published Worker Firefox gate serves the artifact's actual
+`globalHeaders`; `browser/content-security-policy.spec.ts` checks the exact
+header/hash, page startup, blocked unapproved scripts, and Mermaid rendering.
+The neighboring Worker tests cover cold/warm managed calls and restart under
+the same policy. These are bounded compatibility and enforcement checks, not
+exhaustive coverage of every route or interaction. Azure's managed `/api/*`
+responses do not inherit static `globalHeaders`; Vite development serving is
+also outside this deployment policy.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.

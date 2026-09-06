@@ -402,7 +402,8 @@ jobs:
           # where they ship. The toolchain test pins them in the source file; this checks
           # the copy Azure actually reads. Values are compared exactly rather than by
           # prefix -- `max-age=0` starts with `max-age=` and switches HSTS off.
-          jq -e '.globalHeaders == {
+          # CSP includes a per-publish import-map hash, checked below in Firefox.
+          jq -e '(.globalHeaders | del(."Content-Security-Policy")) == {
               "X-Content-Type-Options": "nosniff",
               "Referrer-Policy": "no-referrer",
               "X-Frame-Options": "DENY",
@@ -669,7 +670,7 @@ jobs:
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
       - name: Run artifact contract tests
-        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
         run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
@@ -678,10 +679,13 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run row-selection tests
-        run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
+
+      - name: Run source-selection public contract tests
+        run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
 
       - name: Run section-row tests
-        run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
@@ -701,13 +705,16 @@ jobs:
       - name: Run inspection query tests
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
+      - name: Run presentation tests
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
       # depend on a third-party service, and the Azure DevOps ones need a private feed and a
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a

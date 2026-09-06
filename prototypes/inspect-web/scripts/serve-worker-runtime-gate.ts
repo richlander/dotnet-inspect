@@ -6,6 +6,16 @@ const site = resolve(
   process.env.INSPECT_WEB_WORKER_SITE ?? "../../artifacts/inspect-web-publish/wwwroot",
 );
 await readFile(resolve(site, "manifest.json"));
+const config: unknown = JSON.parse(await readFile(resolve(site, "staticwebapp.config.json"), "utf8"));
+if (typeof config !== "object" || config === null || !("globalHeaders" in config)
+  || typeof config.globalHeaders !== "object" || config.globalHeaders === null) {
+  throw new Error("Published Static Web Apps configuration is missing globalHeaders.");
+}
+const headers = new Map<string, string>();
+for (const [name, value] of Object.entries(config.globalHeaders)) {
+  if (typeof value !== "string") throw new Error(`Invalid published header: ${name}`);
+  headers.set(name, value);
+}
 const contentTypes: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -15,6 +25,7 @@ const contentTypes: Readonly<Record<string, string>> = {
 };
 
 createServer((request, response) => {
+  for (const [name, value] of headers) response.setHeader(name, value);
   const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
   if (pathname === "/worker-runtime-gate.html") {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });

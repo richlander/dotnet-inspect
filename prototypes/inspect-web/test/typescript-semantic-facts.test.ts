@@ -1727,7 +1727,7 @@ test("only the adapter imports unstable TypeScript packages and the scan is non-
       "probe.mjs",
       "probe.cjs",
       "probe.jsx",
-      "probe.TS",
+      "probe-upper.TS",
     ];
     for (const name of names) {
       writeFileSync(join(scripts, name), "", "utf8");

@@ -88,6 +88,81 @@ public sealed class ApiMethodImplementationFactsTests
         Assert.Equal(original.HasMethodBody, projected.HasMethodBody);
     }
 
+    [Theory]
+    [InlineData(MethodAttributes.Public, false, false, false, false, false, false)]
+    [InlineData(MethodAttributes.Public | MethodAttributes.Static, false, true, false, false, false, false)]
+    [InlineData(MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot, false, false, true, false, false, false)]
+    [InlineData(MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.Abstract, false, false, true, true, false, false)]
+    [InlineData(MethodAttributes.Public | MethodAttributes.Virtual, false, false, true, false, true, false)]
+    [InlineData(MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final, false, false, true, false, true, true)]
+    [InlineData(MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.Final, false, false, true, false, false, false)]
+    [InlineData(MethodAttributes.Private | MethodAttributes.Virtual | MethodAttributes.Final, true, false, true, false, false, false)]
+    public void AccessorProjectionUsesExactMethodDefModifiers(
+        MethodAttributes attributes,
+        bool isExplicit,
+        bool isStatic,
+        bool isVirtual,
+        bool isAbstract,
+        bool isOverride,
+        bool isSealed)
+    {
+        var owner = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        IsExplicitInterfaceImplementation = isExplicit,
+                    },
+                ],
+            },
+            AccessorImplementations =
+            [
+                new ApiMethodImplementationFacts(
+                    Guid.NewGuid(),
+                    0x06000001,
+                    attributes,
+                    MethodImplAttributes.IL,
+                    !isAbstract),
+            ],
+        };
+
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(owner, new ApiType { Name = "Target" }));
+        Assert.Equal(isStatic, accessor.IsStatic);
+        Assert.Equal(isVirtual, accessor.IsVirtual);
+        Assert.Equal(isAbstract, accessor.IsAbstract);
+        Assert.Equal(isOverride, accessor.IsOverride);
+        Assert.Equal(isSealed, accessor.IsSealed);
+    }
+
+    [Fact]
+    public void AccessorProjectionWithoutMethodDefFactsKeepsLegacyModifierFallback()
+    {
+        var owner = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            GetterHasMethodBody = true,
+            IsVirtual = true,
+            IsAbstract = true,
+        };
+
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(owner, new ApiType { Name = "Target" }));
+        Assert.True(accessor.IsVirtual);
+        Assert.False(accessor.IsAbstract);
+        Assert.Null(accessor.MethodImplementation);
+    }
+
     [Fact]
     public void HandleBasedSurfaceRetainsMethodAndAccessorEvidence()
     {

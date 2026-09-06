@@ -64,9 +64,36 @@ aligns the decompiled placement prefix to the PDB declaration's retained
 whitespace prefix. Applying the same typed boundary to both endpoints handles
 an attribute or comment that shares the PDB signature line without
 manufacturing a difference.
+
+The whole-member render preserves the selected physical MethodDef's declaration
+kind. An explicit-interface method is rendered as property syntax only when its
+metadata MethodSemantics relationship proves that it is a property accessor.
+The associated PropertyDef supplies the complete qualified property identity;
+the renderer does not parse accessor markers from the MethodDef name. An
+ordinary explicit method whose source name begins with `get_` or `set_` remains
+a method.
+Accessor-ordinal projection retains the private MethodImpl classification
+from metadata, including when the physical accessor name is unqualified.
+Its anchor therefore agrees with direct selection of the same raw MethodDef.
+When exact MethodDef facts are retained, the selected accessor's modifiers come
+from that method, not the property or event's aggregate across sibling accessors.
+The `ApiMethodImplementationFactsTests` modifier cases and
+`Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` enforce this
+in Release; older models without MethodDef facts retain the aggregate fallback.
+Indexer status comes from the associated property's index parameters, not its
+name. Ordinary explicit properties named `Item` or `Chars` retain property
+syntax; actual indexer accessors retain their existing method form.
+Property return types come from structured signature evidence, not a prefix of
+the rendered method signature. A selected setter preserves the physical
+`IsExternalInit` return modifier as `init`, rather than widening it to `set`.
+
 This deliberately changes CLI Source Diff hunks and statistics where the old
 CLI projection chose different wrapping or expression-body layout. No
 compatibility switch preserves the old comparison-only projection.
+The retained method-level `IsReadOnly` fact is also consumed by existing API
+JSON and C# declaration views, so those views can disclose `readonly` outside
+Source Diff. Metadata owns that fact in
+[API declaration modifiers](type-member-api-representation.md#api-declaration-modifiers).
 
 The separate CLI `Decompiled Source` section remains a CLI presentation. The
 diff endpoints are labelled `PDB comparison` and `Decompiled comparison`, not
@@ -270,6 +297,15 @@ artifact. This duplication is accepted because the artifacts have different
 contracts and the comparison result retains no borrowed decompiler IR that
 could safely substitute for them.
 
+Co-selection does not broaden standalone source-acquisition authorization:
+Fidelity Causes, Applied Taste, Cost Overlay, and Semantics Overlay alone do
+not opt into PDB acquisition. They still receive the companion PDB path when
+Source Diff is also selected.
+
+The CLI's explicit adjacent-PDB capability does not weaken host-owned symbol
+resource limits. Embedded-PDB expansion remains bounded by the same configured
+limits whether adjacent discovery is enabled or disabled.
+
 The CLI preserves:
 
 - explicit Source Diff selection and current verbosity behavior;
@@ -280,6 +316,13 @@ The CLI preserves:
 - explicit identical and unavailable outcomes; and
 - structured table, TSV, and JSONL projections.
 
+Identical completed comparisons retain their zero-valued statistics alongside
+the explicit identical status, at normal and detailed verbosity. Unavailable
+comparisons remain status-only rather than inventing zero counts.
+`Member_SourceDiff_IdenticalTabularOutputRetainsZeroStatistics` gates JSONL and
+TSV output, with the completed/unavailable distinction covered by
+`SourceTextDiffRendererTests` in Release.
+
 The intentional compatibility change includes both comparison endpoints and
 their labels: declaration-leading trivia may be removed from PDB comparison
 text, the decompiled comparison uses product-owned wrapping and body choices,
@@ -288,6 +331,15 @@ decompilation also changes from a diff against the old CLI's source-shaped
 diagnostic comment to an explicit unavailable Source Diff with no statistics
 or `MappedTextDiff`. Tests assert the new pair and typed failure outcome rather
 than freezing the superseded CLI-only projection.
+
+Bodyless members and members without a vouched PDB declaration remain
+informational when PDB Source is selected alone. They make Source Diff
+unavailable because the comparison lacks a complete PDB endpoint. Text output
+can disclose that unavailable result, but an exactly selected Source Diff in
+count, table, TSV, JSONL, or JSON output fails visibly because those formats
+cannot represent a code-section failure. This is an intentional compatibility
+change from the previous CLI-only projection, which treated both sections as
+the same informational source state.
 
 ## Pathological demonstration
 
@@ -323,7 +375,13 @@ The fixture proves:
 
 ## Gates
 
-Release presentation tests prove:
+`DotnetInspector.Presentation.Tests` runs in Release in the ordinary `ci.yml`
+test job covered by `ci-required`, Deep Inspect's `platform-test` lane, and
+the Windows PR `cli` suite. The existing
+`TextAnalysisDiffPresentation.CreateMappedTextDiff` construction enforces
+line-to-analysis index association and admits only stable unchanged one-to-one
+correspondences as anchors; this suite does not independently assert those
+shared lowering rules. These presentation tests prove:
 
 - the unchanged PDB endpoint remains available beside canonical Before text;
 - one and only one producer-guaranteed type-body placement prefix is replaced
@@ -334,6 +392,8 @@ Release presentation tests prove:
   dedenting;
 - the admitted leaf declaring-type identity supplies both synthetic wrapper
   names, while an unrepresentable identity fails visibly;
+- declaring-name rejection details describe the rule without repeating the
+  rejected metadata value;
 - wrapper naming comes only from the successful query result's exact type
   identity, not endpoint or host display text;
 - a constructor named `extension` produces one constructor boundary rather
@@ -348,7 +408,6 @@ Release presentation tests prove:
 - unequal changed and moved populations retain two-sided counts;
 - changed and moved overlap;
 - identical inputs remain an explicit complete result;
-- analysis and mapped endpoint sequences are index-identical;
 - both mapped sequences retain the producer-issued absent-terminator state; and
 - an N:M changed correspondence plus a moved relation proves statistics equal
   relation cardinalities even though Markout lowers them to removal/addition
@@ -357,13 +416,32 @@ Release presentation tests prove:
 Release CLI tests prove:
 
 - the production Source Diff path calls the shared adapter;
+- a receiver-projected extension method compares the physical declaration and
+  render instead of treating the projected API row as a bodyless member;
 - normal and detailed verbosity preserve their disclosure boundary;
 - checksum provenance and unavailable outcomes remain visible;
 - a PDB-available member whose decompilation fails produces an explicit
   unavailable Source Diff without statistics, mapped output, or diagnostic
   text treated as source;
+- bodyless and no-vouched-declaration states remain informational for PDB
+  Source but become explicit unavailable Source Diff outcomes, including a
+  visible failure when an exact non-code format cannot represent them;
+- ordinary explicit-interface methods beginning with `get_` or `set_` retain
+  method syntax while metadata-proven property accessors use property syntax;
+- an explicit property's qualified interface identity comes from its
+  MethodSemantics-associated PropertyDef, including interface or namespace
+  segments that themselves begin with `get_` or `set_`;
+- ordinary explicit `Item` and `Chars` getters/setters retain property syntax,
+  while actual indexers with custom accessor names retain method form;
+- property/event accessor-ordinal selection agrees with raw MethodDef
+  selection when a valid explicit accessor has an unqualified physical name;
+- projected accessors retain physical MethodDef modifiers such as `readonly`,
+  including explicit-interface getter and setter property declarations;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
+- co-selecting Source Diff with a decompiler-backed section preserves that
+  section's portable-PDB local names and annotations, including the
+  Annotated Source document inside Finding Census;
 - the headers are `PDB comparison` and `Decompiled comparison`, while the
   separate PDB Source and Decompiled Source sections keep their own labels and
   content;
@@ -377,6 +455,7 @@ Text, Metadata, MetadataPrimitives, and CSharpText dependency graph to
 and accepting the query result directly prevents hosts from pairing
 independently acquired endpoints.
 
-Layering tests prove `DotnetInspector.Presentation` remains L2, consumes L1
-query results, and is referenced by both the CLI and the planned Browser/Wasm
-adapter without introducing a CLI or browser dependency.
+Layering tests prove `DotnetInspector.Presentation` remains L2 and consumes L1
+query results without introducing a CLI or browser dependency. The CLI
+references this shared presentation. A Browser/Wasm adapter reference and its
+adoption gate remain planned work under #5684, not current-head evidence.

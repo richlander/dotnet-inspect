@@ -4,6 +4,8 @@ export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" |
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
+export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
@@ -36,6 +38,34 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
 }
 
+export interface BrowserCSharpBodyEvidence {
+  readonly isExact: boolean;
+  readonly rows: ReadonlyArray<BrowserCSharpBodyRow>;
+}
+
+export interface BrowserCSharpBodyOperation {
+  readonly kind: string;
+  readonly value: string;
+}
+
+export interface BrowserCSharpBodyRow {
+  readonly assemblyIdentity: string;
+  readonly stableMemberKey: string;
+  readonly member: string;
+  readonly changeId: string;
+  readonly message: string;
+  readonly hunkId: number;
+  readonly kind: string;
+  readonly line: number | null;
+  readonly sourceCoordinate: string | null;
+  readonly fidelity: string;
+  readonly text: string;
+  readonly oldValue: string | null;
+  readonly newValue: string | null;
+  readonly oldOperation: BrowserCSharpBodyOperation | null;
+  readonly newOperation: BrowserCSharpBodyOperation | null;
+}
+
 export interface BrowserCallGraphTarget {
   readonly id: string;
   readonly assembly: string;
@@ -54,6 +84,118 @@ export interface BrowserCallGraphTarget {
   readonly kind: string;
   readonly platformPack: string | null;
   readonly surfaceAssemblyId: string | null;
+}
+
+export interface BrowserIlBodyEvidence {
+  readonly outcome: string;
+  readonly isExact: boolean;
+  readonly isAvailable: boolean;
+  readonly failure: string | null;
+  readonly rows: ReadonlyArray<BrowserIlBodyRow>;
+}
+
+export interface BrowserIlBodyOperand {
+  readonly kind: string;
+  readonly value: string;
+}
+
+export interface BrowserIlBodyOperation {
+  readonly offset: number;
+  readonly opcodeFamily: string;
+  readonly operand: BrowserIlBodyOperand | null;
+}
+
+export interface BrowserIlBodyRow {
+  readonly hunkId: number;
+  readonly kind: string;
+  readonly operation: BrowserIlBodyOperation;
+  readonly message: string;
+}
+
+export interface BrowserMethodBodyComparison {
+  readonly request: BrowserMethodBodyComparisonRequest;
+  readonly stage: string;
+  readonly outcome: string;
+  readonly producers: ReadonlyArray<BrowserMethodBodyProducer>;
+  readonly diagnostics: ReadonlyArray<BrowserMethodBodyDiagnostic>;
+}
+
+export interface BrowserMethodBodyComparisonRequest {
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly assembly: string;
+  readonly moduleVersionId: string;
+  readonly before: BrowserMethodBodySelection;
+  readonly after: BrowserMethodBodySelection;
+}
+
+export interface BrowserMethodBodyComparisonResult {
+  readonly version: number;
+  readonly kind: BrowserMethodBodyResultKind;
+  readonly value: BrowserMethodBodyComparison | null;
+  readonly failureKind: BrowserTypeSourceFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserMethodBodyDiagnostic {
+  readonly kind: string;
+  readonly side: string | null;
+  readonly message: string;
+  readonly detail: string | null;
+  readonly hunkId: number | null;
+  readonly subjectToken: number | null;
+  readonly mechanism: string | null;
+  readonly path: string | null;
+}
+
+export interface BrowserMethodBodyEndpoint {
+  readonly state: string;
+  readonly moduleVersionId: string | null;
+  readonly metadataToken: number | null;
+  readonly targetState: string | null;
+  readonly detail: string | null;
+}
+
+export interface BrowserMethodBodyProducer {
+  readonly producer: string;
+  readonly outcome: string;
+  readonly nativeVerdict: string;
+  readonly before: BrowserMethodBodyEndpoint;
+  readonly after: BrowserMethodBodyEndpoint;
+  readonly cSharp: BrowserCSharpBodyEvidence | null;
+  readonly il: BrowserIlBodyEvidence | null;
+  readonly diagnostics: ReadonlyArray<BrowserMethodBodyDiagnostic>;
+}
+
+export interface BrowserMethodBodySelection {
+  readonly typeIdentity: string;
+  readonly memberName: string;
+  readonly selectorKey: string;
+  readonly metadataToken: number;
+  readonly label: string;
+}
+
+export interface BrowserMethodBodyTargets {
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly assembly: string;
+  readonly moduleVersionId: string;
+  readonly before: BrowserMethodBodySelection;
+  readonly methods: ReadonlyArray<BrowserMethodBodySelection>;
+}
+
+export interface BrowserMethodBodyTargetsResult {
+  readonly version: number;
+  readonly kind: BrowserMethodBodyResultKind;
+  readonly value: BrowserMethodBodyTargets | null;
+  readonly failureKind: BrowserTypeSourceFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
 }
 
 export interface BrowserSource {
@@ -81,10 +223,13 @@ export interface BrowserTypeSourceResult {
 
 type $ManagedExports = {
   readonly "SourceExports": {
+    readonly "CancelMethodBodyComparison.271973316": (operationId: string, reason: string) => string;
     readonly "CancelSourceQuery.19325221": () => void;
     readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
     readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
+    readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
+    readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
     readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryTypeSource.1160082336": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string) => Promise<string>;
   };
@@ -135,6 +280,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "CancelMethodBodyComparison.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.CancelMethodBodyComparison.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
     value = $ownDataProperty(value, "CancelSourceQuery.19325221");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027SourceExports.CancelSourceQuery.19325221\u0027 is not callable.");
@@ -162,6 +315,22 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryMemberSource.641907440");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027SourceExports.QueryMemberSource.641907440\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryMethodBodyComparison.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.QueryMethodBodyComparison.451505237\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryMethodBodyComparisonTargets.642387634");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.QueryMethodBodyComparisonTargets.642387634\u0027 is not callable.");
     }
   }
   {
@@ -217,6 +386,12 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+export function cancelMethodBodyComparison(operationId: string, reason: string): BrowserTypeSourceCancellation {
+  const $result = $requireManagedExports()["SourceExports"]["CancelMethodBodyComparison.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeSourceCancellation;
+}
+
 export function cancelSourceQuery(): void {
   return $requireManagedExports()["SourceExports"]["CancelSourceQuery.19325221"]();
 }
@@ -237,6 +412,18 @@ export async function queryMemberSource(packageId: string, version: string, targ
   const $result = await $requireManagedExports()["SourceExports"]["QueryMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserSource;
+}
+
+export async function queryMethodBodyComparison(operationId: string, requestJson: string): Promise<BrowserMethodBodyComparisonResult> {
+  const $result = await $requireManagedExports()["SourceExports"]["QueryMethodBodyComparison.451505237"](operationId, requestJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMethodBodyComparisonResult;
+}
+
+export async function queryMethodBodyComparisonTargets(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMethodBodyTargetsResult> {
+  const $result = await $requireManagedExports()["SourceExports"]["QueryMethodBodyComparisonTargets.642387634"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMethodBodyTargetsResult;
 }
 
 export async function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource> {

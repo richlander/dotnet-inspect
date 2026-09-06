@@ -37,13 +37,19 @@ public sealed class ApiSurfaceUnsafeTests
     {
         // `public static unsafe int Risky() => 42;` — declared unsafe, no pointer
         // in the signature, so the only evidence is RequiresUnsafeAttribute.
-        Assert.True(Method(nameof(NewFixtures.Risky)).IsUnsafe);
+        ApiMember method = Method(nameof(NewFixtures.Risky));
+
+        Assert.True(method.IsUnsafe);
+        Assert.DoesNotContain(
+            method.Attributes,
+            attribute => attribute.Contains("RequiresUnsafeAttribute", StringComparison.Ordinal));
     }
 
     [Fact]
     public void PointerSignatureMember_IsUnsafe()
     {
-        // `void* p` parameter — caught by the signature pointer check.
+        // IsUnsafe retains its compatibility meaning. Version-aware caller
+        // contracts and pointer evidence are carried separately in MemorySafety.
         Assert.True(Method(nameof(NewFixtures.FreePointer)).IsUnsafe);
     }
 
@@ -96,6 +102,7 @@ public sealed class ApiSurfaceUnsafeTests
         // No pointer and not declared unsafe at the member level.
         Assert.False(Method(nameof(NewFixtures.StackAllocDefault)).IsUnsafe);
     }
+
 }
 
 public unsafe class FunctionPointerNullabilityFixture

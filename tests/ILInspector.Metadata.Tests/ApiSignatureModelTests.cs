@@ -15,6 +15,17 @@ public sealed class ApiSignatureModelTests
         Surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
 
+    [Theory]
+    [InlineData(nameof(ReadOnlyMethodFixtures.ReadOnly), true)]
+    [InlineData(nameof(ReadOnlyMethodFixtures.Mutable), false)]
+    public void MethodSignatureModel_RetainsPhysicalReadOnlyAttribute(
+        string methodName,
+        bool isReadOnly)
+    {
+        var member = GetMember(nameof(ReadOnlyMethodFixtures), methodName);
+        Assert.Equal(isReadOnly, member.IsReadOnly);
+    }
+
     [Fact]
     public void MethodSignatureModel_ExposesReturnTypeParametersAndDefaults()
     {
@@ -109,6 +120,9 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("this[]", member.SignatureModel.MemberName);
         Assert.Equal("(int)", member.SignatureModel.ParameterTypesSummary);
         Assert.Equal("get", member.SignatureModel.PublicAccessorsSummary);
+        Assert.All(
+            member.SignatureModel.Accessors,
+            accessor => Assert.False(accessor.IsExplicitInterfaceImplementation));
         Assert.Null(
             member.SignatureModel.Accessors.Single(accessor => accessor.Kind == "set")
                 .StructuralReturnType);
@@ -137,8 +151,9 @@ public sealed class ApiSignatureModelTests
     [Fact]
     public void PropertySignatureModel_ExposesExplicitInterfaceAccessorMethodName()
     {
+        ApiType type = GetType(nameof(ExplicitAccessorFixtures));
         ApiMember member = Assert.Single(
-            GetType(nameof(ExplicitAccessorFixtures)).Members,
+            type.Members,
             candidate => candidate.Kind == "property"
                 && candidate.Name.EndsWith(
                     $".{nameof(IExplicitAccessor.Value)}",
@@ -149,11 +164,61 @@ public sealed class ApiSignatureModelTests
             member.SignatureModel.Accessors,
             accessor => accessor.Kind == "get");
         Assert.False(string.IsNullOrEmpty(getter.Name));
+        Assert.True(getter.IsExplicitInterfaceImplementation);
         Assert.False(getter.Name.StartsWith("get_", StringComparison.Ordinal));
         Assert.EndsWith(
             $".get_{nameof(IExplicitAccessor.Value)}",
             getter.Name,
             StringComparison.Ordinal);
+
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(member, type));
+        ApiMember physical = Assert.Single(
+            type.Members,
+            candidate => candidate.MetadataToken == accessor.MetadataToken);
+        Assert.Equal(getter.Name, accessor.Name);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            accessor.Kind);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(type, physical),
+            ApiMemberIdentity.GetMemberAnchor(type, accessor));
+    }
+
+    [Theory]
+    [InlineData("readValue", true, "explicit-interface-implementation")]
+    [InlineData("I.get_Value", false, "method")]
+    [InlineData("I.get_Value", null, "explicit-interface-implementation")]
+    [InlineData("get_Value", null, "method")]
+    public void AccessorProjection_UsesKnownClassificationBeforeName(
+        string name,
+        bool? isExplicitImplementation,
+        string expectedKind)
+    {
+        var type = new ApiType { Name = "C", Namespace = "Example" };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Name = name,
+                        IsExplicitInterfaceImplementation = isExplicitImplementation,
+                    },
+                ],
+            },
+        };
+
+        ApiMember projected = Assert.Single(ApiMemberAccessors.Create(property, type));
+        Assert.Equal(name, projected.Name);
+        Assert.Equal(expectedKind, projected.Kind);
     }
 
     [Fact]
@@ -553,6 +618,12 @@ public sealed class ApiSignatureFixtures
     }
 
     public int InitValue { get; init; }
+}
+
+public struct ReadOnlyMethodFixtures
+{
+    public readonly int ReadOnly() => 42;
+    public int Mutable() => 42;
 }
 
 public interface IExplicitAccessor

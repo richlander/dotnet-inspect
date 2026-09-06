@@ -40,6 +40,10 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The target
+  [dependency inspection command](design/dependency-inspection-command.md)
+  owns asset admission, traversal intent, evidence disclosure, graph row
+  currency, and retirement of the separate `dependency-evidence` command.
   [Member source presentation](design/member-source-presentation.md) owns the
   CLI projection of one Research-issued Finding census across explicit Facts
   and Annotated Source output.
@@ -91,6 +95,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution.
+- `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
+  bounded package-prefix requests, and pure search normalization under
+  [the typed source domain](design/search-scope-domain.md). Host adapter
+  adoption remains staged under #5602; package-set identities remain in the
+  application catalog.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
@@ -154,11 +163,21 @@ substrates, and inspection producers that will extend that space.
   permissions, operation demand, Browser defaults, and ecosystem-assisted
   retrieval. It is not a new runtime owner; component contracts and their
   focused adoption remain with the participating owners.
+- [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
+  owns the proposed Browser editor execution-eligibility and leave-decision
+  contract. It consumes owner-backed edit-save completion and existing
+  navigation outcomes; it does not own admission, persistence, history,
+  focus, or layout.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
   existing member resolution, modal behavior, and operation lifetime without
   redefining those owners.
+- [Inspect Web Source-diff Transport](design/inspect-web-source-diff-transport.md)
+  owns the proposed member source-diff worker feature payload: admission,
+  complete typed encoding, and bounded browser decoding. It consumes Queries
+  endpoint evidence, shared Presentation, and existing worker/bridge lifetime
+  contracts; page placement and viewer interaction remain separate owners.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS

@@ -52,7 +52,12 @@
     <Project Path="fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" />
+    <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextFixtures/ILInspector.JsExportSurface.NestedContextFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
@@ -83,6 +88,7 @@
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Base/DotnetInspector.Services.RouteLearning.Base.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Consumer/DotnetInspector.Services.RouteLearning.Consumer.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Contract/DotnetInspector.Services.RouteLearning.Contract.csproj" />
+    <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase/DotnetInspector.Services.RouteLearning.InterfaceBase.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Middle/DotnetInspector.Services.RouteLearning.Middle.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated/DotnetInspector.Services.RouteLearning.Unrelated.csproj" />
     <Project Path="fixtures/shared/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
@@ -97,7 +103,6 @@
     <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
-    <Project Path="src/DotnetInspector.Artifacts.Tests/DotnetInspector.Artifacts.Tests.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <Project Path="src/DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
@@ -109,10 +114,9 @@
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
-    <Project Path="src/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
-    <Project Path="src/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
@@ -142,7 +146,6 @@
     <Project Path="src/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
-    <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
@@ -151,6 +154,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSharpText.Tests/CSharpText.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Artifacts.Tests/DotnetInspector.Artifacts.Tests.csproj" />
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
@@ -159,10 +163,15 @@
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
+    <Project Path="tests/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
+    <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
+    <Project Path="tests/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.SourceSelection.Tests/DotnetInspector.SourceSelection.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />

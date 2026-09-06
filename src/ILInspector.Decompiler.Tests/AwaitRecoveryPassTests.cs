@@ -102,6 +102,30 @@ public class AwaitRecoveryPassTests
     }
 
     [Fact]
+    public void UnsafeAwaitOperand_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = BuildExactCorelibAwait(MetadataFactState.Yes);
+        function.UsesUpdatedMemorySafetyRules = true;
+        var awaitCall = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Await");
+        awaitCall.Arguments[0].ReplaceWith(new LoadProperty(
+            new MethodRef(Holder, "get_RiskyTask", TaskInt, [], HasThis: true)
+            {
+                RequiresUnsafe = true,
+            },
+            new LoadArgument(0, "holder", Holder),
+            []));
+
+        new AwaitRecoveryPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.False(function.RequiresAsyncBodyModifier);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Await");
+    }
+
+    [Fact]
     public void PrintValueAwait_RendersAwaitKeyword()
     {
         var output = Print(nameof(CfgSampleClass.AwaitOnce));
