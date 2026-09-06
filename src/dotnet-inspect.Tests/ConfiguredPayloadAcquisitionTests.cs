@@ -443,12 +443,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string localFeed = Path.Combine(_root, "local-feed");
         string temporaryRoot = Directory.CreateDirectory(Path.Combine(_root, "command-temp")).FullName;
         WriteLocalPackage(localFeed, PayloadId, Readme);
-        using var client = new HttpClient();
         if (warmTarget)
         {
-            PackageExtractionOutcome warm = await AcquireTargetAsync();
-            Assert.True(warm.IsSuccess, warm.ErrorMessage);
-            Assert.False(warm.Result!.FromCache);
+            var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
+                ["package", $"{PayloadId}@{Version}", "--source", localFeed,
+                    "--path", "@readme", "--content", "--bare", "--no-nuget-cache"]);
+            Assert.True(exit == 0, $"Exit {exit}: {error}");
+            Assert.Equal(Readme, output.Trim());
+            Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
+            Directory.Delete(localFeed, recursive: true);
         }
 
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -467,6 +470,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             for (int iteration = 1; iteration <= 2; iteration++)
             {
+                // With the source gone, success proves the isolated CLI retained the target.
+                if (warmTarget || iteration > 1)
+                    Assert.False(Directory.Exists(localFeed));
+
                 var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
                     ["package", $"{WrapperId}@{Version}", "--source", localFeed,
                         "--source", source, "--path", "@readme", "--content", "--bare",
@@ -477,12 +484,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     request.EndsWith(".nupkg", StringComparison.Ordinal)));
                 Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
 
-                PackageExtractionOutcome retained = await AcquireTargetAsync();
-                Assert.True(retained.IsSuccess, retained.ErrorMessage);
-                Assert.True(retained.Result!.FromCache);
-                Assert.Null(retained.Result.TempDir);
-                Assert.Equal(Readme, File.ReadAllText(
-                    Path.Combine(retained.Result.ExtractPath, "README.md")));
+                if (!warmTarget && iteration == 1)
+                    Directory.Delete(localFeed, recursive: true);
             }
         }
         finally
@@ -496,11 +499,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             {
             }
         }
-
-        Task<PackageExtractionOutcome> AcquireTargetAsync() =>
-            DesktopPackageExtractor.ExtractPinnedPackageAsync(client, PayloadId, Version,
-                sourceOptions: new NuGetSourceOptions { Sources = [localFeed] },
-                createComposition: LocalComposition);
     }
 
     private static DesktopPackageSourceComposition CreateComposition(
