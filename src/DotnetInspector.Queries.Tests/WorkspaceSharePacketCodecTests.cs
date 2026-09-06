@@ -79,6 +79,36 @@ public sealed class WorkspaceSharePacketCodecTests
             WorkspaceSharePacketCodec.SerializeJson(packet));
     }
 
+    [Theory]
+    [InlineData("library:overview", "Contoso.Library", "compile:ref/net11.0/Contoso.Library.dll")]
+    [InlineData("library:metadata", "Contoso.Library", "compile:lib/net11.0/Contoso.Library.dll")]
+    [InlineData("library:overview", ":Platform", "System.Text.Json")]
+    [InlineData("library:metadata", ":Platform", "System.Text.Json")]
+    public void LibraryLensAndSelection_RoundTripCanonicalProductPacket(
+        string lens,
+        string source,
+        string library)
+    {
+        string json =
+            $$"""{"f":1,"t":[["{{source}}","11.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"v":"{{lens}}","l":["{{library}}"]}""";
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            json,
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        WorkspaceSharePacket decoded = WorkspaceSharePacketCodec.Decode(
+            encoded,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(lens, decoded.Lens);
+        Assert.Equal([library], decoded.Libraries);
+        Assert.Equal(source, Assert.Single(decoded.Tabs).Source);
+        Assert.Null(decoded.Type);
+        Assert.Null(decoded.MemberAnchor);
+        Assert.Equal(json, WorkspaceSharePacketCodec.SerializeJson(decoded));
+        Assert.Equal(EncodeJson(json), encoded);
+        Assert.Equal(encoded, WorkspaceSharePacketCodec.Encode(decoded));
+    }
+
     [Fact]
     public void JsonConversion_UsesTheSameTypedValidityAndCancellationGates()
     {
