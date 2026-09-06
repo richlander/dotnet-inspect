@@ -1,16 +1,19 @@
 # Search scope resolution
 
-This document owns the CLI-scoped normalization that decides when the search
-default applies and expands named search-scope groups into ordered platform
-framework and package-coordinate selections. Type-search `find`, `implements`,
-`extensions`, and type-mode `depends` consume the result.
+This document owns CLI search-source binding: declaring source intent from
+command syntax, resolving named groups through the application catalog, and
+lowering shared normalization into the existing acquisition request.
+Type/member-search `find`, `implements`, `extensions`, and type-mode `depends`
+consume the result.
 
 This is the current behavior contract and reference oracle for the ground-up
 typed search-scope domain tracked by
 [#5602](https://github.com/richlander/dotnet-inspect/issues/5602).
 [Typed source intent](search-scope-domain.md) owns the independent declaration
-and reference normalizer. CLI adoption remains separate; this document still
-owns the current command behavior.
+and reference normalizer. The focused CLI adoption is
+[#6118](https://github.com/richlander/dotnet-inspect/issues/6118), following the
+package-form prerequisite #6075. This document owns the command behavior, not
+the shared declaration's construction or normalization contract.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, valued
 `--platform` disambiguation, source authorization, operation lifetime,
@@ -41,38 +44,45 @@ and therefore compose rather than replace one another.
 
 ## Boundary
 
-The normalizer consumes:
+The CLI declares each supplied package, archive, library, platform library,
+project, directory, prefix, and named group as typed source intent before
+prefix discovery. Package-reference splitting uses the Packages-owned parser;
+named package-set lookup stays in the application catalog.
 
-- the bare platform-group selection;
-- the Microsoft.Extensions and ASP.NET Core package-set selections;
-- explicit package and library presence;
-- explicit platform-library presence;
-- explicit project and binary-directory presence; and
-- package-prefix presence, including a successful empty expansion.
+The shared normalizer interprets that declaration. The CLI retains its result
+and lowers all supported sources into `AssemblySetRequest` fields, passing
+through existing command option models and `ToAssemblySetRequest`. This slice
+does not replace acquisition, workspace loading, or other source-policy families.
+Those four option models retain the shared selection, so downstream legacy
+default guards cannot reinterpret a normalized empty contribution as absent
+intent. Programmatically constructed options without a selection keep their
+existing default behavior.
 
-It returns only:
+An original prefix declaration remains authoritative when discovery returns
+zero or more package IDs. Discovered IDs augment, rather than replace, that
+declaration for acquisition ordering. Their normalized package contribution
+does not overwrite the retained user selection or its defaulting decision.
 
-- an ordered platform-framework set; and
-- an ordered package-coordinate selection containing explicit packages and
-  selected package sets.
+Malformed declaration input produces a clean CLI validation error rather than
+an acquisition attempt or implicit fallback. Type-search prefixes consume
+the source-intent owner's literal-prefix grammar; patternless profiles retain
+their separate grammar. Per-package framework/runtime qualifiers cannot be
+represented by this CLI acquisition path and are visibly rejected, not
+discarded; command-wide `--tfm` remains unchanged.
 
-Direct libraries, platform libraries, projects, and binary directories pass
-through their command-owned option models unchanged. Their presence is still
-an input because it suppresses the implicit default.
-
-The normalizer is pure. It performs no parsing, package-prefix expansion,
-network authorization, acquisition, matching, result ordering, or rendering.
+The shared normalizer stays pure. Prefix discovery remains explicit CLI source
+work with the existing source configuration and timeout policy.
 
 ## Default activation
 
-With no explicit source indicator, the normalizer returns no package
-coordinates and exactly these platform frameworks in order:
+With an empty source declaration, the normalizer returns no package sources
+and exactly these platform frameworks in order:
 
 1. `runtime`
 2. `aspnetcore`
 3. `netstandard`
 
-Any explicit source indicator suppresses that default. An explicit source that
+Any explicit source selector suppresses that default. An explicit source that
 is empty, unavailable, or produces no matches does not fall back to platform
 frameworks. Failure and empty-result behavior remain with the source and
 operation owners.
@@ -90,7 +100,7 @@ Explicit selectors compose additively:
 | bare `--platform` | all three platform frameworks in default order |
 | `--extensions` | the current Microsoft.Extensions package set |
 | `--aspnetcore` | the current ASP.NET Core package set |
-| explicit `--package` values | those package coordinates |
+| explicit `--package` values | package references or explicit local archives, preserving their spelling |
 | `--package-prefix` with a type pattern | up to 500 matching package coordinates; its presence suppresses the default even when expansion is empty |
 | valued `--platform`, `--library`, `--project`, or `--bin` | no framework or package contribution; their presence suppresses the default |
 
@@ -105,9 +115,10 @@ and paging remain acquisition concerns.
 
 Package order is:
 
-1. explicit package coordinates in caller order;
-2. the Microsoft.Extensions package set, when selected; and
-3. the ASP.NET Core package set, when selected.
+1. explicit package requests and archives in caller order;
+2. discovered prefix package IDs in source-provided order;
+3. the Microsoft.Extensions package set, when selected; and
+4. the ASP.NET Core package set, when selected.
 
 Package coordinates use case-insensitive set semantics while preserving the
 first spelling and position. Repeating a coordinate explicitly or through a
@@ -117,8 +128,8 @@ and an unversioned coordinate remain distinct.
 Named package-set membership is owned by the
 [Package Set Registry](package-set-registry.md). The CLI resolves its two
 well-known typed identities through the front-end-only application registry
-and projects their versionless coordinates back to this normalizer's existing
-package-ID currency. Adding, removing, or reordering members is observable
+and declares each ordered member snapshot as a typed package group.
+Adding, removing, or reordering members is observable
 because it can change network work, source order, results, and failures; such
 changes require the package-set owner's contract evidence and the
 classification defined by the CLI change-classification design. Neither design
@@ -129,10 +140,10 @@ duplicates the inventory in prose.
 Type-search `find`, `implements`, and `extensions` use this normalization to
 select acquisition scope. Patternless `find --package-prefix` instead runs the
 Nuspec-only profile owned by
-[the package query CLI](package-query-cli.md). Its parser still normalizes raw
-search selectors so the command can reject incompatible API-search scope
-before network access, but the profile prefix is not expanded and the
-normalized result does not select profile acquisition. `depends` uses
+[the package query CLI](package-query-cli.md). Its parser retains direct scope
+options and whether a search group was supplied so the command can reject
+incompatible API-search scope before network access. It does not apply type
+search normalization or expand the prefix. `depends` uses
 normalization only for type-hierarchy mode; its
 package-dependency and library-reference modes are unary source operations and
 do not acquire a search default.
@@ -152,30 +163,34 @@ contract violation: an unchanged explicit request would silently acquire
 additional platform sources.
 
 That command-adapter obligation is distinct from the pure normalizer contract.
-The normalizer receives already-lowered flags, coordinates, and presence
-signals; it does not prove that every command supplied them correctly.
+The normalizer receives a complete typed declaration; it does not prove that
+every command declared all its syntax correctly. The source-free `depends`
+type-to-library convenience uses `UsesImplicitPlatform`, not a second
+flags-and-presence calculation.
 
 ## Implementation and gates
 
-`ScopeResolver` implements default activation, explicit group expansion,
-package ordering, and deduplication. Its pure normalization contract has full
-Release gate coverage:
+`SearchSourceAdapter` declares CLI intent, consumes `SearchSourceNormalizer`,
+and lowers the result. `ScopeResolver` and its flags/presence input are retired
+after migration of all four callers. The shared pure contract is gated by its
+[public-consumer suite](search-scope-domain.md#contract-evidence).
+The CLI-specific Release gates include:
 
 - `SearchScopeResolutionTests.NoExplicitSource_UsesOnlyPlatformFrameworks`
   gates the exact empty-input result and framework order;
 - `SearchScopeResolutionTests.EachGroupCombination_ResolvesExactly` gates the
   complete finite group-flag truth table;
 - `SearchScopeResolutionTests.EachDirectSourceSignal_SuppressesTheDefault`
-  gates package, library, package-prefix, and the generic additional-source
-  signal consumed by the normalizer;
+  gates meaningful package, library, platform-library, project, directory, and
+  prefix declarations rather than a generic presence signal;
 - `SearchScopeResolutionTests.ExplicitGroups_ComposeInOrderWithoutDuplicatePackages`
   gates additive composition, order, first-occurrence preservation, and
   case-insensitive set semantics; and
 - `SearchScopeResolutionTests.VersionedAndUnversionedPackageCoordinates_RemainDistinct`
   gates coordinate identity across version presence.
 
-Command parsers supply the direct-source presence consumed by that fully gated
-normalizer and retain direct values in their own option records. Their
+Command parsers supply the source intent consumed by the shared
+normalizer and lower direct values into their own option records. Their
 end-to-end wiring has partial Release gate coverage:
 
 - `SearchScopeResolutionTests.EachCommandDirectSource_DoesNotFallBackToPlatform`
@@ -196,6 +211,15 @@ end-to-end wiring has partial Release gate coverage:
 - `SearchScopeResolutionTests.PackagePrefixExpansionLimit_UsesSelectedBound`
   gates the declared 500-package type-search expansion bound.
 
+`SearchSourceAdapterTests` additionally gates retained package-reference and
+archive spelling, direct-source lowering, source-option identity, concrete
+prefix-bound wiring and warning, direct/prefix/group precedence, retained
+empty-prefix intent, visible prefix failure, clean declaration diagnostics,
+and profile group rejection before type-search prefix validation.
+`EachCommandInspectsExplicitLocalPackage` is the positive local-archive witness
+through all four real command actions, using independently compiled fixtures
+or an existing platform library.
+
 The search-only measurements in
 [the package query CLI](package-query-cli.md#measured-package-profile-limits)
 characterize prefix expansion through 500 coordinates. They do not measure the
@@ -205,9 +229,8 @@ cost remains with the acquisition owners and is not evidence for this bound.
 The residual command-adapter matrix is explicitly unverified: the suite does
 not provide one outcome-level non-vacuity case for every explicit package,
 package-prefix, `--extensions`, and `--aspnetcore` path on every participating
-command. The exact `take:` wiring from the declaration into prefix acquisition
-is also unverified. This design does not generalize the representative wiring
-gates into those stronger claims.
+command. The bounded-prefix adapter gate does not generalize into that full
+command-by-source outcome matrix.
 
 ## Non-claims
 

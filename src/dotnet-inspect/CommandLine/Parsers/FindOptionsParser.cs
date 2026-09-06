@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.CommandLine;
 
@@ -69,39 +70,45 @@ public static class FindOptionsParser
             return new ShowHelpWithTips();
 
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
-        var packages = string.IsNullOrEmpty(pattern)
-            ? parseResult.GetValue(args.PackageOption) ?? []
-            : await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-                parseResult.GetValue(args.PackageOption) ?? [],
-                packagePrefix,
-                parseResult.GetValue(opts.Verbose),
-                sourceOptions);
-        var assemblies = parseResult.GetValue(args.AssemblyOption) ?? [];
-        var projects = parseResult.GetValue(args.ProjectOption) ?? [];
-        var binPaths = parseResult.GetValue(args.BinOption) ?? [];
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
-
-        var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
-            parseResult,
-            args.PlatformOption,
-            args.PlatformLibraryOption);
-
-        var scopeFlags = new ScopeResolver.ScopeFlags(
-            Platform: allPlatformFrameworks,
-            Extensions: parseResult.GetValue(args.ExtensionsOption),
-            AspNetCore: parseResult.GetValue(args.AspNetCoreOption));
-        var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
-            hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0 || platformAssemblies.Length > 0);
+        AssemblySetRequest sources;
+        SearchSourceSelection? selection = null;
+        bool profileHasGroupScope = false;
+        if (string.IsNullOrEmpty(pattern))
+        {
+            // Profiles have their own grammar and reject API scopes before acquisition.
+            profileHasGroupScope = parseResult.GetValue(args.PlatformOption)
+                || parseResult.GetValue(args.ExtensionsOption)
+                || parseResult.GetValue(args.AspNetCoreOption);
+            sources = new()
+            {
+                Packages = parseResult.GetValue(args.PackageOption) ?? [],
+                Assemblies = parseResult.GetValue(args.AssemblyOption) ?? [],
+                PlatformAssemblies = parseResult.GetValue(args.PlatformLibraryOption) ?? [],
+                Projects = parseResult.GetValue(args.ProjectOption) ?? [],
+                Directories = parseResult.GetValue(args.BinOption) ?? [],
+            };
+        }
+        else
+        {
+            var intent = SearchSourceAdapter.Declare(
+                parseResult, args.PackageOption, args.AssemblyOption, args.ProjectOption,
+                args.PlatformOption, args.PlatformLibraryOption, args.ExtensionsOption,
+                args.AspNetCoreOption, args.BinOption, args.PackagePrefixOption);
+            (selection, sources) = await SearchSourceAdapter.BindAsync(
+                intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
+        }
 
         var options = new FindOptions
         {
             Pattern = pattern ?? "",
-            Packages = scope.Packages,
-            Assemblies = assemblies,
-            PlatformAssemblies = platformAssemblies,
-            PlatformFrameworks = scope.Frameworks,
-            Projects = projects,
-            BinPaths = binPaths,
+            SourceSelection = selection,
+            Packages = [.. sources.Packages],
+            Assemblies = [.. sources.Assemblies],
+            PlatformAssemblies = [.. sources.PlatformAssemblies],
+            PlatformFrameworks = [.. sources.PlatformFrameworks],
+            Projects = [.. sources.Projects],
+            BinPaths = [.. sources.Directories],
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             // Member lens: explicit --members, or auto-enabled by a leading '.' sentinel (e.g. .Serialize).
@@ -126,6 +133,7 @@ public static class FindOptionsParser
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             PackagePrefixSpecified = packagePrefixSpecified,
+            HasPackageProfileGroupScope = profileHasGroupScope,
             SourceOptions = sourceOptions
         };
 

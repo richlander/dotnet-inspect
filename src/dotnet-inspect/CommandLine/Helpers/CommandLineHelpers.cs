@@ -4,6 +4,7 @@ using System.CommandLine.Parsing;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using NuGetFetch;
 
 namespace DotnetInspector.CommandLine;
@@ -39,15 +40,6 @@ public static class CommandLineHelpers
             Description = "Search one or more platform libraries",
             Hidden = true
         };
-
-    public static (bool AllPlatformFrameworks, string[] PlatformAssemblies) ParsePlatformSearchOption(
-        ParseResult parseResult,
-        Option<bool> platformOption,
-        Option<string[]> platformLibraryOption)
-    {
-        var values = parseResult.GetValue(platformLibraryOption) ?? [];
-        return (parseResult.GetValue(platformOption), values);
-    }
 
     /// <summary>
     /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
@@ -106,47 +98,35 @@ public static class CommandLineHelpers
     }
 
     /// <summary>
-    /// Resolves a package ID prefix and merges with existing packages.
-    /// </summary>
-    public static async Task<string[]> MergeWithPrefixPackagesAsync(
-        string[] packages,
-        string? prefix,
-        bool verbose,
-        NuGetSourceOptions? sourceOptions)
-    {
-        if (prefix == null)
-            return packages;
-
-        var prefixPackages = await ResolvePrefixPackagesAsync(prefix, verbose, sourceOptions);
-        return [.. packages, .. prefixPackages];
-    }
-
-    /// <summary>
     /// Resolves a package ID prefix to a list of matching package names via NuGet search.
     /// </summary>
-    private static async Task<string[]> ResolvePrefixPackagesAsync(
-        string prefix,
+    internal static async Task<SourceSelector.PackageReference[]> ResolvePrefixPackagesAsync(
+        PackagePrefixRequest request,
+        HttpClient client,
         bool verbose,
         NuGetSourceOptions? sourceOptions)
     {
+        string prefix = request.Prefix;
         Action<string>? log = CreateVerboseLogger(verbose);
-        var client = HttpClientFactory.Shared;
 
         log?.Invoke($"Resolving packages with prefix: {prefix}");
 
         List<NuGetSearchResult> results;
+        SourceSelector.PackageReference[] packages;
         try
         {
             results = await NuGetSearchService.SearchByPrefixAsync(
                 client,
                 prefix,
-                take: ScopeConstants.PackagePrefixExpansionLimit,
+                take: request.MaxPackages,
+                prerelease: request.IncludePrerelease,
                 log: log,
                 sourceOptions: sourceOptions,
                 fetchOptions: NuGetFetchOptions.FromRequestTimeout(
                     client.Timeout));
+            packages = results.Select(result => new SourceSelector.PackageReference(result.PackageId)).ToArray();
         }
-        catch (Exception ex) when (IsPrefixResolutionFailure(ex))
+        catch (Exception ex) when (ex is ArgumentException || IsPrefixResolutionFailure(ex))
         {
             // The command cannot proceed honestly: it does not know which packages the prefix
             // named. Reported as a clean CLI error rather than an escaping stack trace, and never
@@ -161,23 +141,21 @@ public static class CommandLineHelpers
             return [];
         }
 
-        WarnIfPackagePrefixLimitReached(results.Count, prefix);
+        WarnIfPackagePrefixLimitReached(results.Count, request);
         log?.Invoke($"Found {results.Count} package(s) matching prefix \"{prefix}\"");
-        var packageNames = results.Select(r => r.PackageId).ToArray();
+        foreach (var package in packages)
+            log?.Invoke($"  {package.PackageId}");
 
-        foreach (var pkg in packageNames)
-            log?.Invoke($"  {pkg}");
-
-        return packageNames;
+        return packages;
     }
 
-    internal static void WarnIfPackagePrefixLimitReached(int resultCount, string prefix)
+    internal static void WarnIfPackagePrefixLimitReached(int resultCount, PackagePrefixRequest request)
     {
-        if (resultCount < ScopeConstants.PackagePrefixExpansionLimit)
+        if (resultCount < request.MaxPackages)
             return;
 
         CommandError.WriteWarning(
-            $"Package prefix \"{prefix}\" reached the {ScopeConstants.PackagePrefixExpansionLimit}-package search limit; additional matches may be omitted.");
+            $"Package prefix \"{request.Prefix}\" reached the {request.MaxPackages}-package search limit; additional matches may be omitted.");
     }
 
     internal static bool IsPrefixResolutionFailure(Exception error) =>
