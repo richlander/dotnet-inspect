@@ -178,6 +178,63 @@ public static class WorkspaceContextLoader
     const string PlatformResolverSource = "NuGet implementation pack";
 
     /// <summary>
+    /// Acquires one package Root without constructing assembly contexts.
+    /// Scope publication separately prepares its physical realization.
+    /// </summary>
+    /// <remarks>
+    /// When the requested framework has no exact compile selection, reuse the
+    /// context loader's compatible implementation universe as the selection
+    /// target. The acquired coordinate still records the requested framework.
+    /// </remarks>
+    public static async Task<WorkspacePackageRootAcquisitionOutcome>
+        AcquirePackageRootAsync(
+            WorkspaceContextInput context,
+            WorkspaceContextLoadOptions options,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.HttpClient);
+        ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
+        ArgumentNullException.ThrowIfNull(options.PackageStore);
+        ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ImmutableArray<WorkspaceContextLoadFailure> rejections =
+            Validate(context, options, out string? framework, out string? rid);
+        if (!rejections.IsEmpty)
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(rejections);
+        if (context.Members.Count != 1
+            || context.Members[0] is not WorkspaceMemberCoordinate.PackageMember member)
+        {
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(
+                [Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member: null,
+                    "Package Root acquisition requires exactly one package member.")]);
+        }
+
+        var acquisition = await AcquirePackagePayloadAsync(
+            member, framework!, rid, options, cancellationToken)
+            .ConfigureAwait(false);
+        if (acquisition.Failure is { } failure)
+            return new WorkspacePackageRootAcquisitionOutcome.Failed([failure]);
+
+        AcquiredPackagePayload payload = acquisition.Payload!;
+        WorkspacePackageRootAcquisitionOutcome binding =
+            BindPackageRoot(member, payload, framework!);
+        if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquired
+            && acquired.Root.Root.AssetSelection.Status
+                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            && PackageAssetSelector.Select(payload.Content, framework!, rid)
+                is PackageAssetSelection.Selected compatible)
+        {
+            return BindPackageRoot(member, payload, compatible.Universe.TargetFramework);
+        }
+        return binding;
+    }
+
+    /// <summary>
     /// Realizes <paramref name="context"/> into one group owned by
     /// <paramref name="workspace"/>, or returns the typed reasons it could not
     /// be realized.
@@ -1865,6 +1922,29 @@ public static class WorkspaceContextLoader
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        var acquisition = await AcquirePackagePayloadAsync(
+            member, framework, runtimeIdentifier, options, cancellationToken)
+            .ConfigureAwait(false);
+        return acquisition.Failure is { } failure
+            ? new MemberRealization(failure)
+            : RealizeAcquiredPackage(
+                member,
+                acquisition.Payload!,
+                framework,
+                runtimeIdentifier,
+                options.IncludePackageRootBindings,
+                cancellationToken);
+    }
+
+    static async Task<(
+        AcquiredPackagePayload? Payload,
+        WorkspaceContextLoadFailure? Failure)> AcquirePackagePayloadAsync(
+            WorkspaceMemberCoordinate.PackageMember member,
+            string framework,
+            string? runtimeIdentifier,
+            WorkspaceContextLoadOptions options,
+            CancellationToken cancellationToken)
+    {
         // Authorization is resolved for this member's own id, and before any
         // discovery, cache read, or download for it. The canonical id is what
         // the host is asked about, so one package has one authorization answer
@@ -1874,7 +1954,7 @@ public static class WorkspaceContextLoader
                 member.PackageId.ToLowerInvariant());
         if (authorization.Sources.Count == 0)
         {
-            return new MemberRealization(
+            return (null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageUnavailable,
                     member,
@@ -1902,13 +1982,13 @@ public static class WorkspaceContextLoader
         switch (resolution)
         {
             case PackageCoordinateResolution.Invalid invalid:
-                return new MemberRealization(
+                return (null,
                     Failure(
                         WorkspaceContextLoadFailureKind.InvalidCoordinate,
                         member,
                         invalid.Message));
             case PackageCoordinateResolution.Unavailable unavailable:
-                return new MemberRealization(
+                return (null,
                     Failure(
                         WorkspaceContextLoadFailureKind.PackageUnavailable,
                         member,
@@ -1928,22 +2008,14 @@ public static class WorkspaceContextLoader
                 options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
-            return new MemberRealization(
+            return (null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageUnavailable,
                     member,
                     payloadFailure.Message));
         }
 
-        AcquiredPackagePayload acquired =
-            ((PackagePayloadResult.Acquired)payload).Payload;
-        return RealizeAcquiredPackage(
-            member,
-            acquired,
-            framework,
-            runtimeIdentifier,
-            options.IncludePackageRootBindings,
-            cancellationToken);
+        return (((PackagePayloadResult.Acquired)payload).Payload, null);
     }
 
     /// <summary>
@@ -2218,27 +2290,17 @@ public static class WorkspaceContextLoader
         PackageRootBinding? packageRoot = null;
         if (includePackageRootBinding)
         {
-            try
-            {
-                packageRoot = PackageRootBinding.CreateFromResolved(
+            WorkspacePackageRootAcquisitionOutcome binding =
+                BindPackageRoot(
+                    (WorkspaceMemberCoordinate.PackageMember)member,
                     acquired,
-                    framework,
-                    ((WorkspaceMemberCoordinate.PackageMember)member)
-                        .PackageId);
-            }
-            catch (Exception ex) when (
-                ex is ArgumentException
-                    or IOException
-                    or InvalidOperationException
-                    or NotSupportedException
-                    or ObjectDisposedException)
+                    framework);
+            if (binding is WorkspacePackageRootAcquisitionOutcome.Failed failed)
             {
-                return new MemberRealization(
-                    Failure(
-                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
-                        member,
-                        $"The package Root for '{coordinate.PackageId}' could not be bound to its acquired content."));
+                return new MemberRealization(failed.Failures[0]);
             }
+            packageRoot =
+                ((WorkspacePackageRootAcquisitionOutcome.Acquired)binding).Root;
             if (packageRoot.Coordinate != realizedCoordinate)
             {
                 return new MemberRealization(
@@ -2253,6 +2315,32 @@ public static class WorkspaceContextLoader
             realizedCoordinate,
             assemblies.ToImmutable(),
             packageRoot);
+    }
+
+    static WorkspacePackageRootAcquisitionOutcome BindPackageRoot(
+        WorkspaceMemberCoordinate.PackageMember member,
+        AcquiredPackagePayload acquired,
+        string framework)
+    {
+        try
+        {
+            return new WorkspacePackageRootAcquisitionOutcome.Acquired(
+                PackageRootBinding.CreateFromResolved(
+                    acquired, framework, member.PackageId));
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException
+                or IOException
+                or InvalidOperationException
+                or NotSupportedException
+                or ObjectDisposedException)
+        {
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(
+                [Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"The package Root for '{acquired.Coordinate.PackageId}' could not be bound to its acquired content.")]);
+        }
     }
 
     static MemberRealization RealizeEmbedded(

@@ -474,6 +474,7 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task RedirectFailureUsesTheOriginalResolvedRequestUrl()
     {
         const string Secret = "sup3rs3cret";
@@ -681,6 +682,7 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody()
     {
         var handler = new StallingBodyHandler();

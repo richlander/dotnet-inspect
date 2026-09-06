@@ -9,6 +9,7 @@ namespace DotnetInspector.Tests;
 public class LibraryTopLeverageTests
 {
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryTopLeverage_RendersRankedTable()
     {
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions

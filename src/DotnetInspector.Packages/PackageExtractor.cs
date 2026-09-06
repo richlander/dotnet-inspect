@@ -49,6 +49,9 @@ public record PackageExtractionResult(
     public bool SelectedVersionUsesOriginalSources { get; init; }
     public ConfiguredPackageAuthority? Authority { get; init; }
 
+    /// <summary>The admitted payload retained until the caller cleans up this extraction.</summary>
+    public AcquiredPackageSourcePayload? AcquiredPayload { get; internal init; }
+
     public string? CacheScopeKey => Authority is null ? ProducerKey : Authority.PersistentCacheKey;
 
     /// <summary>
@@ -282,7 +285,7 @@ public static class PackageExtractor
         bool includePrerelease = false) =>
         ExtractPackageCoreAsync(
             client, packageSource, log, tempDirPrefix, sourceOptions,
-            version, forceLatest, includePrerelease, pinnedSession: null);
+            version, forceLatest, includePrerelease, authoritySession: null);
 
     /// <summary>Extracts an online caller-pinned package through configured authorities.</summary>
     public static async Task<PackageExtractionOutcome> ExtractPinnedPackageAsync(
@@ -301,12 +304,51 @@ public static class PackageExtractor
             return PackageExtractionOutcome.Error(
                 "Configured-authority extraction requires online mode, a valid package ID, and an exact version.");
         }
-        await using var session = new PinnedPackageExtractionSession(
+        await using var session = new ConfiguredPackageExtractionSession(
             client.Timeout, tempDirPrefix, createComposition);
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
             normalizedVersion, forceLatest: false, includePrerelease: false, session)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Selects and extracts an online package using current configured-authority
+    /// evidence. Range selectors require an explicit address.
+    /// </summary>
+    public static async Task<PackageExtractionOutcome> ExtractSelectedPackageAsync(
+        HttpClient client,
+        string packageId,
+        string? versionSelector = null,
+        Action<string>? log = null,
+        string tempDirPrefix = "inspect-pkg",
+        NuGetSourceOptions? sourceOptions = null,
+        bool includePrerelease = false,
+        string? rangeAddress = null,
+        Func<DesktopPackageSourceComposition>? createComposition = null)
+    {
+        if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
+        {
+            return PackageExtractionOutcome.Error(
+                "Configured-authority selection requires online mode and a valid package ID.");
+        }
+
+        await using var session = new ConfiguredPackageExtractionSession(
+            client.Timeout, tempDirPrefix, createComposition);
+        PackageExtractionOutcome selected;
+        using (FeedFailureTelemetry.Scope())
+        {
+            selected = await session.AcquireSelectedAsync(
+                packageId, versionSelector, sourceOptions, log,
+                includePrerelease, rangeAddress).ConfigureAwait(false);
+        }
+        if (!selected.IsSuccess)
+            return selected;
+
+        return await ExtractPackageCoreAsync(
+            client, packageId, log, tempDirPrefix, sourceOptions,
+            selected.Result!.Version, forceLatest: false, includePrerelease: false,
+            session, selected).ConfigureAwait(false);
     }
 
     private static async Task<PackageExtractionOutcome> ExtractPackageCoreAsync(
@@ -318,9 +360,11 @@ public static class PackageExtractor
         string? version,
         bool forceLatest,
         bool includePrerelease,
-        PinnedPackageExtractionSession? pinnedSession)
+        ConfiguredPackageExtractionSession? authoritySession,
+        PackageExtractionOutcome? initialOutcome = null)
     {
-        bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+        bool isLocalFile = authoritySession is null
+            && packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
         if (isLocalFile)
         {
@@ -347,7 +391,7 @@ public static class PackageExtractor
             PackageExtractionOutcome outcome;
             using (FeedFailureTelemetry.Scope())
             {
-                outcome = await DownloadAndExtractPackageAsync(
+                outcome = initialOutcome ?? await DownloadAndExtractPackageAsync(
                     client,
                     currentPackageSource,
                     log,
@@ -356,7 +400,8 @@ public static class PackageExtractor
                     currentVersion,
                     currentForceLatest,
                     currentIncludePrerelease,
-                    pinnedSession).ConfigureAwait(false);
+                    authoritySession).ConfigureAwait(false);
+                initialOutcome = null;
             }
 
             if (!outcome.IsSuccess)
@@ -374,7 +419,7 @@ public static class PackageExtractor
                     {
                         ToolWrapperChain = wrapperPackages.ToArray()
                     };
-                return pinnedSession?.Complete(completed) ?? completed;
+                return authoritySession?.Complete(completed) ?? completed;
             }
 
             if (string.IsNullOrWhiteSpace(result.PackageName))
@@ -468,21 +513,23 @@ public static class PackageExtractor
         string? explicitVersion = null,
         bool forceLatest = false,
         bool includePrerelease = false,
-        PinnedPackageExtractionSession? pinnedSession = null)
+        ConfiguredPackageExtractionSession? authoritySession = null)
     {
-        var (packageName, parsedVersion) = ParsePackageReference(packageSource);
+        (string packageName, string? parsedVersion) = authoritySession is null
+            ? ParsePackageReference(packageSource)
+            : (packageSource, null);
         var version = explicitVersion ?? parsedVersion;
 
         // A legacy selector's producer restriction is not an authority receipt.
         // Those discovered-coordinate paths migrate with their resolver.
         if (!HttpClientFactory.IsOffline
-            && pinnedSession is not null
+            && authoritySession is not null
             && sourceOptions?.AuthorizedSourceKeys is null
             && sourceOptions?.ResolvedSources is null
             && version is not null
             && TryNormalizePackageVersion(version, out string pinnedVersion))
         {
-            return await pinnedSession.AcquireAsync(
+            return await authoritySession.AcquireAsync(
                 packageName, pinnedVersion, sourceOptions, log).ConfigureAwait(false);
         }
 
@@ -2273,35 +2320,7 @@ public static class PackageExtractor
     /// Handles formats: "PackageName", "PackageName@1.0.0", "Package.Name.1.0.0.nupkg"
     /// </summary>
     public static (string name, string? version) ParsePackageReference(string packageSource)
-    {
-        // Handle local .nupkg files
-        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-        {
-            string fileName = Path.GetFileNameWithoutExtension(packageSource);
-            // Try to parse name.version pattern (e.g., "System.Text.Json.8.0.0")
-            // Scan left-to-right: the first segment starting with a digit begins the version
-            var parts = fileName.Split('.');
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
-                {
-                    var name = string.Join(".", parts.Take(i));
-                    var version = string.Join(".", parts.Skip(i));
-                    return (name, version);
-                }
-            }
-            return (fileName, null);
-        }
-
-        // Handle package@version format
-        int atIndex = packageSource.IndexOf('@');
-        if (atIndex > 0)
-        {
-            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
-        }
-
-        return (packageSource, null);
-    }
+        => PackageReferenceParser.Parse(packageSource);
 
     public static PackageReferenceTarget ParsePackageTarget(string packageArg, string? explicitVersion = null)
     {
@@ -2325,12 +2344,7 @@ public static class PackageExtractor
     }
 
     public static bool IsValidPackageReferenceVersion(string? version)
-    {
-        return string.IsNullOrEmpty(version)
-            || string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
-            || version.Contains('*', StringComparison.Ordinal)
-            || NuGet.Versioning.NuGetVersion.TryParse(version, out _);
-    }
+        => PackageReferenceParser.IsValidVersion(version);
 
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
 

@@ -2429,7 +2429,7 @@ test("dependency graph render identity includes truncation and navigation", () =
 });
 
 test("ready status shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = inspectBuildIdentity\(\)/);
+  assert.match(appSource, /state\.buildIdentity = await engineStartup\.host\.buildIdentity\(\)/);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
@@ -5307,6 +5307,41 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
 });
 
+test("Package and Library Overview share the named identity frame", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction libraryIdentity/)?.[0]
+    ?? "";
+  const renderOverview =
+    appSource.match(/function renderPackageOverview\([\s\S]*?\n}\n\nfunction renderLibraryOverview/)?.[0]
+    ?? "";
+  assert.match(appSource,
+    /const overviewWorkingSurface =[\s\S]*activeScope === "package" && state\.packageLens === "overview"[\s\S]*activeScope === "library" && state\.libraryLens === "overview"/);
+  assert.match(appSource,
+    /overviewWorkingSurface \? " overview-working-surface" : ""/);
+  assert.match(appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| overviewWorkingSurface[\s\S]*?;/);
+  assert.match(renderPackage,
+    /return packageLensBody\(\);/);
+  assert.match(renderOverview,
+    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
+  assert.match(renderOverview,
+    /platformLibrarySelectHtml\(\)/);
+  assert.match(renderOverview,
+    /const libraries = packageLibraries\(\)/);
+  assert.match(renderOverview,
+    /data-lib-scope=[\s\S]*No managed libraries were admitted/);
+  assert.match(renderOverview,
+    /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageCoordinateFields\(\),[\s\S]*contentHtml,/);
+  const renderLibraryOverview =
+    appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
+    ?? "";
+  assert.match(renderLibraryOverview,
+    /renderOverviewSurface\(\{[\s\S]*subject: "library",[\s\S]*displayName: library\.name,[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*details: \[library\.asset \|\| "Managed library", libraryIdentity\(library\)\]/);
+  assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
+  assert.match(stylesSource,
+    /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
+});
+
 test("library metadata uses compact coordinates in a full-area working surface", () => {
   const renderLibrary =
     appSource.match(/function renderLibraryView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
@@ -5325,7 +5360,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
@@ -5364,7 +5399,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /const contentNavigationIntegrated =[\s\S]*?\|\| packageDependenciesWorkingSurface[\s\S]*?;/);
   assert.match(
     renderPackage,
-    /if \(state\.packageLens === "dependencies"\) return body;/);
+    /return packageLensBody\(\);/);
   assert.match(
     appSource,
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageCoordinateFields\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);

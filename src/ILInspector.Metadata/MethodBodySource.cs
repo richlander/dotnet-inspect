@@ -38,7 +38,7 @@ public sealed record MethodBodySelection(
 /// PE or metadata readers. Returned body data is copied and may outlive the
 /// owning session; resolver operations require the owner to remain alive.
 /// </summary>
-public sealed class MethodBodySource : IOperandNameResolver
+public sealed partial class MethodBodySource : IOperandNameResolver
 {
     readonly PEReader _peReader;
     readonly MetadataReader _reader;

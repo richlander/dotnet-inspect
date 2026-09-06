@@ -310,6 +310,29 @@ version-resolution contract to the union of authority-bearing candidate
 evidence only after the aggregate has sufficient completeness for that
 operation.
 
+The package owner may project those retained observations into one immutable,
+resource-free `PackageAcquisitionCandidate`. A caller-pinned candidate carries
+every usable authority eligible for its exact coordinate. A discovered
+candidate carries only authorities whose adopted observations reported its
+coordinate under the retained discovery contract. Its opaque correspondence
+identity binds the coordinate, candidate kind, discovery contract, issuing
+source context, and authority reference-identity set.
+
+`PackageAcquisitionCandidateIssuer` is the host-neutral construction boundary
+for hosts that already possess explicit `PackageSourceAuthorization` and
+owner-issued `PackageSourceOperationResult<PackageVersionResult>` values. It
+adopts those results, applies package-owned completeness and listing policy,
+and issues the same candidate currency without requiring desktop
+configuration or credential-provider services. Host adapters invoke source
+clients; they do not reproduce candidate aggregation or correspondence.
+
+The
+[Package Dependency Candidate Query](package-dependency-candidate-resolution.md)
+uses that currency for NuGet dependency constraints. It may choose a version
+only from a discovery result whose complete retained contract admits
+dependency-range selection; `Authoritative` without that contract is
+insufficient.
+
 The Release gates are
 `Discovery_AllEligibleAuthoritiesMustSettleBeforeAuthoritativeSelection`,
 `Discovery_UnreadableAuthorityCannotBecomePackageAbsence`,
@@ -489,10 +512,10 @@ can report an observed exact coordinate with peer failures disclosed, but
 cannot infer absence from unreadable peers. Failed operations, including the
 terminal operation deadline, publish no query rows.
 
-Online caller-pinned extraction now adopts configured authorities as described
-below. Offline version queries and extraction, payload-selecting
-latest/wildcard/range resolution, metadata, search, and other payload consumers
-remain on the legacy composition until their package-owned adoption slices land.
+Online caller-pinned extraction and the discovered-coordinate acquisition seam
+now adopt configured authorities as described below. Offline version queries
+and extraction, metadata, search, and unmigrated payload consumers remain on the
+legacy composition until their package-owned adoption slices land.
 The process-global authentication decorator therefore
 also remains solely for those legacy paths; it cannot be removed until they no
 longer depend on it. This first live slice does not read or publish the legacy
@@ -601,6 +624,64 @@ and namespace/provenance separation), and
 (derived-index isolation). Existing source-routing, store-publication,
 legacy extraction/concurrency, and payload-admission suites retain their
 contracts.
+
+### Discovered-coordinate payload acquisition
+
+The production consumer in step 5 is ordinary online single-package inspection
+with an omitted version, `@latest`, `--preview`, or a wildcard version. The
+package layer also supplies an authority-preserving range-address acquisition
+seam. Its named CLI consumers, API inspection and timeline, adopt that seam in
+step 6 together with their remaining payload and replay paths. This slice does
+not add `package --at` or claim those hosts have migrated.
+
+Selection consumes complete, current candidate evidence from every eligible
+configured authority. Each retained observation preserves its configured
+authority, normalized coordinate, discovery contract, listing state, and
+producer provenance. Per-feed display rows and legacy source-URL restrictions
+are not selection receipts. Partial evidence, failed discovery, or an expired
+operation cannot reach payload-cache lookup or acquisition.
+
+Latest selects the highest listed version, excluding prereleases unless
+requested. Wildcards retain the existing case-insensitive version-prefix
+semantics, including matching prereleases. Range addresses retain
+`PackageVersionVector`'s inclusive endpoints, caller direction, prerelease
+rules, and explicit address selection. Metadata-only range enumeration stays
+separate from acquisition.
+
+Only authorities whose admitted observations reported the selected coordinate
+under that selection contract may supply its payload, including cache hits.
+Another eligible authority's warm cache is not a substitute for reporting
+evidence. Among reporters, the existing cache-first and cold-local-before-HTTP
+rules apply. Selection, acquisition, and tool-wrapper traversal share one
+operation context; each redirected package independently reapplies its own
+package-ID authority rather than inheriting the root's reporting set.
+
+This path does not consult legacy producer-keyed candidate caches or use
+payload-directory scans as candidate evidence. Selection therefore performs
+fresh bounded discovery, including when an omitted-version request previously
+used a legacy version-cache hit. `@latest` keeps its fresh-discovery meaning.
+Authority-safe candidate caching remains deferred; local payload caching and
+HTTP temporary ownership reuse the caller-pinned path unchanged.
+
+The same six-step plan and recorded CLI-only approval apply. Multi-package
+inspection, API/timeline host adoption, offline behavior, and corresponding
+legacy retirement remain step 6. Existing Markout-backed package views and
+file/content projection remain the rendering boundary; no new default output
+section is introduced.
+
+The Release gates in `ConfiguredPayloadAcquisitionTests` cover this contract:
+`PackageCommand_LocalSelectionPrintsSelectedPayload` and
+`PackageCommand_SelectionRefreshesWithWarmLocalPayload` exercise the live
+consumer and fresh discovery; `AcquireSelected_PartialDiscoveryDoesNotProbePayloadCaches`,
+`AcquireSelected_NonReportingWarmCacheCannotSupplySelectedVersion`,
+`AcquireSelected_QueryDistinctAuthoritiesDoNotShareReportingEvidence`, and
+`AcquireSelected_GalleryListingEvidenceControlsAuthorization` distinguish
+reporting authority from availability, producer identity, and listing state.
+`AcquireSelected_RangeRetainsAddressDirectionAndReporter` gates the range seam.
+The external-operation deadline, commit-lifetime, caller-cancellation, and
+selected-wrapper tests gate the shared operation and temporary ownership.
+Existing caller-pinned acquisition and authority-store gates remain applicable
+to their shared implementation.
 
 ### Metadata-only version queries
 

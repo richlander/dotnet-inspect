@@ -61,6 +61,10 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
+import {
+  createMainThreadStartupClient,
+  type EngineStartupClient,
+} from "./engine-startup.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -219,6 +223,7 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
+import { renderOverviewSurface } from "./overview-surface.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -456,7 +461,6 @@ import type {
 // Each generated module publishes its own operations and its own wire declarations, so the
 // application binds every operation through the module that owns it. There is no aggregate
 // facade: a binding below names the facade it came from.
-type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
 type MetadataFacade = typeof import("./facades/inspect-web-metadata.d.ts");
 type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
@@ -466,11 +470,9 @@ type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
 type EngineCoordinator = typeof import("./engine-facades.ts");
 
 let startEngine: EngineCoordinator["startEngine"];
-let inspectBuildIdentity: HostFacade["buildIdentity"];
+let engineStartup: EngineStartupClient;
 let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
-let inspectListPackageQueryFacets: PackageFacade["listPackageQueryFacets"];
-let inspectListGalleryDiscoveryCatalog: PackageFacade["listGalleryDiscoveryCatalog"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
 let matchPackageDependencyCoordinate:
@@ -521,8 +523,6 @@ let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
 let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
 let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
-let inspectListHomeDemos: CatalogFacade["listHomeDemos"];
-let inspectVocabulary: CatalogFacade["listVocabulary"];
 let inspectResolveHomeDemo: CatalogFacade["resolveHomeDemo"];
 let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
 let productHomeDemoCatalogError = "";
@@ -551,12 +551,14 @@ async function loadEngineModule() {
     import("./engine-facades.ts"),
   ]);
   ({ startEngine } = coordinator);
-  ({ buildIdentity: inspectBuildIdentity } = hostFacade);
+  engineStartup = createMainThreadStartupClient({
+    host: hostFacade,
+    package: packageFacade,
+    catalog: catalogFacade,
+  });
   ({
     cancelPackageQuery,
     getPackageDocument: inspectPackageDocument,
-    listPackageQueryFacets: inspectListPackageQueryFacets,
-    listGalleryDiscoveryCatalog: inspectListGalleryDiscoveryCatalog,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -613,8 +615,6 @@ async function loadEngineModule() {
   ({
     decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
     encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
-    listHomeDemos: inspectListHomeDemos,
-    listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
     runHomeDemo: inspectRunHomeDemo,
   } = catalogFacade);
@@ -3505,6 +3505,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const overviewWorkingSurface =
+    (activeScope === "package" && state.packageLens === "overview")
+    || (activeScope === "library" && state.libraryLens === "overview"
+      && selectedLibrary() !== null);
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
   const libraryMetadataWorkingSurface =
@@ -3543,6 +3547,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationIntegrated =
     apiWorkingSurface
     || metadataWorkingSurface
+    || overviewWorkingSurface
     || packageDependenciesWorkingSurface
     || libraryMetadataWorkingSurface
     || memberWorkingSurface;
@@ -3630,7 +3635,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3663,9 +3668,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       highlightCSharp,
     })}`;
 
-  const packageIcon =
-    document.querySelector<HTMLImageElement>("[data-package-icon]");
-  if (packageIcon) {
+  for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
     packageIcon.onerror = () => {
       if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
       packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
@@ -4174,19 +4177,6 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageHeading() {
-  const pkg = currentPackage();
-  return `<header class="type-heading">
-    <div class="type-badge">${pkg.isRuntimePack ? "◎" : "⬡"}</div>
-    <div>
-      <div class="type-namespace">${pkg.isRuntimePack ? "Shared framework" : "NuGet package"}</div>
-      <h1>${escapeHtml(packageDisplayName(pkg))}</h1>
-      <code class="type-signature">${pkg.isRuntimePack ? `${escapeHtml(packageDisplayName(pkg))} · ${escapeHtml(pkg.version)}` : `${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}`}</code>
-    </div>
-    <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
-  </header>`;
-}
-
 function packageCoordinateFields() {
   const pkg = currentPackage();
   return `<label class="version-select">
@@ -4203,21 +4193,12 @@ function packageCoordinateFields() {
   </label>`;
 }
 
-function packageCoordinateControls() {
-  const pkg = currentPackage();
-  return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
-    <div class="section-title">
-      <h2 id="package-coordinate-heading">Package coordinate</h2>
-      <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
-    </div>
-    <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
-  </section>`;
+function renderPackageView() {
+  return packageLensBody();
 }
 
-function renderPackageView() {
-  const body = packageLensBody();
-  if (state.packageLens === "dependencies") return body;
-  return `${packageHeading()}${packageCoordinateControls()}${body}`;
+function libraryIdentity(library: NonNullable<ReturnType<typeof selectedLibrary>>) {
+  return `${library.name}, Version=${library.version}, Culture=${library.culture || "neutral"}, PublicKeyToken=${library.publicKeyToken || "null"}`;
 }
 
 function libraryHeading() {
@@ -4228,7 +4209,7 @@ function libraryHeading() {
     <div>
       <div class="type-namespace">${escapeHtml(library.asset || "Managed library")}</div>
       <h1>${escapeHtml(library.name)}</h1>
-      <code class="type-signature">${escapeHtml(`${library.name}, Version=${library.version}, Culture=${library.culture || "neutral"}, PublicKeyToken=${library.publicKeyToken || "null"}`)}</code>
+      <code class="type-signature">${escapeHtml(libraryIdentity(library))}</code>
     </div>
     <div class="type-metrics"><span><strong>${library.types}</strong> types</span><span><strong>${library.members.toLocaleString()}</strong> members</span></div>
   </header>`;
@@ -4236,7 +4217,8 @@ function libraryHeading() {
 
 function renderLibraryView() {
   const body = libraryLensBody();
-  if (state.libraryLens === "metadata") return body;
+  if (state.libraryLens === "overview"
+    || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
 
@@ -5285,12 +5267,27 @@ function renderPackageOverview() {
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
 
-  return `
+  const contentHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${libraries.length} admitted</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
       <div class="library-list">${libraryRows || '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>'}</div>
     </section>${documentsSection}`;
+
+  return renderOverviewSurface({
+    subject: "package",
+    subjectLabel: pkg.isRuntimePack ? "Shared framework" : "Package",
+    displayName: packageDisplayName(pkg),
+    iconHtml: renderInspectedSubjectIcon(pkg),
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    totalTypes: pkg.totalTypes,
+    totalMembers: pkg.totalMembers,
+    coordinateFieldsHtml: packageCoordinateFields(),
+    contentHtml,
+    escapeHtml,
+  });
 }
 
 function renderLibraryOverview() {
@@ -5329,7 +5326,7 @@ function renderLibraryOverview() {
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
-  return `
+  const contentHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Public surface</h2><span>${library.types} types · ${library.members.toLocaleString()} members</span></div>
       <div class="type-chip-list">${kindChips || '<span class="empty-list">No public types.</span>'}</div>
@@ -5338,6 +5335,22 @@ function renderLibraryOverview() {
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
       <div class="type-chip-list">${namespaceChips}${nsOverflow}</div>
     </section>`;
+
+  const pkg = currentPackage();
+  return renderOverviewSurface({
+    subject: "library",
+    subjectLabel: "Library",
+    displayName: library.name,
+    iconHtml: renderInspectedSubjectIcon(pkg),
+    details: [library.asset || "Managed library", libraryIdentity(library)],
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    totalTypes: library.types,
+    totalMembers: library.members,
+    contentHtml,
+    escapeHtml,
+  });
 }
 
 function renderGraphMemberPendingHtml(
@@ -12781,10 +12794,10 @@ async function bootstrap() {
     reportEngineStatus("Loading .NET WebAssembly…");
     await startEngine(window.location.origin);
     reportEngineStatus("Reading package assemblies…");
-    state.buildIdentity = inspectBuildIdentity();
+    state.buildIdentity = await engineStartup.host.buildIdentity();
     const tEngine = performance.now();
     try {
-      const vocabulary = inspectVocabulary();
+      const vocabulary = await engineStartup.catalog.listVocabulary();
       const sections = vocabulary?.sections || [];
       state.styleTiers = (
         sections.find(section => section.id === "csharp.style-tiers")?.values
@@ -12805,7 +12818,7 @@ async function bootstrap() {
       state.styleCatalogError = errorMessage(error);
     }
     try {
-      setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
+      setProductHomeDemoCatalog((await engineStartup.catalog.listHomeDemos()).demos ?? []);
       productHomeDemoCatalogError = "";
     } catch (error) {
       setProductHomeDemoCatalog([]);
@@ -12814,8 +12827,9 @@ async function bootstrap() {
     }
     try {
       state.packageQueryFacets =
-        packageQueryFacets(inspectListPackageQueryFacets());
-      state.packageQuerySourceCatalog = inspectListGalleryDiscoveryCatalog();
+        packageQueryFacets(await engineStartup.package.listPackageQueryFacets());
+      state.packageQuerySourceCatalog =
+        await engineStartup.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
       state.packageQuerySourceCatalog = null;

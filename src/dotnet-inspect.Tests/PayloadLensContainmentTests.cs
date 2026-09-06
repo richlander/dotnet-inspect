@@ -282,6 +282,7 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
@@ -388,6 +389,7 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void SkillPrint_UsesRawPathForAcquisition()
     {
         using var package = HostilePackage.Create();
