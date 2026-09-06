@@ -287,7 +287,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:166:64FBBBE37EC7]",
+                "Library[schema:167:54ABB992213A]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -309,31 +309,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:66:FE9290184C28]",
+                "ApiMember[schema:68:E3E3A7C0D5D1]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:66:FE9290184C28]",
+                "ApiMember[schema:68:E3E3A7C0D5D1]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:83:EC233F0F8836]",
+                "ApiMemberOverload[schema:85:91DD77FF27B6]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:59:D5DF0FA9A398]",
+                "ApiMemberDetail[schema:61:372663EE8D40]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:165:F3B3EB15AE2D]",
+                "ApiType[schema:169:0A30871727A2]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

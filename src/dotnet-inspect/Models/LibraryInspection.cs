@@ -591,9 +591,22 @@ public class LibraryInspection
     [JsonPropertyName("body_shapes")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<BodyShapeJsonMatch>? BodyShapes =>
-        EffectiveBodyShapeSearchResult?.Matches?
-            .Select(BodyShapeJsonMatch.FromMatch)
-            .ToList();
+        BodyShapeSections?.Contains(SectionNames.BodyShapes) == false
+            ? null
+            : EffectiveBodyShapeSearchResult?.Matches?
+                .Select(BodyShapeJsonMatch.FromMatch)
+                .ToList();
+
+    [JsonPropertyName("body_shape_summary")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<BodyShapeSummary>? BodyShapeSummary =>
+        BodyShapeSections?.Contains(SectionNames.BodyShapeSummary) == true
+            && EffectiveBodyShapeSearchResult is { } result
+                ? Output.BodyShapeSummary.FromMatches(result.Matches)
+                : null;
+
+    [JsonIgnore]
+    public IReadOnlySet<string>? BodyShapeSections { get; set; }
 
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;

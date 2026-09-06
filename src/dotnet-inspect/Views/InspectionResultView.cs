@@ -1026,6 +1026,7 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(PerformanceGroupRow))]
 [MarkoutContext(typeof(PerformanceGroupView))]
 [MarkoutContext(typeof(BodyShapeRow))]
+[MarkoutContext(typeof(BodyShapeSummaryRow))]
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]

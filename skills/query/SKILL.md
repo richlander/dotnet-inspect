@@ -189,7 +189,15 @@ dnx dotnet-inspect -y -- type Widget --library MyLib.dll \
 At library scope, repeated Performance Triage predicates are ANDed before
 decompilation. The matching opportunities are mapped through their typed source
 owner identities and only those MethodDef bodies are searched for `Kind`.
-Body Shapes remains the output section; select a Performance section separately
+`Body Shapes` is the default occurrence section. Explicitly select
+`-S "Body Shape Summary"` for exact Kind/Match groups with a Count column;
+`--columns "Match;Count"` hides the already-known kind. Summary windows select
+groups without reducing their occurrence counts. `--count` counts the surviving
+rows in the selected view, and hiding columns never aggregates. Occurrence
+Member/Token and start/end coordinates locate matches in rendered C# method
+bodies, not original source files or IL.
+
+Select a Performance section separately
 when the canonical candidate/evidence/IL rows are also needed. Performance
 `--top` and `--order-by` do not compose with Body Shapes; use `--rows` to limit
 rendered matches.

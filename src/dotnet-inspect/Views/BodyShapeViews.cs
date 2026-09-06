@@ -4,6 +4,20 @@ using Markout;
 namespace DotnetInspector.Views;
 
 [MarkoutSerializable]
+public sealed record BodyShapeSummaryRow(string Kind, string Match, int Count)
+{
+    public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
+    public string Match { get; init; } = MarkoutInline.Code(Match);
+    public int Count { get; init; } = Count;
+
+    internal static List<BodyShapeSummaryRow> FromMatches(
+        IEnumerable<ILInspector.Decompiler.BodyShapeMatch> matches)
+        => BodyShapeSummary.FromMatches(matches)
+            .Select(summary => new BodyShapeSummaryRow(summary.Kind, summary.Match, summary.Count))
+            .ToList();
+}
+
+[MarkoutSerializable]
 public sealed record BodyShapeRow(
     string Kind,
     string Member,

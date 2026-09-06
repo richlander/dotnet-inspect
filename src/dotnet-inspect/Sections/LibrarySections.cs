@@ -137,6 +137,9 @@ public static class LibrarySections
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
+            .Add<BodyShapeSummary>(
+                BodyShapesQuery.Definition,
+                HasMethodBodies)
             .Add<PerformanceBoxing>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -922,6 +925,17 @@ public static class LibrarySections
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.BodyShapes;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.EffectiveBodyShapeSearchResult is not null;
+    }
+
+    public sealed class BodyShapeSummary : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.BodyShapeSummary;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;

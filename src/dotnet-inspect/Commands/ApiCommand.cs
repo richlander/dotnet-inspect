@@ -826,34 +826,39 @@ public class ApiCommand
         if (selectResult.Sections is not { } sections)
             return options.BodyKindQuery.HasFilter
                 && options.Select is { Length: > 0 }
-                ? $"--where Kind=... targets section '{SectionNames.BodyShapes}'."
+                ? $"--where Kind=... targets section '{SectionNames.BodyShapes}' "
+                    + $"or '{SectionNames.BodyShapeSummary}'."
                 : null;
 
-        bool selected = sections.Contains(SectionNames.BodyShapes);
+        bool selected = BodyKindQueryOptions.IsSelected(sections);
         if (options.BodyKindQuery.HasFilter)
         {
             return selected
                 ? null
-                : $"--where Kind=... targets section '{SectionNames.BodyShapes}'. "
-                    + $"Omit -S or include -S \"{SectionNames.BodyShapes}\".";
+                : $"--where Kind=... targets section '{SectionNames.BodyShapes}' "
+                    + $"or '{SectionNames.BodyShapeSummary}'. Omit -S or select one of these sections.";
         }
 
         if (!selected)
             return null;
 
-        const string required =
-            "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
+        string required =
+            $"Section '{sections.First(section => BodyKindQueryOptions.Sections.Contains(
+                section, StringComparer.OrdinalIgnoreCase))}' "
+            + "requires --where \"Kind=<C# Body Kinds ID>\".";
         bool explicitlyTargetsBodyShapes =
             options is MemberOptions { MemberSectionsPreResolved: true }
-                ? selectResult.ExactSections.Contains(SectionNames.BodyShapes)
+                ? BodyKindQueryOptions.IsSelected(selectResult.ExactSections)
                 : TargetsBodyShapes(options, options.Select);
         if (explicitlyTargetsBodyShapes
-            || sections.Count == 1)
+            || options.EffectiveDiscovery && TargetsBodyShapes(options, options.Discover)
+            || sections.All(section => BodyKindQueryOptions.Sections.Contains(
+                section, StringComparer.OrdinalIgnoreCase)))
         {
             return required;
         }
 
-        sections.Remove(SectionNames.BodyShapes);
+        sections.ExceptWith(BodyKindQueryOptions.Sections);
         return null;
     }
 
@@ -873,8 +878,9 @@ public class ApiCommand
                 pipeline.InfoSectionNames,
                 pipeline.GetCategoryMap());
             if (!resolved.HasError
-                && resolved.Sections is { Count: 1 } sections
-                && sections.Contains(SectionNames.BodyShapes))
+                && resolved.Sections is { Count: > 0 } sections
+                && sections.All(section => BodyKindQueryOptions.Sections.Contains(
+                    section, StringComparer.OrdinalIgnoreCase)))
             {
                 return true;
             }
@@ -1613,7 +1619,7 @@ public class ApiCommand
                 resolved.Sections ?? [],
                 StringComparer.OrdinalIgnoreCase);
             if (!options.BodyKindQuery.HasFilter)
-                discoveredSections.Remove(SectionNames.BodyShapes);
+                discoveredSections.ExceptWith(BodyKindQueryOptions.Sections);
             return discoveredSections;
         }
 
@@ -2603,10 +2609,8 @@ public class ApiCommand
                     + "Use --jsonl, --tsv, --table, or --print.");
                 return 1;
             }
-            if (GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.BodyShapes)
-                && options.IncludeSections?.Contains(
-                    SectionNames.BodyShapes) == true)
+            if (BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, options))
+                && BodyKindQueryOptions.IsSelected(options.IncludeSections))
             {
                 CommandError.Write(
                     "Document --json cannot represent Body Shapes analysis. "
@@ -2698,7 +2702,7 @@ public class ApiCommand
                 var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
-                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    if (BodyKindQueryOptions.IsSelected(requestedSections))
                     {
                         ApiOutputFormatter.PopulateBodyShapes(
                             view,
@@ -2717,13 +2721,14 @@ public class ApiCommand
 
             if (options is TypeOptions
                 && options.DllPath is { } typeBodyShapeDllPath
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.BodyShapes))
+                && BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, options)))
             {
                 ApiOutputFormatter.PopulateBodyShapes(
                     view,
                     typeBodyShapeDllPath,
                     options.PdbPath,
-                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(
+                        BuildFilteredTypeForSections(type, options)),
                     options,
                     sourceAssembly);
             }
@@ -3433,9 +3438,8 @@ public class ApiCommand
         if (!options.BodyKindQuery.HasFilter)
         {
             effective = effective
-                .Where(section => !section.Equals(
-                    SectionNames.BodyShapes,
-                    StringComparison.OrdinalIgnoreCase))
+                .Where(section => !BodyKindQueryOptions.Sections.Contains(
+                    section, StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
@@ -3630,7 +3634,7 @@ public class ApiCommand
                 var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
-                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    if (BodyKindQueryOptions.IsSelected(requestedSections))
                     {
                         ApiOutputFormatter.PopulateBodyShapes(
                             view,
@@ -3665,13 +3669,14 @@ public class ApiCommand
 
             if (renderOptions is TypeOptions
                 && renderOptions.DllPath is { } typeBodyShapeDllPath
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.BodyShapes))
+                && BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, renderOptions)))
             {
                 ApiOutputFormatter.PopulateBodyShapes(
                     view,
                     typeBodyShapeDllPath,
                     renderOptions.PdbPath,
-                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(
+                        BuildFilteredTypeForSections(type, renderOptions)),
                     renderOptions,
                     acquisition?.SourceAssembly);
             }

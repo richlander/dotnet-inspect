@@ -648,6 +648,7 @@ public static class TypeCommand
                [
                    SectionNames.DecompiledSource,
                    SectionNames.BodyShapes,
+                   SectionNames.BodyShapeSummary,
                ]);
 
     internal static bool AuthorizesSourceInfoAcquisition(
