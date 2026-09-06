@@ -2224,6 +2224,15 @@ function selectedLibraryRequest() {
   return state.package?.isRuntimePack ? library?.name ?? "" : library?.id ?? "";
 }
 
+function selectDefaultPackageSubject(pkg: AppPackage) {
+  state.workspaceSubjectOpen = false;
+  state.atLibraryRoot = Boolean(pkg.assemblyId);
+  state.atPackageRoot = !state.atLibraryRoot;
+  state.libraryScope = pkg.assemblyId ? new Set([pkg.assemblyId]) : null;
+  state.packageLens = "overview";
+  state.libraryLens = "overview";
+}
+
 function selectLibrarySubject(key: string, options: { preserveView?: boolean } = {}) {
   const descriptor = resolvePackageLibrary(state.package?.assemblies ?? [], key);
   const library = packageLibraries().find(candidate => candidate.id === descriptor?.id);
@@ -2450,8 +2459,12 @@ function selectWorkspacePackage(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  const firstLibrary = packageLibraries()[0];
-  state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
+  if (packageModel.isRuntimePack) {
+    const firstLibrary = packageLibraries()[0];
+    state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
+  } else {
+    selectDefaultPackageSubject(packageModel);
+  }
   state.selectedTypeId = defaultVisibleTypeId(packageModel);
   reconcileAccessibilityFilter(
     packageModel.types.find(item => item.id === state.selectedTypeId));
@@ -2460,8 +2473,10 @@ function selectWorkspacePackage(
   state.selectedOverloadIndex = null;
   resetMemberFilters();
   resetMemberSectionState();
-  state.atPackageRoot = true;
-  state.atLibraryRoot = false;
+  if (stayInWorkspace || packageModel.isRuntimePack) {
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+  }
   state.workspaceSubjectOpen = stayInWorkspace;
   render();
 }
@@ -11879,7 +11894,7 @@ interface LoadPackageOptions {
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
-  deepLink?: DeepLink | null;
+  location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
   failureHandler?: (message: string) => void;
@@ -11944,13 +11959,21 @@ async function loadPackage(
     state.kindFilter = "";
     state.libraryScope = null;
     state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
-    const deep = options.deepLink;
-    if (!deep) {
+    const deep = options.location;
+    if (deep) {
+      const libraryFailure = applyLoadedPackageLibraryScope(
+        packageModel,
+        deep.library);
+      if (libraryFailure) appendQueryNotice(libraryFailure);
+      applyLocationView(deep);
+    } else if (!options.replacePackage) {
+      selectDefaultPackageSubject(packageModel);
+    } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
       state.packageLens = "overview";
     }
-    if (deep && (deep.type || deep.member)) {
+    if (deep) {
       applyDeepLink(deep);
     } else {
       resetMemberFilters();
@@ -12593,7 +12616,7 @@ async function restoreWorkspaceFromLocation(
       target.version,
       target.framework,
       {
-        deepLink: deep,
+        location: loc,
         navigationSeq,
         queryNotice: state.queryNotice
       });
@@ -12718,6 +12741,15 @@ function applyLocationView(loc: ParsedLocation) {
     && (loc.atLibraryRoot || false);
   state.workspaceSubjectOpen =
     loc.workspaceSubjectOpen && state.atPackageRoot;
+  const pkg = state.package;
+  if (pkg && !pkg.isRuntimePack && !loc.hasWorkspaceState
+    && !loc.atPackageRoot && !loc.type && !loc.member && !loc.lens) {
+    if (loc.library) {
+      state.atLibraryRoot = true;
+    } else {
+      selectDefaultPackageSubject(pkg);
+    }
+  }
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";
 }
@@ -13627,10 +13659,10 @@ window.addEventListener("popstate", () => {
     activatePackage(target, { resetAccessibility: true });
   }
   state.home = false;
-  applyLocationView(loc);
   const samePackage = packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
+      applyLocationView(loc);
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
       observeAsync(
@@ -13643,6 +13675,7 @@ window.addEventListener("popstate", () => {
       const libraryFailure = applyLoadedPackageLibraryScope(
         state.package,
         loc.library);
+      applyLocationView(loc);
       const viewFailure = loc.shareState
         ? canonicalViewRestorationFailure(state.package, loc, loc.lens, loc.libraryLens)
         : null;
@@ -13673,7 +13706,7 @@ window.addEventListener("popstate", () => {
   } else {
     observeAsync(
       loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
-        deepLink: deep,
+        location: loc,
         navigationSeq,
         queryNotice: loc.workspaceNotice
       }),

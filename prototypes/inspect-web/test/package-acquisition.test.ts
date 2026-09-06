@@ -157,12 +157,12 @@ function generatedPackageSurfaceRejectsMutation(
 }
 void generatedPackageSurfaceRejectsMutation;
 
-test("root-only package surfaces preserve typed unavailability at the UI boundary", () => {
-  assert.throws(
-    () => createNuGetPackageModel(packageSurface({
+test("root-only package surfaces remain inspectable without inventing a Library", () => {
+  for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
+    const model = createNuGetPackageModel(packageSurface({
       defaultAssemblyId: null,
       compileLibrary: {
-        status: "NoCompileAssets",
+        status,
         targetFramework: null,
         message: null,
       },
@@ -170,9 +170,25 @@ test("root-only package surfaces preserve typed unavailability at the UI boundar
       types: [],
       accessibility: [],
       totalMembers: 0,
-    })),
-    /NoCompileAssets/,
-  );
+    }));
+    assert.equal(model.id, "Example.Package");
+    assert.equal(model.assemblyId, "");
+    assert.deepEqual(model.assemblies, []);
+    assert.match(model.inspectionError ?? "", new RegExp(status));
+  }
+});
+
+test("failed compile-library selection remains a visible acquisition failure", () => {
+  for (const status of ["NoMatchingTargetFramework", "InvalidImplementationAssets"] as const) {
+    assert.throws(
+      () => createNuGetPackageModel(packageSurface({
+        defaultAssemblyId: null,
+        compileLibrary: { status, targetFramework: null, message: null },
+        assemblies: [],
+        types: [],
+      })),
+      new RegExp(status));
+  }
 });
 
 test("NuGet package models retain the product-issued icon descriptor", () => {

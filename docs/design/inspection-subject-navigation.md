@@ -23,8 +23,8 @@ not yet include Workspace or Package subjects or bind descendants to an exact
 Workspace occurrence. Exact lens identity, retained evaluation bases, and pure
 lens recommendation are implemented by `NavigationLensRecommendation` and
 gated at their claims below for the implemented subject subset. Pure initial
-subject ranking over already trustworthy Type candidates and already available
-Library candidates is implemented by `NavigationInitialSubjectRecommendation`
+subject ranking over available Library candidates and their retained Type
+inventory is implemented by `NavigationInitialSubjectRecommendation`
 and gated at its claim below for one already selected coordinate occurrence.
 Generation-free classification of bounded Type and Member inventory evidence
 is implemented by
@@ -54,7 +54,7 @@ PR #5433 demonstrates the intended browser distinction: Workspace manages
 retained coordinates, Package is inspectable, and package tabs are absent.
 Those browser identities and transitions remain host-local migration facts,
 not authority for this product contract. PR #5501 refines only their responsive
-presentation. The browser still chooses a default Type, widens accessibility
+presentation. The browser still seeds a Type cursor, widens accessibility
 to admit it, reconstructs coordinate activation from package keys, and
 reconciles subject levels locally; #5510 and #5511 track removal of those
 migration paths.
@@ -485,11 +485,11 @@ contracts; it does not acquire a separate successor-selection policy.
 When no subject is committed and one exact retained-coordinate occurrence is
 already active, recommendation order is:
 
-1. Type, when a trustworthy Type exists.
-2. Library, when a Library subject is available.
-3. The occurrence's exact Package or non-package Root.
+1. Library, using the recommendation below.
+2. The occurrence's exact Package or non-package Root.
 
-Member is never implicit.
+Type and Member are never implicit subjects. A retained Type cursor does not
+make Type the active subject.
 
 When no retained-coordinate occurrence is active, Workspace is selected,
 whether the inventory contains zero, one, or several entries. Navigation never
@@ -500,16 +500,9 @@ Navigation applies the recommendation above only inside that occurrence. The
 CLI consumer in #5513 and canonical restoration must supply an exact occurrence
 before expecting a lower initial subject.
 
-Type candidates use these tiers:
-
-1. Primary Library and default accessibility.
-2. Other Library and default accessibility.
-3. Primary Library and non-default accessibility.
-4. Other Library and non-default accessibility.
-
-Within a tier, Libraries use primary-then-declaration order and Types use the
-inventory producer's deterministic navigation order. UI filters, search text,
-display labels, and arrival order never participate.
+Library choice is independent of Type count, accessibility, UI filters, search
+text, display labels, and arrival order. Type inventory retains its producer
+order for explicit navigation; it does not choose the initial subject.
 
 A trustworthy candidate from a successful participant may be selected when
 another participant failed; every participant failure remains visible. If no
@@ -520,9 +513,9 @@ delegated to the consumer.
 
 Library recommendation selects:
 
-1. `All libraries`, when its aggregate descriptor is available.
-2. The available primary Library.
-3. The first available one-Library descriptor in declaration order.
+1. The available primary Library.
+2. The first available one-Library descriptor in declaration order.
+3. `All libraries`, only when no one-Library descriptor is available.
 
 Unavailable or failed aggregate evidence remains visible when a one-Library
 subject is selected.
@@ -531,6 +524,29 @@ When no Library is available, the exact coordinate root is selected: Package
 for a package occurrence and Root for a non-package occurrence. This allows
 root-only package occurrences, including the tools-v2 pointer-package case
 implemented by #4829.
+
+For package entry, "best Library" means this product-owned preference, not the
+largest public surface or the first displayed row. Package compile selection
+supplies the primary asset: a file name matching the package ID, ignoring case,
+then the selector's case-insensitive asset-path order with an ordinal
+tie-breaker. Surface projection retains that exact default when available and
+otherwise supplies its available fallback. Consumers use the returned identity,
+not a second ranking implementation.
+
+The browser adoption in #6098 uses the existing `defaultAssemblyId` projection
+for fresh package entry, including opening retained packages through Search.
+Explicit Package, Library, Type, Member and inspector destinations, and
+restored workspace/history state, take precedence. Package remains explicitly
+reachable and retains its full Library inventory. The existing Library Overview
+is the browser's entry inspector; this slice does not adopt the separate
+Registry-backed lens-recommendation protocol below.
+Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
+their explanation visible. Failed selection is not treated as an empty package.
+Browser entry and restoration are gated by
+`prototypes/inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
+selection modeling is gated by `test/package-acquisition.test.ts` in that host.
+This is a default-entry adoption, not completion of #5510/#5511's broader
+snapshot and result-authority migration.
 
 ### Bounded subject inventory classification
 
@@ -591,11 +607,10 @@ This classification is gated by
 `InventoryJoin_RequiresExactParticipantRegistration` for the implemented
 coordinate-rooted subset. Workspace-occurrence binding remains unverified.
 
-The pure ranking over already trustworthy Type candidates and already
-available Library candidates is gated by
-`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersTypeThenLibraryThenRoot`,
-`TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`, and
-`InitialRecommendation_NeverChoosesMember`. Candidate coordinate, Library,
+The pure ranking over available Library candidates is gated by
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersOneLibraryThenAggregateThenRoot`,
+`LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`, and
+`InitialRecommendation_NeverChoosesTypeOrMember`. Candidate coordinate, Library,
 Type, primary-role, and accessibility consistency is gated by
 `CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. The bounded
 classification above supplies the trustworthy Type candidates and retains
@@ -769,7 +784,7 @@ from the prior snapshot and its bound subject remains active. It does not
 retain an earlier recommendation basis.
 
 An unavailable request never silently activates a sibling, ancestor, or
-recommended Type. If the already committed subject became invalid
+recommended subject. If the already committed subject became invalid
 independently, automatic reconciliation may change it before the unavailable
 outcome is returned. When that reconciliation changes the exact subject, its
 structural consistency takes precedence: the replacement snapshot installs a
@@ -1300,7 +1315,7 @@ result identifies Navigation as the failure source.
 | Multi-library package | Aggregate then primary then declaration-order Library descriptors |
 | Libraries with no Types | Library with References; Type is validly unavailable |
 | Tools-v2 pointer package | Package with Package Overview; lower subjects unavailable |
-| Only non-default-accessibility Type | Type remains the recommendation |
+| Primary Library has no default-accessibility Type | Library remains the recommendation |
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
 | Type disappears with Library retained | Recommended Type in that Library, then Library |

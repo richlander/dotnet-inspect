@@ -292,23 +292,29 @@ function defaultAssembly(
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
 ): AppPackage {
-  if (result.compileLibrary.status !== "Selected") {
+  const rootOnly = result.compileLibrary.status === "NoCompileAssets"
+    || result.compileLibrary.status === "EmptyCompileGroup";
+  if (result.compileLibrary.status !== "Selected" && !rootOnly) {
     throw new Error(
       result.compileLibrary.message
       || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
   }
-  const assembly = defaultAssembly(
-    result,
-    "The package query did not return its selected assembly descriptor.");
+  const assembly = rootOnly ? null : defaultAssembly(
+      result,
+      "The package query did not return its selected assembly descriptor.");
   const inspectionErrors = surfaceInspectionErrors(result);
+  if (rootOnly) {
+    inspectionErrors.push(result.compileLibrary.message
+      || `No compile Library is available (${result.compileLibrary.status}).`);
+  }
   return {
     id: result.package,
     version: result.version,
     frameworks: [...(result.frameworks ?? [])],
     activeFramework: result.activeFramework,
-    assembly: assembly.name,
-    assemblyId: assembly.id,
-    assemblyAsset: assembly.asset,
+    assembly: assembly?.name ?? "",
+    assemblyId: assembly?.id ?? "",
+    assemblyAsset: assembly?.asset ?? "",
     source: { kind: "nuget.org" },
     assemblies: [...(result.assemblies ?? [])],
     types: packageTypes(result),
