@@ -2407,11 +2407,19 @@ snapshots retained by Metadata groups rather than applying the same limit to
 both copies.
 
 Publication is all-or-nothing. Every selected asset must materialize within the
-per-entry and aggregate limits before a role group is created. A published
-valid assembly retains its artifact registration, decoded identity, and
-non-empty MVID. A selected malformed, native, module, or empty-MVID asset
+per-entry and aggregate limits before a role group is created. Each distinct
+artifact receives Metadata's
+[admission-scoped assembly projection](assembly-inspection-query.md#admission-scoped-artifact-projection)
+before publication; those facts remain provisional until publication succeeds.
+A published valid assembly retains its artifact registration and consumes the
+projected identity and non-empty MVID without reopening content to decode them.
+An artifact shared by distinct roles reuses those materialized facts.
+A selected malformed, native, module, or empty-MVID asset
 remains a participant through the compatibility rejection carrier defined by
-the assembly-inspection-query owner. The artifact session and its query lease
+the assembly-inspection-query owner; identities unsuitable for a compatibility
+descriptor also retain that route. This includes preservation of partially
+decoded identity rather than substituting a fallback name for every
+non-projectable image. The artifact session and its query lease
 transfer to the exact distinct role groups, and workspace close releases them
 only after those groups report quiescence. Failure before transfer attempts
 group, query-lease, and artifact-session cleanup without replacing the primary
@@ -2426,12 +2434,18 @@ gates one valid and one malformed selected asset, one source entry open per
 distinct asset, exact package binding identities in artifact provenance,
 visible available/rejected query outcomes, and artifact release after an
 active group operation completes.
+`ArtifactBackedPackageRealization_ReusesAdmissionFactsAcrossRoles` gates reuse
+of the admitted identity and MVID when one artifact participates in distinct
+surface and implementation groups.
 `ArtifactBackedPackageRealization_RejectsAggregateBudgetWithoutPartialGroup`
 gates aggregate retained-byte rejection and absence of a partial group.
 The synchronous stream-backed realization remains available for current
-callers. CLI and browser/Wasm adoption are separate slices in
-[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); this slice
-adds no host retention, cache, eviction, or presentation behavior.
+callers. The CLI and browser/Wasm adopters described below consume this shared
+admission path; their host adoption is tracked in
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577).
+Admission adoption adds no host retention, cache, eviction, or presentation
+behavior and leaves group snapshot acquisition and query revalidation on the
+existing compatibility path.
 
 The CLI adoption is the remote `package --all-libraries` grouped
 Integrations path when the command resolves one default or explicit target framework and
