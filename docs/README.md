@@ -122,6 +122,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [ReadyToRun Image Projection](design/readytorun-image-projection.md) | PE managed-native and `RTR_HEADER` discovery, validated R2R headers and section directories, manifest-metadata extent identification, bounds, and failure behavior. |
 | [ReadyToRun CLI Projection](design/readytorun-cli-projection.md) | Explicit `@ReadyToRun` library sections and root-consistent `--metadata-root` selection for the existing `@Metadata` lens. |
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Proposed, design-locked, not-yet-implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release for shared CLI and Browser Package Query consumers. |
+| [Ecosystem Change Report](design/ecosystem-change-report.md) | Proposed shared query contract for a bounded six-week package-activity report, evidence-qualified security overlay, selection, and honest source/evaluation coverage across CLI and browser. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |

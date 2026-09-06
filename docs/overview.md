@@ -70,8 +70,11 @@ substrates, and inspection producers that will extend that space.
   assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
-  owns an explicit two-endpoint attempt over one resolved member. The project
-  has no Markout, console, or filesystem-path dependency.
+  owns an explicit two-endpoint attempt over one resolved member. The proposed
+  [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
+  package-activity report's request, evidence categories, selection, and
+  coverage, including the six-week default and qualified security overlay.
+  The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
