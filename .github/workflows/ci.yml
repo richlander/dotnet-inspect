@@ -481,6 +481,14 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm run inspect-web-worker-browser-binding
 
+      - name: Test artifact-backed package scope adoption in Firefox
+        # Reuses the engine artifact published above and the Firefox install
+        # from the Worker browser binding step. Builds only the tiny fixture
+        # resolver graph (resolver + two cataloged diff-asm fixtures) to
+        # materialize and catalog-resolve the fixture binaries; adds no corpus
+        # lane or engine rebuild.
+        run: eng/test-inspect-web-package-adoption-gate.sh
+
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
 
@@ -699,7 +707,7 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
@@ -804,7 +812,7 @@ jobs:
         run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
 
       - name: Run runfaster tests
-        run: dotnet run --project src/runfaster.Tests -c Release
+        run: dotnet run --project tests/runfaster.Tests -c Release
 
       # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
       # in PR CI when the round-trip tests or source dependencies change. The

@@ -596,11 +596,7 @@ public sealed class ResolvedAssemblyReference
             }
             if (!hasMetadata)
             {
-                PEHeader? peHeader = peReader.PEHeaders.PEHeader;
-                if (peHeader is not null
-                    && (peHeader.CorHeaderTableDirectory
-                            .RelativeVirtualAddress != 0
-                        || peHeader.CorHeaderTableDirectory.Size != 0))
+                if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
                 {
                     return RejectDescriptorSelection(
                         "The selected PE image has an invalid CLR header.",

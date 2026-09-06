@@ -6,7 +6,9 @@ This is the target design for
 [#5963](https://github.com/richlander/dotnet-inspect/issues/5963), the bounded
 Browser adoption of local comparison in
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706), step 9.
-The feature is **unimplemented and unverified**.
+The feature is implemented through the existing Source facade and the shared
+direct-member query. The focused and published-Wasm gates below cover this
+adopter; broader portable comparison remains separate.
 
 Inspect Web Method Body Comparison is one focused feature owner. It owns the
 explicit pair interaction, its managed feature projection, and the Method Body
@@ -27,9 +29,9 @@ Different names and declaring types are permitted; selecting the same method
 twice is also valid. This is explicit comparison, not candidate discovery or
 proof of semantic equivalence.
 
-The corresponding CLI consumer is `match --body`, being implemented with
-the shared query and adapter in
-[#5925](https://github.com/richlander/dotnet-inspect/issues/5925).
+The corresponding CLI consumer is `match --body`, landed with the shared query
+and adapter in
+[#5967](https://github.com/richlander/dotnet-inspect/pull/5967).
 The Browser follows that production cutover rather than introducing another
 unused shared substrate.
 
@@ -49,11 +51,11 @@ comparison; existing Browser owners supply execution and presentation lifetime.
 
 | Owner | Consumed contract |
 | --- | --- |
-| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; the Browser-usable exact-target projection remains a step-6 prerequisite in #5925 |
+| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; Queries issues physical addresses through `AssemblyContextMethodAddressQuery` for this Browser consumer |
 | [Local comparison publication](local-comparison-publication.md#result-contract) | Original query-origin or Research-terminal evidence associated with one invocation |
 | Existing Browser implementation-member resolution and inspection scope | Reference/surface-to-implementation selection, retained participant access, and validated implementation body selection |
 | [Operation authority](inspect-web-operation-authority.md) | Current-view publication, cancellation, supersession, disposal, and quiescence |
-| [Managed operation bridge](inspect-web-managed-operation-bridge.md) and [Worker runtime](inspect-web-worker-runtime.md) | Generated feature transport, physical execution, cancellation forwarding, and managed release |
+| [Managed operation bridge](inspect-web-managed-operation-bridge.md) | Generated feature transport, keyed cancellation forwarding, and managed release |
 | [Shell interaction](inspect-web-shell-interaction.md) | Shared modal accessibility, Escape, and ordinary focus return |
 | [Surface composition](inspect-web-surface-composition.md#contextual-working-surface-actions) | Contextual-action placement and responsive continuity |
 | [Navigation consumer](inspect-web-navigation-consumer.md) | Ordinary member navigation, canonical location, and history |
@@ -109,9 +111,11 @@ input, not an asserted token in the implementation image.
 Existing Browser resolution returns a validated implementation body token,
 not a `MetadataMethodAddress`. The Browser cannot construct the missing
 module association by opening a metadata reader below Queries.
-The Queries-owned exact-target projection needed to consume that selection
-is an explicit prerequisite within #5925's step-6 adapter delivery. Its public
-API shape stays Queries-owned; this design does not claim it already exists.
+`AssemblyContextMethodAddressQuery` supplies that Queries-owned projection
+with this actual Browser consumer, as part of the existing adapter/host
+delivery rather than another standalone substrate milestone. It returns the
+existing typed assembly-context entry; its construction and failure semantics
+remain Queries-owned.
 
 The comparison consumes the resulting exact implementation participant and
 owner-issued physical method association through that public Queries boundary.
@@ -133,6 +137,24 @@ reinspect each endpoint, or construct a synthetic `ResearchComparison`.
 The context owner retains acquired input lifetime. Queries and Research retain
 their own access and stage cleanup responsibilities.
 
+The feature consumes the registry's protected-use leases and awaits their
+release before completing the managed operation. A removal-requested scope
+cannot become a new comparison context. Package labels that identify multiple
+eligible retained bindings produce visible `ContextUnavailable`, rather than
+choosing a generation. The
+[Browser registry](../../prototypes/inspect-web/README.md#artifact-backed-package-scope-adoption)
+continues to own admission, binding identity, and asynchronous retirement.
+
+This feature's transport uses an empty `PackageId` to distinguish a retained
+platform selection from a NuGet package. The version, framework, and assembly
+remain the exact selected coordinates. Unlike existing Source calls that pass
+a runtime pseudo-package ID, this request addresses a resident assembly
+directly; it does not ask package acquisition to interpret that ID.
+The retained lookup supports runtime and ASP.NET Core families only when those
+coordinates identify one scope and one assembly coordinate. Ambiguity is
+visible `ContextUnavailable`, not an arbitrary family choice or reacquisition.
+This is a feature-specific convention, not a change to other Source exports.
+
 ### Operation and result association
 
 Each submitted pair is the immutable input of one feature operation. The
@@ -148,6 +170,20 @@ query-origin versus Research-terminal category, and each requested mechanism's
 endpoint states, comparison verdict, applicable aligned evidence, and failure
 causes. The managed projection consumes original query evidence, not a
 recreated operation identified by display text.
+
+This first adopter follows the existing Source consumer's physical execution
+placement. The current Worker binding is a diagnostic canary, not the host of
+production Source operations. This feature does not migrate acquisition or
+retained workspaces to another realm. Future placement changes consume the
+[Worker runtime](inspect-web-worker-runtime.md) owner without changing pair
+meaning or adding feature-owned lifetime machinery.
+
+Inventory and comparison read already-retained inputs, so they use the keyed
+managed bridge without entering the Source acquisition coordinator. That
+coordinator's supersession is for acquiring Source; opening a local comparison
+must not cancel the member's ongoing Source request. The Release
+`BothExportsPreserveSourceAcquisitionAndReleaseOwnOperation` cases and real
+dialog acceptance gate this coexistence.
 
 Managed/transport failure or cancellation remains distinct from a query
 result. Successfully transporting a query outcome does not mean the comparison
@@ -187,57 +223,61 @@ code, and diagnostics use the existing text-rendering
 conventions. The shared shell owns modal behavior; this feature only supplies
 its accessible title, controls, content, and loading/result announcements.
 
-## Demo and planned gates
+## Demo and gates
 
-**Design mockup**, not a shipped Browser demonstration:
+The published-Wasm acceptance uses
+`Microsoft.Extensions.Primitives` 10.0.0 / `net10.0`:
 
 ```text
-Inspect app.dll -> Left.Compute
+Inspect Microsoft.Extensions.Primitives -> StringSegment.Trim
 Action: Compare method bodies
 
 Method Body Diff
-Before: app.dll / Left.Compute()
-After:  app.dll / Right.Compute()       [choose method]
+Before: StringSegment.Trim()
+After:  StringSegment.TrimStart()      [choose method]
 [Compare] [Close]
 
-C#  Complete -- native body difference
-Before: return value + 1;              After: return value + 2;
-
-IL  Complete -- native operand difference
+Research: Completed
+C#: ProducedCSharp / NotExact          13 native rows
+IL: ProducedIlBody / OpcodeDiff        22 native rows
 [Show IL evidence]
 ```
 
-The neighboring interaction selects `Left.Compute()` on both sides and keeps
-two side-local occurrences. A valid bodyless After instead shows that native
-endpoint as `NoApplicableInput`, never an added member or an exact body.
+The neighboring interaction selects `Trim()` on both sides and reports native
+`Exact` independently for C# and IL. Selecting
+`IChangeToken.RegisterChangeCallback` as After reports
+`NoApplicableInput`, never an added member or an exact body.
 Closing a running comparison and opening another cannot display the old pair
 under the new headings.
 
-| Existing gate area | Required adoption evidence |
+| Gate | Adoption evidence |
 | --- | --- |
-| Release `engine.Tests`, paired feature/facade cases | Product-constructed different-name/type and same-method pairs reach the public query with exact implementation addresses; reference and implementation token differences do not substitute a method. |
-| Release `engine.Tests`, result projection cases | Original query non-success and Research/native evidence survive generated facade projection, including wrong image, bodyless input, native failure, and cancellation. |
-| Inspect Web TypeScript tests, feature coordinator/renderer | Explicit chooser submission, exact result labels, independent C#/IL outcomes, and existing-authority behavior on replacement/dismissal preserve ordinary navigation. |
-| Hosted Browser acceptance | Use the actual compiled-fixture assembly, compare the named pair and bodyless neighbor, exercise keyboard/modal return and a narrow viewport, and show the real public-query result rather than a mocked transport. |
+| Release `AssemblyContextMethodAddressQueryTests` | Owner-issued module association, MethodDef validation, and typed context failures. |
+| Release `BrowserMethodBodyOperationTests` | Different/same pairs, reference-token drift, explicit accessors, missing/wrong context, original query failures, native body failure, platform retention, protected-use release, removal-requested and ambiguous retained contexts, and coexistence with Source acquisition. |
+| `method-body-comparison.test.ts`, `method-body-diff-view.test.ts` | Explicit submission, immutable pair association, routed-history disposal and late-result suppression, independent native outcomes, text rendering, and native line-operation lowering. |
+| `generate-inspect-web-engine-facade.sh --check`, Release `ProductionFacadeContextTests` | Compiler-derived typed transport in the existing seven-root facade set. |
+| `browser/method-body-production.spec.ts` against published Wasm | Actual shared-query results for the public package and compiled reference/implementation fixture; bodyless/accessor neighbors; dialog selection, keyboard focus, IL disclosure, narrow layout, unchanged navigation, same-document Back/Forward dismissal, and completed underlying Source. |
 
-These new gates and the hosted demonstration are **unimplemented and
-unverified**. Existing bridge, operation-authority, Queries, and Research gates
-remain evidence for their own contracts, not proof of this adoption.
+The compiled input is `FixtureCatalog.InspectWebMethodBodies`, including its
+`reference` and `package` assets. Browser acceptance substitutes only the
+fixture package download, not comparison transport or native evidence.
+It is opt-in via `INSPECT_WEB_METHOD_BODY_URL` and
+`INSPECT_WEB_METHOD_BODY_FIXTURE`; ordinary CI retains the focused contract
+gates. Existing bridge, operation-authority, Queries, and Research gates remain
+evidence for their own contracts.
 Use the [demo hosting runbook](../runbooks/inspect-web-demo-hosting.md);
 a local listener alone is not user-visible evidence.
 
 ## Delivery and retirement
 
-Tracker #4706 owns counts. The bounded physical-pair route has eight milestones:
-1 and 18 are complete; publication 5, adapter 6, CLI 8, Browser 9, and scoped
-Queries/Research cleanups 16/17 remain. The Browser path is 1, 18, 5, 6, 9:
-five milestones, two complete and three remaining at this design's creation.
-This preparation does not add a runtime milestone or complete step 9.
-
-Issue #5925 owns the shared runtime and CLI cutover. Browser implementation here
-follows that public boundary immediately, not another unconsumed substrate.
-This design can lock while that runtime is in flight; the Browser cannot claim
-delivery using a fixture-only query replacement.
+Tracker #4706 owns counts. The bounded physical-pair route has eight milestones.
+The shared runtime and CLI cutover landed in #5967, supplying publication 5,
+adapter 6, and CLI 8; this adopter supplies Browser 9. Together with landed steps
+1 and 18, the route reaches six of eight delivered milestones when this Browser
+slice lands. The remaining two are scoped Queries and Research cleanups, steps
+16/17. The Browser path, 1/18/5/6/9, is implemented end to end on that landed
+shared runtime. This feature adds no separate substrate
+milestone and does not use a fixture-only comparison replacement.
 
 There is no existing Browser two-method comparison route to migrate in the
 inspected baseline. Preserve single-member Source, Annotated Source, Facts,

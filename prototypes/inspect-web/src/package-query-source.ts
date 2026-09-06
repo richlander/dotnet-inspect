@@ -20,13 +20,15 @@ export interface BrowserPackageQueryEngine {
   cancel(): void;
   requestMatches(additionalMatchCredit: number): boolean;
   run(
-    prefix: string,
+    searchText: string,
     facetIdsJson: string,
     maximumCandidates: number,
     maximumMatches: number,
     includePrerelease: boolean,
     initialMatchCredit: number,
     eventSink: unknown,
+    packageType: string | null,
+    sourceOrderId: string | null,
   ): Promise<BrowserPackageQueryEvent>;
 }
 
@@ -44,7 +46,7 @@ function toQueryFacet(
     label: descriptor.label,
     summary: descriptor.summary,
     weight: descriptor.weight,
-    tier: toQueryTier(descriptor.tier),
+    tier: toInspectionTier(descriptor.tier),
     selectionGroupId: descriptor.selectionGroupId,
     combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
     displayGroupId: descriptor.displayGroupId,
@@ -138,9 +140,11 @@ export function createBrowserPackageQueryDataSource(
           JSON.stringify(request.facets.map(facet => facet.key)),
           request.requestedLimit,
           request.requestedMatchLimit,
-          false,
+          request.includePrerelease,
           PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-          eventSink);
+          eventSink,
+          request.packageType,
+          request.sourceOrderId);
         flushEvents();
         if (flushState.failed) throw flushState.error;
         if (abortSignal.aborted) return { kind: "cancelled" };
@@ -245,6 +249,13 @@ function numberValue(value: unknown, description: string): number {
   return value;
 }
 
+function nullableNumberValue(
+  value: unknown,
+  description: string,
+): number | null {
+  return value === null ? null : numberValue(value, description);
+}
+
 function booleanValue(value: unknown, description: string): boolean {
   if (typeof value !== "boolean") {
     throw new TypeError(`The Browser ${description} was not a boolean.`);
@@ -261,7 +272,10 @@ function parseRow(value: unknown): BrowserPackageQueryRow {
   return {
     packageId: stringValue(row.packageId, "package-query package ID"),
     version: stringValue(row.version, "package-query version"),
-    tier: facetTierValue(row.tier),
+    description: nullableStringValue(
+      row.description,
+      "package-query description"),
+    tier: rowTierValue(row.tier),
     evidence: row.evidence.map(item => {
       const evidence = objectValue(item, "package-query evidence");
       return {
@@ -269,10 +283,12 @@ function parseRow(value: unknown): BrowserPackageQueryRow {
         text: stringValue(evidence.text, "package-query evidence text"),
       };
     }),
-    totalDownloads: numberValue(
+    totalDownloads: nullableNumberValue(
       row.totalDownloads,
       "package-query download count"),
-    verified: booleanValue(row.verified, "package-query verification flag"),
+    verified: row.verified === null
+      ? null
+      : booleanValue(row.verified, "package-query verification flag"),
     producer: stringValue(row.producer, "package-query producer"),
   };
 }
@@ -321,14 +337,22 @@ function parseCompletion(value: unknown): BrowserPackageQueryCompletion {
       "package-query candidate count"),
     matches: numberValue(completion.matches, "package-query match count"),
     failures: numberValue(completion.failures, "package-query failure count"),
+    sourceCandidates: nullableNumberValue(
+      completion.sourceCandidates,
+      "package-query source candidate count"),
+    estimatedTotalHits: nullableNumberValue(
+      completion.estimatedTotalHits,
+      "package-query estimated total hits"),
     kind: completionKindValue(completion.kind),
   };
 }
 
-function facetTierValue(
+function rowTierValue(
   value: unknown,
 ): BrowserPackageQueryRow["tier"] {
-  if (value === "Nuspec" || value === "PackageContent") return value;
+  if (value === "SearchMetadata"
+    || value === "Nuspec"
+    || value === "PackageContent") return value;
   throw new TypeError(
     `Unsupported package-query row tier '${String(value)}'.`);
 }
@@ -360,6 +384,7 @@ function completionKindValue(
     case "CandidateLimitReached":
     case "SourcePageLimitReached":
     case "ClientPageLimitReached":
+    case "GalleryResponseComplete":
     case "Failed":
       return value;
     default:
@@ -415,7 +440,7 @@ function dispatchEvent(
         throw new TypeError(
           "A package-query completion event contained no summary.");
       }
-      onCompleted(toTerminalCompletion(queryEvent.completion));
+      onCompleted(toTerminalCompletion(parseCompletion(queryEvent.completion)));
       return;
     default:
       throw new TypeError(
@@ -452,7 +477,7 @@ function toQueryRow(
   row: NonNullable<BrowserPackageQueryEvent["row"]>,
 ): QueryResultRow {
   const evidence = row.evidence.map(item => item.text);
-  if (!evidence.length) {
+  if (!evidence.length || evidence.some(item => item.trim().length === 0)) {
     throw new TypeError("A package-query row contained no evidence.");
   }
   return {
@@ -461,6 +486,7 @@ function toQueryRow(
     tier: toQueryTier(row.tier),
     evidence: [evidence[0]!, ...evidence.slice(1)],
     totalDownloads: row.totalDownloads,
+    description: row.description,
     producer: row.producer,
   };
 }
@@ -468,6 +494,12 @@ function toQueryRow(
 function toQueryTier(
   tier: BrowserPackageQueryRow["tier"],
 ): QueryResultRow["tier"] {
+  return tier === "SearchMetadata" ? "search-metadata" : toInspectionTier(tier);
+}
+
+function toInspectionTier(
+  tier: BrowserPackageQueryFacetDescriptor["tier"],
+): QueryFacetTerm["tier"] {
   switch (tier) {
     case "Nuspec":
       return "nuspec";
@@ -493,6 +525,12 @@ function toTerminalCompletion(
     case "Exhausted":
       return { kind: "exhausted" };
     case "MatchLimitReached":
+      if (completion.sourceCandidates !== null) {
+        return {
+          kind: "bounded",
+          reason: galleryCompletionReason(completion),
+        };
+      }
       return {
         kind: "bounded",
         reason: `first ${completion.matchLimit.toLocaleString()} matches`,
@@ -513,13 +551,34 @@ function toTerminalCompletion(
         kind: "bounded",
         reason: "the client page limit",
       };
+    case "GalleryResponseComplete":
+      return {
+        kind: "bounded",
+        reason: galleryCompletionReason(completion),
+      };
     case "Failed":
       return {
         kind: "failed",
-        reason: "The package source failed before returning a usable profile.",
+        reason: "The package source failed before returning usable package input.",
       };
     default:
       throw new TypeError(
         `Unknown package-query completion '${String(completion.kind)}'.`);
   }
+}
+
+function galleryCompletionReason(
+  completion: BrowserPackageQueryCompletion,
+): string {
+  if (completion.sourceCandidates === null) {
+    throw new TypeError(
+      "A Gallery package-query completion contained no source candidate count.");
+  }
+  const matchLimit = completion.kind === "MatchLimitReached"
+    ? `; local match limit ${completion.matchLimit.toLocaleString()} reached`
+    : "";
+  const estimate = completion.estimatedTotalHits === null
+    ? "unavailable"
+    : `${completion.estimatedTotalHits.toLocaleString()} (estimate only)`;
+  return `one finite Gallery response (capacity ${completion.candidateLimit.toLocaleString()} candidates); acquired ${completion.sourceCandidates.toLocaleString()} candidates${matchLimit}; estimated total hits: ${estimate}`;
 }

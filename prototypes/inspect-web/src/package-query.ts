@@ -27,8 +27,24 @@ export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
 const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
 const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
+export interface QuerySourceSelection {
+  packageType: string | null;
+  sourceOrderId: string | null;
+  includePrerelease: boolean;
+}
+
+export interface QuerySourceCatalog {
+  packageType: {
+    id: string;
+    label: string;
+    summary: string;
+    suggestions: readonly { value: string; label: string }[];
+  };
+  orders: readonly { id: string; label: string; summary: string }[];
+}
+
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
-export interface QueryRequest {
+export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
   /** Declared cap communicated to the source. The bounded-complete footer
@@ -45,6 +61,9 @@ export function createQueryRequest(
 ): QueryRequest {
   return {
     scopeQuery,
+    packageType: null,
+    sourceOrderId: null,
+    includePrerelease: false,
     facets: [],
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
@@ -117,9 +136,10 @@ export function toggleFacet(
 export interface QueryResultRow {
   packageId: string;
   version: string;
-  tier: "nuspec" | "package-content";
+  tier: "search-metadata" | "nuspec" | "package-content";
   evidence: readonly [string, ...string[]];
-  totalDownloads: number;
+  totalDownloads: number | null;
+  description?: string | null;
   producer?: string;
 }
 

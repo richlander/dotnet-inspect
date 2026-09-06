@@ -2317,8 +2317,13 @@ public class DiffCommandTests
         Assert.True(member.HasIlChanges);
     }
 
-    [Fact]
-    public void BuildImplementationDiff_MemberFilter_RejectsNonMethodTargets()
+    [Theory]
+    [InlineData(false, "Value")]
+    [InlineData(true, "Value")]
+    [InlineData(true, "Value:1")]
+    public void BuildImplementationDiff_MemberFilter_RejectsNonMethodTargets(
+        bool includePdbSource,
+        string selector)
     {
         var surface = DiffSurface(DiffProperty("Value"));
 
@@ -2326,7 +2331,8 @@ public class DiffCommandTests
             DiffCommand.BuildImplementationDiff([], [], new DiffOptions
             {
                 TypeFilter = ["Widget"],
-                MemberFilter = ["Value"]
+                MemberFilter = [selector],
+                IncludePdbSource = includePdbSource,
             }, surface, surface));
 
         Assert.Contains("Implementation Diff --member", error.Message, StringComparison.Ordinal);
@@ -2532,6 +2538,61 @@ public class DiffCommandTests
         Assert.Contains("## Changes", output, StringComparison.Ordinal);
         Assert.Contains("## Analysis Diff", output, StringComparison.Ordinal);
         Assert.Contains("## Implementation Diff", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CommandLine_ForwardedConstraint_ReportsDependencyCompleteness(
+        bool includeBase)
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "diff-resolver-lineage-").FullName;
+        string consumer = FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath();
+        string middle = FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle");
+        string implementation = FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("base");
+        string target = Path.Combine(directory, Path.GetFileName(consumer));
+        try
+        {
+            File.Copy(consumer, target);
+            File.Copy(middle, Path.Combine(directory, Path.GetFileName(middle)));
+            if (includeBase)
+            {
+                File.Copy(
+                    implementation,
+                    Path.Combine(directory, Path.GetFileName(implementation)));
+            }
+
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["diff", "--library", $"{target}..{target}", "--json"]);
+            var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+                async () => await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args).InvokeAsync());
+
+            Assert.Equal(includeBase ? 0 : 1, exitCode);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+            if (includeBase)
+            {
+                Assert.DoesNotContain("incomplete", output, StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                Assert.Contains(
+                    ApiSurfaceInspectionFailure.GenericParameterConstraintResolutionOperation,
+                    output,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "DotnetInspector.Services.RouteLearning.Base",
+                    output,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

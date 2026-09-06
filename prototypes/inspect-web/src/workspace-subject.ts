@@ -25,6 +25,7 @@ export interface WorkspaceSubjectRenderOptions {
 }
 
 export interface WorkspaceViewRenderOptions {
+  canAddPackage?: boolean;
   savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
@@ -41,6 +42,7 @@ export interface WorkspaceSubjectBindingActions {
   onDemo: (demo: ProductHomeDemoId) => void;
   onRetry: () => void;
   onRemove?: (key: string) => void;
+  onAddPackage?: () => void;
 }
 
 export interface WorkspaceOccurrenceVisibility {
@@ -58,6 +60,7 @@ export interface WorkspaceOccurrenceVisibility {
 export type WorkspaceFocusTarget =
   | SavedWorkspaceFocus
   | { kind: "workspace" }
+  | { kind: "add-package" }
   | { kind: "remove"; key: string; index: number }
   | { kind: "demo"; id: string };
 
@@ -174,7 +177,7 @@ export function renderWorkspaceView(
       ${demoContent}
     </section>
     <section class="document-section workspace-section">
-      <div class="section-title"><h2>Packages</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span></div>
+      <div class="section-title"><h2>Packages</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
       <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
       ${content}
     </section>
@@ -199,6 +202,8 @@ export function bindWorkspaceSubject(
     }));
   root.querySelector<HTMLElement>("[data-workspace-retry]")
     ?.addEventListener("click", actions.onRetry);
+  root.querySelector<HTMLElement>("[data-workspace-add-package]")
+    ?.addEventListener("click", () => actions.onAddPackage?.());
   root.querySelectorAll<HTMLElement>("[data-workspace-remove]").forEach(button =>
     button.addEventListener("click", () => {
       const key = button.dataset.workspaceRemove;
@@ -220,10 +225,13 @@ export function captureWorkspaceFocus(
   const savedFocus = captureSavedWorkspaceFocus(element);
   if (savedFocus) return savedFocus;
   const target = element?.closest<HTMLElement>(
-    "[data-workspace-default], [data-workspace-demo], [data-workspace-remove]");
+    "[data-workspace-default], [data-workspace-demo], [data-workspace-remove], [data-workspace-add-package]");
   if (!target) return null;
   if (target.hasAttribute("data-workspace-default")) {
     return { kind: "workspace" };
+  }
+  if (target.hasAttribute("data-workspace-add-package")) {
+    return { kind: "add-package" };
   }
   if (target.dataset.workspaceRemove !== undefined) {
     return {
@@ -256,6 +264,9 @@ export function restoreWorkspaceFocus(
     }
     case "workspace":
       element = root.querySelector<HTMLElement>("[data-workspace-default]");
+      break;
+    case "add-package":
+      element = root.querySelector<HTMLElement>("[data-workspace-add-package]");
       break;
     case "demo":
       element = [...root.querySelectorAll<HTMLElement>("[data-workspace-demo]")]

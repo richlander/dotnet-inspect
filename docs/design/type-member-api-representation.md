@@ -98,6 +98,21 @@ binding is unverified pending
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 | `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and closed interface-role dispositions form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
 
+`ApiType.HasUnionAttribute` preserves the presence of the exact metadata
+attribute name `System.Runtime.CompilerServices.UnionAttribute`. The marker
+may come from the runtime or a downlevel polyfill; assembly provenance is not
+part of this name-based marker contract. A fully extracted type reports true
+or false, while an older serialized type or summary-only projection reports
+null (not inspected). Marker presence does not establish a valid union, its
+case set, or a serializer contract, and does not replace the type's ordinary
+`Kind` or structured constructor signatures.
+`ApiUnionAttributeTests` gates native declarations, manually attributed types,
+unrelated same-simple-name attributes, nested display-name collisions,
+downlevel marker references, and JSON persistence of all three states.
+This is the Metadata prerequisite for
+[JSON union support #5892](https://github.com/richlander/dotnet-inspect/issues/5892); wire-contract
+discovery, TypeScript emission, and inspect-web adoption remain separate owners.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
@@ -194,6 +209,44 @@ declaration policy. This slice completes stage 1, not the host behavior.
 JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
 The existing Boolean remains until its consumers explicitly migrate; no
 retirement or narrowing is performed here.
+
+### API method implementation facts
+
+`ApiMember.MethodImplementation` retains the MethodDef's raw
+`MethodAttributes`, `MethodImplAttributes`, and whether its RVA is nonzero.
+The immutable record carries the module MVID and MethodDef token;
+`AccessorImplementations` retains one record per distinct property or event
+accessor, including non-public and other accessor slots. A projected extension
+or accessor keeps its own declaration's evidence. Flags are retained without
+normalization, including combinations not expressible in C#.
+
+This is Metadata evidence, not an `IsExtern` decision. Abstract, P/Invoke,
+runtime-provided, internal-call, and ordinary IL declarations remain
+distinguishable without parsing attribute display text. A nonzero RVA does not
+prove a usable managed implementation: it can describe a reference-assembly
+stub or a non-IL method. Reference-assembly status, body acquisition, and the
+source shape selected for reconstruction remain separate questions.
+
+Full API extraction and handle-based `GetTypeSurface` supply these facts.
+Compact summaries, older JSON, and hand-composed members can lack them;
+null is unavailable evidence, never an implicit ordinary-IL classification.
+The existing `HasMethodBody` field retains its RVA-presence meaning.
+The new records contain only fixed-size values and use the existing member
+and relationship bounds; they add no retained metadata text.
+
+The owning claim for [#5940](https://github.com/richlander/dotnet-inspect/issues/5940)
+is preservation through extraction, projection, and JSON.
+`ApiMethodImplementationFactsTests` and `ApiMethodImplementationJsonTests`
+gate extraction and persistence;
+`CSharpTypePrinterTests.SnapshotTypeForRendering_CarriesMethodImplementationEvidence`
+gates the rendering snapshot. The conventional comparison is the existing
+MethodDef table projection, which also exposes raw attributes separately from
+implementation flags. CSharp alone chooses the eventual `extern` and
+`safe`/`unsafe` spelling under its
+[declaration contract](csharp-memory-safety-spelling.md).
+This is a prerequisite within stage 2 of the existing three-stage #5257
+adoption path under #5226, not completed CLI/browser spelling adoption.
+Current rendering, filtering, diff, and JS-export policies are unchanged.
 
 ### Projected Member declaring identity
 

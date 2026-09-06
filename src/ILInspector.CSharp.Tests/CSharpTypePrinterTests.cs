@@ -4508,6 +4508,35 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void SnapshotTypeForRendering_CarriesMethodImplementationEvidence()
+    {
+        var facts = new ApiMethodImplementationFacts(
+            Guid.NewGuid(), 0x06000001,
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.PinvokeImpl,
+            System.Reflection.MethodImplAttributes.PreserveSig, false);
+        var method = new ApiMember
+        {
+            Name = "Native",
+            Kind = "method",
+            MethodImplementation = facts,
+            HasMethodBody = false,
+        };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            AccessorImplementations = [facts],
+        };
+        var type = new ApiType { Name = "Example", Kind = "class", Members = [method, property] };
+
+        ApiType snapshot = CSharpTypePrinter.SnapshotTypeForRendering(type, type.Members);
+
+        Assert.Same(facts, snapshot.Members[0].MethodImplementation);
+        Assert.False(snapshot.Members[0].HasMethodBody);
+        Assert.Same(facts, Assert.Single(snapshot.Members[1].AccessorImplementations!.Value));
+    }
+
+    [Fact]
     public void SnapshotTypeForRendering_CarriesSegmentParameterOwnership()
     {
         var type = new ApiType

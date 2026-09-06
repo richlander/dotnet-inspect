@@ -1,9 +1,9 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
-export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | number;
+export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
-export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
+export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | number;
 export interface BrowserAccessibilityDescriptor {
@@ -49,6 +49,25 @@ export interface BrowserDependencyCoordinateMatch {
 export interface BrowserExceptionSurface {
     readonly type: string;
     readonly description: string;
+}
+export interface BrowserGalleryDiscoveryCatalog {
+    readonly packageType: BrowserGalleryPackageTypeFacet;
+    readonly orders: ReadonlyArray<BrowserGalleryDiscoveryOrder>;
+}
+export interface BrowserGalleryDiscoveryOrder {
+    readonly id: string;
+    readonly label: string;
+    readonly summary: string;
+}
+export interface BrowserGalleryPackageTypeFacet {
+    readonly id: string;
+    readonly label: string;
+    readonly summary: string;
+    readonly suggestions: ReadonlyArray<BrowserGalleryPackageTypeSuggestion>;
+}
+export interface BrowserGalleryPackageTypeSuggestion {
+    readonly value: string;
+    readonly label: string;
 }
 export interface BrowserMemberBodySelector {
     readonly token: number;
@@ -139,6 +158,8 @@ export interface BrowserPackageQueryCompletion {
     readonly matches: number;
     readonly failures: number;
     readonly kind: BrowserPackageQueryCompletionKind;
+    readonly sourceCandidates: number | null;
+    readonly estimatedTotalHits: number | null;
 }
 export interface BrowserPackageQueryEvent {
     readonly kind: BrowserPackageQueryEventKind;
@@ -182,9 +203,10 @@ export interface BrowserPackageQueryRow {
     readonly version: string;
     readonly tier: BrowserPackageQueryFacetTier;
     readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
-    readonly totalDownloads: number;
-    readonly verified: boolean;
+    readonly totalDownloads: number | null;
+    readonly verified: boolean | null;
     readonly producer: string;
+    readonly description: string | null;
 }
 export interface BrowserPackageSurface {
     readonly package: string;
@@ -265,10 +287,11 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
-export declare function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation;
+export declare function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation>;
 export declare function cancelPackageQuery(): void;
 export declare function clearWorkspacePackageOccurrences(): void;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
+export declare function listGalleryDiscoveryCatalog(): BrowserGalleryDiscoveryCatalog;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
@@ -281,5 +304,5 @@ export declare function queryPackageVersions(packageId: string): Promise<Readonl
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(additionalMatchCredit: number): boolean;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
-export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryEvent>;
+export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null): Promise<BrowserPackageQueryEvent>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

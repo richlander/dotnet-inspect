@@ -29,12 +29,33 @@ public static partial class MetadataExports
         string assemblyName,
         string typeId)
     {
-        (BrowserInspectionScope scope, BrowserWorkspaceParticipant participant) =
+        BrowserTypeMetadata type = await TypeProjectionAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeId);
+        return JsonSerializer.Serialize(
+            type,
+            BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
+    }
+
+    static async Task<BrowserTypeMetadata> TypeProjectionAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId)
+    {
+        (BrowserScopeLease<BrowserInspectionScope> lease,
+            BrowserWorkspaceParticipant participant) =
             await BrowserMemberResolution.SurfaceParticipantAsync(
                 packageId,
                 version,
                 targetFramework,
                 assemblyName);
+        await using BrowserScopeLease<BrowserInspectionScope> surfaceLease = lease;
+        BrowserInspectionScope scope = lease.Scope;
 
         ResearchViews.TypeProjectionResult projection = BrowserSurfaceProjection.Require(
             scope.UseSurfaceParticipant(
@@ -45,8 +66,7 @@ public static partial class MetadataExports
                     new AssemblyContextTypeProjectionRequest(typeId))),
             $"Type projection for '{typeId}'");
 
-        return JsonSerializer.Serialize(
-            new BrowserTypeMetadata(
+        return new BrowserTypeMetadata(
                 projection.Identity.FullName,
                 projection.Identity.Namespace,
                 projection.Identity.Name,
@@ -100,8 +120,7 @@ public static partial class MetadataExports
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
-                ]),
-            BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
+                ]);
     }
 
     /// <summary>
@@ -120,7 +139,31 @@ public static partial class MetadataExports
         string selectorKey,
         int metadataToken)
     {
-        BrowserMemberResolution.ScopedResolution resolved =
+        BrowserGraphMemberSurface surface = await GraphMemberSurfaceAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken);
+        return JsonSerializer.Serialize(
+            surface,
+            BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
+    }
+
+    static async Task<BrowserGraphMemberSurface> GraphMemberSurfaceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
                 version,
@@ -153,8 +196,6 @@ public static partial class MetadataExports
                 $"The projected member '{member.Name}' does not retain "
                 + $"body 0x{resolution.BodyToken:X8}.");
         textBudget.CommitParticipant();
-        return JsonSerializer.Serialize(
-            new BrowserGraphMemberSurface(type, selectedBody),
-            BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
+        return new BrowserGraphMemberSurface(type, selectedBody);
     }
 }

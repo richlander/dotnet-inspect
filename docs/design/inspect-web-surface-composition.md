@@ -326,7 +326,7 @@ Member Facts begins with a compact `Analysis summary` that separates static
 analysis values and supporting IL offsets from subject identity. The subject
 path and quiet member header retain declaring type, member kind, and overload
 ordinal; the summary does not repeat them. The metadata token follows the
-summary as compact identity, before the unchanged detail sections.
+summary as compact identity, before the detail sections.
 
 Summary rows preserve every existing signal, including explicit zero and
 `no` values. IL offsets remain non-interactive evidence, not Finding-navigation
@@ -335,6 +335,28 @@ the detail pane narrows, supporting offsets move below their value. Long
 values and evidence wrap within their row without widening the member
 scroller. Loading and failure retain the member header and remain visibly
 distinct from a successful zero-valued summary.
+
+Allocation facts uses compact occurrence rows rather than a wide column strip.
+Each occurrence keeps its IL offset and kind with the allocated type, followed
+by its heap-counting flag, multiplicity, path, escape, loop flag, and size
+estimate. All nine fields remain visible in the returned occurrence order;
+there is no expander or new navigation. The section count describes occurrences,
+not the heap-counted summary total or a runtime measurement.
+
+Heap counting and loop membership use explicit `yes` and `no` values. A
+non-heap-counted occurrence does not imply stack allocation. A missing type is
+visibly unavailable; a missing estimate is not available rather than zero.
+Returned byte estimates remain labeled as estimates, and raw analysis
+classifications retain their values.
+
+Occurrence rows use the summary's readable measure and separators rather than
+cards. At constrained pane widths, properties use fewer columns and provenance
+moves above the type. Long types, offsets, and property values wrap within
+their occurrence. This trades some vertical density for complete visible
+evidence without horizontal scrolling. A successful empty result retains
+the section and its explicit absence message; loading and failure remain
+separate top-level Facts states. Calls and subsequent detail sections retain
+their existing presentation.
 
 #### Graph Explore
 

@@ -24,6 +24,8 @@ import {
   type PackageQueryState,
   type QueryFacetTerm,
   type QueryResultRow,
+  type QuerySourceCatalog,
+  type QuerySourceSelection,
 } from "../src/package-query.ts";
 import { fakeDom } from "./fake-dom.ts";
 
@@ -73,6 +75,30 @@ const FACETS: readonly QueryFacetTerm[] = [
   SKILL_FACET,
 ];
 
+const SOURCE_CATALOG: QuerySourceCatalog = {
+  packageType: {
+    id: "producer.package-type",
+    label: "Producer package type",
+    summary: "Select a type from source metadata.",
+    suggestions: [
+      { value: "Producer.Tool", label: "Producer tools" },
+      { value: "Producer.Template", label: "Producer templates" },
+    ],
+  },
+  orders: [
+    {
+      id: "producer.order.first",
+      label: "Producer first order",
+      summary: "First producer ordering description.",
+    },
+    {
+      id: "producer.order.second",
+      label: "Producer second order",
+      summary: "Second producer ordering description.",
+    },
+  ],
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -91,6 +117,176 @@ test("an unstarted query renders the composing empty state", () => {
   });
 
   assert.match(html, /Query nuget\.org/);
+  assert.match(html, /Search \(optional\)/);
+  assert.match(html, /Leave search blank to browse/);
+  assert.doesNotMatch(html, /required|Package ID prefix|<code>\*<\/code>/);
+});
+
+test("source controls render only from an available catalog, separate from inspection facets", () => {
+  for (const sourceCatalog of [undefined, null]) {
+    const html = renderPackageQueryView({
+      state: initialQueryState(),
+      availableFacets: FACETS,
+      ...(sourceCatalog === undefined ? {} : { sourceCatalog }),
+      escapeHtml,
+    });
+    assert.doesNotMatch(html, /id="package-query-(type|order|prerelease)"/);
+    assert.match(html, /<h2>Inspection facets<\/h2>/);
+  }
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availableFacets: FACETS,
+    sourceCatalog: SOURCE_CATALOG,
+    escapeHtml,
+  });
+
+  assert.match(html, /aria-label="Gallery filters"/);
+  assert.match(html, /Producer package type/);
+  assert.match(html, /Select a type from source metadata/);
+  assert.match(html, /<option value="" selected>All package types<\/option>/);
+  assert.match(html, /<option value="" selected>Automatic<\/option>/);
+  assert.match(html, /value="Producer.Tool">Producer tools<\/option>/);
+  assert.match(html, /value="producer.order.second" title="Second producer ordering description.">Producer second order<\/option>/);
+  assert.match(html, /id="package-query-prerelease" type="checkbox" \/>/);
+  assert.match(html, /basic search metadata/);
+  assert.match(html, /Manifests and package content are acquired only with explicit inspection facets/);
+  assert.ok(html.indexOf('aria-label="Gallery filters"') < html.indexOf("<h2>Inspection facets</h2>"));
+});
+
+test("source selections render from request identity without changing inspection facets", () => {
+  const state: PackageQueryState = {
+    request: {
+      ...withFacet(createQueryRequest(" hosting libraries "), NUSPEC_FACET),
+      packageType: "Producer.Template",
+      sourceOrderId: "producer.order.second",
+      includePrerelease: true,
+    },
+    outcome: emptyOutcome(),
+  };
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    sourceCatalog: SOURCE_CATALOG,
+    escapeHtml,
+  });
+
+  assert.match(html, /value=" hosting libraries "/);
+  assert.match(html, /value="Producer.Template" selected>Producer templates<\/option>/);
+  assert.match(html, /value="producer.order.second"[^>]* selected>Producer second order<\/option>/);
+  assert.match(html, /id="package-query-prerelease" type="checkbox" checked/);
+  assert.match(html, /data-query-facet="tfm-out-of-support"[\s\S]*aria-pressed="true"/);
+  assert.match(html, /id="package-query-order-description">Second producer ordering description./);
+});
+
+test("existing custom type and unavailable order stay visible rather than silently resetting", () => {
+  const html = renderPackageQueryView({
+    state: {
+      request: {
+        ...createQueryRequest(""),
+        packageType: "Producer.Custom",
+        sourceOrderId: "producer.order.unavailable",
+      },
+      outcome: emptyOutcome(),
+    },
+    availableFacets: FACETS,
+    sourceCatalog: SOURCE_CATALOG,
+    escapeHtml,
+  });
+
+  assert.match(html, /value="Producer.Custom" selected>Producer.Custom<\/option>/);
+  assert.match(html, /value="producer.order.unavailable" selected>producer.order.unavailable \(unavailable\)<\/option>/);
+  assert.match(html, /Unavailable source order: producer.order.unavailable/);
+  assert.doesNotMatch(html, /value="" selected>/);
+});
+
+test("source capacity and local match limit are independently disclosed before and during inspection", () => {
+  for (const request of [
+    null,
+    withFacet(createQueryRequest(""), NUSPEC_FACET),
+    withFacet(createQueryRequest(""), SKILL_FACET),
+    { ...createQueryRequest(""), requestedMatchLimit: 7 },
+  ]) {
+    const html = renderPackageQueryView({
+      state: { request, outcome: emptyOutcome() },
+      availableFacets: FACETS,
+      escapeHtml,
+    });
+    assert.ok(html.includes(`Source capacity K: ${request?.requestedLimit ?? 200} candidates`));
+    assert.ok(html.includes(`Maximum matches N: ${request?.requestedMatchLimit ?? 100}`));
+    assert.match(html, /The match limit does not change source capacity/);
+    assert.match(html, /Content facets download up to 20 candidate package archives/);
+    assert.match(html, /Match counts and lifetime downloads describe a bounded response, not global top-N/);
+  }
+});
+
+test("basic metadata rows show producer evidence and unavailable lifetime downloads distinctly from zero", () => {
+  for (const totalDownloads of [null, 0, 1234]) {
+    const html = renderPackageQueryView({
+      state: {
+        request: createQueryRequest(""),
+        outcome: appendRows(emptyOutcome(), [{
+          ...row("Producer.Result"),
+          tier: "search-metadata",
+          totalDownloads,
+          evidence: ["Source selection and order from the producer"],
+        }]),
+      },
+      availableFacets: [],
+      escapeHtml,
+    });
+    assert.match(html, /query-tier-search-metadata">search-metadata</);
+    assert.match(html, /Source selection and order from the producer/);
+    if (totalDownloads === null) {
+      assert.match(html, /Lifetime downloads unavailable/);
+      assert.doesNotMatch(html, /0 lifetime downloads/);
+    } else {
+      assert.ok(html.includes(`${totalDownloads.toLocaleString()} lifetime downloads`));
+      assert.doesNotMatch(html, /Lifetime downloads unavailable/);
+    }
+  }
+});
+
+test("Gallery completion text retains the finite bound and estimate with or without rows", () => {
+  for (const rows of [[], [row("Producer.Result")]]) {
+    const reason = "one finite Gallery response (capacity 200 candidates); acquired 3 candidates; estimated total hits: 0 (estimate only)";
+    const html = renderPackageQueryView({
+      state: {
+        request: createQueryRequest(""),
+        outcome: withCompletion(appendRows(emptyOutcome(), rows), {
+          kind: "bounded",
+          reason,
+        }),
+      },
+      availableFacets: [],
+      escapeHtml,
+    });
+    assert.ok(html.includes(reason));
+    assert.doesNotMatch(html, /all matches|exhausted|<h2>No matches<\/h2>/);
+    assert.doesNotMatch(html, /data-query-cancel/);
+  }
+});
+
+test("row descriptions render as escaped text only when available", () => {
+  for (const description of [undefined, null, "", "   ", "Tools for <format> packages & templates."]) {
+    const html = renderPackageQueryView({
+      state: {
+        request: createQueryRequest(""),
+        outcome: appendRows(emptyOutcome(), [{
+          ...row("Producer.Result"),
+          tier: "search-metadata",
+          ...(description === undefined ? {} : { description }),
+        }]),
+      },
+      availableFacets: [],
+      escapeHtml,
+    });
+    if (description?.trim()) {
+      assert.match(html, /<p class="query-row-description">Tools for &lt;format&gt; packages &amp; templates.<\/p>/);
+      assert.doesNotMatch(html, /<format>/);
+    } else {
+      assert.doesNotMatch(html, /query-row-description/);
+    }
+  }
 });
 
 test("the query header keeps home and Back without Query or Workspace buttons", () => {
@@ -460,6 +656,8 @@ class FakeElement {
   scrollHeight = 0;
   clientHeight = 0;
   innerHTML = "";
+  value = "";
+  checked = false;
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
   selectionRange: readonly [number, number] | null = null;
@@ -486,8 +684,8 @@ class FakeElement {
       listeners.filter(candidate => candidate !== listener));
   }
 
-  dispatch(type: string) {
-    for (const listener of this.listeners.get(type) ?? []) listener(fakeDom.event());
+  dispatch(type: string, event = fakeDom.event()) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 
   focus() {
@@ -553,6 +751,11 @@ test("query focus snapshots restore semantic controls after a full render", () =
       selector: "#package-query-back",
       replacement: new FakeElement({}, "package-query-back"),
     },
+    ...["type", "order", "prerelease"].map(control => ({
+      active: new FakeElement({}, `package-query-${control}`),
+      selector: `#package-query-${control}`,
+      replacement: new FakeElement({}, `package-query-${control}`),
+    })),
     {
       active: new FakeElement({ queryFacet: "downloads-1m" }),
       selector: "[data-query-facet]",
@@ -621,10 +824,14 @@ test("query scroll position survives streamed full renders", () => {
 });
 
 test("a vanished query control reports prefix fallback", () => {
-  const cases = [new FakeElement({
-    queryRowOpen: "Vanished.Package",
-    queryRowVersion: "1.0.0",
-  })];
+  const cases = [
+    new FakeElement({
+      queryRowOpen: "Vanished.Package",
+      queryRowVersion: "1.0.0",
+    }),
+    ...["type", "order", "prerelease"].map(
+      control => new FakeElement({}, `package-query-${control}`)),
+  ];
 
   for (const active of cases) {
     const prefix = new FakeElement({}, "package-query-prefix");
@@ -713,6 +920,7 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     onResultPressure: () => calls.push("pressure"),
     onRowOpen: (id, version) => calls.push(`open:${id}:${version}`),
     onRun: () => {},
+    onSourceChange: () => {},
   };
 
   bindPackageQueryView(fakeDom.parentNode(root), actions);
@@ -728,6 +936,97 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     "facet:tfm-out-of-support",
     "cancel",
   ]);
+});
+
+test("source control changes forward the complete selection and current unmodified search text", () => {
+  const root = new FakeRoot();
+  const input = new FakeElement({}, "package-query-prefix");
+  const packageType = new FakeElement({}, "package-query-type");
+  const order = new FakeElement({}, "package-query-order");
+  const prerelease = new FakeElement({}, "package-query-prerelease");
+  root.add("#package-query-prefix", input);
+  root.add("#package-query-type", packageType);
+  root.add("#package-query-order", order);
+  root.add("#package-query-prerelease", prerelease);
+  const calls: { selection: QuerySourceSelection; searchText: string }[] = [];
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => assert.fail("source controls are not inspection facets"),
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onRowOpen: () => {},
+    onRun: () => assert.fail("source changes use their own action"),
+    onSourceChange: (selection, searchText) => calls.push({ selection, searchText }),
+  });
+
+  packageType.value = "Producer.CustomType";
+  packageType.dispatch("change");
+  input.value = " hosting libraries * ";
+  order.value = "producer.order.custom";
+  order.dispatch("change");
+  prerelease.checked = true;
+  prerelease.dispatch("change");
+  packageType.value = "";
+  order.value = "";
+  prerelease.checked = false;
+  order.dispatch("change");
+
+  assert.deepEqual(calls, [
+    {
+      selection: {
+        packageType: "Producer.CustomType", sourceOrderId: null, includePrerelease: false,
+      },
+      searchText: "",
+    },
+    {
+      selection: {
+        packageType: "Producer.CustomType", sourceOrderId: "producer.order.custom", includePrerelease: false,
+      },
+      searchText: " hosting libraries * ",
+    },
+    {
+      selection: {
+        packageType: "Producer.CustomType", sourceOrderId: "producer.order.custom", includePrerelease: true,
+      },
+      searchText: " hosting libraries * ",
+    },
+    {
+      selection: {
+        packageType: null, sourceOrderId: null, includePrerelease: false,
+      },
+      searchText: " hosting libraries * ",
+    },
+  ]);
+});
+
+test("query form submits blank browse and unchanged text without requiring source controls", () => {
+  const root = new FakeRoot();
+  const form = new FakeElement({}, "package-query-form");
+  const input = new FakeElement({}, "package-query-prefix");
+  root.add("#package-query-form", form);
+  root.add("#package-query-prefix", input);
+  const calls: string[] = [];
+  let prevented = 0;
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onRowOpen: () => {},
+    onRun: text => calls.push(text),
+    onSourceChange: () => assert.fail("source controls are absent"),
+  });
+  for (const text of ["", " hosting libraries ", "System.*"]) {
+    input.value = text;
+    form.dispatch("submit", fakeDom.event({
+      preventDefault() { prevented++; },
+    }));
+  }
+
+  assert.deepEqual(calls, ["", " hosting libraries ", "System.*"]);
+  assert.equal(prevented, 3);
 });
 
 test("query result pressure starts within 600 pixels of the current end", () => {
@@ -758,6 +1057,7 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
     onResultPressure: () => { pressure++; },
     onRowOpen: () => {},
     onRun: () => {},
+    onSourceChange: () => {},
   });
 
   main.scrollTop = 401;
@@ -799,6 +1099,7 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
       onResultPressure: () => { pressure++; },
       onRowOpen: () => {},
       onRun: () => {},
+      onSourceChange: () => {},
     });
 
   assert.equal(patched, true);
