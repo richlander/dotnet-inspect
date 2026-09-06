@@ -392,7 +392,26 @@ safety verdicts, or inferred navigation.
 This trades some vertical density for complete visible evidence. A successful
 empty result retains the section, zero count, and existing absence message;
 it does not assert that the method is safe. Loading and failure remain separate
-top-level Facts states. Exception regions and subsequent detail sections retain
+top-level Facts states.
+
+Exception regions continues the same readable measure and separator treatment.
+Each returned metadata entry retains its supplied Region number and raw Clause,
+with labeled Caught type, Try, Handler, and Filter values. All six fields remain
+visible in returned order, including shared ranges and repeated records.
+Constrained panes place region identity above the properties; long types,
+region numbers, and range strings wrap within the row.
+
+Null Caught type and Filter values are explicitly `not supplied`, not inferred
+`not applicable` or a wildcard catch. Range strings retain their supplied
+spelling; the presentation does not parse them, infer nesting, reconstruct
+C# try/catch blocks, or create navigation targets.
+
+The section count describes returned region entries, not distinct try blocks
+or runtime exceptions. The successful empty section retains its zero count
+and existing absence message, which does not assert that the method cannot
+throw. Loading and failure remain separate top-level Facts states.
+The additional row height is an explicit trade for complete visible values
+without horizontal scrolling. Performance opportunities and diagnostics retain
 their existing presentation.
 
 #### Graph Explore
