@@ -1,0 +1,52 @@
+name: NuGet dependency submission trial
+
+on:
+  push:
+    branches: [security/nuget-dependency-submission]
+    paths: [.github/workflows/nuget-dependency-submission-trial.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      # Submit restored data from this exact main commit, not the trial branch.
+      - uses: actions/checkout@v7
+        with:
+          ref: 89013647996f774f729882aa70bacaf38e013672
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-preview.7.26381.103'
+
+      - name: Restore the dependency roots configured in Dependabot
+        run: |
+          dotnet --list-sdks
+          dotnet --version
+          dotnet restore dotnet-inspect.slnx -p:Configuration=Release
+          dotnet restore eng/CiChangeDetection/CiChangeDetection.csproj -p:Configuration=Release
+          dotnet restore prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj -p:Configuration=Release
+
+      - name: Submit the resolved NuGet graph
+        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
+        with:
+          detectorsCategories: NuGet
+          correlator: nuget-explicit-restore
+          snapshot-sha: 89013647996f774f729882aa70bacaf38e013672
+          snapshot-ref: refs/heads/main
+
+      - name: Preserve the detector report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-dependency-detection
+          path: output.json
+          if-no-files-found: ignore
+          retention-days: 14
