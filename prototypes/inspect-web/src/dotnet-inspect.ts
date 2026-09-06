@@ -199,6 +199,20 @@ import {
   type MethodBodyDiffAction,
 } from "./method-body-diff-view.ts";
 import {
+  createSourceComparisonCoordinator,
+  createSourceDiffState,
+  type SourceDiffState,
+} from "./source-comparison.ts";
+import {
+  bindSourceDiff,
+  renderSourceComparisonAction,
+  renderSourceDiffModal,
+  SOURCE_DIFF_ACTION_SELECTOR,
+  SOURCE_DIFF_VERSION_SELECTOR,
+  type SourceComparisonAvailability,
+  type SourceDiffAction,
+} from "./source-comparison-view.ts";
+import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
 } from "./metadata-inspection.ts";
@@ -509,6 +523,8 @@ let cancelMethodBodyComparisonQuery:
 let inspectMethodBodyComparison: SourceFacade["queryMethodBodyComparison"];
 let inspectMethodBodyComparisonTargets:
   SourceFacade["queryMethodBodyComparisonTargets"];
+let inspectMemberSourceComparison: SourceFacade["queryMemberSourceComparison"];
+let cancelMemberSourceComparisonQuery: SourceFacade["cancelMemberSourceComparison"];
 let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
 let inspectMemberSource: SourceFacade["queryMemberSource"];
 let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
@@ -597,6 +613,8 @@ async function loadEngineModule() {
     cancelMethodBodyComparison: cancelMethodBodyComparisonQuery,
     queryMethodBodyComparison: inspectMethodBodyComparison,
     queryMethodBodyComparisonTargets: inspectMethodBodyComparisonTargets,
+    queryMemberSourceComparison: inspectMemberSourceComparison,
+    cancelMemberSourceComparison: cancelMemberSourceComparisonQuery,
     queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
@@ -825,6 +843,7 @@ const initialState = {
   memberAnnotatedEmbedded: null,
   memberAnnotatedModal: null,
   methodBodyDiff: createMethodBodyDiffState(),
+  sourceDiff: createSourceDiffState(),
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -962,6 +981,7 @@ interface StateOverrides {
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
   methodBodyDiff: MethodBodyDiffState;
+  sourceDiff: SourceDiffState;
   typeSource: BrowserSource | null;
   typeMetadata: BrowserTypeMetadata | null;
   packageDependencies: BrowserPackageDependencies | null;
@@ -1042,6 +1062,7 @@ CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
   cancelAnnotatedSourceRequest(state);
   methodBodyComparison.dispose();
+  sourceComparison.dispose();
   const packages = structuredClone(state.packages);
   const activeKey = state.package
     ? packageIdentityKey(state.package)
@@ -1171,6 +1192,21 @@ const methodBodyComparison = createMethodBodyComparisonCoordinator({
   },
   reportOperationDiagnostic: diagnostic => {
     console.error("Method Body Diff operation authority failure.", diagnostic);
+    return undefined;
+  },
+  describeError: errorMessage,
+  render,
+});
+const sourceComparison = createSourceComparisonCoordinator({
+  state: state.sourceDiff,
+  operationAuthority,
+  queryComparison: (operationId, requestJson) =>
+    inspectMemberSourceComparison(operationId, requestJson),
+  cancelComparison: (operationId, reason) => {
+    cancelMemberSourceComparisonQuery(operationId, reason);
+  },
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Source Diff operation authority failure.", diagnostic);
     return undefined;
   },
   describeError: errorMessage,
@@ -2933,6 +2969,7 @@ function clearMemberContentCache() {
   // A member navigation replaces the launching context, so its dialog operations are
   // released rather than left to publish into a different member.
   methodBodyComparison.dispose();
+  sourceComparison.dispose();
   invalidateMemberDestinationWork(state);
   state.memberSource = null;
   state.memberSourceError = "";
@@ -3489,8 +3526,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && document.activeElement.closest("#method-body-diff-modal")
     ? document.activeElement.id
     : "";
+  const sourceDiffFocusedId = document.activeElement instanceof HTMLElement
+    && document.activeElement.closest("#source-diff-modal")
+    ? document.activeElement.id
+    : "";
   app.innerHTML = `
-    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen || state.methodBodyDiff.open ? " inert" : ""}>
+    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen || state.methodBodyDiff.open || state.sourceDiff.open ? " inert" : ""}>
       ${workbenchShellHtml({
         applicationScopeHtml: renderApplicationScopeBar(
           activeScope === "workspace" ? "workspace" : null,
@@ -3522,6 +3563,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${methodBodyPageContext
                 ? renderMethodBodyComparisonAction(
                     methodBodyComparisonAvailability(),
+                    escapeHtml)
+                : ""}
+              ${methodBodyPageContext
+                ? renderSourceComparisonAction(
+                    sourceComparisonAvailability(),
                     escapeHtml)
                 : ""}
             </div>`
@@ -3592,6 +3638,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       state: state.methodBodyDiff,
       escapeHtml,
       highlightCSharp,
+    })}
+    ${renderSourceDiffModal({
+      state: state.sourceDiff,
+      escapeHtml,
     })}`;
 
   const packageIcon =
@@ -3633,6 +3683,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   restoreMethodBodyDiffFocus(methodBodyFocusedId);
+  restoreSourceDiffFocus(sourceDiffFocusedId);
   graphExplorer.afterRender(graphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
@@ -6559,6 +6610,96 @@ function bindMethodBodyDiffEvents() {
   bindMethodBodyDiff(document, { onAction: applyMethodBodyDiffAction });
 }
 
+function sourceComparisonAvailability(): SourceComparisonAvailability {
+  if (!state.package || state.atPackageRoot || scope() !== "member")
+    return { available: false, reason: "Select a package method before comparing authored source." };
+  if (state.package.isRuntimePack)
+    return { available: false, reason: "Authored Source comparison requires package versions; runtime and platform selections are unavailable." };
+  const member = selectedMember(selectedType());
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : null;
+  if (!overload)
+    return { available: false, reason: "Select one method overload before comparing authored source." };
+  const kind = overload.kind.toLowerCase();
+  if (!["method", "constructor", "operator"].includes(kind))
+    return { available: false, reason: "Authored Source comparison supports methods, not properties, events, fields, or their accessors." };
+  const body = graphOnlyImplementationBody(overload) ?? state.selectedBodyTarget;
+  const bodyToken = body && ("token" in body ? body.token : body.metadataToken);
+  if (bodyToken && bodyToken !== overload.metadataToken)
+    return { available: false, reason: "This accessor or nested body is not the selected authored method declaration." };
+  if (!isMethodBodyToken(overload.metadataToken ?? 0))
+    return { available: false, reason: "This selection has no implementation MethodDef to compare." };
+  return { available: true, reason: "" };
+}
+
+let sourceDiffFocusIntent = false;
+let sourceDiffVersionCaret: number | null = null;
+
+function restoreSourceDiffFocus(previousId = "") {
+  if (!state.sourceDiff.open) {
+    sourceDiffFocusIntent = false;
+    sourceDiffVersionCaret = null;
+    return;
+  }
+  const input = document.querySelector<HTMLInputElement>(SOURCE_DIFF_VERSION_SELECTOR);
+  if (sourceDiffVersionCaret !== null && input) {
+    const caret = Math.min(sourceDiffVersionCaret, input.value.length);
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(caret, caret);
+    sourceDiffVersionCaret = null;
+    return;
+  }
+  const previous = document.getElementById(previousId);
+  const target = sourceDiffFocusIntent && input ? input
+    : previous && !previous.matches(":disabled") ? previous
+      : document.getElementById("source-diff-title");
+  sourceDiffFocusIntent = false;
+  target?.focus({ preventScroll: true });
+}
+
+function closeSourceDiff(restoreLaunchFocus: boolean) {
+  if (!sourceComparison.isOpen()) return false;
+  const dismissal = sourceComparison.close();
+  sourceDiffFocusIntent = false;
+  sourceDiffVersionCaret = null;
+  render();
+  if (restoreLaunchFocus && dismissal.returnFocusSelector) {
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(dismissal.returnFocusSelector)
+        ?.focus({ preventScroll: true }));
+  }
+  return dismissal.handled;
+}
+
+function applySourceDiffAction(action: SourceDiffAction) {
+  switch (action.kind) {
+    case "open": {
+      const availability = sourceComparisonAvailability();
+      const context = availability.available ? methodBodyComparisonContext() : null;
+      sourceDiffFocusIntent = true;
+      sourceDiffVersionCaret = null;
+      if (context)
+        sourceComparison.open(context, SOURCE_DIFF_ACTION_SELECTOR);
+      else
+        sourceComparison.openUnavailable(
+          availability.reason || "This selection has no authored method declaration.",
+          SOURCE_DIFF_ACTION_SELECTOR);
+      return;
+    }
+    case "close":
+      closeSourceDiff(true);
+      return;
+    case "version":
+      sourceDiffVersionCaret = action.caret;
+      sourceComparison.setAfterVersion(action.value);
+      return;
+    case "compare":
+      observeAsync(sourceComparison.compare(), "Comparing authored source");
+      return;
+  }
+}
+
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
     onAction: applyAnnotatedSourceAction,
@@ -6620,6 +6761,7 @@ function bindEvents() {
   bindDocViewerEvents();
   bindAnnotatedSourceEvents();
   bindMethodBodyDiffEvents();
+  bindSourceDiff(document, { onAction: applySourceDiffAction });
   bindPackageViewEvents();
   bindLibraryControlsEvents();
   workbenchShellBinding =
@@ -7864,6 +8006,7 @@ function workbenchModalOwnsFocus() {
     || state.docViewerOpen
     || state.memberAnnotatedModal !== null
     || state.methodBodyDiff.open
+    || state.sourceDiff.open
     || graphExplorer.isOpen;
 }
 
@@ -12790,6 +12933,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.docViewerOpen
     && state.memberAnnotatedModal === null
     && !state.methodBodyDiff.open
+    && !state.sourceDiff.open
     && !state.spotlightOpen;
 }
 
@@ -12971,6 +13115,21 @@ registerContainedShortcuts(
   "method-body-diff.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
   methodBodyDiffContextIsActive,
+);
+const sourceDiffContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.sourceDiff.open;
+keybindings.register({
+  id: "source-diff.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
+  when: sourceDiffContextIsActive,
+  run: () => closeSourceDiff(true),
+});
+registerContainedShortcuts(
+  "source-diff.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.methodBodyDiff,
+  sourceDiffContextIsActive,
 );
 
 keybindings.register({
@@ -13237,6 +13396,7 @@ function clearNavigationError() {
 function dismissModalsForRoutedNavigation() {
   closeGraphExplorerForNavigation();
   methodBodyComparison.dispose();
+  sourceComparison.dispose();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;

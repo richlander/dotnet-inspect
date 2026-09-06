@@ -6,6 +6,8 @@ export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
@@ -206,6 +208,65 @@ export interface BrowserSource {
   readonly text: string;
 }
 
+export interface BrowserSourceComparison {
+  readonly request: BrowserSourceComparisonRequest;
+  readonly status: string;
+  readonly isExact: boolean;
+  readonly before: BrowserSourceComparisonEndpoint;
+  readonly after: BrowserSourceComparisonEndpoint;
+  readonly lines: ReadonlyArray<BrowserSourceComparisonLine>;
+  readonly failure: string | null;
+}
+
+export interface BrowserSourceComparisonEndpoint {
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly assembly: string;
+  readonly assetPath: string;
+  readonly moduleVersionId: string | null;
+  readonly assemblyIdentity: string;
+  readonly memberIdentity: string | null;
+  readonly metadataToken: number | null;
+  readonly state: string;
+  readonly detail: string | null;
+  readonly text: string | null;
+  readonly sourceUrl: string | null;
+  readonly repositoryUrl: string | null;
+  readonly revision: string | null;
+}
+
+export interface BrowserSourceComparisonLine {
+  readonly kind: string;
+  readonly difference: string;
+  readonly beforeLine: number | null;
+  readonly beforeText: string | null;
+  readonly afterLine: number | null;
+  readonly afterText: string | null;
+}
+
+export interface BrowserSourceComparisonRequest {
+  readonly packageId: string;
+  readonly beforeVersion: string;
+  readonly afterVersion: string;
+  readonly framework: string;
+  readonly assembly: string;
+  readonly typeIdentity: string;
+  readonly memberName: string;
+  readonly selectorKey: string;
+  readonly metadataToken: number;
+}
+
+export interface BrowserSourceComparisonResult {
+  readonly version: number;
+  readonly kind: BrowserSourceComparisonResultKind;
+  readonly value: BrowserSourceComparison | null;
+  readonly failureKind: BrowserTypeSourceFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
 export interface BrowserTypeSourceCancellation {
   readonly kind: BrowserTypeSourceCancellationKind;
   readonly reason: string | null;
@@ -223,11 +284,13 @@ export interface BrowserTypeSourceResult {
 
 type $ManagedExports = {
   readonly "SourceExports": {
+    readonly "CancelMemberSourceComparison.271973316": (operationId: string, reason: string) => string;
     readonly "CancelMethodBodyComparison.271973316": (operationId: string, reason: string) => string;
     readonly "CancelSourceQuery.19325221": () => void;
     readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
     readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
+    readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
     readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
     readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
     readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
@@ -280,6 +343,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "CancelMemberSourceComparison.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.CancelMemberSourceComparison.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
     value = $ownDataProperty(value, "CancelMethodBodyComparison.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027SourceExports.CancelMethodBodyComparison.271973316\u0027 is not callable.");
@@ -315,6 +386,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryMemberSource.641907440");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027SourceExports.QueryMemberSource.641907440\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryMemberSourceComparison.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.QueryMemberSourceComparison.451505237\u0027 is not callable.");
     }
   }
   {
@@ -386,6 +465,12 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+export function cancelMemberSourceComparison(operationId: string, reason: string): BrowserTypeSourceCancellation {
+  const $result = $requireManagedExports()["SourceExports"]["CancelMemberSourceComparison.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeSourceCancellation;
+}
+
 export function cancelMethodBodyComparison(operationId: string, reason: string): BrowserTypeSourceCancellation {
   const $result = $requireManagedExports()["SourceExports"]["CancelMethodBodyComparison.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -412,6 +497,12 @@ export async function queryMemberSource(packageId: string, version: string, targ
   const $result = await $requireManagedExports()["SourceExports"]["QueryMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserSource;
+}
+
+export async function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult> {
+  const $result = await $requireManagedExports()["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, requestJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserSourceComparisonResult;
 }
 
 export async function queryMethodBodyComparison(operationId: string, requestJson: string): Promise<BrowserMethodBodyComparisonResult> {

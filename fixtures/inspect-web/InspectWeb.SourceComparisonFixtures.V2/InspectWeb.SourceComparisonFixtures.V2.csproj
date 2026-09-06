@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>InspectWebSourceComparisonFixture</AssemblyName>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <IsAotCompatible>false</IsAotCompatible>
+    <!-- The browser host never reads adjacent files and has no symbol transport for an
+         unpublished package, so the debug information has to travel inside the image. -->
+    <DebugType>embedded</DebugType>
+    <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Same compiler inputs as the queries source-diff pair; only the debug and
+         SourceLink shape differs, so the authored-source difference stays identical. -->
+    <Compile Include="../../queries/DotnetInspector.SourceDiff.V2/Counter.cs" Link="Counter.cs" />
+    <Content Include="../../queries/DotnetInspector.SourceDiff.V2/Counter.cs" Link="Counter.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- One package identity carries both versions, so the browser acquires this pair the same
+       way it acquires any other package. -->
+  <Target Name="BuildSourceComparisonFixturePackageV2" AfterTargets="Build">
+    <PropertyGroup>
+      <FixturePackageDirectory>$(IntermediateOutputPath)package/</FixturePackageDirectory>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(FixturePackageDirectory)lib/$(TargetFramework)" />
+    <Copy SourceFiles="InspectWeb.SourceComparisonFixture.nuspec" DestinationFolder="$(FixturePackageDirectory)" />
+    <ZipDirectory SourceDirectory="$(FixturePackageDirectory)" DestinationFile="$(TargetDir)InspectWeb.SourceComparisonFixture.2.0.0.nupkg" Overwrite="true" />
+  </Target>
+</Project>

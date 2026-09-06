@@ -493,6 +493,12 @@ jobs:
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
 
+      - name: Test authored Source comparison in Firefox
+        # Reuses the published engine and Firefox above. The cataloged package
+        # and source bytes exercise the public export and actual dialog without
+        # changing production source policy or adding a test-only host factory.
+        run: eng/test-inspect-web-source-comparison-gate.sh
+
       - name: Test annotated-source viewer
         working-directory: prototypes/annotated-source-viewer
         run: npm test

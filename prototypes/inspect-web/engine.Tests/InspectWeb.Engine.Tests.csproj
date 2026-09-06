@@ -19,6 +19,12 @@
     <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
     <ProjectReference Include="..\engine\InspectWeb.Engine.csproj" />
     <ProjectReference Include="..\..\..\fixtures\inspect-web\InspectWeb.MethodBodyFixtures\InspectWeb.MethodBodyFixtures.csproj" />
+    <!--
+      Both Source comparison fixtures publish the same InspectWebSourceComparisonFixture.dll file
+      name, so they are build-ordering references only; the tests read them through FixtureCatalog.
+    -->
+    <ProjectReference Include="..\..\..\fixtures\inspect-web\InspectWeb.SourceComparisonFixtures.V1\InspectWeb.SourceComparisonFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\..\fixtures\inspect-web\InspectWeb.SourceComparisonFixtures.V2\InspectWeb.SourceComparisonFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 </Project>
