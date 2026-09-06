@@ -978,6 +978,13 @@ callback tests cannot establish. The compiler-produced `Types` sample already
 used by the fidelity gate supplies ordinary metadata; healthy decodes before
 and after the one-shot injection are controls for the test double.
 
+Gate adequacy was checked at `6e076e9502645b2d0a01550f407bbc9deebb643f` with a
+temporary policy mutation that included `OutOfMemoryException` in the owned
+decoder's refusal filter. All three new cases failed because no exception
+escaped, while 110 neighboring cases still passed. The mutation was removed;
+it is a synthetic regression control, not a reproduction of historical memory
+exhaustion. The implementation repair already landed in #5815.
+
 This follows the existing metadata tests' use of a custom SRM string decoder
 for observation and injected dependency failures for exception-identity checks.
 The metadata test runner is the evidence consumer; it exercises the same shared
