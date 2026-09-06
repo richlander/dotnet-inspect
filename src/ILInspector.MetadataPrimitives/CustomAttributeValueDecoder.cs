@@ -69,7 +69,8 @@ internal static class CustomAttributeValueDecoder
         AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
         out CustomAttributeValue<string> value,
         out ImmutableArray<bool> fixedArgumentWidthDefaulted,
-        out ImmutableArray<bool> namedArgumentWidthDefaulted)
+        out ImmutableArray<bool> namedArgumentWidthDefaulted,
+        GenericContextWork? genericContextWork = null)
     {
         value = default;
         fixedArgumentWidthDefaulted = default;
@@ -84,7 +85,8 @@ internal static class CustomAttributeValueDecoder
                 preserveSerializedTypeNames,
                 captureDefaultedWidths,
                 beforeMaterialize,
-                enumUnderlyingType);
+                enumUnderlyingType,
+                genericContextWork);
             return decoder.Run(
                 attribute,
                 out value,
@@ -108,6 +110,11 @@ internal static class CustomAttributeValueDecoder
         }
     }
 
+    internal sealed class GenericContextWork
+    {
+        public long BytesSkipped { get; internal set; }
+    }
+
     /// <summary>
     /// One decode of one attribute value. Fixed arguments are read from the
     /// constructor signature interleaved with their values from the value blob,
@@ -121,7 +128,8 @@ internal static class CustomAttributeValueDecoder
         bool preserveSerializedTypeNames,
         bool captureDefaultedWidths,
         Action<int>? beforeMaterialize,
-        AttributeDecoder.EnumWidthResolver? enumUnderlyingType)
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
+        GenericContextWork? genericContextWork)
     {
         readonly MetadataReader _reader = reader;
         readonly EntityHandle _constructor = constructor;
@@ -362,7 +370,11 @@ internal static class CustomAttributeValueDecoder
                         throw new BadImageFormatException();
                     for (int skip = 0; skip < parameterIndex; skip++)
                     {
-                        if (!SrmType.TrySkip(ref arguments))
+                        int start = arguments.Offset;
+                        bool skipped = SrmType.TrySkip(ref arguments);
+                        if (genericContextWork is not null)
+                            genericContextWork.BytesSkipped += arguments.Offset - start;
+                        if (!skipped)
                             throw new BadImageFormatException();
                     }
 
