@@ -47,7 +47,9 @@ dotnet tool install -g dotnet-inspect --source https://api.nuget.org/v3/index.js
 dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
 ```
 
-## Text-library tests
+## Additional library suites
+
+### Text-library tests
 
 Run the complete text-library suites from the repository root:
 
@@ -60,6 +62,20 @@ Both are xUnit in-process executables. Their source lives under `tests/`, while
 their built outputs remain under `artifacts/`. The in-process corpus data stays
 with its test host; it is not an independently compiled inspected fixture.
 See [repository layout](fixture-governance.md#repository-layout).
+
+### Ecosystem tests
+
+Run both the dedicated catalog suite and the separate public consumer suite:
+
+```bash
+dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
+dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+```
+
+Both are xUnit in-process executables. Keep the consumer project separately
+compiled without friend access; only the dedicated catalog suite is an assembly
+friend. See the [ecosystem boundary](design/ecosystem-packs.md#dependency-boundary) and
+[package-set registry gates](design/package-set-registry.md#required-gates).
 
 ## Test tooling activation
 
