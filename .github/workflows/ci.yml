@@ -402,7 +402,8 @@ jobs:
           # where they ship. The toolchain test pins them in the source file; this checks
           # the copy Azure actually reads. Values are compared exactly rather than by
           # prefix -- `max-age=0` starts with `max-age=` and switches HSTS off.
-          jq -e '.globalHeaders == {
+          # CSP includes a per-publish import-map hash, checked below in Firefox.
+          jq -e '(.globalHeaders | del(."Content-Security-Policy")) == {
               "X-Content-Type-Options": "nosniff",
               "Referrer-Policy": "no-referrer",
               "X-Frame-Options": "DENY",

@@ -65,7 +65,11 @@
     <Exec Command="node &quot;../scripts/publish-runtime-loader.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
-  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebRuntimeLoader">
+  <Target Name="PublishInspectWebContentSecurityPolicy" AfterTargets="PublishInspectWebRuntimeLoader">
+    <Exec Command="node &quot;../scripts/publish-content-security-policy.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebContentSecurityPolicy">
     <Exec Command="node &quot;../scripts/verify-site-artifact.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
