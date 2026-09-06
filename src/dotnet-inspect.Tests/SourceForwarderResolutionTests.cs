@@ -15,6 +15,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -1574,6 +1575,7 @@ public class SourceForwarderResolutionTests
             Assert.Equal("Root", assembly.Identity.Name);
             var expected = sourceKind switch
             {
+                SourceKind.Library => AssemblyResolutionProvenance.Designated("ApiServices"),
                 SourceKind.NuGet => AssemblyResolutionProvenance.Package(
                     "Selected.Package", "2.3.4", "net11.0", rid: null),
                 SourceKind.Project => AssemblyResolutionProvenance.Project(
@@ -1591,9 +1593,10 @@ public class SourceForwarderResolutionTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void TypeApiSelection_RetainsForwardedSupplier(bool summaryOnly)
+    [InlineData(false, SourceKind.Library)]
+    [InlineData(false, SourceKind.Platform)]
+    [InlineData(true, SourceKind.Platform)]
+    public void TypeApiSelection_RetainsForwardedSupplier(bool summaryOnly, string sourceKind)
     {
         string directory = CreateDirectory();
         try
@@ -1606,7 +1609,7 @@ public class SourceForwarderResolutionTests
             File.WriteAllBytes(targetPath, BuildAssembly("Target"));
             var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
                 ApiServices.LoadTypeApi(
-                    CreateApiSource(facadePath, SourceKind.Platform),
+                    CreateApiSource(facadePath, sourceKind),
                     new TypeOptions(),
                     summaryOnly));
             var type = Assert.Single(loaded.Api.Types);
@@ -1616,6 +1619,8 @@ public class SourceForwarderResolutionTests
             Assert.True(type.IsForwarded);
             Assert.Equal(Path.GetFullPath(targetPath), supplier.Path);
             Assert.Equal("Target", supplier.Identity.Name);
+            if (sourceKind == SourceKind.Library)
+                Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(supplier.Provenance);
         }
         finally
         {
@@ -1653,6 +1658,150 @@ public class SourceForwarderResolutionTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TypeBodyShapesAcquisition_PreservesDesignatedCoreLibraryRows()
+    {
+        string path = typeof(System.Text.StringBuilder).Assembly.Location;
+        var options = new TypeOptions
+        {
+            AssemblyPath = path,
+            BodyKindQuery = new() { Kind = "ObjectCreationExpression" },
+        };
+        var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+            ApiServices.LoadTypeApi(CreateApiSource(path, SourceKind.Library), options));
+        var type = Assert.Single(loaded.Api.Types, type => type.FullName == "System.Text.StringBuilder");
+        var tokens = ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type);
+        var expected = new TypeView();
+        var actual = new TypeView();
+
+        ApiOutputFormatter.PopulateBodyShapes(expected, path, null, tokens, options);
+        ApiOutputFormatter.PopulateBodyShapes(
+            actual, path, null, tokens, options, loaded.GetSourceAssembly(type));
+
+        Assert.NotNull(expected.BodyShapeRows);
+        Assert.NotEmpty(expected.BodyShapeRows);
+        Assert.Equal(expected.BodyShapeRows, actual.BodyShapeRows);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    public async Task TypeBodyShapesAcquisition_UsesSelectedSupplier(
+        bool isForwarded, bool discover, bool project)
+    {
+        int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-body-shapes"),
+            isForwarded,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture),
+            includePdb: true);
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                Context = new CommandContext(verbose: false, client),
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter = [nameof(BodyShapeFixture.PublicCreation)],
+                        BodyKindQuery = new() { Kind = "ObjectCreationExpression" },
+                        Select = [SectionNames.BodyShapes],
+                        Discover = discover ? [SectionNames.BodyShapes] : null,
+                        Columns = project ? ["Kind"] : null,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains(discover ? "Kind" : "ObjectCreationExpression", output);
+            Assert.True(opens > 1, "Body search must open the supplier after PDB acquisition.");
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task TypeBodyShapesAcquisition_ReportsBodyOpenFailureAfterPdbAcquisition(
+        bool discover, bool invalidImage)
+    {
+        int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-body-shapes"),
+            isForwarded: true,
+            () =>
+            {
+                if (++opens == 1)
+                    return new MemoryStream(image, writable: false);
+                return invalidImage
+                    ? new MemoryStream([1, 2, 3], writable: false)
+                    : throw new IOException("Selected body-shape image could not be opened.");
+            },
+            typeof(BodyShapeFixture),
+            includePdb: true);
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                Context = new CommandContext(verbose: false, client),
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        BodyKindQuery = new() { Kind = "ObjectCreationExpression" },
+                        Select = [SectionNames.BodyShapes],
+                        Discover = discover ? [SectionNames.BodyShapes] : null,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Error:", error);
+            if (!invalidImage)
+                Assert.Contains("Selected body-shape image could not be opened.", error);
+            Assert.Empty(output);
+            Assert.Equal(2, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
         }
     }
 
@@ -2658,7 +2807,8 @@ public class SourceForwarderResolutionTests
             AssemblyResolutionProvenance provenance,
             bool isForwarded,
             Func<Stream>? openRead = null,
-            Type? fixtureType = null)
+            Type? fixtureType = null,
+            bool includePdb = false)
     {
         fixtureType ??= typeof(SourceForwarderResolutionTests);
         string directory = CreateDirectory();
@@ -2668,6 +2818,12 @@ public class SourceForwarderResolutionTests
             directory,
             Path.GetFileName(sourceAssemblyPath));
         File.Copy(sourceAssemblyPath, assemblyPath);
+        if (includePdb)
+        {
+            File.Copy(
+                Path.ChangeExtension(sourceAssemblyPath, ".pdb"),
+                Path.ChangeExtension(assemblyPath, ".pdb"));
+        }
         ApiSurface api =
             AssemblyReader.ExtractApiSurface(assemblyPath)!;
         ApiType type = Assert.Single(
