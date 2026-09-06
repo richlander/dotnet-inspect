@@ -145,7 +145,6 @@
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
-    <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
     <Project Path="src/ts-jsexport/ts-jsexport.csproj" />
@@ -166,6 +165,7 @@
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
+    <Project Path="tests/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
   </Folder>
   <Folder Name="/tools/">

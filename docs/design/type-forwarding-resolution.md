@@ -1313,11 +1313,11 @@ progress.
 
 #### Resolver-lineage continuations
 
-> **Status: design-only; product adoption is unverified.** #5801 supplies
-> compiled evidence for the existing behavior, not this representation.
-> #5666 owns this focused decision; #5274 tracks adoption and retirement.
-> Existing policies retain their transitional behavior until their adoption
-> slices land.
+> **Status: Metadata support implemented; production adoption pending.**
+> #5953 carries occurrences through Metadata; Services/CLI and Queries/Browser
+> adoption remain separate steps. #5801 supplies compiled evidence for the
+> prior behavior, not the replacement. #5666 owns this focused decision;
+> #5274 tracks adoption and retirement.
 
 **Claim:** a selected assembly occurrence retains the policy-issued binding
 context required for its subsequent references, without changing the answers
@@ -1436,11 +1436,15 @@ revisiting a candidate through a different context on one forwarding path.
 
 The counted adoption path in #5274 has **four steps**, including this design.
 The table is a composition plan, not authority over another owner's internals.
+Steps 2 and 3 form one consumer-led delivery milestone: stage the Metadata
+prerequisite immediately below its Services/CLI adopter, keeping at most one
+unmerged substrate PR ahead of that production consumer. A merged prerequisite
+alone is not host adoption; this sequencing follows #5865.
 
 | Step | Owning slice and completion |
 | --- | --- |
 | 1 | Binding owner: lock this currency and the companion model in #5666. Product behavior is unchanged. |
-| 2 | Metadata: carry selected occurrences through requests, results, deferred dependencies, and policy-dependent caches. Existing seed-only producers remain behavior-compatible; context-aware gates demonstrate distinct answers for a shared registration. |
+| 2 | Metadata (#5953): carry selected occurrences through requests, results, deferred dependencies, and policy-dependent caches. Existing seed-only producers remain behavior-compatible; context-aware gates demonstrate distinct answers for a shared registration. |
 | 3 | Services: adopt the currency in `SourceRelativeAssemblyGroupBindingPolicy` and remove learned-route insertion, its CAS publication, and registration-only intrinsic caching. Preserve the #5801 result and demonstrate it through the existing CLI `diff` endpoint; `timeline` uses the same endpoint construction. |
 | 4 | Queries/Browser: adopt through `AssemblyContextTypeResolutionQuery` and `MemberCallGraphSession`, exercised by `PlatformCallGraphExports`. Confirm terminal member navigation and call-graph endpoints while retaining sealed participant provisioning and one attempt per authorized demand. |
 
@@ -1453,6 +1457,9 @@ host-specific continuation algorithm is introduced.
 The replacement is incomplete until step 3 retires the Services learned-route
 representation and step 4 closes both-host adoption. Other transforming
 policies remain the separately scoped work in #5667, #5668, and #5669.
+Retirement requires the affected existing consumers to have safely cut over;
+the presence of the new currency alone does not justify deletion. If that
+requires a separate retirement step, update the count in #5274 explicitly.
 Delegated-version refresh is still required when a delegate actually changes;
 it is not made unnecessary by replacing route learning.
 
@@ -1469,10 +1476,13 @@ advance the token merely for selecting a continuation.
 The model abstracts two resolver contexts, one shared selected candidate, and
 two terminal dependencies; it is not a PE decoder, a workspace realization
 model, or proof of product adoption. Exact TLC outcomes are enforced by
-`eng/tla-expected-exit-codes.txt`. Product enforcement remains unverified until
-steps 2-4 provide Release gates at the Metadata, Services/CLI, and
-Queries/Browser boundaries. No feature-specific rendering domain is added:
-the existing API and call-graph models and their lowering owners remain.
+`eng/tla-expected-exit-codes.txt`. Metadata's `TypeResolutionContextTests`
+enforce occurrence separation, forwarding and deferred-dependency propagation,
+intrinsic answers, same-version recipe reuse, stale-origin rejection, and
+contextual discovery bounds in Release. Services/CLI and Queries/Browser
+enforcement remains unverified until their adoption steps supply their own
+Release gates. No feature-specific rendering domain is added: the existing
+API and call-graph models and their lowering owners remain.
 
 The comparative baseline is explicit context association, not a new loading
 mechanism. [AssemblyLoadContext][lineage-alc] associates assemblies with loading

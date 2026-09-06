@@ -92,6 +92,47 @@ bespoke logic the way it did before that split existed.
 
 ## Is this CLI-side or core?
 
+### Gallery source input
+
+[Website-first adoption #6019](https://github.com/richlander/dotnet-inspect/issues/6019)
+extends the shared Package Query input, not the CLI grammar. Its claim is that
+local package-facet evaluation and match selection preserve the exact bounded
+Gallery input supplied by NuGetFetch. The concrete first consumer is the
+Package Query website; [#5919](https://github.com/richlander/dotnet-inspect/issues/5919)
+retains the eight-milestone path through CLI adoption.
+
+The [Gallery discovery owner](nuget-gallery-discovery.md) supplies optional
+search text, package-type selection, source order, and one fully admitted
+response of capacity K. These source selectors are distinct from the existing
+manifest/content facets. Selecting an inspection facet never silently rewrites
+it as a Gallery selector. Literal-prefix profiling remains a separate operation.
+
+With no inspection facets, the query returns metadata rows without acquiring
+manifests or archives. Rows retain unavailable optional metadata as unavailable
+and do not manufacture manifest facts. Selecting an inspection facet explicitly
+permits its existing acquisition/evaluation tier; content facets retain their
+explicit provider requirement and 20-candidate ceiling.
+
+The local match bound N selects matching packages in incoming order, independently
+of K. A match limit may stop further enrichment, as it does for prefix queries,
+but cannot shorten the already acquired source response. Completion distinguishes
+the acquired candidate count, processed candidates, and displayed matches.
+Finishing this finite response never means exhausting the Gallery population;
+any provider total remains an estimate. Failures and cancellation retain the
+existing visible query-event contract.
+
+The user approved this ordinary acquisition/local-evaluation path before the
+general Source Delegation protocol and L2 adapter. This slice claims neither
+delegated operation execution nor upstream Count. The finite-input selection
+gate compares local selection with the row reference evaluator over the same
+acquired response, including the capacity-dependent ranking counterexample.
+
+CLI `-Q` and query-companion discovery belong to
+[PR #6004](https://github.com/richlander/dotnet-inspect/pull/6004). A source
+catalog entry or browser control does not advertise an implemented CLI binding.
+
+### Existing layering
+
 Core. Concretely:
 
 - **L1 — `DotnetInspector.Queries`.** The facet-matching engine belongs here,

@@ -378,6 +378,9 @@ import {
   withScopeQuery,
   type PackageQueryState,
   type QueryFacetTerm,
+  type QueryRequest,
+  type QuerySourceCatalog,
+  type QuerySourceSelection,
 } from "./package-query.ts";
 import {
   createPackageQueryLiveAnnouncer,
@@ -404,7 +407,7 @@ import {
   packageQueryHistoryState,
   readPackageQueryHistory,
   resolvePackageQueryWorkspaceSuccessor,
-  validPackageQueryPrefix,
+  validPackageQuerySearchText,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
 } from "./package-query-route.ts";
@@ -446,6 +449,7 @@ let inspectBuildIdentity: HostFacade["buildIdentity"];
 let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
 let inspectPackageDocument: PackageFacade["getPackageDocument"];
 let inspectListPackageQueryFacets: PackageFacade["listPackageQueryFacets"];
+let inspectListGalleryDiscoveryCatalog: PackageFacade["listGalleryDiscoveryCatalog"];
 let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
 let matchPackageDependencyCoordinate:
@@ -526,6 +530,7 @@ async function loadEngineModule() {
     cancelPackageQuery,
     getPackageDocument: inspectPackageDocument,
     listPackageQueryFacets: inspectListPackageQueryFacets,
+    listGalleryDiscoveryCatalog: inspectListGalleryDiscoveryCatalog,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -765,6 +770,7 @@ const initialState = {
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
+  packageQuerySourceCatalog: null,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -972,6 +978,7 @@ interface StateOverrides {
   packageCacheStats: BrowserPackageCacheStats | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
+  packageQuerySourceCatalog: QuerySourceCatalog | null;
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -1130,6 +1137,8 @@ const packageQueryController = createPackageQueryController(
       includePrerelease,
       initialMatchCredit,
       eventSink,
+      packageType,
+      sourceOrderId,
     ) => inspectRunPackageQuery(
       prefix,
       facetIdsJson,
@@ -1137,7 +1146,9 @@ const packageQueryController = createPackageQueryController(
       maximumMatches,
       includePrerelease,
       initialMatchCredit,
-      eventSink),
+      eventSink,
+      packageType,
+      sourceOrderId),
   }),
   updateKind => {
     if (!state.packageQueryOpen) return;
@@ -6873,7 +6884,7 @@ function spotlightResults(): SpotlightResult[] {
     }
     results.push({
       kind: "package-query",
-      prefix: validPackageQueryPrefix(query),
+      prefix: validPackageQuerySearchText(query) ?? "",
     });
   }
   if ((all || spotlightScope === "types") && query) {
@@ -8914,7 +8925,7 @@ function openPackageQueryRoute(
   }
   resetPackageQueryAnnouncements();
   if (!options.preserveState || seed) {
-    state.packageQueryPrefix = validPackageQueryPrefix(seed);
+    state.packageQueryPrefix = validPackageQuerySearchText(seed) ?? "";
   }
   state.packageQueryNavigationError = "";
   const returnFocus: PackageQueryReturnFocus = options.returnFocus
@@ -8994,45 +9005,54 @@ function closePackageQueryRoute() {
   render();
 }
 
-function runPackageQuery(prefix: string) {
-  const validPrefix = validPackageQueryPrefix(prefix);
-  state.packageQueryPrefix = prefix;
-  if (!validPrefix) {
+function preparePackageQueryRequest(text: string): QueryRequest | null {
+  const validText = validPackageQuerySearchText(text);
+  state.packageQueryPrefix = text;
+  if (validText === null) {
     state.packageQueryNavigationError =
-      "Enter a non-empty package ID prefix of at most 100 characters.";
+      "Search text must be at most 100 characters without control characters.";
     render();
     focusPackageQueryInput();
-    return;
+    return null;
   }
 
-  state.packageQueryPrefix = validPrefix;
+  state.packageQueryPrefix = validText;
   state.packageQueryNavigationError = "";
-  const request = state.packageQueryState.request
-    ? withScopeQuery(state.packageQueryState.request, validPrefix)
-    : createQueryRequest(validPrefix);
+  return state.packageQueryState.request
+    ? withScopeQuery(state.packageQueryState.request, validText)
+    : createQueryRequest(validText);
+}
+
+function runPackageQuery(text: string) {
+  const request = preparePackageQueryRequest(text);
+  if (!request) return;
   packageQueryLiveAnnouncer.reset();
   void packageQueryController.run(request);
 }
 
-function togglePackageQueryFacet(facetKey: string, prefix: string) {
+function changePackageQuerySource(
+  selection: QuerySourceSelection,
+  text: string,
+) {
+  const request = preparePackageQueryRequest(text);
+  if (!request) return;
+  packageQueryLiveAnnouncer.reset();
+  void packageQueryController.run({ ...request, ...selection });
+}
+
+function togglePackageQueryFacet(facetKey: string, text: string) {
   const facet = state.packageQueryFacets.find(
     candidate => candidate.key === facetKey);
-  const validPrefix = validPackageQueryPrefix(prefix);
-  state.packageQueryPrefix = prefix;
-  if (!facet || !validPrefix) {
-    state.packageQueryNavigationError = facet
-      ? "Enter a package ID prefix before selecting facets."
-      : "The selected package-query facet is unavailable.";
+  if (!facet) {
+    state.packageQueryNavigationError =
+      "The selected package-query facet is unavailable.";
     render();
     focusPackageQueryInput();
     return;
   }
 
-  state.packageQueryPrefix = validPrefix;
-  state.packageQueryNavigationError = "";
-  const current = state.packageQueryState.request
-    ? withScopeQuery(state.packageQueryState.request, validPrefix)
-    : createQueryRequest(validPrefix);
+  const current = preparePackageQueryRequest(text);
+  if (!current) return;
   packageQueryLiveAnnouncer.reset();
   void packageQueryController.run(toggleFacet(current, facet));
 }
@@ -9088,6 +9108,7 @@ const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onFacetToggle: togglePackageQueryFacet,
+  onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
     state.packageQueryPrefix = prefix;
     if (state.packageQueryState.request
@@ -9153,6 +9174,7 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
+    sourceCatalog: state.packageQuerySourceCatalog,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -12309,10 +12331,12 @@ async function bootstrap() {
     try {
       state.packageQueryFacets =
         packageQueryFacets(inspectListPackageQueryFacets());
+      state.packageQuerySourceCatalog = inspectListGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
+      state.packageQuerySourceCatalog = null;
       state.packageQueryCatalogError =
-        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query catalogs are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     state.engineReady = true;
     state.engineStatus = "";

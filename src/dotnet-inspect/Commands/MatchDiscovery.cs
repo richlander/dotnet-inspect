@@ -37,12 +37,12 @@ internal static class MatchDiscovery
             return 1;
         }
 
-        if (options.IncludeImplementation)
+        if (options.IncludeBody)
         {
             CommandError.Write(
-                "--implementation cannot be combined with --similar; it is a pairwise drill-down.",
+                "--body cannot be combined with --similar; it is a pairwise drill-down.",
                 ["", "Pick a ranked candidate first, then run:",
-                 "  dotnet-inspect match <Type.Member> <Type.Candidate> --implementation"]);
+                 "  dotnet-inspect match <Type.Member> <Type.Candidate> --body"]);
             return 1;
         }
 
