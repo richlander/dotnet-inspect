@@ -54,6 +54,10 @@
     <Project Path="fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextFixtures/ILInspector.JsExportSurface.NestedContextFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />

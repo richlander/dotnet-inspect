@@ -15,9 +15,28 @@ public sealed record BlobDto(
     byte[]?[] Blobs,
     IReadOnlyDictionary<string, byte[]?> BlobsByName);
 
+public sealed class HiddenTypeJsonIncludeDto
+{
+    public string Public { get; set; } = "public";
+
+    [JsonInclude]
+    private HiddenValue HiddenProperty { get; set; } = HiddenValue.Value;
+
+    [JsonInclude]
+    private HiddenValue HiddenField = HiddenValue.Value;
+
+    private enum HiddenValue
+    {
+        Value,
+    }
+
+    public int Read() => (int)HiddenField + (int)HiddenProperty;
+}
+
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(HiddenTypeJsonIncludeDto))]
 [JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
 [JsonSerializable(typeof(global::@byte), TypeInfoPropertyName = "ByteDto")]
 [JsonSerializable(typeof(global::KeywordHolder))]
@@ -143,6 +162,15 @@ public static partial class TypeScriptFixtureExports
                     ["none"] = null,
                 }),
             BlobFixtureJsonContext.Default.BlobDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetHiddenTypeJsonIncludeAsync()
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new HiddenTypeJsonIncludeDto(),
+            FixtureJsonContext.Default.HiddenTypeJsonIncludeDto);
     }
 
     [JSExport]
