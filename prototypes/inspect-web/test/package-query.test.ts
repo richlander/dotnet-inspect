@@ -79,7 +79,12 @@ function row(packageId: string): QueryResultRow {
     packageId,
     version: "1.0.0",
     tier: "nuspec",
-    evidence: ["net45"],
+    evidence: [{
+      id: "test.package",
+      text: "net45",
+      scope: "package",
+      summary: null,
+    }],
     totalDownloads: 100,
   };
 }
@@ -182,7 +187,12 @@ test("controller runs explicit blank Gallery discovery with source selection and
       onPage([{
         ...row("Browse.Result"),
         tier: "search-metadata",
-        evidence: ["Producer source selection and order"],
+        evidence: [{
+          id: "producer.source-selection",
+          text: "Producer source selection and order",
+          scope: "query",
+          summary: null,
+        }],
         totalDownloads: null,
       }]);
       return { kind: "bounded", reason: "one finite Gallery response" };

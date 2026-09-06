@@ -111,6 +111,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
 | [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID, explicit-prefix, and explicit Gallery input selection for shared Query and its hosts. |
+| [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
 | [NuGet Feed Authentication](design/nuget-authentication.md) | How feeds are authenticated: `nuget.config` credentials, credential provider discovery and the 401-driven plugin protocol, source-scoped plugin credential isolation, supported credential forms, and hermetic/live test tiers. See [Private NuGet Feeds](private-feeds.md) for setup instructions. |
 | [Local Package Source Identity](design/local-package-source-identity.md) | Canonical config- and command-relative path identity shared by local source consumers. |
 | [Local Folder Package Source](design/local-folder-package-source.md) | General V2/V3 folder-feed recognition, independent capabilities, bounded filesystem and archive observation, typed failures, and payload lifetime. |

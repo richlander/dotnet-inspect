@@ -464,6 +464,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   Gallery candidate inputs, consuming existing source intent and acquisition
   contracts without implicit input substitution. Browser adoption is implemented;
   general CLI query execution remains tracked separately.
+- [Package Query inspection evidence](design/package-query-inspection-evidence.md):
+  shared inspection-produced item counts and bounded previews, separated from
+  query-wide source context; acquisition, matching, and host presentation retain
+  their existing owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

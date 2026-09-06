@@ -430,10 +430,12 @@ public sealed class PackageQueryTests
         Assert.Equal(
             "Package ID matches prefix \"Contoso.\".",
             match.Evidence[0].Value);
-        Assert.Contains(
-            "1 dependency across 1 target-framework group.",
-            match.Evidence[3].Value,
-            StringComparison.Ordinal);
+        Assert.Equal("1 dependency: Example.Dependency.", match.Evidence[3].Value);
+        Assert.Equal(PackageQueryEvidenceScope.Query, match.Evidence[0].Scope);
+        Assert.All(match.Evidence.Skip(1), evidence =>
+            Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope));
+        Assert.Equal(1, Assert.IsType<PackageQueryEvidenceSummary>(
+            match.Evidence[3].Summary).Count);
         Assert.Contains(
             "1,500,000 total downloads",
             match.Evidence[4].Value,
@@ -448,6 +450,95 @@ public sealed class PackageQueryTests
                         TextPolicy.Prose,
                         evidence.Value));
             });
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependencyEvidenceCountsDistinctIdsAcrossGroups()
+    {
+        var source = SourceFor(Manifest(
+            "Contoso.Package",
+            dependencies:
+            """
+            <group targetFramework="net8.0">
+              <dependency id="Gamma" version="[1.0.0]" />
+              <dependency id="beta" version="[1.0.0]" />
+              <dependency id="Alpha" version="[1.0.0]" />
+            </group>
+            <group targetFramework="net9.0">
+              <dependency id="BETA" version="[2.0.0]" />
+              <dependency id="Alpha" version="[2.0.0]" />
+              <dependency id="Zeta" version="[1.0.0]" />
+            </group>
+            """));
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.", [PackageQuery.HasDependenciesFacetId],
+                MaximumCandidates: 1, MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(PackageQuery.ExecuteAsync(
+            source, plan, TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match = Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(match.Evidence,
+            item => item.Id == PackageQuery.HasDependenciesFacetId);
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(evidence.Summary);
+        Assert.Equal(4, summary.Count);
+        Assert.Equal(["Alpha", "beta", "Gamma"],
+            summary.Preview.Select(item => item.ToString()));
+        Assert.Equal("4 dependencies: Alpha, beta, Gamma (+1 more).", evidence.Value);
+        Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope);
+        Assert.Single(source.ManifestRequests);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SkillEvidenceUsesBoundedActualInventoryPaths()
+    {
+        string longPath = $"skills/{new string('a', 200)}/SKILL.md";
+        var archive = new FakePackageContent(
+            ("skills/z/skill.MD", "Not parsed as skill frontmatter."),
+            ("docs/SKILL.md", ""),
+            ("skills/SKILL.md", ""),
+            ("skills/x/SKILL.md", ""),
+            ("skills/b\nname/SKILL.md", ""),
+            (longPath, ""),
+            ("skills/not-skill.md", ""),
+            ("SKILL.md", ""));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent> { ["Contoso.Package"] = archive });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.", [PackageQuery.EmbeddedSkillFacetId],
+                MaximumCandidates: 1, MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(PackageQuery.ExecuteAsync(
+            source, plan, content, TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match = Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(match.Evidence,
+            item => item.Id == PackageQuery.EmbeddedSkillFacetId);
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(evidence.Summary);
+        Assert.Equal(5, summary.Count);
+        Assert.Equal(PackageQuery.MaximumEvidencePreviewItems, summary.Preview.Length);
+        Assert.Equal("skills/SKILL.md", summary.Preview[0].ToString());
+        Assert.True(summary.Preview[1].IsTruncated);
+        Assert.True(summary.Preview[2].WasEncoded);
+        Assert.All(summary.Preview, preview =>
+        {
+            Assert.True(preview.ToString().Length <= PackageQuery.MaximumEvidencePreviewCharacters);
+            Assert.True(InertString.IsPermitted(TextPolicy.Field, preview.ToString()));
+        });
+        Assert.StartsWith("5 skill documents: skills/SKILL.md, ", evidence.Value);
+        Assert.EndsWith("(+2 more).", evidence.Value);
+        Assert.DoesNotContain("\n", evidence.Value);
+        Assert.DoesNotContain(longPath, evidence.Value);
+        Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope);
+        Assert.Single(source.ManifestRequests);
+        Assert.Single(content.Requests);
+        Assert.Empty(archive.EntryRequests);
     }
 
     [Fact]
@@ -696,6 +787,13 @@ public sealed class PackageQueryTests
             skillEvents.OfType<PackageQueryEvent.Match>()
                 .Select(item => item.Value.Package.PackageId));
         Assert.Equal(
+            [
+                "1 skill document: SKILLS/demo/skill.MD.",
+                "1 skill document: skills/SKILL.md.",
+            ],
+            skillEvents.OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value.Evidence[^1].Value));
+        Assert.Equal(
             ["Contoso.V1", "Contoso.V2", "Contoso.Library"],
             content.Requests);
     }
@@ -901,6 +999,8 @@ public sealed class PackageQueryTests
             Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
         PackageQueryEvidence evidence = Assert.Single(match.Evidence);
         Assert.Equal(PackageQuery.PrefixEvidenceId, evidence.Id);
+        Assert.Equal(PackageQueryEvidenceScope.Query, evidence.Scope);
+        Assert.Null(evidence.Summary);
     }
 
     [Fact]
@@ -957,7 +1057,15 @@ public sealed class PackageQueryTests
                 noDependenciesSource,
                 noDependencies,
                 TestContext.Current.CancellationToken));
-        Assert.Single(noDependencyEvents.OfType<PackageQueryEvent.Match>());
+        PackageQueryMatch emptyMatch =
+            Assert.Single(noDependencyEvents.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence emptyEvidence = Assert.Single(emptyMatch.Evidence,
+            evidence => evidence.Id == PackageQuery.NoDependenciesFacetId);
+        PackageQueryEvidenceSummary emptySummary =
+            Assert.IsType<PackageQueryEvidenceSummary>(emptyEvidence.Summary);
+        Assert.Equal(0, emptySummary.Count);
+        Assert.Empty(emptySummary.Preview);
+        Assert.Equal("0 dependencies.", emptyEvidence.Value);
 
         var hasDependenciesSource = SourceFor(
             manifest,
@@ -1652,6 +1760,7 @@ public sealed class PackageQueryTests
         public bool FromCache => false;
         public string ProducerKey => "nuget.org";
         public bool RequiresArchiveTreeMatch => false;
+        public List<string> EntryRequests { get; } = [];
 
         public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
         {
@@ -1663,6 +1772,7 @@ public sealed class PackageQueryTests
             string relativePath,
             [NotNullWhen(true)] out Stream? stream)
         {
+            EntryRequests.Add(relativePath);
             if (_entries.TryGetValue(relativePath, out byte[]? content))
             {
                 stream = new MemoryStream(content, writable: false);
@@ -1678,6 +1788,7 @@ public sealed class PackageQueryTests
             long maxExpandedBytes,
             [NotNullWhen(true)] out Stream? stream)
         {
+            EntryRequests.Add(relativePath);
             if (!_entries.TryGetValue(relativePath, out byte[]? content)
                 || content.LongLength > maxExpandedBytes)
             {

@@ -251,6 +251,15 @@ function numberValue(value: unknown, description: string): number {
   return value;
 }
 
+function countValue(value: unknown, description: string): number {
+  const count = numberValue(value, description);
+  if (!Number.isInteger(count) || count < 0) {
+    throw new TypeError(
+      `The Browser ${description} was not a non-negative integer.`);
+  }
+  return count;
+}
+
 function nullableNumberValue(
   value: unknown,
   description: string,
@@ -280,9 +289,12 @@ function parseRow(value: unknown): BrowserPackageQueryRow {
     tier: rowTierValue(row.tier),
     evidence: row.evidence.map(item => {
       const evidence = objectValue(item, "package-query evidence");
+      const scope = evidenceScopeValue(evidence.scope);
       return {
         id: stringValue(evidence.id, "package-query evidence ID"),
         text: stringValue(evidence.text, "package-query evidence text"),
+        scope,
+        summary: parseEvidenceSummary(evidence.summary),
       };
     }),
     totalDownloads: nullableNumberValue(
@@ -292,6 +304,35 @@ function parseRow(value: unknown): BrowserPackageQueryRow {
       ? null
       : booleanValue(row.verified, "package-query verification flag"),
     producer: stringValue(row.producer, "package-query producer"),
+  };
+}
+
+function evidenceScopeValue(
+  value: unknown,
+): BrowserPackageQueryRow["evidence"][number]["scope"] {
+  switch (value) {
+    case "Package":
+    case "Query":
+      return value;
+    default:
+      throw new TypeError(
+        `Unknown package-query evidence scope '${String(value)}'.`);
+  }
+}
+
+function parseEvidenceSummary(
+  value: unknown,
+): BrowserPackageQueryRow["evidence"][number]["summary"] {
+  if (value === null) return null;
+  const summary = objectValue(value, "package-query evidence summary");
+  if (!Array.isArray(summary.preview)) {
+    throw new TypeError(
+      "The Browser package-query evidence preview was not an array.");
+  }
+  return {
+    count: countValue(summary.count, "package-query evidence count"),
+    preview: summary.preview.map(item =>
+      stringValue(item, "package-query evidence preview")),
   };
 }
 
@@ -479,8 +520,18 @@ function toQueryProgress(
 function toQueryRow(
   row: NonNullable<BrowserPackageQueryEvent["row"]>,
 ): QueryResultRow {
-  const evidence = row.evidence.map(item => item.text);
-  if (!evidence.length || evidence.some(item => item.trim().length === 0)) {
+  const evidence = row.evidence.map(item => ({
+    id: item.id,
+    text: item.text,
+    scope: item.scope === "Package" ? "package" as const : "query" as const,
+    summary: item.summary === null
+      ? null
+      : {
+          count: item.summary.count,
+          preview: [...item.summary.preview],
+        },
+  }));
+  if (!evidence.length || evidence.some(item => item.text.trim().length === 0)) {
     throw new TypeError("A package-query row contained no evidence.");
   }
   return {

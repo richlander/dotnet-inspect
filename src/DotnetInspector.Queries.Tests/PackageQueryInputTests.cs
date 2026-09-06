@@ -88,6 +88,7 @@ public sealed class PackageQueryInputTests
         Assert.Null(match.Package.Verified);
         Assert.Equal(PackageQueryFacetTier.SearchMetadata, match.Tier);
         Assert.Equal(PackageQuery.ExactPackageEvidenceId, Assert.Single(match.Evidence).Id);
+        Assert.Equal(PackageQueryEvidenceScope.Query, Assert.Single(match.Evidence).Scope);
         Assert.Equal(PackageQueryCompletionKind.ExactPackageComplete, Summary(events).Completion);
         Assert.Equal(1, Summary(events).Candidates);
         Assert.Equal(1, Summary(events).SourceCandidates);

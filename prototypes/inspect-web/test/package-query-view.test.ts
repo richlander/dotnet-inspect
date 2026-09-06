@@ -104,7 +104,20 @@ function row(packageId: string): QueryResultRow {
     packageId,
     version: "1.0.0",
     tier: "nuspec",
-    evidence: ["net45", "net461"],
+    evidence: [
+      {
+        id: "test.framework.net45",
+        text: "net45",
+        scope: "package",
+        summary: null,
+      },
+      {
+        id: "test.framework.net461",
+        text: "net461",
+        scope: "package",
+        summary: null,
+      },
+    ],
     totalDownloads: 4200,
   };
 }
@@ -247,18 +260,40 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
     const html = renderPackageQueryView({
       state: {
         request: createQueryRequest(""),
-        outcome: appendRows(emptyOutcome(), [{
-          ...row("Producer.Result"),
-          tier: "search-metadata",
-          totalDownloads,
-          evidence: ["Source selection and order from the producer"],
-        }]),
+        outcome: appendRows(emptyOutcome(), [
+          {
+            ...row("Producer.Result"),
+            tier: "search-metadata",
+            totalDownloads,
+            evidence: [{
+              id: "producer.source-selection",
+              text: "Source selection and order from the producer",
+              scope: "query",
+              summary: null,
+            }],
+          },
+          {
+            ...row("Producer.Neighbor"),
+            tier: "search-metadata",
+            totalDownloads,
+            evidence: [{
+              id: "producer.source-selection",
+              text: "Source selection and order from the producer",
+              scope: "query",
+              summary: null,
+            }],
+          },
+        ]),
       },
       availableFacets: [],
       escapeHtml,
     });
     assert.match(html, /query-tier-search-metadata">search-metadata</);
     assert.match(html, /Source selection and order from the producer/);
+    assert.equal((html.match(/Source selection and order from the producer/g)
+      ?? []).length, 1);
+    assert.equal((html.match(/<article class="query-row">/g) ?? []).length, 2);
+    assert.equal((html.match(/<ul class="query-evidence">/g) ?? []).length, 1);
     if (totalDownloads === null) {
       assert.match(html, /Lifetime downloads unavailable/);
       assert.doesNotMatch(html, /0 lifetime downloads/);
@@ -267,6 +302,65 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
       assert.doesNotMatch(html, /Lifetime downloads unavailable/);
     }
   }
+});
+
+test("query context renders once while package summaries remain on their cards", () => {
+  const queryEvidence = {
+    id: "producer.source-selection",
+    text: "Selected by producer ranking.",
+    scope: "query" as const,
+    summary: null,
+  };
+  const first = {
+    ...row("Contoso.First"),
+    evidence: [
+      queryEvidence,
+      {
+        id: "package.query.has-dependencies",
+        text: "4 dependencies: A, B, C (+1 more).",
+        scope: "package" as const,
+        summary: {
+          count: 4,
+          preview: ["A", "B", "C"],
+        },
+      },
+    ] as const,
+  };
+  const second = {
+    ...row("Contoso.Second"),
+    evidence: [
+      queryEvidence,
+      {
+        id: "package.query.embedded-skill",
+        text: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
+        scope: "package" as const,
+        summary: {
+          count: 2,
+          preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
+        },
+      },
+    ] as const,
+  };
+
+  const html = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("", "gallery"),
+      outcome: appendRows(emptyOutcome(), [first, second]),
+    },
+    availableFacets: [],
+    escapeHtml,
+  });
+
+  assert.equal((html.match(/Selected by producer ranking\./g) ?? []).length, 1);
+  assert.match(
+    html,
+    /<section class="query-context"[\s\S]*Selected by producer ranking\.[\s\S]*<div class="query-list">/);
+  assert.equal((html.match(/4 dependencies: A, B, C \(\+1 more\)\./g)
+    ?? []).length, 1);
+  assert.equal((html.match(/2 skill documents:/g) ?? []).length, 1);
+  assert.doesNotMatch(
+    html,
+    /<article class="query-row">[\s\S]*Selected by producer ranking\./);
 });
 
 test("Gallery completion text retains the finite bound and estimate with or without rows", () => {
