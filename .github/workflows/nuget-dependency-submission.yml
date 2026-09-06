@@ -1,9 +1,8 @@
-name: NuGet dependency submission trial
+name: NuGet dependency submission
 
 on:
-  push:
-    branches: [security/nuget-dependency-submission]
-    paths: [.github/workflows/nuget-dependency-submission-trial.yml]
+  schedule:
+    - cron: '43 5 * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,15 +15,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Submit restored data from this exact main commit, not the trial branch.
       - uses: actions/checkout@v7
         with:
-          ref: 89013647996f774f729882aa70bacaf38e013672
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-preview.7.26381.103'
+          dotnet-version: '11.0.x'
 
       - name: Restore the dependency roots configured in Dependabot
         run: |
@@ -39,8 +36,6 @@ jobs:
         with:
           detectorsCategories: NuGet
           correlator: nuget-explicit-restore
-          snapshot-sha: 89013647996f774f729882aa70bacaf38e013672
-          snapshot-ref: refs/heads/main
 
       - name: Preserve the detector report
         if: always()
