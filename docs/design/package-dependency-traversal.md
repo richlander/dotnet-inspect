@@ -176,6 +176,7 @@ immutable outcome
   - source-relative manifest projections
   - unresolved declaration-boundary nodes
   - failed-resolution declaration nodes
+  - work-budget declaration nodes
   - normalized declaration edges
   - per-root node distances
   - per-root projection distances
@@ -403,16 +404,32 @@ source-failure outcome and the affected root occurrences. It is not a guessed
 package coordinate, does not participate in cycle coalescing, and has no
 outgoing expansion.
 
+### Work-budget declaration node
+
+A work-budget declaration node identifies a recursively authorized normalized
+declaration that was selected from an acquired manifest but could not be
+submitted to #5765 because the declaration-resolution budget was exhausted.
+Its identity combines:
+
+- source manifest projection identity;
+- owner-issued declaration identity; and
+- canonical package ID and constraint.
+
+It retains the exhausted budget kind, its configured limit, and the affected
+root occurrences. It is not a guessed package coordinate, does not claim a
+resolution attempt or source failure, and has no outgoing expansion.
+
 ### Declaration edge
 
 One graph edge represents one normalized selected declaration. Its target is
-an exact candidate, a declaration-boundary node, or a failed-resolution
-declaration node. Its semantic identity combines:
+one exact candidate, declaration-boundary node, failed-resolution declaration
+node, or work-budget declaration node. Its semantic identity combines:
 
 - source manifest projection identity and package coordinate;
 - owner-issued selected group and declaration identity;
 - target package coordinate and owner-issued candidate correspondence,
-  declaration-boundary identity, or failed-resolution declaration identity.
+  declaration-boundary identity, failed-resolution declaration identity, or
+  work-budget declaration identity.
 
 The edge retains the complete normalized declaration, including its canonical
 constraint and inert source spellings, plus the exact resolution and source
@@ -422,6 +439,8 @@ emission authority:
 - `ResolvedCandidate`, produced by recursive source authorization; or
 - `FailedResolution`, produced by recursive source authorization when #5765
   does not issue an exact candidate; or
+- `WorkBudgetBoundary`, produced by recursive source authorization when the
+  declaration-resolution budget cannot admit the #5765 attempt; or
 - `DirectBoundary`, produced for one exact direct-only root occurrence.
 
 Every distinct directed declaration edge remains present. Shared targets,
@@ -429,7 +448,9 @@ cycles, and revisits never justify deleting an edge. A recursively authorized
 declaration that cannot produce an exact candidate retains its edge to a
 failed-resolution declaration node and remains typed failure evidence. It does
 not invent an exact candidate or reuse the direct-only boundary state. A
-direct-only declaration has a boundary edge by contract and is not a failed
+known declaration that cannot be submitted within the work budget retains its
+edge to a work-budget declaration node without claiming a resolution attempt.
+A direct-only declaration has a boundary edge by contract and is not a failed
 candidate attempt.
 
 A direct-only root and a recursive root may share the same exact source node.
@@ -454,9 +475,9 @@ An edge is admitted for root occurrence `R` only when both conditions hold:
 
 1. its source manifest projection is reachable from `R` within the depth rule;
 2. its emission authority matches `R`: `RecursiveSources` admits only
-   `ResolvedCandidate` and `FailedResolution` edges, while
-   `DirectDeclarationsOnly` admits only `DirectBoundary` edges issued for `R`
-   itself.
+   `ResolvedCandidate`, `FailedResolution`, and `WorkBudgetBoundary` edges,
+   while `DirectDeclarationsOnly` admits only `DirectBoundary` edges issued
+   for `R` itself.
 
 Projection correspondence can reuse manifest facts; it never transfers one
 root occurrence's expansion authority to another.
@@ -610,6 +631,11 @@ work that the remaining budget cannot admit.
 
 Budget exhaustion retains the unprocessed frontier and affected roots as a
 typed boundary, marks their completion partial, and performs no hidden retry.
+A declaration selected from an already projected manifest remains a graph edge
+to a work-budget declaration node when the remaining declaration-resolution
+budget cannot admit its #5765 attempt. A target manifest whose exact candidate
+was already resolved remains an unexpanded node frontier when the
+manifest-projection budget cannot admit acquisition.
 A line limit, row selector, renderer limit, or consumer cancellation is not a
 traversal work budget.
 
@@ -820,7 +846,7 @@ The implementation adds focused Release gates for:
 | Bare minimum-inclusive versions are not misclassified as exact. | `Traversal_BareVersionRequiresCandidateResolution` |
 | No matching version and source failure remain visible. | `Traversal_ResolutionFailureIsNotDependencyFreeLeaf` |
 | Manifest acquisition or projection failure remains visible. | `Traversal_ManifestFailureIsNotDependencyFreeLeaf` |
-| Work-budget exhaustion retains the frontier and partial completion. | `Traversal_WorkBudgetRetainsUnprocessedFrontier` |
+| Work-budget exhaustion retains known declaration edges, the unprocessed frontier, and partial completion. | `Traversal_WorkBudgetRetainsUnprocessedFrontier` |
 | Cancellation after provisional work propagates without publishing an outcome or source failure. | `Traversal_CancellationDoesNotPublishOutcome` |
 | Source completion order cannot change result ordering. | `Traversal_SourceCompletionOrderDoesNotAffectResult` |
 | Untrusted display evidence remains inert. | `Traversal_InertTextRemainsInertThroughGraphResult` |
