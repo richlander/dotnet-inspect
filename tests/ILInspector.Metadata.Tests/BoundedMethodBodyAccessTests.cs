@@ -64,20 +64,43 @@ public class BoundedMethodBodyAccessTests
         Assert.False(source.TryDescribeMethod(source.MethodDefinitionCount + 1, out _));
     }
 
-    [Fact]
-    public void BoundedBody_ReturnsExactILWithinTheLimit()
+    [Theory]
+    [InlineData(nameof(BoundedSample.Add))]        // tiny header
+    [InlineData(nameof(BoundedSample.Guarded))]    // fat header with exception clauses
+    public void BoundedBody_ReturnsExactILWithinTheLimit(string methodName)
     {
         using var session = AssemblyInspectionSession.Open(SelfPath);
         MethodBodySource source = session.MethodBodies;
-        int token = TokenOf(nameof(BoundedSample.Add));
+        int token = TokenOf(methodName);
 
         Assert.True(source.TryRead(token, out MethodBodyData? legacy, out string? error), error);
         var read = Assert.IsType<BoundedMethodBodyRead.Available>(
             source.ReadBounded(token, AmpleILBytes));
 
-        Assert.Equal(legacy!.IL, read.Body.IL);
-        Assert.Equal(legacy.ExceptionRegions.Length, read.Body.ExceptionRegions.Length);
-        Assert.True(read.Body.IL.Length <= AmpleILBytes);
+        // The platform reader is the oracle for the bytes: the bounded path reads the body's IL
+        // extent itself, so it must agree with GetMethodBody for both header formats. It
+        // deliberately does not materialize the exception regions the legacy path returns.
+        Assert.Equal(legacy!.IL, read.IL);
+        Assert.True(read.IL.Length <= AmpleILBytes);
+    }
+
+    [Fact]
+    public void BoundedBody_MaterializesILWithoutExceptionRegions()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        MethodBodySource source = session.MethodBodies;
+        int token = TokenOf(nameof(BoundedSample.Guarded));
+
+        // The sample has clauses, so the legacy whole-body path returns them...
+        Assert.True(source.TryRead(token, out MethodBodyData? legacy, out string? error), error);
+        Assert.NotEmpty(legacy!.ExceptionRegions);
+
+        // ...while the bounded outcome carries IL and nothing else — the record has no
+        // exception-region member to populate — which is what makes its working set a function of
+        // the caller's byte limit rather than of the image.
+        var read = Assert.IsType<BoundedMethodBodyRead.Available>(
+            source.ReadBounded(token, AmpleILBytes));
+        Assert.Equal(legacy.IL, read.IL);
     }
 
     [Fact]
@@ -216,7 +239,7 @@ public class BoundedMethodBodyAccessTests
         session.Dispose();
 
         // Already-materialized data is copied and outlives the session; new reads do not.
-        Assert.NotEmpty(body.Body.IL);
+        Assert.NotEmpty(body.IL);
         Assert.Throws<ObjectDisposedException>(() => source.MethodDefinitionCount);
         Assert.Throws<ObjectDisposedException>(() => source.TryDescribeMethod(1, out _));
         Assert.Throws<ObjectDisposedException>(() => source.ReadBounded(token, AmpleILBytes));
@@ -252,7 +275,7 @@ public class BoundedMethodBodyAccessTests
     {
         var read = Assert.IsType<BoundedMethodBodyRead.Available>(
             source.ReadBounded(TokenOf(nameof(BoundedSample.Text)), AmpleILBytes));
-        ImmutableArray<byte> il = read.Body.IL;
+        ImmutableArray<byte> il = read.IL;
 
         Assert.Equal(0x72, il[0]);  // ldstr
         return BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(1, 4));
@@ -267,7 +290,10 @@ public class BoundedMethodBodyAccessTests
                 | System.Reflection.BindingFlags.Static
                 | System.Reflection.BindingFlags.Instance)!.MetadataToken;
 
-    /// <summary>Ordinary compiled inputs: one tiny body, one literal, one bodyless declaration.</summary>
+    /// <summary>
+    /// Ordinary compiled inputs: one tiny body, one literal, one bodyless declaration, and one
+    /// fat body with exception clauses.
+    /// </summary>
     public static class BoundedSample
     {
         public const string Literal = " bounded\0metadata\r\n\tCafe\u0301-\U0001F642 ";
@@ -275,6 +301,27 @@ public class BoundedMethodBodyAccessTests
         public static int Add(int left, int right) => left + right;
 
         public static string Text() => Literal;
+
+        /// <summary>
+        /// Compiles to a fat header with exception clauses, so the bounded read is exercised
+        /// against both header formats and against a body whose clauses it declines to
+        /// materialize.
+        /// </summary>
+        public static int Guarded(int value)
+        {
+            try
+            {
+                return checked(value + 1);
+            }
+            catch (OverflowException)
+            {
+                return -1;
+            }
+            finally
+            {
+                GC.KeepAlive(Literal);
+            }
+        }
 
         public abstract class Shape
         {
