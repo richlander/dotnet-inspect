@@ -2010,25 +2010,25 @@ public sealed class PerformanceGroupView
 [MarkoutSerializable]
 public sealed record ReadyToRunImageRow
 {
-    public required string Role { get; init; }
-    public required string Advertisements { get; init; }
-    public required string Version { get; init; }
-    public required string Flags { get; init; }
+    public required string Role { get => field; init => field = LibraryViewText.Contain(value); }
+    public required string Advertisements { get => field; init => field = LibraryViewText.Contain(value); }
+    public required string Version { get => field; init => field = LibraryViewText.Contain(value); }
+    public required string Flags { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Header RVA")]
-    public required string HeaderRelativeVirtualAddress { get; init; }
+    public required string HeaderRelativeVirtualAddress { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Header Size")]
-    public required string HeaderSize { get; init; }
+    public required string HeaderSize { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Managed Native Header")]
-    public required string ManagedNativeHeader { get; init; }
+    public required string ManagedNativeHeader { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Export Header RVA")]
-    public required string ExportHeaderRelativeVirtualAddress { get; init; }
+    public required string ExportHeaderRelativeVirtualAddress { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Manifest Metadata")]
-    public required string ManifestMetadata { get; init; }
+    public required string ManifestMetadata { get => field; init => field = LibraryViewText.Contain(value); }
 
     public static ReadyToRunImageRow Create(ReadyToRunImageOverview overview)
     {
@@ -2065,13 +2065,13 @@ public sealed record ReadyToRunImageRow
 [MarkoutSerializable]
 public sealed record ReadyToRunSectionRow
 {
-    public required string Type { get; init; }
+    public required string Type { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Type ID")]
-    public required string TypeId { get; init; }
+    public required string TypeId { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("RVA")]
-    public required string RelativeVirtualAddress { get; init; }
+    public required string RelativeVirtualAddress { get => field; init => field = LibraryViewText.Contain(value); }
 
     public required int Size { get; init; }
 
