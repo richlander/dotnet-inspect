@@ -323,6 +323,7 @@ public enum BrowserPackageQueryCompletionKind
     ClientPageLimitReached,
     Failed,
     GalleryResponseComplete,
+    ExactPackageComplete,
 }
 
 public sealed record BrowserPackageQueryCompletion(

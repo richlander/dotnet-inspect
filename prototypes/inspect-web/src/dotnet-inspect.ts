@@ -391,7 +391,11 @@ import {
   createPackageQueryController,
   createQueryRequest,
   initialQueryState,
+  shouldExecuteQuery,
   toggleFacet,
+  withEditorDraft,
+  withInputKind,
+  withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
   type QueryFacetTerm,
@@ -1192,6 +1196,7 @@ const packageQueryController = createPackageQueryController(
       eventSink,
       packageType,
       sourceOrderId,
+      discovery,
     ) => inspectRunPackageQuery(
       prefix,
       facetIdsJson,
@@ -1201,7 +1206,8 @@ const packageQueryController = createPackageQueryController(
       initialMatchCredit,
       eventSink,
       packageType,
-      sourceOrderId),
+      sourceOrderId,
+      discovery),
   }),
   updateKind => {
     if (!state.packageQueryOpen) return;
@@ -7145,7 +7151,7 @@ function spotlightResults(): SpotlightResult[] {
     }
     results.push({
       kind: "package-query",
-      prefix: validPackageQuerySearchText(query) ?? "",
+      prefix: validPackageQuerySearchText(query),
     });
   }
   if ((all || spotlightScope === "types") && query) {
@@ -9187,7 +9193,7 @@ function openPackageQueryRoute(
   }
   resetPackageQueryAnnouncements();
   if (!options.preserveState || seed) {
-    state.packageQueryPrefix = validPackageQuerySearchText(seed) ?? "";
+    state.packageQueryPrefix = validPackageQuerySearchText(seed);
   }
   state.packageQueryNavigationError = "";
   const returnFocus: PackageQueryReturnFocus = options.returnFocus
@@ -9267,39 +9273,54 @@ function closePackageQueryRoute() {
   render();
 }
 
-function preparePackageQueryRequest(text: string): QueryRequest | null {
+function preparePackageQueryRequest(
+  text: string,
+  inputKind = state.packageQueryState.request?.inputKind ?? "package",
+): QueryRequest {
   const validText = validPackageQuerySearchText(text);
-  state.packageQueryPrefix = text;
-  if (validText === null) {
-    state.packageQueryNavigationError =
-      "Search text must be at most 100 characters without control characters.";
-    render();
-    focusPackageQueryInput();
-    return null;
-  }
-
   state.packageQueryPrefix = validText;
   state.packageQueryNavigationError = "";
-  return state.packageQueryState.request
+  const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
-    : createQueryRequest(validText);
+    : createQueryRequest(validText, inputKind);
+  return withInputKind(request, inputKind);
 }
 
-function runPackageQuery(text: string) {
-  const request = preparePackageQueryRequest(text);
-  if (!request) return;
+function submitPackageQueryRequest(request: QueryRequest) {
   packageQueryLiveAnnouncer.reset();
+  if (!shouldExecuteQuery(request)) {
+    packageQueryController.configure(request);
+    return;
+  }
   void packageQueryController.run(request);
 }
 
+function runPackageQuery(text: string) {
+  const request = preparePackageQueryRequest(text, "package");
+  submitPackageQueryRequest(request);
+}
+
+function discoverPackages() {
+  const request = preparePackageQueryRequest("", "gallery");
+  submitPackageQueryRequest(request);
+}
+
+function preparePackageQueryControlRequest(
+  text: string,
+): QueryRequest {
+  if (state.packageQueryState.request?.inputKind === "gallery") {
+    state.packageQueryNavigationError = "";
+    return state.packageQueryState.request;
+  }
+  return preparePackageQueryRequest(text);
+}
+
 function changePackageQuerySource(
-  selection: QuerySourceSelection,
+  selection: Partial<QuerySourceSelection>,
   text: string,
 ) {
-  const request = preparePackageQueryRequest(text);
-  if (!request) return;
-  packageQueryLiveAnnouncer.reset();
-  void packageQueryController.run({ ...request, ...selection });
+  const request = preparePackageQueryControlRequest(text);
+  submitPackageQueryRequest(withSourceSelection(request, selection));
 }
 
 function togglePackageQueryFacet(facetKey: string, text: string) {
@@ -9313,10 +9334,8 @@ function togglePackageQueryFacet(facetKey: string, text: string) {
     return;
   }
 
-  const current = preparePackageQueryRequest(text);
-  if (!current) return;
-  packageQueryLiveAnnouncer.reset();
-  void packageQueryController.run(toggleFacet(current, facet));
+  const current = preparePackageQueryControlRequest(text);
+  submitPackageQueryRequest(toggleFacet(current, facet));
 }
 
 async function openPackageQueryRow(
@@ -9369,15 +9388,18 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
+  onDiscover: discoverPackages,
   onFacetToggle: togglePackageQueryFacet,
   onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
     state.packageQueryPrefix = prefix;
-    if (state.packageQueryState.request
-      && state.packageQueryState.request.scopeQuery !== prefix
-      && state.packageQueryState.outcome.completion.kind === "streaming") {
-      packageQueryController.cancel();
-    }
+    const current = state.packageQueryState.request
+      ?? createQueryRequest(prefix);
+    const configured = withEditorDraft(current, prefix);
+    if (configured.scopeQuery === current.scopeQuery
+      && state.packageQueryState.outcome.completion.kind === "idle") return;
+    state.packageQueryNavigationError = "";
+    packageQueryController.configure(configured);
   },
   onResultPressure: () => packageQueryController.requestMore(),
   onRowOpen: (packageId, version) => {

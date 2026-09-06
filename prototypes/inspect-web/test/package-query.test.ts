@@ -9,9 +9,13 @@ import {
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
+  shouldExecuteQuery,
   toggleFacet,
   withCompletion,
+  withEditorDraft,
   withFacet,
+  withInputKind,
+  withSourceSelection,
   withScopeQuery,
   withoutFacet,
   type PackageQueryDataSource,
@@ -95,22 +99,24 @@ test("createQueryRequest gives candidate and match limits independent defaults",
 
   assert.equal(defaults.requestedLimit, 200);
   assert.equal(defaults.requestedMatchLimit, 100);
+  assert.equal(defaults.inputKind, "package");
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.packageType, null);
   assert.equal(defaults.sourceOrderId, null);
   assert.equal(defaults.includePrerelease, false);
 });
 
-test("browse and free-text requests preserve source intent without resolving source defaults", () => {
+test("package requests preserve editor spelling without resolving source defaults", () => {
   for (const text of ["", "  hosting dependency injection  ", "System.*"]) {
     assert.equal(createQueryRequest(text).scopeQuery, text);
+    assert.equal(createQueryRequest(text).inputKind, "package");
     assert.equal(createQueryRequest(text).sourceOrderId, null);
   }
 });
 
 test("inspection changes retain opaque source selections and independent match limits", () => {
   const request = {
-    ...createQueryRequest(" hosting libraries "),
+    ...createQueryRequest(" hosting libraries ", "gallery"),
     packageType: "Producer.CustomType",
     sourceOrderId: "producer.order.custom",
     includePrerelease: true,
@@ -127,6 +133,7 @@ test("inspection changes retain opaque source selections and independent match l
     assert.equal(changed.sourceOrderId, request.sourceOrderId);
     assert.equal(changed.includePrerelease, true);
     assert.equal(changed.requestedMatchLimit, 7);
+    assert.equal(changed.inputKind, "gallery");
   }
   assert.deepEqual(browse.facets, [TFM_FACET]);
   assert.equal(browse.scopeQuery, "");
@@ -161,10 +168,10 @@ test("withScopeQuery preserves facets and bounds while changing search text", ()
   });
 });
 
-test("controller runs blank browse with source selection and nullable metadata", async () => {
+test("controller runs explicit blank Gallery discovery with source selection and nullable metadata", async () => {
   const state = initialQueryState();
   const request = {
-    ...createQueryRequest(""),
+    ...createQueryRequest("", "gallery"),
     packageType: "Producer.Type",
     sourceOrderId: "producer.order",
     includePrerelease: true,
@@ -189,6 +196,65 @@ test("controller runs blank browse with source selection and nullable metadata",
   assert.equal(state.outcome.rows[0]?.tier, "search-metadata");
   assert.equal(state.outcome.rows[0]?.totalDownloads, null);
   assert.equal(state.outcome.completion.kind, "bounded");
+});
+
+test("controller configures blank package input as idle while retaining facets", () => {
+  const state = initialQueryState();
+  let runs = 0;
+  const controller = createPackageQueryController(
+    state,
+    {
+      async run() {
+        runs++;
+        return { kind: "exhausted" };
+      },
+    },
+    () => {},
+  );
+  const configured = withFacet(createQueryRequest(""), TFM_FACET);
+
+  controller.configure(configured);
+
+  assert.equal(runs, 0);
+  assert.equal(state.request?.inputKind, "package");
+  assert.deepEqual(state.request?.facets, [TFM_FACET]);
+  assert.equal(state.outcome.completion.kind, "idle");
+});
+
+test("input-kind changes preserve selected facets and source configuration", () => {
+  const configured = {
+    ...withFacet(createQueryRequest("Newtonsoft.Json"), TFM_FACET),
+    packageType: "Producer.Type",
+    sourceOrderId: "producer.order",
+    includePrerelease: true,
+  };
+
+  assert.deepEqual(withInputKind(configured, "gallery"), {
+    ...configured,
+    inputKind: "gallery",
+  });
+});
+
+test("blank package input stays idle while explicit discovery and later controls retain mode", () => {
+  const configuredPackage = withFacet(createQueryRequest(""), TFM_FACET);
+  assert.equal(shouldExecuteQuery(configuredPackage), false);
+
+  const discovery = withInputKind(configuredPackage, "gallery");
+  assert.equal(shouldExecuteQuery(discovery), true);
+  assert.equal(withEditorDraft(discovery, "Newtonsoft.Json").scopeQuery, "");
+  assert.equal(toggleFacet(discovery, SKILL_FACET).inputKind, "gallery");
+  assert.equal(withSourceSelection(discovery, {
+    packageType: "Producer.Type",
+    sourceOrderId: "producer.order",
+    includePrerelease: true,
+  }).inputKind, "gallery");
+
+  const packageAgain = withInputKind(discovery, "package");
+  assert.equal(
+    withEditorDraft(packageAgain, "Newtonsoft.Json").scopeQuery,
+    "Newtonsoft.Json");
+  assert.equal(shouldExecuteQuery(packageAgain), false);
+  assert.deepEqual(packageAgain.facets, [TFM_FACET]);
 });
 
 test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {
@@ -528,9 +594,9 @@ test("changing only source selection supersedes browse work without changing sea
     },
   };
   const controller = createPackageQueryController(state, source, () => {});
-  const first = controller.run(createQueryRequest(""));
+  const first = controller.run(createQueryRequest("", "gallery"));
   await controller.run({
-    ...createQueryRequest(""),
+    ...createQueryRequest("", "gallery"),
     sourceOrderId: "producer.order.custom",
   });
   assert.equal(firstSignal?.aborted, true);

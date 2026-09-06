@@ -459,6 +459,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   search-selector catalog, typed metadata observations, and Gallery-specific
   row-delegation evidence. Row meaning, generic source contracts, and host
   adoption remain with their focused owners.
+- [Package Query input selection](design/package-query-input-selection.md):
+  shared Query interpretation of exact-ID, explicit-prefix, and explicit
+  Gallery candidate inputs, consuming existing source intent and acquisition
+  contracts without implicit input substitution. Browser adoption is implemented;
+  general CLI query execution remains tracked separately.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

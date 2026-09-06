@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.RowSelection;
+using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
 
@@ -58,7 +59,11 @@ public static partial class PackageQuery
     {
         if (plan.GalleryRequest is not { } request)
         {
-            evidence.Add(new PackageQueryEvidence(PrefixEvidenceId, plan.PrefixEvidence));
+            evidence.Add(new PackageQueryEvidence(
+                plan.PackageInput is SourceSelector.Package
+                    ? ExactPackageEvidenceId
+                    : PrefixEvidenceId,
+                plan.PrefixEvidence));
             return;
         }
 
@@ -86,6 +91,23 @@ public static partial class PackageQuery
         PackageQueryPlan plan,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        if (plan.PackageInput is SourceSelector.Package exact)
+        {
+            await foreach (PackageQueryInputEvent item in AcquireExactInputAsync(
+                source, plan, exact, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
+        if (plan.PackageInput is SourceSelector.PackagePrefix prefix
+            && plan.Definitions.IsEmpty)
+        {
+            await foreach (PackageQueryInputEvent item in AcquirePrefixMetadataAsync(
+                source, prefix.Request, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
         if (plan.GalleryRequest is not null)
         {
             await foreach (PackageQueryInputEvent item in AcquireGalleryInputAsync(

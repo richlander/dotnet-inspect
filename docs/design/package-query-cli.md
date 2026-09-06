@@ -44,6 +44,10 @@ problem this document surfaced.
 
 Related docs:
 
+- [Package Query input selection](package-query-input-selection.md) owns the
+  shared choice between exact-ID, explicit-prefix, and explicit Gallery
+  candidate inputs. Its host adoption is tracked separately in #6070; the
+  explicitly named CLI `--package-prefix` remains prefix intent.
 - [The package query experience](package-query-experience.md) — the browser
   front end this document is the CLI counterpart to. Its own non-goals already
   commit to "facets map 1:1 to the CLI's named profiles so the browser
