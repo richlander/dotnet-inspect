@@ -352,7 +352,8 @@ const navigationHtml = workspaceMode
           <button class="active">all kinds</button>
         </div>
       </div>
-      <div id="type-list" class="type-list" role="listbox" tabindex="0">
+      <div id="type-list" class="type-list" role="listbox" tabindex="0"
+        data-nav-scope="${memberMode ? "members:System.Text.Json.JsonSerializer" : "types"}">
         <button class="type-row selected" type="button" role="option"
           aria-selected="true" data-harness-navigation-row>
           <span class="${memberMode ? "member-icon" : "kind-icon"}">${memberMode ? "M" : "C"}</span>
@@ -932,7 +933,7 @@ function enterEmptyMemberNavigation() {
         ${renderContentNavigationCloseButton()}
       </header>
       <div id="type-list" class="type-list member-list" role="listbox"
-        tabindex="0">
+        tabindex="0" data-nav-scope="members:System.Text.Json.JsonSerializer">
         <div class="empty-list">No members match these filters.</div>
       </div>
     </aside>`;
