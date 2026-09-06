@@ -42,6 +42,8 @@ public sealed class MetadataImageFormatClassifierTests
 
         Assert.IsType<MetadataImageFormatResult.SupportedEcma335>(
             MetadataImageFormatClassifier.Classify(peReader));
+        Assert.IsType<MetadataImageFormatResult.SupportedEcma335>(
+            MetadataImageFormatClassifier.Classify(peReader.GetMetadata().GetReader()));
     }
 
     [Fact]
@@ -69,6 +71,8 @@ public sealed class MetadataImageFormatClassifierTests
             () => peReader.GetMetadataReader());
         Assert.IsType<MetadataImageFormatResult.UnsupportedWindowsMetadata>(
             MetadataImageFormatClassifier.Classify(peReader));
+        Assert.IsType<MetadataImageFormatResult.UnsupportedWindowsMetadata>(
+            MetadataImageFormatClassifier.Classify(peReader.GetMetadata().GetReader()));
     }
 
     [Fact]
