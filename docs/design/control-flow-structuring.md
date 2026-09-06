@@ -365,8 +365,15 @@ cloned blocks, verifies that existing `break`/`continue`/retry-`leave` transfers
 retain their enclosing owner and that every internal surviving `Leave` retains
 a label owner. It also rejects an actual retained-region build that places
 another arm after a terminal retained-merge branch. It then installs that
-candidate transactionally or declines. The compiler-backed and synthetic
-owner/decline boundaries are gated by `InfiniteLoopStructuringTests` and
+candidate transactionally or declines. Structuring rewrite steps are recorded
+only after every candidate check that can decline, and success counters
+increment only after the replacement is installed. Decline diagnostics remain
+before the rewrite step and installation.
+`StructuringAuditCommitPointTests.StructuringAuditCommitsAfterEveryDeclineAndInstallation`
+is the non-vacuity gate for that call ordering;
+`RetainedAuditRecordsOnlyInstalledReplacement` covers the successful and
+declined outcomes. The compiler-backed and synthetic owner/decline boundaries
+are gated by `InfiniteLoopStructuringTests` and
 `StructuringGotoScopeTests`.
 
 Cloned statements retain `SourceOffset` as provenance, but semantic clones do
