@@ -243,7 +243,7 @@ jobs:
 
       - name: Run artifact contract tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

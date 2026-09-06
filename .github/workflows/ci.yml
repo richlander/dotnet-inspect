@@ -669,7 +669,7 @@ jobs:
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
       - name: Run artifact contract tests
-        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
         run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
@@ -678,13 +678,13 @@ jobs:
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run row-selection tests
-        run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
       - name: Run source-selection public contract tests
         run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
 
       - name: Run section-row tests
-        run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
