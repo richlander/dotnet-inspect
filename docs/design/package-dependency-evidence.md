@@ -150,8 +150,9 @@ When no target framework is requested,
 `PackageDependencyGroupsQuery` selects one group by its package-group priority,
 using source order to break equal-priority ties. That is a per-manifest
 default, not a claim that several manifests share one target framework.
-`DependencyGroups_NoRequestSelectsHighestPriorityInSourceOrder` is the Release
-gate.
+This exact no-request query path is currently unverified. The package traversal
+implementation must add
+`Traversal_ManifestDefaultUsesOwnerNoRequestSelection` before adopting it.
 
 ### Restored project graph
 

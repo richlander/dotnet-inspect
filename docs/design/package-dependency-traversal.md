@@ -413,8 +413,8 @@ The result carries:
   semantic node; and
 - the minimum discovered edge distance for each root occurrence and reachable
   source-relative manifest projection; and
-- whether each graph edge is admitted from each root occurrence within the
-  requested depth.
+- for each graph edge and root occurrence, its admitted occurrence distance
+  (`source projection distance + 1`) or the fact that it is not admitted.
 
 This relation is part of the reusable result, not a CLI rendering repair.
 Tree, Mermaid, table, JSON, Browser, and count projections must not each
@@ -452,7 +452,10 @@ Depth counts edges from each explicit root:
 
 - depth `0` is the root node;
 - maximum depth `1` admits direct dependency edges;
-- maximum depth `N` admits edges whose target distance is at most `N`; and
+- maximum depth `N` admits an edge from a source manifest projection whose
+  distance from that root is less than `N`; the edge occurrence is at source
+  distance plus one even when its semantic target node has a shorter minimum
+  distance through another path; and
 - omitted depth requests complete traversal within source authorization and
   finite producer budgets.
 
@@ -733,6 +736,7 @@ The implementation adds focused Release gates for:
 | Same-coordinate source projections retain distinct adjacency without changing node identity. | `Traversal_SourceRelativeProjectionPreservesDistinctContent` |
 | Direct-only roots emit unresolved boundary edges without source work. | `Traversal_DirectOnlyRootsAreSourceBounded` |
 | Typed framework mode, never inert text, controls every group selection. | `Traversal_FrameworkModeIsStructuralCurrency` |
+| Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
 | Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |
 | Candidate resolver incompleteness is preserved without reinterpretation. | `Traversal_CandidateResolverIncompleteOutcomeRemainsVisible` |
