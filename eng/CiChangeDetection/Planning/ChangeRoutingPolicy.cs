@@ -342,7 +342,10 @@ internal sealed class ChangeRoutingPolicy
             // Documentation and text fixtures under the harness stay off the
             // code lane.
         }
-        else if (BytePattern.Matches(path, "tools/DecompilerHarness/*"))
+        else if (BytePattern.MatchesAny(
+            path,
+            "tools/DecompilerHarness/*",
+            "tools/CatalogChangeBenchmark.cs"))
         {
             state.Code = true;
         }
@@ -383,6 +386,7 @@ internal sealed class ChangeRoutingPolicy
             "docs/data/nuget-top-packages.json",
             "eng/restore-iltools.sh",
             "eng/activate-iltools.sh",
+            "eng/test-runtime-flavor.sh",
             "eng/test-ts-jsexport-context-aot.sh"))
         {
             state.Code = true;

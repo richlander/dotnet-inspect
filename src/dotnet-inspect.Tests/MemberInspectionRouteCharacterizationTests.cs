@@ -265,7 +265,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:144:50107017F6F5]",
+                "Library[schema:149:F1BC46DF3EB4]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -277,7 +277,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:144:50107017F6F5]",
+                "Library[schema:149:F1BC46DF3EB4]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -287,7 +287,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:166:64FBBBE37EC7]",
+                "Library[schema:171:44BEAA9C4049]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -296,6 +296,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders,"
+                    + "ReadyToRun applicability->ReadyToRun image,"
                     + "References applicability->Assembly references,"
                     + "discovery catalog->Metadata image",
                 "focus:pdb=True;source=True;cached=False;"

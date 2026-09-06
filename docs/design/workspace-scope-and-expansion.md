@@ -47,6 +47,28 @@ preserve display `PackageId`, exact `PackageVersion`, and effective
 `TargetFramework` separately from canonical coordinate and selection facts.
 Root-only and explicit-empty selections remain reportable Roots.
 
+Issue [#6151](https://github.com/richlander/dotnet-inspect/issues/6151) extends
+this exact-package, closed profile with `AddRootsAsync` and
+`RemoveRootOccurrenceAsync`. Add consumes already-acquired bindings and
+appends the complete distinct new batch in first-request order, retaining
+existing order and occurrence identities. An empty or all-present batch is
+`NoEffect` and does not prepare or repair physical Roots. Remove consumes one
+`WorkspaceRootOccurrenceIdentity`; it neither interprets a package name or row
+index nor selects a successor. Both require the expected revision and a finite
+deadline. Ordinary Add/Remove return `Rejected(Busy)` rather than superseding
+preparation; validation precedes that admission decision. Replace/Clear retain
+their existing supersession authority and first-observed stop ordering.
+
+Effective incremental publication requires a current Ready generation for
+every surviving Root, as required by Artifact Acquisition's existing Retain
+arm. If Add or Remove would retain a Pending/Failed Root, this initial profile
+returns `Failed(ArtifactGenerationMismatch)` before preparing new material and
+preserves the complete current Scope. It does not drop that Root, invent a
+generation, or reacquire through a retained snapshot. Removing the non-Ready
+occurrence itself can succeed when every survivor is Ready or the resulting
+set is empty. Supporting publication that retains non-Ready Roots requires
+separate Artifact-owner work; observation of those Roots remains supported.
+
 Membership changes use the sealed Artifact publication participant. Current
 snapshot reads observe every Ready/Pending/Failed projection under the existing
 composition read lease and perform only the clarified Scope-only refresh;
@@ -56,9 +78,12 @@ that observation.
 
 The user-authorized first host adoption is the CLI
 ([#5513](https://github.com/richlander/dotnet-inspect/issues/5513)) in the same
-issue #5821 slice. Browser adoption remains planned under #5697 after its existing
-Add/Remove and complete-restoration contracts are reconciled; this slice
-preserves existing Browser behavior. Add/Remove, expansion scopes and evidence,
+issue #5821 slice. The CLI now populates its fresh Scope with one complete
+`AddRootsAsync` batch, providing a production consumer for the incremental
+path without per-package publication or changed output. Browser Add/remove is
+the named incremental consumer under #5697, but its migration still requires
+owner-backed complete restoration under #5525. Existing Browser behavior and
+its legacy occurrence-view consumer remain unchanged. Expansion scopes and evidence,
 non-package preparation, Navigation, Definitions, and persistence remain later
 work. The broader target gates below remain **unverified** outside the
 implemented subset. CLI inventory rendering uses the committed snapshot rather
@@ -71,7 +96,7 @@ also retains the selected framework.
 [`WorkspaceCommandTests`](../../src/dotnet-inspect.Tests/WorkspaceCommandTests.cs)
 gates duplicate coalescing before row windows/counts, root-only and explicit-empty
 Roots, display/framework preservation, JSON/JSONL shape, and absence of a
-successful prefix after failed replacement. Browser adoption remains unverified.
+successful prefix after a failed Add batch. Browser adoption remains unverified.
 
 The Release implementation gate is
 [`WorkspaceScopeTests`](../../src/DotnetInspector.Queries.Tests/WorkspaceScopeTests.cs).
@@ -84,6 +109,10 @@ Its boundary evidence includes:
 | Validation before supersession, finite deadlines, and exact cancellation | `InvalidSubmissionsDoNotSupersedeAdmittedPreparation`, `DeadlineExpiryAfterAdmissionCancelsRatherThanRejects`, `ExactCancellationActionSettlesTheOriginalOperationAndCannotCancelAnother`, `CancellationBeforeCommitPreservesPriorRevision`, `CancellationAfterCommitCannotRetractPublication` |
 | Clear and Replace supersession without stale publication | `ClearSupersedesBlockedPreparationWithoutWaitingForCurrentQuery`, `ValidReplaceSupersedesPreparationAndOldCompletionCannotOverwriteIt` |
 | Cancellation/deadline versus supersession preserves the first observed outcome | `CancellationBeforeSupersessionRetainsFirstOutcome`, `SupersessionBeforeCancellationRetainsFirstOutcome` |
+| Ordered incremental Add, exact reduction, and no successful prefix | `AddPreservesExistingOrderAndAppendsOneDistinctBatch`, `EmptyOrDuplicateOnlyAddHasNoPhysicalEffect`, `AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation`, `LaterAddFailureDoesNotPublishSuccessfulPrefix` |
+| Exact removal, surviving identity, and admitted-query drainage | `RemoveRetainsOtherOccurrencesAndDoesNotWaitForAnAdmittedQuery`, `RemovingTheLastOccurrenceCommitsAnEmptyClosedRevision` |
+| Incremental validation before Busy and inherited stop ordering | `OrdinaryAddAndRemoveAreBusyWithoutSupersedingPreparation`, `IncrementalValidationPrecedesBusy`, `AddSupersessionPreservesFirstObservedStop`, `AddCancellationOrExpiryLeavesThePriorRevisionCurrent`, `RemoveHonorsCancellationBeforeAdmissionAndCannotBeRetractedAfterCommit` |
+| Non-Ready incremental boundary and stale physical refusal | `IncrementalEditsRefuseNonReadySurvivorsBeforePreparingMaterial`, `PhysicalMovementDuringAddRefusesTheStaleCandidateAndRefreshesAllCurrentRoots`, `IncrementalOperationsRespectRuntimeUnavailabilityBeforeInvalidRequests` |
 | Complete physical observation without another Artifact publication | `ObservationRefreshPreservesReadyPendingFailedAndDoesNotPublishArtifactComposition`, `RefreshDuringPreparationPreservesPreparingAndStalePhysicalCandidateCannotRebase` |
 | Runtime unavailability and historical resource drainage | `ClosingWorkspaceReportsUnavailableWhileAnAdmittedQueryDrains`, `CloseDuringPreparationSettlesUnavailableAndReleasesOperationAuthority`, `HistoricalSnapshotsAndResultsDoNotRetainRetiredResources` |
 
@@ -1112,7 +1141,9 @@ The landed [Package Dependency Evidence
 Query](package-dependency-evidence.md) supplies canonical package identity and
 version-constraint declarations but deliberately does not claim a resolved
 dependency version for package manifests. That result is not directly a
-submit-ready expansion batch. [#5765](https://github.com/richlander/dotnet-inspect/issues/5765)
+submit-ready expansion batch.
+[Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
+tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
 owns the focused host-neutral composition from eligible declaration evidence
 through package-source authorization and version-constraint resolution to an
 owner-issued exact acquisition candidate. Until that adapter lands, a

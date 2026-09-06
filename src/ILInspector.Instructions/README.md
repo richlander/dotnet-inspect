@@ -55,7 +55,7 @@ product wiring.
 ## Tests
 
 ```bash
-dotnet run --project src/ILInspector.Instructions.Tests -c Release
+dotnet run --project tests/ILInspector.Instructions.Tests -c Release
 ```
 
 (xUnit v3 executable runner — use `dotnet run`, not `dotnet test`.)

@@ -4,15 +4,15 @@ import {
 } from "./operation-authority.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
 import {
+  createEngineWorkerProducerClasses,
   engineWorkerCanaryKind,
   engineWorkerDiagnostic,
   engineWorkerPolicy,
   engineWorkerText,
 } from "./engine-worker-contract.ts";
-import {
-  WorkerProducerClassRegistry,
-  type WorkerRuntimeHostOptions,
-  type WorkerRuntimePreparationError,
+import type {
+  WorkerRuntimeHostOptions,
+  WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
 
 function createEngineWorker(): Worker {
@@ -35,10 +35,7 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     ...engineWorkerPolicy,
     startupBudgetMilliseconds:
       options.startupBudgetMilliseconds ?? engineWorkerPolicy.startupBudgetMilliseconds,
-    producerClasses: new WorkerProducerClassRegistry(
-      engineWorkerPolicy.idleHeartbeatIntervalMilliseconds
-        + engineWorkerPolicy.schedulingToleranceMilliseconds,
-    ),
+    producerClasses: createEngineWorkerProducerClasses(),
     bootstrap: { encode: engineWorkerText.decode, diagnostic: engineWorkerText },
     diagnostic: engineWorkerText,
     createDiagnostic: (kind, detail) => `${kind}: ${engineWorkerDiagnostic(detail)}`.slice(0, 4_096),

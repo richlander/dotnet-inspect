@@ -198,6 +198,8 @@ test("package navigation exposes every admitted library", () => {
   assert.match(html, /id="content-navigation-close"/);
   assert.match(html, /data-lib-scope="asset:core"/);
   assert.match(html, /data-lib-scope="asset:empty"/);
+  assert.match(html, /title="Inspect Example\.Core"/);
+  assert.match(html, /title="Inspect Example\.Empty"/);
   assert.match(html, /12 types · 240 members/);
   assert.match(html, /0 types · 0 members/);
 });

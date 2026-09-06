@@ -953,6 +953,7 @@ public class CommandLineTests
     [InlineData("--match", "first", "System.Text.Json")]
     [InlineData("--path", "lib/*", "System.Text.Json")]
     [InlineData("--il-offset", "0x06000001+0x0", "System.Text.Json")]
+    [InlineData("--metadata-root", "r2r-manifest", "System.Text.Json")]
     [InlineData("--extract-resources", "/tmp/out", "System.Text.Json")]
     [InlineData("--row", "1", "System.Text.Json")]
     [InlineData("--top", "5", "System.Text.Json")]
