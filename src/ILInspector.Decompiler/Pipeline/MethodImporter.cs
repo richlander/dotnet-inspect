@@ -184,6 +184,10 @@ public static class MethodImporter
                         methodHandle,
                         asyncClassification)
                     : null,
+            RequiresUnsafeContract =
+                MethodDefinitionFacts.RequiresUnsafeContract(
+                    source.MemorySafety,
+                    methodHandle),
             IsMetadataBacked = true,
         };
     }

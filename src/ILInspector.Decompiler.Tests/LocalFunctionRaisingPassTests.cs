@@ -221,6 +221,33 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void RequiresUnsafeLocalFunction_RetainsDeclarationAndInvocationEvidence()
+    {
+        var method = new MethodRef(
+            TypeRef.Definition("UserAssembly", "Samples", "Owner"),
+            "<M>g__Helper|0_0",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+            RequiresUnsafe = true,
+        };
+        var function = FunctionReturningCall(method, s_int);
+        var body = LocalFunctionBody(method, s_int);
+        body.UsesUpdatedMemorySafetyRules = true;
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: m => m == method ? body : null);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.True(Assert.Single(function.Descendants.OfType<LocalFunctionStatement>()).RequiresUnsafe);
+        Assert.True(Assert.Single(function.Descendants.OfType<LocalFunctionInvocation>()).RequiresUnsafe);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void LocalFunctionNameCollidingWithMethodGeneric_DegradesToPartial()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

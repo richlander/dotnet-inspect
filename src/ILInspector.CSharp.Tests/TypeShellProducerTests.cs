@@ -268,6 +268,76 @@ public sealed class TypeShellProducerTests
     }
 
     [Fact]
+    public void MemberShellProducer_AsyncBodyPointerSyntaxReliesOnExplicitUnsafeBlocks()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: true,
+            Parameters: [],
+            ReturnType: "System.Threading.Tasks.Task<int>",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "unsafe { int value = *(int*)0; } return await GetValue();",
+            IsAsync: true));
+
+        Assert.False(policy.Member.IsUnsafe);
+        Assert.True(policy.Member.IsAsync);
+    }
+
+    [Fact]
+    public void MemberShellProducer_UpdatedPointerSignatureDoesNotInventUnsafeContract()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Read",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: true,
+            Parameters: [new("value", "int*")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            UsesUpdatedMemorySafetyRules: true));
+
+        Assert.False(policy.Member.IsUnsafe);
+    }
+
+    [Fact]
+    public void MemberShellProducer_UpdatedExplicitContractPreservesUnsafeModifier()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Risky",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: true,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            RequiresUnsafeModifier: true,
+            UsesUpdatedMemorySafetyRules: true));
+
+        Assert.True(policy.Member.IsUnsafe);
+    }
+
+    [Fact]
+    public void MemberShellProducer_UpdatedUnsafeBlockDoesNotInventUnsafeContract()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Read",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: true,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "unsafe { return *(int*)0; }",
+            UsesUpdatedMemorySafetyRules: true));
+
+        Assert.False(policy.Member.IsUnsafe);
+    }
+
+    [Fact]
     public void MemberShellProducer_MarksTargetMethodBodyForReplacement()
     {
         var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
