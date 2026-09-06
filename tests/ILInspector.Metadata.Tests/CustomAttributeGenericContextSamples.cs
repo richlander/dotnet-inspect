@@ -26,8 +26,15 @@ internal static class CustomAttributeGenericContextSamples
     [Unused<int, Dictionary<string, int>>(1)]
     public sealed class UnusedTail;
 
+    [NoLookup<Dictionary<string, int>>(1)]
+    public sealed class NoGenericParameters;
+
     [Mixed<int, long[], string>("first", new long[] { 2, 3 }, 4, "last")]
     public sealed class MixedValues;
+
+    [Repeated<int, int, int, DayOfWeek>(
+        DayOfWeek.Sunday, DayOfWeek.Monday, DayOfWeek.Sunday, DayOfWeek.Monday)]
+    public sealed class RepeatedEnum;
 
     sealed class PairAttribute<T0, T1> : Attribute
     {
@@ -59,6 +66,11 @@ internal static class CustomAttributeGenericContextSamples
     sealed class UnusedAttribute<T0, T1> : Attribute
     {
         public UnusedAttribute(T0 value) { }
+    }
+
+    sealed class NoLookupAttribute<T> : Attribute
+    {
+        public NoLookupAttribute(int value) { }
     }
 
     sealed class MixedAttribute<T0, T1, T2> : Attribute

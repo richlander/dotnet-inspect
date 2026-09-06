@@ -18,6 +18,7 @@ public sealed class CustomAttributeGenericContextTests
     [InlineData(typeof(Samples.AscendingFour), 4, 3)]
     [InlineData(typeof(Samples.DescendingFour), 4, 3)]
     [InlineData(typeof(Samples.UnusedTail), 1, 0)]
+    [InlineData(typeof(Samples.NoGenericParameters), 1, 0)]
     public void GenericArgumentLookup_ReusesVisitedPrefix(
         Type sample,
         int parameterCount,
@@ -53,6 +54,32 @@ public sealed class CustomAttributeGenericContextTests
             Assert.Equal(measured.FixedArguments[i], ordinary.Value.FixedArguments[i]);
         }
         Assert.Equal(expectedBytesSkipped, work.BytesSkipped);
+    }
+
+    [Fact]
+    public void GenericArgumentLookup_DoesNotCacheResolvedEnumWidths()
+    {
+        Type sample = typeof(Samples.RepeatedEnum);
+        using var pe = new PEReader(File.OpenRead(sample.Assembly.Location));
+        MetadataReader reader = pe.GetMetadataReader();
+        int resolutions = 0;
+
+        var decoded = AttributeDecoder.TryDecodeDetailed(
+            reader,
+            SampleAttribute(reader, sample),
+            enumUnderlyingType: (string name, out PrimitiveTypeCode width) =>
+            {
+                Assert.Equal("System.DayOfWeek", name);
+                width = PrimitiveTypeCode.Int32;
+                return ++resolutions % 2 == 0;
+            });
+
+        Assert.NotNull(decoded);
+        Assert.Equal(4, resolutions);
+        Assert.Equal([true, false, true, false],
+            decoded.Value.FixedArgumentEnumWidthDefaulted);
+        Assert.Equal([0, 1, 0, 1], decoded.Value.Value.FixedArguments
+            .Select(argument => Assert.IsType<int>(argument.Value)));
     }
 
     [Fact]
