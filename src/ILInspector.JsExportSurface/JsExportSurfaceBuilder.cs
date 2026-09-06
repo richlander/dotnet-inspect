@@ -193,6 +193,8 @@ public static class JsExportSurfaceBuilder
         var policiesByType = new Dictionary<ApiType, HashSet<JsonWireNamingPolicy>>();
         var registeredJsonTypeInfoGetterModes =
             new Dictionary<int, JsonSourceGenerationMode>();
+        var registeredJsonTypeInfoContextScopeKeys =
+            new Dictionary<int, string>();
         var registeredJsonTypeInfoDefaultGetterTokens =
             new Dictionary<int, int>();
         var registeredJsonTypeInfoShapes =
@@ -203,6 +205,9 @@ public static class JsExportSurfaceBuilder
             string? Name,
             ApiTypeReferenceIdentity? Identity,
             JsonWireNamingPolicy Policy)>();
+        var contextDefinitionNamesByScopeKey =
+            new Dictionary<string, MetadataTypeDefinitionName>(
+                StringComparer.Ordinal);
 
         foreach (ApiType type in surface.Types)
         {
@@ -324,6 +329,25 @@ public static class JsExportSurfaceBuilder
                                             FormatMemberLocation(type, member),
                                             "serializer-context property generation modes conflict");
                                     }
+                                    if (type.DefinitionName is { } contextDefinitionName)
+                                    {
+                                        string contextScopeKey =
+                                            ContextScopeKey(
+                                                contextDefinitionName);
+                                        if (!registeredJsonTypeInfoContextScopeKeys.TryAdd(
+                                                getterToken,
+                                                contextScopeKey)
+                                            && registeredJsonTypeInfoContextScopeKeys[
+                                                    getterToken] != contextScopeKey)
+                                        {
+                                            throw new UnsupportedJsExportSurfaceException(
+                                                FormatMemberLocation(type, member),
+                                                "serializer-context scope evidence conflicts");
+                                        }
+                                        contextDefinitionNamesByScopeKey[
+                                            contextScopeKey] =
+                                                contextDefinitionName;
+                                    }
                                     if (defaultContextGetterToken is { } defaultGetter
                                         && !registeredJsonTypeInfoDefaultGetterTokens.TryAdd(
                                             getterToken,
@@ -351,7 +375,10 @@ public static class JsExportSurfaceBuilder
                             foreach (ApiTypeReferenceIdentity reference
                                 in EnumerateNamedTypes(root!.Type!))
                             {
-                                queue.Enqueue((null, reference, policy));
+                                queue.Enqueue((
+                                    null,
+                                    reference,
+                                    policy));
                             }
                             break;
                         case RegisteredRootPropertyMatch.Unsupported:
@@ -404,7 +431,10 @@ public static class JsExportSurfaceBuilder
                         {
                             continue;
                         }
-                        queue.Enqueue((null, reference, policy));
+                        queue.Enqueue((
+                            null,
+                            reference,
+                            policy));
                     }
                 }
                 else
@@ -412,7 +442,10 @@ public static class JsExportSurfaceBuilder
                     foreach (string candidate
                         in ExtractCandidateTypeNames(rootTypeName))
                     {
-                        queue.Enqueue((candidate, null, policy));
+                        queue.Enqueue((
+                            candidate,
+                            null,
+                            policy));
                     }
                 }
             }
@@ -437,7 +470,9 @@ public static class JsExportSurfaceBuilder
             }
 
             if (!policies.Add(namingPolicy))
+            {
                 continue;
+            }
 
             type.JsonPropertyNamingPolicy = policies.Count == 1
                 ? namingPolicy
@@ -457,7 +492,10 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(member)
+                if (!JsonWireMemberRules.IsSerialized(
+                        member,
+                        surface.AssemblyIdentity,
+                        typesByScopedIdentity)
                     || member.JsonConverterAttributeCount > 0)
                     continue;
                 if (member.SignatureDecodeStatus
@@ -474,7 +512,10 @@ public static class JsExportSurfaceBuilder
                     foreach (ApiTypeReferenceIdentity reference
                         in member.SignatureModel.ReturnTypeReferences)
                     {
-                        queue.Enqueue((null, reference, namingPolicy));
+                        queue.Enqueue((
+                            null,
+                            reference,
+                            namingPolicy));
                     }
                 }
                 else
@@ -482,7 +523,10 @@ public static class JsExportSurfaceBuilder
                     foreach (string candidate
                         in ExtractCandidateTypeNames(propertyType))
                     {
-                        queue.Enqueue((candidate, null, namingPolicy));
+                        queue.Enqueue((
+                            candidate,
+                            null,
+                            namingPolicy));
                     }
                 }
             }
@@ -500,6 +544,7 @@ public static class JsExportSurfaceBuilder
                         function,
                         token,
                         registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoContextScopeKeys,
                         registeredJsonTypeInfoDefaultGetterTokens,
                         registeredJsonTypeInfoShapes,
                         unsupportedJsonTypeInfoGetterReasons);
@@ -507,16 +552,28 @@ public static class JsExportSurfaceBuilder
             }
         }
 
+        Dictionary<ApiType, JsonWireDirection> wireDirections =
+            ResolveWireDirections(
+                functions,
+                surface.AssemblyIdentity,
+                typesByScopedIdentity,
+                discovered);
+        RejectReachedContextRelativeValueTypeAccessibility(
+            functions,
+            wireDirections,
+            surface.AssemblyIdentity,
+            typesByScopedIdentity,
+            discovered,
+            contextDefinitionNamesByScopeKey);
+
         return new JsExportSurface
         {
             AssemblyIdentity = surface.AssemblyIdentity,
             Functions = functions,
             Records = records,
             Enums = enums,
-            WireDirections = ResolveWireDirections(
-                functions,
-                typesByScopedIdentity,
-                discovered),
+            AllTypes = surface.Types,
+            WireDirections = wireDirections,
         };
     }
 
@@ -539,6 +596,7 @@ public static class JsExportSurfaceBuilder
     /// </remarks>
     static Dictionary<ApiType, JsonWireDirection> ResolveWireDirections(
         List<JsExportFunction> functions,
+        ApiAssemblyIdentity? assemblyIdentity,
         Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
         HashSet<ApiType> discovered)
     {
@@ -585,7 +643,11 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(member, direction)
+                if (!JsonWireMemberRules.IsSerialized(
+                        member,
+                        direction,
+                        assemblyIdentity,
+                        typesByScopedIdentity)
                     || member.JsonConverterAttributeCount > 0
                     || member.SignatureModel is null)
                 {
@@ -609,6 +671,193 @@ public static class JsExportSurfaceBuilder
         member.HasRuntimeJsExport
         || member.RuntimeJsExportAttributeCount > 0
         || member.HasMalformedRuntimeJsExportAttribute;
+
+    static void RejectReachedContextRelativeValueTypeAccessibility(
+        IReadOnlyList<JsExportFunction> functions,
+        IReadOnlyDictionary<ApiType, JsonWireDirection> wireDirections,
+        ApiAssemblyIdentity? assemblyIdentity,
+        Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
+        HashSet<ApiType> discovered,
+        IReadOnlyDictionary<string, MetadataTypeDefinitionName>
+            contextDefinitionNamesByScopeKey)
+    {
+        if (assemblyIdentity is null
+            || contextDefinitionNamesByScopeKey.Count == 0
+            || functions.Count == 0)
+        {
+            return;
+        }
+
+        Dictionary<ApiType, Dictionary<string, JsonWireDirection>>
+            reachedContextScopesByType =
+            ResolveReachedContextScopes(
+                functions,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                discovered);
+        foreach ((ApiType type,
+            Dictionary<string, JsonWireDirection> contextDirections)
+            in reachedContextScopesByType)
+        {
+            if (!wireDirections.TryGetValue(type, out JsonWireDirection directions)
+                || directions == JsonWireDirection.None
+                || type.Kind == "enum"
+                || type.JsonConverterAttributeCount > 0)
+            {
+                continue;
+            }
+
+            foreach ((string contextScopeKey,
+                JsonWireDirection contextDirectionsForType)
+                in contextDirections)
+            {
+                if (!contextDefinitionNamesByScopeKey.TryGetValue(
+                        contextScopeKey,
+                        out MetadataTypeDefinitionName? contextDefinitionName))
+                {
+                    continue;
+                }
+
+                foreach (ApiMember member in type.Members)
+                {
+                    if (!JsonWireMemberRules
+                        .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                            type,
+                            member,
+                            contextDirectionsForType,
+                            assemblyIdentity,
+                            typesByScopedIdentity,
+                            contextDefinitionName))
+                    {
+                        continue;
+                    }
+
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "[JsonInclude] members whose same-assembly value types depend on nested JsonSerializerContext accessibility are unsupported");
+                }
+            }
+        }
+    }
+
+    static Dictionary<ApiType, Dictionary<string, JsonWireDirection>>
+        ResolveReachedContextScopes(
+        IReadOnlyList<JsExportFunction> functions,
+        ApiAssemblyIdentity assemblyIdentity,
+        Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
+        HashSet<ApiType> discovered)
+    {
+        var reachedContextScopesByType =
+            new Dictionary<ApiType, Dictionary<string, JsonWireDirection>>(
+                ReferenceEqualityComparer.Instance);
+        var queue = new Queue<(
+            ApiType Type,
+            JsonWireDirection Direction,
+            string ContextScopeKey)>();
+
+        void Seed(
+            IReadOnlyList<ApiTypeReferenceIdentity> references,
+            IReadOnlyList<string> contextScopeKeys,
+            JsonWireDirection direction)
+        {
+            if (contextScopeKeys.Count == 0)
+                return;
+
+            foreach (ApiTypeReferenceIdentity reference in references)
+            {
+                if (!reference.Assembly.Equals(assemblyIdentity)
+                    || !typesByScopedIdentity.TryGetValue(
+                        reference,
+                        out ApiType? type)
+                    || !discovered.Contains(type))
+                {
+                    continue;
+                }
+
+                foreach (string contextScopeKey in contextScopeKeys)
+                {
+                    queue.Enqueue((type, direction, contextScopeKey));
+                }
+            }
+        }
+
+        foreach (JsExportFunction function in functions)
+        {
+            foreach (JsExportWireTypeContextPath path
+                in function.WireTypeContextPaths)
+            {
+                Seed(
+                    path.TypeReferences,
+                    path.ContextScopeKeys,
+                    path.Direction);
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            (ApiType type, JsonWireDirection direction, string contextScopeKey) =
+                queue.Dequeue();
+            if (!reachedContextScopesByType.TryGetValue(
+                    type,
+                    out Dictionary<string, JsonWireDirection>?
+                        reachedScopes))
+            {
+                reachedScopes =
+                    new Dictionary<string, JsonWireDirection>(
+                        StringComparer.Ordinal);
+                reachedContextScopesByType.Add(type, reachedScopes);
+            }
+
+            reachedScopes.TryGetValue(
+                contextScopeKey,
+                out JsonWireDirection existing);
+            JsonWireDirection updated = existing | direction;
+            if (updated == existing)
+                continue;
+            reachedScopes[contextScopeKey] = updated;
+
+            if (type.Kind == "enum" || type.JsonConverterAttributeCount > 0)
+                continue;
+
+            foreach (ApiMember member in type.Members)
+            {
+                if (!JsonWireMemberRules.IsSerialized(
+                        member,
+                        direction,
+                        assemblyIdentity,
+                        typesByScopedIdentity)
+                    || member.JsonConverterAttributeCount > 0
+                    || member.SignatureModel is null)
+                {
+                    continue;
+                }
+
+                foreach (ApiTypeReferenceIdentity reference
+                    in member.SignatureModel.ReturnTypeReferences)
+                {
+                    if (!reference.Assembly.Equals(assemblyIdentity)
+                        || !typesByScopedIdentity.TryGetValue(
+                            reference,
+                            out ApiType? nestedType)
+                        || !discovered.Contains(nestedType))
+                    {
+                        continue;
+                    }
+
+                    queue.Enqueue((
+                        nestedType,
+                        direction,
+                        contextScopeKey));
+                }
+            }
+        }
+
+        return reachedContextScopesByType;
+    }
+
+    static string ContextScopeKey(
+        MetadataTypeDefinitionName contextDefinitionName) =>
+        $"{contextDefinitionName.Namespace}:{string.Join(".", contextDefinitionName.Segments)}";
 
     static int? GetDefaultContextGetterToken(
         ApiType context,

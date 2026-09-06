@@ -28,11 +28,12 @@ required currency; existing search and full Integration behavior is unchanged.
 [Approved lazy traversal](approved-lazy-traversal.md) records the approved
 target experience for compact namespace hints, core-package starting points,
 Integration-owned contract knowledge, and Platform as an ecosystem selecting
-source-owned discovery/acquisition bindings. Those additions are not part of
-the implemented registration above. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
-under #6028 defines inert namespace hints and core-package priorities; its
-implementation and runtime properties remain **unverified**. Executable
-source contributions retain separate prerequisites under #6012 and #5728.
+source-owned discovery/acquisition bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
+under #6028 is implemented by #6037: discovery and exact lookup expose inert
+namespace hints and core-package priorities, covered by the
+[retrieval-knowledge gates](#retrieval-knowledge-gates).
+Executable source contributions retain separate prerequisites under #6012
+and #5728; the new metadata does not advertise traversal availability.
 
 Participating normative owner:
 
@@ -514,16 +515,15 @@ composition decision places the private shipped package-set manifest in
 currency and validation remain below in `DotnetInspector.Packages`. One
 ecosystem source unit may author both a package-set registration and a pack
 registration, but the two static manifests remain separate and the pack stores
-only `PackageSetId`. No reusable package, source, query, service, Vocabulary,
+only `PackageSetId` for its curated-set contribution. No reusable package, source, query, service, Vocabulary,
 or browser-Core component references the application registry.
 
 ## Retrieval hints and core packages
 
-This is the focused catalog contract for #6028, within stage 2 of the
+This is the focused catalog contract for #6028, implemented by #6037 within stage 2 of the
 [eight-stage lazy-traversal adoption plan](approved-lazy-traversal.md#ownership-and-adoption).
-It is not implemented; the new runtime obligations in this section are
-**unverified** until the following catalog implementation supplies the
-[planned gates](#planned-retrieval-knowledge-gates).
+The existing registry and ordinary non-friend consumer suites enforce the
+[retrieval-knowledge gates](#retrieval-knowledge-gates).
 
 Each pack may contribute two independent, immutable ordered sequences:
 
@@ -603,10 +603,10 @@ package set nor substitutes a `System.*` package prefix for a platform target.
 The applicable source owner must issue its discovery/acquisition binding
 before the catalog can expose that separate capability.
 
-The first implementation will publish inert knowledge through the shared
+The implementation publishes inert knowledge through the shared
 catalog. The CLI and `InspectWeb.Engine.CatalogExports` are its production
 consumers; host metadata and operational adoption stay in #6012 stages 6 and 7.
-This focused contract and its following catalog implementation are two
+This focused contract and its catalog implementation are two
 slices within catalog stage 2, not a replacement roadmap. No existing
 architecture is retired, and no new host rendering strategy is introduced.
 
@@ -809,6 +809,27 @@ product sequence. The two new Aspire demos follow them. The literal
 demo-to-pack mapping is application policy and is not inferred from their
 package coordinates or titles.
 
+The initial retrieval metadata is independently authored alongside those
+capabilities:
+
+| Pack | Namespace roots | Core packages, in preference order |
+| --- | --- | --- |
+| Platform | `System` | none |
+| Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions` |
+| ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` |
+| Aspire | `Aspire` | `Aspire.Hosting` |
+
+Each root is a compact descriptive subtree, not a package correspondence.
+The Extensions entries prioritize foundational DI, configuration, and logging
+contracts even though the curated set excludes shared-framework-covered
+packages. ASP.NET Core starts with current OpenAPI and bearer-authentication
+add-on APIs rather than obsolete package versions of shared-framework
+fundamentals. Aspire starts with its hosting API. These choices are product
+preferences, not popularity rankings or complete ecosystem inventories.
+Platform deliberately contributes no package coordinate as a substitute for
+its future source-native discovery/acquisition binding. This metadata is not
+derived from package-set membership or demo records.
+
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
 | 100 | `stj-serializer` | `ecosystem.platform` |
@@ -869,26 +890,35 @@ candidate packs, not registrations authorized by this design.
 
 ## Demo
 
-The retrieval-knowledge example below is a target API-data mockup, not a new
-CLI command or current runtime output:
+Retrieval knowledge is available through the shared catalog, not a new CLI
+command or browser action:
+
+```csharp
+var pack = ((EcosystemPackLookupResult.Known)EcosystemPackCatalog.Lookup(
+    EcosystemPackIds.MicrosoftExtensions)).Descriptor;
+Console.WriteLine(pack.Id);
+Console.WriteLine($"  Namespace roots: {string.Join(", ", pack.NamespaceRoots)}");
+Console.WriteLine("  Core packages (preference order; unversioned)");
+foreach (var package in pack.CorePackages)
+    Console.WriteLine($"    {package.PackageId}");
+Console.WriteLine($"  Curated set: {pack.PackageSet}");
+```
+
+Output:
 
 ```text
 ecosystem.microsoft-extensions
-  Namespace roots
-    Microsoft.Extensions.DependencyInjection
-    Microsoft.Extensions.Configuration
-    Microsoft.Extensions.Logging
+  Namespace roots: Microsoft.Extensions
   Core packages (preference order; unversioned)
     Microsoft.Extensions.DependencyInjection.Abstractions
     Microsoft.Extensions.Configuration.Abstractions
     Microsoft.Extensions.Logging.Abstractions
-  Curated set
-    package-set.microsoft-extensions
+  Curated set: package-set.microsoft-extensions
 ```
 
-The three core entries do not replace the curated membership. There is no
-root-to-package pairing despite the parallel-looking names. This mockup does
-not lock the shipped inventory, grant traversal, or perform package work.
+The three core entries do not replace the curated membership. One root and
+three core packages are independent sequences, not a positional pairing.
+Reading this metadata does not grant traversal or perform package work.
 A neighboring pack can have no roots, no core entries, and an existing demo
 capability; a hint-only registration remains invalid. A second pack may
 declare one of the same roots without either claiming exclusive ownership.
@@ -955,29 +985,20 @@ demo, or return a scanner binding.
 
 ## Required gates
 
-### Planned retrieval-knowledge gates
+### Retrieval-knowledge gates
 
-The following are target Release outcomes for the #6028 implementation
-follow-up, not currently passing gates. Existing registry and non-friend
-consumer suites are the intended enforcing surfaces; source/resolution
-interpretation remains with its own future consumer gates.
+These are active Release gates in the existing registry and non-friend
+consumer suites. Source/resolution interpretation remains with its own future
+consumer gates.
 
-The implementation must also revise
-`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`.
-Its current blanket exclusion of coordinate sequences is stronger than the
-retained curated-membership boundary and cannot remain the target gate for
-independent core references. The revised property permits those references
-while retaining ID-only curated composition and the existing no-lookup
-behavior. This gate revision is part of the implementation follow-up and is
-also **unverified** here; curated membership authority does not change.
-
-| Gate scenario | Required outcome |
+| Gate | Required outcome |
 | --- | --- |
-| Discover and look up unequal-length hint/core sequences on two packs sharing a root and a core package | Exact pack association, literal spelling, authored order, and complete independent immutable sequences survive; cross-pack overlap remains valid and no positional root-to-package mapping is introduced. |
-| Publish malformed roots or invalid, duplicate, versioned, or target-specific core coordinates | Complete registry construction fails visibly before any descriptor is published; overlapping but distinct roots remain valid. |
-| Discover empty knowledge on a demo-capable pack and attempt a knowledge-only registration | Empty contributions remain empty without changing the existing capability requirement or manufacturing traversal availability. |
-| Read metadata, then select one existing demo, scanner, or curated-set action | Knowledge discovery invokes no capability; explicit selection preserves the selected owner's existing input and outcome without activating neighbors. |
-| Discover a shipped core sequence beside its curated-set reference through a non-friend consumer | Literal application expectations preserve the two distinct roles; catalog discovery does not resolve curated membership or package coordinates. |
+| `EcosystemPackRegistryTests.RetrievalKnowledgePreservesIndependentImmutableSequencesAndPackIdentity` | Unequal-length sequences preserve exact pack association, literal spelling, authored order, and immutable snapshots; overlapping roots and cross-pack overlap remain valid. An unregistered curated-set identity is not resolved. |
+| `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
+| `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
+| `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
+| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All four packs retain literal authored roots and core priorities, including Platform's empty core sequence. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, and Platform gains no package-set or scanner capability. |
 
 ### Existing and staged capability gates
 
@@ -1012,13 +1033,12 @@ Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` with literal
 descriptor and reference expectations, plus
-`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`.
-That current gate checks that registration and descriptor property shapes carry
-`PackageSetId` and no package-set descriptor, registration, coordinate
-sequence, or registry property. Its blanket coordinate exclusion must narrow
-to the curated-membership boundary when independent core references are
-implemented, as required by the [planned gates](#planned-retrieval-knowledge-gates);
-it is not a permanent prohibition on the separate core contribution.
+`ProductEcosystemPackTests.ShippedPackManifestKeepsCuratedMembershipAsIdentity`.
+That gate checks that registration and descriptor property shapes carry
+`PackageSetId` and no package-set descriptor, registration, or registry
+property. Independent core coordinates are permitted; their authored content
+and distinction from curated membership are covered by the
+[retrieval-knowledge gates](#retrieval-knowledge-gates).
 `EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder`
 constructs and discovers a pack with an unregistered package-set identity,
 gating the generic registry path's no-lookup behavior.

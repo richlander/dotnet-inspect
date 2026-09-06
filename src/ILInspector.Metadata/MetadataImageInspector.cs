@@ -53,6 +53,21 @@ public static class MetadataImageInspector
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
+        return Describe(
+            reader,
+            DescribeHeaders(headers),
+            headers.MetadataStartOffset,
+            headers.MetadataSize,
+            untrustedText);
+    }
+
+    internal static MetadataImageOverview Describe(
+        MetadataReader reader,
+        MetadataImageHeaders headers,
+        int metadataOffset,
+        int metadataSize,
+        UntrustedTextMode untrustedText)
+    {
         InertString version = MetadataTableProjector.ContainCellText(
             reader.MetadataVersion,
             MetadataVersionBudget,
@@ -63,11 +78,11 @@ public static class MetadataImageInspector
             version,
             reader.MetadataKind,
             reader.IsAssembly,
-            headers.MetadataStartOffset,
-            headers.MetadataSize,
+            metadataOffset,
+            metadataSize,
             DescribeHeaps(reader),
             DescribeTables(reader),
-            DescribeHeaders(headers));
+            headers);
     }
 
     /// <summary>
@@ -122,7 +137,7 @@ public static class MetadataImageInspector
         return tables.ToImmutable();
     }
 
-    static MetadataImageHeaders DescribeHeaders(PEHeaders headers)
+    internal static MetadataImageHeaders DescribeHeaders(PEHeaders headers)
     {
         var cor = headers.CorHeader is { } corHeader
             ? new MetadataCorHeaderSummary(

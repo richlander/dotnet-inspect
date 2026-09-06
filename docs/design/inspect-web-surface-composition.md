@@ -326,7 +326,7 @@ Member Facts begins with a compact `Analysis summary` that separates static
 analysis values and supporting IL offsets from subject identity. The subject
 path and quiet member header retain declaring type, member kind, and overload
 ordinal; the summary does not repeat them. The metadata token follows the
-summary as compact identity, before the unchanged detail sections.
+summary as compact identity, before the detail sections.
 
 Summary rows preserve every existing signal, including explicit zero and
 `no` values. IL offsets remain non-interactive evidence, not Finding-navigation
@@ -335,6 +335,28 @@ the detail pane narrows, supporting offsets move below their value. Long
 values and evidence wrap within their row without widening the member
 scroller. Loading and failure retain the member header and remain visibly
 distinct from a successful zero-valued summary.
+
+Allocation facts uses compact occurrence rows rather than a wide column strip.
+Each occurrence keeps its IL offset and kind with the allocated type, followed
+by its heap-counting flag, multiplicity, path, escape, loop flag, and size
+estimate. All nine fields remain visible in the returned occurrence order;
+there is no expander or new navigation. The section count describes occurrences,
+not the heap-counted summary total or a runtime measurement.
+
+Heap counting and loop membership use explicit `yes` and `no` values. A
+non-heap-counted occurrence does not imply stack allocation. A missing type is
+visibly unavailable; a missing estimate is not available rather than zero.
+Returned byte estimates remain labeled as estimates, and raw analysis
+classifications retain their values.
+
+Occurrence rows use the summary's readable measure and separators rather than
+cards. At constrained pane widths, properties use fewer columns and provenance
+moves above the type. Long types, offsets, and property values wrap within
+their occurrence. This trades some vertical density for complete visible
+evidence without horizontal scrolling. A successful empty result retains
+the section and its explicit absence message; loading and failure remain
+separate top-level Facts states. Calls and subsequent detail sections retain
+their existing presentation.
 
 #### Graph Explore
 
@@ -387,13 +409,30 @@ than moving an unrelated graph into it. Empty, query-failed, render-failed,
 partial-workspace, and truncated results remain visible; graph controls do not
 cover truncation diagnostics.
 
+Type Metadata uses the same viewer when its current projection contains a
+relationship graph. Only that graph and its relationship warnings move; type
+shape, member composition, related-type lists, attributes, and the coordinate
+footer stay inline. Pending diagram rendering can complete in either placement.
+Browsable nodes use the shared keyboard activation and drag suppression;
+unavailable types remain non-interactive with an accessible explanation. Type
+activation closes Explore before the existing typed navigation path runs. It
+does not acquire another assembly or reinterpret a display label as identity.
+Leaving the selected type, package, framework, assembly, or Metadata inspector
+closes Explore. Same-owner projection loading and failure remain visible in an
+already-open viewer. A replacement without a relationship graph returns to inline
+Metadata and focuses its heading rather than leaving an empty explorer.
+
 The browser-only presentation scope was explicitly approved for
 [the two-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/5867).
 Step 1 is [Member Call graph](https://github.com/richlander/dotnet-inspect/issues/5868);
 step 2 is [Package Dependencies](https://github.com/richlander/dotnet-inspect/issues/5904)
-using the same placement component. Inline presentation is not retired.
+using the same placement component. The separately approved
+[Type Metadata adoption](https://github.com/richlander/dotnet-inspect/issues/5943)
+is a one-step end-to-end tracker: connect that production browser consumer to the
+existing viewer. Inline presentation is not retired.
 Existing typed `BrowserCallGraph`/`InspectedCallGraph` and
-`DependencyGraphModel`/`DependencyGraphResult` results, target bindings, and
+`DependencyGraphModel`/`DependencyGraphResult` results, Type Metadata's
+`TypeGraphMeta`, target bindings, and
 Mermaid lowering continue to supply graph data and node identity. This host-only
 placement change bypasses Markout for the interactive browser canvas, adds no
 graph-analysis substrate, and does not change CLI output, query scope, traversal,
@@ -406,6 +445,10 @@ the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
 and package navigation/failure. Live platform drill/back evidence is reported
 separately from component coverage when acquisition is unavailable.
+Type coverage exercises the production Metadata renderer, relationship-warning
+placement, available/unavailable nodes, pending completion, projection replacement,
+and type navigation; published Wasm evidence covers the real action row and typed
+destination.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become

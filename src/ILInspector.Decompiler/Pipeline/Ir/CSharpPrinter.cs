@@ -28,6 +28,7 @@ public sealed partial class CSharpPrinter
     /// printer wraps unsafe operations in explicit <c>unsafe { }</c> blocks.
     /// </summary>
     readonly bool _newMemorySafetyRules;
+    readonly bool _containsAwaitSyntax;
 
     /// <summary>
     /// True when the method body skips locals initialization (<see
@@ -71,6 +72,7 @@ public sealed partial class CSharpPrinter
         _function = function;
         _options = options ?? PrinterOptions.Default;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
+        _containsAwaitSyntax = UnsafeAwaitOperand.ContainsAwait(function);
         _skipLocalsInit = function.SkipLocalsInit;
         _reservedScopeNames = reservedScopeNames is null
             ? []
@@ -384,8 +386,10 @@ public sealed partial class CSharpPrinter
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-            RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
-            ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            RequiresUnsafeBodyModifier = !function.UsesUpdatedMemorySafetyRules
+                && !_containsAwaitSyntax
+                && function.Descendants.Prepend(function).Any(NeedsUnsafeBodyModifier),
+            ContainsAwaitExpression = _containsAwaitSyntax,
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             BodyIsDestructor = function.IsDestructor,
             Metadata = new DecompilerResultMetadata(
@@ -515,6 +519,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
     readonly HashSet<IrNode> _declaringStores = [];
+    readonly HashSet<IrNode> _legacyAwaitScopedDeclarations = [];
 
     /// <summary>Locals that may be read before they are definitely assigned, so their declaration must keep its `= default` zero-initializer (a bare declaration would be CS0165).</summary>
     HashSet<int> _readBeforeAssign = [];
@@ -1492,6 +1497,20 @@ public sealed partial class CSharpPrinter
                         // at that ref assignment instead.
                         _declaringStores.Add(store);
                     }
+                    else if (!_newMemorySafetyRules
+                        && _containsAwaitSyntax
+                        && ContainsPointer(store.Type)
+                        && UnsafeAwaitOperand.CanScopeLegacyPointerLocal(
+                            function,
+                            store))
+                    {
+                        // A legacy pointer local in an async body cannot be
+                        // declared at method scope: that would require a
+                        // member-wide unsafe context containing await. Keep the
+                        // declaration inside its await-free unsafe run.
+                        _declaringStores.Add(store);
+                        _legacyAwaitScopedDeclarations.Add(store);
+                    }
                     else if (function.IsLocalDeclaredInNestedScope(store.Index)
                         && LocalReferencesStayInsideStoreBlock(function, store))
                     {
@@ -1539,6 +1558,16 @@ public sealed partial class CSharpPrinter
                         // the first store, declare at that ref assignment instead.
                         _declaringStores.Add(slotStore);
                     }
+                    else if (!_newMemorySafetyRules
+                        && _containsAwaitSyntax
+                        && ContainsPointer(StackSlotTargetType(slotStore))
+                        && UnsafeAwaitOperand.CanScopeLegacyPointerStackSlot(
+                            function,
+                            slotStore))
+                    {
+                        _declaringStores.Add(slotStore);
+                        _legacyAwaitScopedDeclarations.Add(slotStore);
+                    }
                     break;
                 case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
             }
@@ -1550,12 +1579,14 @@ public sealed partial class CSharpPrinter
         // strand the variable inside that block (out of scope at its uses), so
         // demote the store: the local declares up front and the wrapped statement
         // becomes a plain `v = <unsafe>` assignment.
-        if (_newMemorySafetyRules)
+        if (EmitsUnsafeBlocks)
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
+                if (_legacyAwaitScopedDeclarations.Contains(store))
+                    continue;
                 if (store.Type.Kind != TypeRefKind.ByRef
-                    && HasUnsafeOperation(store.Value)
+                    && HasExplicitUnsafeOperation(store.Value)
                     && LocalIsRead(function, store.Index)
                     && !LocalReadsStayInsideUnsafeRun(function, store))
                 {
@@ -1576,7 +1607,11 @@ public sealed partial class CSharpPrinter
             }
             foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
             {
-                if (!HasUnsafeOperation(store.Value) || StackSlotReferencesStayInBlockAfterStore(function, store))
+                if (_legacyAwaitScopedDeclarations.Contains(store))
+                    continue;
+                if (!HasUnsafeOperation(store.Value)
+                    || StackSlotReferencesStayInBlockAfterStore(function, store)
+                        && !StackSlotUnsafeRunContainsAwait(store))
                     continue;
                 _declaringStores.Remove(store);
             }
@@ -1608,7 +1643,8 @@ public sealed partial class CSharpPrinter
             return false;
 
         int end = start;
-        while (end + 1 < container.Children.Count && HasUnsafeOperation(container.Children[end + 1]))
+        while (end + 1 < container.Children.Count
+            && NeedsExplicitUnsafeContext(container.Children[end + 1]))
             end++;
 
         foreach (var node in function.DescendantsOutsideNestedFunctions)
@@ -1632,7 +1668,7 @@ public sealed partial class CSharpPrinter
             return false;
         for (int i = 0; i < statement.ChildIndex; i++)
         {
-            if (NeedsUnsafeContext(block.Children[i])
+            if (NeedsExplicitUnsafeContext(block.Children[i])
                 && UnsafeRunEnd(block.Children, i) > statement.ChildIndex)
             {
                 return true;
@@ -1730,6 +1766,24 @@ public sealed partial class CSharpPrinter
             }
         }
         return sawLoad;
+    }
+
+    bool StackSlotUnsafeRunContainsAwait(StoreStackSlot store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+
+        int lastReference = store.ChildIndex;
+        for (int i = store.ChildIndex + 1; i < block.Children.Count; i++)
+        {
+            if (ReferencesStackSlot(block.Children[i], store.Slot))
+                lastReference = i;
+        }
+
+        return block.Children
+            .Skip(store.ChildIndex)
+            .Take(lastReference - store.ChildIndex + 1)
+            .Any(UnsafeAwaitOperand.ContainsAwait);
     }
 
     static bool StoreValueReferencesLocal(StoreLocal store)
@@ -2271,20 +2325,28 @@ public sealed partial class CSharpPrinter
         }
         if (node is LocalFunctionStatement localFunction)
         {
-            string modifier = localFunction.IsStatic ? "static " : "";
+            string modifier = $"{(localFunction.IsStatic ? "static " : "")}{(localFunction.RequiresUnsafe ? "unsafe " : "")}";
             string parameters = string.Join(
                 ", ",
                 localFunction.Parameters.Select((parameter, index) =>
                     $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.DisplayName)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
-            if (localFunction.ExpressionBody is { } body)
+            bool expressionNeedsUnsafeBlock = localFunction.ExpressionBody is { } expression
+                && EmitsUnsafeBlocks
+                && (NeedsExplicitUnsafeContext(expression)
+                    || (localFunction.ReturnType.Kind == TypeRefKind.ByRef && RendersAsPointerDeref(expression)));
+            if (localFunction.ExpressionBody is { } body && !expressionNeedsUnsafeBlock)
             {
                 if (_stackSlotTelemetry is not null
                     && NeedsNestedLocalFunctionScope(localFunction))
                 {
                     _ = NestedLocalFunctionBodyText(localFunction);
                 }
-                sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLf(";");
+                string expressionText = localFunction.ReturnType.Kind == TypeRefKind.ByRef
+                    && ArgumentLvalue(body) is { } place
+                        ? $"ref {place}"
+                        : Expression(body);
+                sb.Append(pad).Append(header).Append(" => ").Append(expressionText).AppendLf(";");
             }
             else
             {
@@ -2799,7 +2861,9 @@ public sealed partial class CSharpPrinter
                 continue;
             }
 
-            if (_newMemorySafetyRules && _unsafeDepth == 0 && NeedsUnsafeContext(statements[i]))
+            if (EmitsUnsafeBlocks
+                && _unsafeDepth == 0
+                && NeedsExplicitUnsafeContext(statements[i]))
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
@@ -2920,13 +2984,13 @@ public sealed partial class CSharpPrinter
 
     bool HasGeneratedUnsafeSetupBoundary(IReadOnlyList<IrNode> statements)
     {
-        if (!_newMemorySafetyRules || _unsafeDepth != 0)
+        if (!EmitsUnsafeBlocks || _unsafeDepth != 0)
             return false;
 
         int i = 0;
         while (i < statements.Count)
         {
-            if (!NeedsUnsafeContext(statements[i]))
+            if (!NeedsExplicitUnsafeContext(statements[i]))
             {
                 i++;
                 continue;
@@ -3006,7 +3070,7 @@ public sealed partial class CSharpPrinter
     int UnsafeRunEnd(IReadOnlyList<IrNode> statements, int start)
     {
         int end = start + 1;
-        while (end < statements.Count && NeedsUnsafeContext(statements[end]))
+        while (end < statements.Count && NeedsExplicitUnsafeContext(statements[end]))
             end++;
 
         for (int i = start; i < end; i++)
@@ -3015,7 +3079,7 @@ public sealed partial class CSharpPrinter
             if (requiredEnd > end)
             {
                 end = requiredEnd;
-                while (end < statements.Count && NeedsUnsafeContext(statements[end]))
+                while (end < statements.Count && NeedsExplicitUnsafeContext(statements[end]))
                     end++;
             }
         }
@@ -3029,7 +3093,7 @@ public sealed partial class CSharpPrinter
         {
             StoreStackSlot store when _declaringStores.Contains(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesStackSlot(node, store.Slot)),
-            StoreLocal store when _declaringStores.Contains(store) && HasUnsafeOperation(store.Value)
+            StoreLocal store when _declaringStores.Contains(store) && NeedsExplicitUnsafeContext(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, store.Index)),
             _ => searchStart,
         };
@@ -3060,36 +3124,65 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool NeedsUnsafeContext(IrNode node) => node switch
     {
-        ForLoop f => HasUnsafeOperation(f.Initializer) || HasUnsafeOperation(f.Condition) || HasUnsafeOperation(f.Increment),
-        WhileLoop w => HasUnsafeOperation(w.Condition),
-        DoWhileLoop d => HasUnsafeOperation(d.Condition),
-        IfStatement s => HasUnsafeOperation(s.Condition),
-        Switch s => HasUnsafeOperation(s.Value),
-        Lock l => HasUnsafeOperation(l.LockObject),
+        ForLoop f => HasRequiredUnsafeOperation(f.Initializer)
+            || HasRequiredUnsafeOperation(f.Condition)
+            || HasRequiredUnsafeOperation(f.Increment),
+        WhileLoop w => HasRequiredUnsafeOperation(w.Condition),
+        DoWhileLoop d => HasRequiredUnsafeOperation(d.Condition),
+        IfStatement s => HasRequiredUnsafeOperation(s.Condition),
+        Switch s => HasRequiredUnsafeOperation(s.Value),
+        Lock l => HasRequiredUnsafeOperation(l.LockObject),
         Fixed { RequiresUnsafeContext: true } => true,
-        Fixed fx => HasUnsafeOperation(fx.PinSource),
-        UsingStatement u => HasUnsafeOperation(u.Resource),
-        TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
+        Fixed fx => HasRequiredUnsafeOperation(fx.PinSource)
+            || !_newMemorySafetyRules,
+        UsingStatement u => HasRequiredUnsafeOperation(u.Resource)
+            || MethodsRequireUnsafe(u.ConsumedMemberRefs),
+        ForeachStatement f => HasRequiredUnsafeOperation(f.Collection)
+            || MethodsRequireUnsafe(f.ConsumedMemberRefs)
+            || !_newMemorySafetyRules && ContainsPointer(f.LocalType),
+        LocalFunctionStatement => false,
+        TryCatch t => t.Clauses.Any(c => HasRequiredUnsafeOperation(c.Filter)),
         TryFinally => false,
         StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
-            => HasUnsafeOperation(s) || HasUnsafeOperation(store.Value),
-        _ => HasUnsafeOperation(node),
+            => HasRequiredUnsafeOperation(s) || HasRequiredUnsafeOperation(store.Value),
+        _ => HasRequiredUnsafeOperation(node),
     };
 
     bool HasUnsafeOperation(IrNode? node)
-        => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
+        => node is not null
+            && node.DescendantsAndSelfOutsideNestedFunctions.Any(IsUnsafeOperation);
+
+    bool HasRequiredUnsafeOperation(IrNode? node)
+        => node is not null
+            && (HasUnsafeOperation(node)
+                || !_newMemorySafetyRules
+                    && node.DescendantsAndSelfOutsideNestedFunctions
+                        .Any(IsLegacyPointerOperation));
+
+    bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitSyntax;
+
+    bool NeedsExplicitUnsafeContext(IrNode node)
+        => EmitsUnsafeBlocks && NeedsUnsafeContext(node);
+
+    bool HasExplicitUnsafeOperation(IrNode? node)
+        => HasUnsafeOperation(node);
+
+    bool NeedsUnsafeBodyModifier(IrNode node)
+        => NeedsUnsafeContext(node)
+            || !_newMemorySafetyRules && IsLegacyPointerOperation(node);
 
     /// <summary>
     /// A single IR operation that requires an unsafe context under the updated
     /// rules: a function-pointer invocation (<c>calli</c>), a read/write through
-    /// an unmanaged pointer, a call to a <em>requires-unsafe</em> member (one
-    /// stamped with <c>RequiresUnsafeAttribute</c> — declared <c>unsafe</c>/
-    /// <c>extern</c> — or, by the compat heuristic, one with a pointer in its
-    /// signature), or a <c>stackalloc</c> converted to a <c>Span</c> with no
-    /// initializer in a <c>[SkipLocalsInit]</c> body. Dereferencing a managed
-    /// reference (<c>ByRef</c>) is safe and excluded. Converting an unbox
-    /// reference to a native integer is included because its faithful spelling
-    /// uses <c>Unsafe.AsPointer</c>. Creating pointers, the
+    /// an unmanaged pointer, pointer member access, a call to a
+    /// <em>requires-unsafe</em> member (one stamped with
+    /// <c>RequiresUnsafeAttribute</c> — declared <c>unsafe</c>/<c>extern</c> —
+    /// or, by the compat heuristic, one with a pointer in its signature), or a
+    /// <c>stackalloc</c> converted to a <c>Span</c> with no initializer in a
+    /// <c>[SkipLocalsInit]</c> body. Dereferencing a managed reference
+    /// (<c>ByRef</c>) is safe and excluded. Converting an unbox reference to a
+    /// native integer is included because its faithful spelling uses
+    /// <c>Unsafe.AsPointer</c>. Creating pointers, the
     /// String-pin fixed statements raised through a synthesized stack-slot
     /// pointer need an unsafe context for their header. Creating pointers,
     /// ordinary <c>fixed</c> statements, and <c>sizeof</c> are safe under the new
@@ -3098,34 +3191,117 @@ public sealed partial class CSharpPrinter
     bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
-        Lambda lambda => LambdaNeedsUnsafeContext(lambda),
         StackAllocate => true,
         // A stackalloc-backed Span (raised to `stackalloc T[n]` by
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
         // under [SkipLocalsInit], where the stack space is uninitialized.
         StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
-        Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
-        NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
-        Binary b => IsPointerArithmetic(b),
-        Comparison c => IsPointerComparison(c),
+        Call c => MethodRequiresUnsafe(c.Callee)
+            || CallRendersPointerDereference(c),
+        NewObject n => MethodRequiresUnsafe(n.Constructor)
+            || ArgumentsRenderPointerDereference(n.Arguments, n.Constructor.ParameterTypes),
+        IncrementDecrement i => MethodRequiresUnsafe(i.ConsumedMethod),
         Convert c => IsUnboxPointerConversion(c),
+        LoadField f => IsPointerReceiver(f.Instance),
+        StoreField f => IsPointerReceiver(f.Instance),
+        LoadFieldAddress f => IsPointerReceiver(f.Instance),
+        LoadProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
+        StoreProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
+        EventSubscription e => AccessorRequiresUnsafe(e.Accessor, e.Instance),
         FixedBufferElementAddress => true,
         LoadIndirect { Address: FixedBufferElementAddress } => true,
         StoreIndirect { Address: FixedBufferElementAddress } => true,
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),
+        _ => IsRaisedUnsafeOperation(node),
+    };
+
+    bool IsRaisedUnsafeOperation(IrNode node) => node switch
+    {
+        StoreLocal { Type.Kind: TypeRefKind.ByRef } s => RendersAsPointerDeref(s.Value),
+        StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef }
+            => RendersAsPointerDeref(s.Value),
+        Return { Value: { } value } when CurrentReturnType.Kind == TypeRefKind.ByRef
+            => RendersAsPointerDeref(value),
+        LocalFunctionInvocation i => (_newMemorySafetyRules
+                && i.RequiresUnsafe)
+            || !_newMemorySafetyRules
+                && SignatureRequiresUnsafe(i.ReturnType, i.ParameterTypes)
+            || ArgumentsRenderPointerDereference(i.Arguments, i.ParameterTypes),
+        PositionalPattern p => MethodRequiresUnsafe(p.ConsumedDeconstructMethod),
+        NullCoalescingFieldAssignment f => IsPointerReceiver(f.Instance),
+        NullCoalescingFieldAssignmentExpression f => IsPointerReceiver(f.Instance),
+        NullCoalescingPropertyAssignment p => AccessorRequiresUnsafe(p.Setter, p.Instance),
+        DeconstructionAssignment d => d.Targets.Any(DeconstructionTargetRequiresUnsafe)
+            || d.ConsumedDeconstructMethod is { } method
+                && MethodRequiresUnsafe(method),
+        DelegateCreation d => MethodRequiresUnsafe(d.Method)
+            || IsPointerReceiver(d.Target),
+        AddressOfMethod a => MethodRequiresUnsafe(a.Method),
+        ChainedAssignment c => c.Targets.Any(t => MethodRequiresUnsafe(t.Accessor)),
+        ObjectInitializerExpression o => MethodsRequireUnsafe(o.ConsumedMethods),
+        WithExpression w => MethodRequiresUnsafe(w.CloneMethod)
+            || MethodsRequireUnsafe(w.ConsumedMethods),
+        InitializerBlock i => MethodsRequireUnsafe(i.ConsumedMethods),
+        RecursivePropertyDeclarationPattern p => MethodRequiresUnsafe(p.Accessor),
+        PatternSwitchExpressionArm { Subpattern: { } p } => MethodRequiresUnsafe(p.Accessor),
         _ => false,
     };
 
-    static bool IsPointerArithmetic(Binary binary)
-        => binary.Kind is BinaryKind.Add or BinaryKind.Subtract
-            && (binary.Left.ResultType is { Kind: TypeRefKind.Pointer }
-                || binary.Right.ResultType is { Kind: TypeRefKind.Pointer });
+    static bool IsPointerReceiver(IrExpression? receiver)
+        => receiver?.ResultType is { Kind: TypeRefKind.Pointer };
 
-    static bool IsPointerComparison(Comparison comparison)
-        => comparison.Left.ResultType is { Kind: TypeRefKind.Pointer }
-            || comparison.Right.ResultType is { Kind: TypeRefKind.Pointer };
+    bool AccessorRequiresUnsafe(MethodRef accessor, IrExpression? receiver)
+        => MethodRequiresUnsafe(accessor)
+            || IsPointerReceiver(receiver);
+
+    bool MethodRequiresUnsafe(MethodRef? method)
+        => method is not null
+            && (method.RequiresUnsafe
+                ? _newMemorySafetyRules
+                : method.RequiresUnsafeFact == MetadataFactState.Yes
+                    || method.RequiresUnsafeFact == MetadataFactState.Unknown
+                        && !method.MemorySafetyContractUnavailable
+                        && SignatureRequiresUnsafe(method));
+
+    bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
+        => methods.Any(MethodRequiresUnsafe);
+
+    bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
+        => target is
+            {
+                Kind: DeconstructionTargetKind.Property,
+                Accessor: { } accessor,
+            }
+            && AccessorRequiresUnsafe(accessor, target.Instance);
+
+    bool CallRendersPointerDereference(Call call)
+    {
+        if (call.Callee.HasThis)
+        {
+            if (call.Arguments is not [var receiver, ..])
+                return false;
+            return IsPointerReceiver(receiver)
+                || ArgumentsRenderPointerDereference(
+                    [.. call.Arguments.Skip(1)],
+                    call.Callee.ParameterTypes);
+        }
+
+        return ArgumentsRenderPointerDereference(call.Arguments, call.Callee.ParameterTypes);
+    }
+
+    static bool ArgumentsRenderPointerDereference(
+        IReadOnlyList<IrExpression> arguments,
+        IReadOnlyList<TypeRef> parameterTypes)
+        => arguments
+            .Select((argument, index) => (argument, index))
+            .Any(pair => IsPointerByRefArgument(parameterTypes, pair.index, pair.argument));
+
+    bool IsLegacyPointerOperation(IrNode node)
+        => node is StoreStackSlot store
+            ? ContainsPointer(StackSlotTargetType(store))
+            : UnsafeAwaitOperand.IsLegacyPointerOperation(node);
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose
@@ -3137,11 +3313,12 @@ public sealed partial class CSharpPrinter
     /// even for callers that haven't opted into the new rules.
     /// </summary>
     static bool SignatureRequiresUnsafe(MethodRef callee)
-        => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
+        => SignatureRequiresUnsafe(callee.ReturnType, callee.ParameterTypes);
 
-    static bool LambdaNeedsUnsafeContext(Lambda lambda)
-        => !lambda.ParameterRefKinds.IsDefaultOrEmpty
-            && lambda.Parameters.Any(parameter => ContainsPointer(parameter.Type));
+    static bool SignatureRequiresUnsafe(
+        TypeRef returnType,
+        IEnumerable<TypeRef> parameterTypes)
+        => ContainsPointer(returnType) || parameterTypes.Any(ContainsPointer);
 
     static bool ContainsPointer(TypeRef? type)
         => type is not null

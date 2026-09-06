@@ -905,7 +905,38 @@ test("type metadata keeps projection failures inside the full-area surface", () 
   assert.match(
     html,
     /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+  assert.match(html, /data-type-graph-surface/);
 });
+
+for (const nodeCount of [0, 1, 2]) {
+  test(`type metadata keeps relationship warnings visible with ${nodeCount} graph nodes`, () => {
+    const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+    const html = renderTypeMetadata({
+      item: jsonSerializer,
+      packageContext,
+      metadataState: {
+        typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+        typeMetadataLoading: false,
+        typeMetadataError: null,
+        typeMetadata: {
+          graphNodes: Array.from({ length: nodeCount }, (_, index) => ({ id: `Type${index}` })),
+          inspectionFailures: ["Unable to project <related> type"],
+        },
+      },
+      memberCompositionHtml: "",
+      escapeHtml,
+      relatedTypeChip: escapeHtml,
+      factRows,
+    });
+    assert.match(html, /Unable to project &lt;related&gt; type/);
+    assert.equal(html.includes("data-type-graph-surface"), nodeCount > 1);
+    if (nodeCount > 1) {
+      assert.match(html, /data-type-graph-surface>[\s\S]*?type-graph-diagram[\s\S]*?metadata-warning/);
+    }
+    assert.match(html, /Type shape/);
+    assert.match(html, /metadata-surface-footer/);
+  });
+}
 
 test("type PDB source renders code above provenance once loaded", () => {
   const html = renderTypeSource({

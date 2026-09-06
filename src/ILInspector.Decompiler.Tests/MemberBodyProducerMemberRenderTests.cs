@@ -90,6 +90,155 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_ExplicitInterfaceSetterUsesPropertyValueType()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && !member.IsStatic
+                && member.Name.EndsWith(
+                    $".{nameof(get_IMemberRenderExplicitProperty.Label)}",
+                    StringComparison.Ordinal));
+        ApiMember setter = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.EndsWith(
+                $".set_{nameof(get_IMemberRenderExplicitProperty.Label)}",
+                StringComparison.Ordinal));
+        type.Members = [setter];
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            setter,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "string? get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "set => _explicitLabel = value;",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "void get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_")]
+    [InlineData("set_")]
+    public void ProduceMember_ReadonlyExplicitInterfaceAccessorPreservesPhysicalModifier(
+        string accessorPrefix)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(ReadonlyExplicitMemberRenderSpecimen).FullName);
+        ApiMember accessor = Assert.Single(
+            type.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(
+                    $".{accessorPrefix}Label",
+                    StringComparison.Ordinal));
+        Assert.True(accessor.IsReadOnly);
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type, accessor, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "readonly string? get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_")]
+    [InlineData("set_")]
+    public void ProduceMember_StaticExplicitInterfaceAccessorPreservesStaticModifier(
+        string accessorPrefix)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.IsStatic
+                && member.Name.EndsWith(
+                    "."
+                        + nameof(
+                            set_IMemberRenderStaticExplicitProperty<
+                                MemberRenderSpecimen>.Label),
+                    StringComparison.Ordinal));
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.Contains(
+                $".{accessorPrefix}"
+                    + nameof(
+                        set_IMemberRenderStaticExplicitProperty<
+                            MemberRenderSpecimen>.Label),
+                StringComparison.Ordinal));
+        type.Members = [accessor];
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            accessor,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "static string? set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_Prefix", "int IMemberRenderExplicitPrefixMethods.get_Prefix()")]
+    [InlineData("set_Prefix", "void IMemberRenderExplicitPrefixMethods.set_Prefix()")]
+    public void ProduceMember_ExplicitGetSetPrefixedMethodRetainsMethodForm(
+        string methodName,
+        string expectedSignature)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Kind == "explicit-interface-implementation"
+                && candidate.Name.EndsWith(
+                    $".{methodName}",
+                    StringComparison.Ordinal));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            member,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            expectedSignature,
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProduceMember_RendersCustomEventAccessorBodiesAndReturnAttributes()
     {
         var type = Specimen();
@@ -1134,9 +1283,45 @@ public sealed class MemberBodyProducerMemberRenderTests
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
-public sealed class MemberRenderSpecimen
+public interface get_IMemberRenderExplicitProperty
+{
+    string? Label { get; set; }
+}
+
+public interface set_IMemberRenderStaticExplicitProperty<TSelf>
+    where TSelf : set_IMemberRenderStaticExplicitProperty<TSelf>
+{
+    static abstract string? Label { get; set; }
+}
+
+public interface IMemberRenderExplicitPrefixMethods
+{
+    int get_Prefix();
+
+    void set_Prefix();
+}
+
+public struct ReadonlyExplicitMemberRenderSpecimen : get_IMemberRenderExplicitProperty
+{
+    string? _label;
+
+    public ReadonlyExplicitMemberRenderSpecimen(string? label) => _label = label;
+
+    readonly string? get_IMemberRenderExplicitProperty.Label
+    {
+        get => _label;
+        set => GC.KeepAlive(value);
+    }
+}
+
+public sealed class MemberRenderSpecimen :
+    get_IMemberRenderExplicitProperty,
+    set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>,
+    IMemberRenderExplicitPrefixMethods
 {
     EventHandler? _changed;
+    string? _explicitLabel;
+    static string? _staticExplicitLabel;
 
     [System.ComponentModel.Description("marker")]
     [System.Runtime.CompilerServices.SkipLocalsInit]
@@ -1149,6 +1334,24 @@ public sealed class MemberRenderSpecimen
     public string Name { get; private set; } = "";
 
     public static string StaticName { get; set; } = "";
+
+    string? get_IMemberRenderExplicitProperty.Label
+    {
+        get => _explicitLabel;
+        set => _explicitLabel = value;
+    }
+
+    static string? set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label
+    {
+        get => _staticExplicitLabel;
+        set => _staticExplicitLabel = value;
+    }
+
+    int IMemberRenderExplicitPrefixMethods.get_Prefix() => 1;
+
+    void IMemberRenderExplicitPrefixMethods.set_Prefix()
+    {
+    }
 
     public int AttributedValue
     {

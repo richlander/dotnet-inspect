@@ -1091,12 +1091,14 @@ kbd {
 .metadata-surface-head p span { margin-left: 6px; }
 .metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; background: var(--bg); }
 .metadata-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
-.metadata-surface-scroll > .document-section { padding: 24px 16px 0; }
+.metadata-surface-scroll > .document-section,
+.metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding: 24px 16px 0; }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .metadata-shape-section .fact-rows { border-top: 0; }
 .metadata-shape-section .fact-rows div { padding-inline: 16px; }
-.metadata-surface-scroll > .metadata-warning { margin-top: 24px; padding: 14px 16px; }
+.metadata-surface-scroll > .metadata-warning,
+.metadata-surface-scroll > [data-type-graph-surface] > .metadata-warning { margin-top: 24px; padding: 14px 16px; }
 .metadata-surface-state { min-height: 100%; align-content: center; }
 .metadata-surface-footer,
 .api-surface-footer { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid var(--line); background: var(--panel); color: var(--dim); font: 10px var(--mono); }
@@ -1304,10 +1306,12 @@ kbd {
 .graph-explorer-head button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .graph-explorer-content,
 .graph-explorer [data-call-graph-surface],
-.graph-explorer [data-dependency-graph-surface] { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; }
+.graph-explorer [data-dependency-graph-surface],
+.graph-explorer [data-type-graph-surface] { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; }
 .graph-explorer .call-graph-section,
 .graph-explorer .dependency-graph-section { display: flex; flex: 1; min-width: 0; min-height: min(320px, 70dvh); max-width: none; flex-direction: column; padding: 0; margin: 0; }
 .graph-explorer [data-dependency-graph-surface] > .document-section:not(.dependency-graph-section) { flex: none; margin: 0; padding: 8px 14px; max-width: none; }
+.graph-explorer [data-type-graph-surface] > .metadata-warning { flex: none; max-width: none; margin: 0; padding: 12px 14px; overflow-wrap: anywhere; }
 .graph-explorer .section-title { flex: none; padding: 5px 14px; }
 .graph-explorer .section-title h2 { display: none; }
 .graph-explorer .dependency-group-selector .section-title { padding: 0; }
@@ -1398,10 +1402,34 @@ kbd {
 .facts-metadata-identity { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 0; font-size: 12px; }
 .facts-metadata-identity > span { color: var(--muted); }
 .facts-metadata-identity code { min-width: 0; color: var(--text); font: 12px var(--mono); overflow-wrap: anywhere; }
+.allocation-facts { max-width: 900px; margin-top: 20px; font-size: 13px; line-height: 1.5; }
+.allocation-facts > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.allocation-facts h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.allocation-facts > header > span { color: var(--muted); font-size: 12px; }
+.allocation-rows { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.allocation-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.allocation-location { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.allocation-location code { color: var(--muted); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+.allocation-location > span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.allocation-main { min-width: 0; }
+.allocation-type { margin-bottom: 7px; overflow-wrap: anywhere; }
+.allocation-type code { color: var(--text); font: 13px/1.5 var(--mono); }
+.allocation-properties { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 16px; margin: 0; }
+.allocation-properties > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; min-width: 0; }
+.allocation-properties dt { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.allocation-properties dd { min-width: 0; margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.allocation-properties code { color: var(--text); font: 12px/1.5 var(--mono); }
+.allocation-unavailable { color: var(--muted); font-size: 12px; }
+.allocation-empty { margin: 0; padding: 10px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+@container member-surface (max-width: 760px) {
+  .allocation-properties { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 14px; }
+}
 @container member-surface (max-width: 575px) {
   .facts-summary-list > div { grid-template-columns: minmax(0, 48%) minmax(0, 1fr); gap: 12px; }
   .facts-summary-list dd { flex-direction: column; gap: 4px; }
   .facts-summary-value { flex-basis: auto; max-width: 100%; }
+  .allocation-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .allocation-location { flex-direction: row; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
 }
 .assembly-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .assembly-grid .assembly-cell { display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; background: var(--panel); min-width: 0; }
@@ -1884,7 +1912,8 @@ kbd {
   .detail-scroll { padding: 22px 18px 60px; }
   .api-surface-head { min-height: 40px; padding-inline: 12px; }
   .metadata-surface-head { padding-inline: 12px; }
-  .metadata-surface-scroll > .document-section { padding-inline: 12px; }
+  .metadata-surface-scroll > .document-section,
+  .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }
   .metadata-surface-scroll > .metadata-shape-section { padding-inline: 0; }
   .metadata-shape-section .section-title,
   .metadata-shape-section .fact-rows div { padding-inline: 12px; }

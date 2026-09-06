@@ -399,6 +399,8 @@ public sealed record ApiSurfaceInspectionFailure(
         "type forwarder identity";
     public const string TypeForwarderRowOperation =
         "type forwarder row";
+    public const string MemorySafetyContractOperation =
+        "memory safety contract";
     internal const string UnmarkedAssemblyForwarderDetail =
         "The selected image has an AssemblyRef-terminated ExportedType "
             + "chain that is not a forwarder.";
@@ -673,6 +675,16 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsReadOnly { get; set; }
+
+    /// <summary>
+    /// Whether this accessor is a private MethodImpl body, matching the raw
+    /// explicit-implementation member classification. Null when that metadata
+    /// relationship was not retained.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsExplicitInterfaceImplementation { get; set; }
 
     /// <summary>
     /// The accessor MethodDef name. Ordinary properties use <c>get_Value</c>;
@@ -1245,8 +1257,9 @@ public class ApiMember
 
     /// <summary>
     /// True when the member carries <c>[JsonInclude]</c>. Source-generated STJ
-    /// can honor the opt-in only when the generated context can access the
-    /// member or relevant accessor.
+    /// can honor the opt-in for non-public accessors and fields, but
+    /// same-assembly named value types still participate only when the
+    /// generated context can access those types.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }

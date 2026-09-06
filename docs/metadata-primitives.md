@@ -161,6 +161,12 @@ absence produces `SupportedEcma335`. This is the same case-sensitive version
 discriminator SRM consults before applying optional WinRT projections, without
 constructing a `MetadataReader` whose table initialization may scan rows.
 
+The bounded `BlobReader` overload applies that same root predicate to a root
+window supplied by its containing-image owner, starting at the reader's current
+position. The CLI entry point delegates to it. The metadata projection uses
+this adapter for the R2R producer's validated manifest extent; classification
+does not rediscover that extent or change its alias/ownership semantics.
+
 `PEReader.HasMetadata == false` produces typed `NoMetadata` without requesting
 a metadata block. An unmappable metadata directory, block shorter than the
 fixed root prefix, invalid signature, negative or over-256 padded length, or

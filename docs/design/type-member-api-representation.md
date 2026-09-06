@@ -129,6 +129,23 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+### API declaration modifiers
+
+Full API extraction retains the physical MethodDef `IsReadOnly` attribute in
+`ApiMember.IsReadOnly` for all methods, not only projected accessors. Existing
+API JSON, C# declaration views, and Metadata Findings consume this fact, so
+ordinary member output can gain `is_read_only` or `readonly` independently of
+Source Diff. The Release
+`MethodSignatureModel_RetainsPhysicalReadOnlyAttribute` cases gate ordinary
+readonly and mutable methods alongside the Source Diff accessor cases.
+
+Rich accessor models also retain whether a method is a private MethodImpl
+body. Accessor projection uses that relationship-derived classification rather
+than inferring it from a qualified MethodDef name. An unknown value denotes
+older or declaration-only models that did not retain the relationship, rather
+than a negative metadata result. Only those unknown values retain the prior
+name-based projection fallback; a known negative classification is authoritative.
+
 ### API memory-safety facts
 
 `ApiMember.MemorySafety` retains two independent facts: the caller contract
@@ -721,6 +738,15 @@ return-type identity. The caller supplies the operator-name group: the shape
 itself does not distinguish implicit from explicit or checked operators. Checked
 explicit operators retain Metadata return evidence, while the current source
 adapter refuses their headers visibly rather than manufacturing correspondence.
+
+`ParameterPassingSignatureShapeFlowTests` records value-versus-by-reference
+passing through compiler-produced signatures, source headers, literal canonical
+transport, and candidate matching. Passing position and array element type stay
+distinct, and an array passed by value is not a by-reference parameter.
+`ref`, `out`, `in`, and `ref readonly` share the by-reference shape: alternative
+declarations differing only in those modifiers remain ambiguous, not evidence
+of direction, readonly semantics, or member identity. Correspondence remains
+unavailable when only an opposite-passing candidate is supplied.
 
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows

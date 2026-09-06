@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <RootNamespace>DotnetInspector.Artifacts.Tests</RootNamespace>
+    <RootNamespace>DotnetInspector.RowSelection.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -21,9 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DotnetInspector.Artifacts\DotnetInspector.Artifacts.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Artifacts.Local\DotnetInspector.Artifacts.Local.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
+    <ProjectReference Include="../DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
   </ItemGroup>
 
 </Project>

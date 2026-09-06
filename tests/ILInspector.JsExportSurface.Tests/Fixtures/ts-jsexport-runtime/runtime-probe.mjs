@@ -23,6 +23,8 @@ const getKeywordMapAsyncKey =
   facadeSource.match(/"(GetKeywordMapAsync\.-?\d+)"/)?.[1];
 const getBlobAsyncKey =
   facadeSource.match(/"(GetBlobAsync\.-?\d+)"/)?.[1];
+const getHiddenTypeJsonIncludeAsyncKey =
+  facadeSource.match(/"(GetHiddenTypeJsonIncludeAsync\.-?\d+)"/)?.[1];
 const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
 const getJsonElementKey =
@@ -69,6 +71,11 @@ assert.ok(
 assert.ok(
   getBlobAsyncKey,
   "The generated GetBlobAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getHiddenTypeJsonIncludeAsyncKey,
+  "The generated GetHiddenTypeJsonIncludeAsync runtime dispatch key "
+    + "was not found.",
 );
 assert.ok(
   getNullableWidgetAsyncKey,
@@ -146,6 +153,9 @@ function managedExports(methods = {}) {
                 blobs: ["AQ==", null],
                 blobsByName: { none: null },
               })),
+            [getHiddenTypeJsonIncludeAsyncKey]:
+              methods.getHiddenTypeJsonIncludeAsync
+              ?? (async () => JSON.stringify({ public: "public" })),
             [getNullableWidgetAsyncKey]:
               methods.getNullableWidgetAsync
               ?? (async (name) => JSON.stringify({ name, count: 1 })),
@@ -286,6 +296,10 @@ async function freshFacade() {
   assert.deepEqual(
     await facade.getNullableWidgetAsync("nullable"),
     { name: "nullable", count: 1 },
+  );
+  assert.deepEqual(
+    await facade.getHiddenTypeJsonIncludeAsync(),
+    { public: "public" },
   );
   assert.deepEqual(facade.getJsonElement(), { value: "json" });
   const observed = [];

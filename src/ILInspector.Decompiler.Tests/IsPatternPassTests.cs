@@ -163,7 +163,9 @@ public class IsPatternPassTests
     {
         var function = Raised(nameof(CfgSampleClass.PositionalPattern));
 
-        Assert.Single(function.Descendants.OfType<PositionalPattern>());
+        var pattern = Assert.Single(function.Descendants.OfType<PositionalPattern>());
+        Assert.NotNull(pattern.ConsumedDeconstructMethod);
+        Assert.Equal("Deconstruct", pattern.ConsumedDeconstructMethod.Name);
         var output = CSharpPrinter.Print(function).Output;
         Assert.Contains("return node is (\"ok\", > 0);", output);
         Assert.DoesNotContain("if (node is not null)", output);

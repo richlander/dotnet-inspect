@@ -84,7 +84,12 @@ intrinsic metadata reads, acquisition and budget enforcement, multiple nested
 composites, historical recipe carry-forward, and real host execution.
 Those are not implicitly proven by a successful model run.
 
-The #5801 compiled fixture is the existing product oracle for the minimal
-Services forwarding case. The new representation's Metadata, Services/CLI, and
-Queries/Browser adoption gates remain unverified until the four-step plan in
-the owning design lands. No inspected assembly is executed by this model.
+The #5801 compiled fixture is the product oracle for the minimal Services
+forwarding case. #5978 implements Metadata occurrence propagation, and #5982
+implements Services/CLI adoption and the compiled two-context gate. #6049
+confirms the Browser's existing composition through production export methods,
+including terminal navigation and graph expansion from canonical and facade
+origins. The owning design's **Evidence and limits** section names those
+Release gates and distinguishes managed endpoint evidence from live-Wasm
+execution. No model behavior or bounded result changes with that adoption
+record, and no inspected assembly is executed by this model.
