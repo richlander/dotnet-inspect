@@ -464,10 +464,13 @@ sections rather than flattening evidence into the candidate row:
 The default minimal view renders **Candidates** as its single high-value
 section: it preserves every candidate's outcome and exact reopening token.
 Normal verbosity (`-v:n`) adds **Matches**, with occurrence evidence leading
-the expanded document. Quiet verbosity keeps the query context without row
-sections. These presets apply consistently to Markdown and structured formats
-and follow the existing [progressive disclosure](progressive-disclosure.md)
-contract; they do not change evaluation scope or acquire more content.
+the expanded document. Quiet verbosity suppresses row sections. These presets
+apply to Markdown and JSON and follow the existing
+[progressive disclosure](progressive-disclosure.md) contract; they do not
+change evaluation scope or acquire more content. Single-section row formats
+(`--table`, `--tsv`, and `--jsonl`) expose **Candidates** and retain their
+existing prohibition on `-v`. Use Markdown or `-v:n --json` for occurrence
+evidence.
 
 `--count` counts matching literal-use occurrences, preserving Find's
 match-count meaning rather than counting the candidate inventory. It does not
