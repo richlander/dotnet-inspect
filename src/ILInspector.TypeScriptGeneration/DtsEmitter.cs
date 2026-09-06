@@ -1,5 +1,6 @@
 using System.Text;
 using CSharpText;
+using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
@@ -123,19 +124,72 @@ static class DtsEmitter
     static ApiType[] GetDeclarationTypes(
         ILInspector.JsExportSurface.JsExportSurface surface)
     {
-        JsExportUnion? union = surface.Unions.FirstOrDefault(
-            union => ShouldEmit(surface, union.Definition));
-        if (union is not null)
+        foreach (JsExportUnion union in surface.Unions.Where(
+            union => ShouldEmit(surface, union.Definition)))
         {
-            throw new UnsupportedWireContractException(
-                union.Definition.FullName,
-                "native C# union TypeScript lowering is not implemented");
+            JsonWireDirection directions = surface.WireDirections.GetValueOrDefault(
+                union.Definition, JsonWireDirection.Both);
+            string? reason = (directions & JsonWireDirection.Deserialize) != 0
+                ? union.DeserializationUnsupportedReason
+                : union.SerializationUnsupportedReason;
+            if (reason is not null || union.IncludesNull is null || union.CaseTypes.Count == 0)
+            {
+                throw new UnsupportedWireContractException(
+                    union.Definition.FullName,
+                    reason ?? "union case or null evidence is unavailable");
+            }
         }
+        ValidateUnionCycles(surface);
         return [
             .. surface.Records
                 .Concat(surface.Enums)
+                .Concat(surface.Unions.Select(union => union.Definition))
                 .Where(type => ShouldEmit(surface, type)),
         ];
+    }
+
+    static void ValidateUnionCycles(ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        var unions = surface.Unions
+            .Where(union => ShouldEmit(surface, union.Definition) && union.Definition.DefinitionName is not null)
+            .ToDictionary(union => union.Definition.DefinitionName!, union => union);
+        var completed = new HashSet<JsExportUnion>();
+        var active = new HashSet<JsExportUnion>();
+        var pending = new Stack<(JsExportUnion Union, bool Exit)>();
+        foreach (JsExportUnion root in unions.Values)
+        {
+            pending.Push((root, false));
+            while (pending.TryPop(out var next))
+            {
+                if (next.Exit)
+                {
+                    active.Remove(next.Union);
+                    completed.Add(next.Union);
+                    continue;
+                }
+                if (completed.Contains(next.Union))
+                    continue;
+                if (!active.Add(next.Union))
+                {
+                    throw new UnsupportedWireContractException(
+                        next.Union.Definition.FullName,
+                        "recursive union case aliases are unsupported");
+                }
+                pending.Push((next.Union, true));
+                var types = new Stack<TypeRef>(next.Union.CaseTypes);
+                while (types.TryPop(out var type))
+                {
+                    if (TsTypeMapper.MatchesContainingAssembly(type, surface.AssemblyIdentity)
+                        && type.Resolution?.Type is { } definition
+                        && unions.TryGetValue(definition, out JsExportUnion? referenced))
+                        pending.Push((referenced, false));
+                    if (type.ElementType is { } element)
+                        types.Push(element);
+                    foreach (var argument in type.TypeArguments)
+                        types.Push(argument);
+                }
+            }
+        }
     }
 
     static IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
@@ -211,6 +265,45 @@ static class DtsEmitter
                 AllocatedTypeName(record, allocatedTypeNames),
                 typeEnvironment,
                 diagnostics);
+
+        foreach (JsExportUnion union in surface.Unions
+            .Where(union => ShouldEmit(surface, union.Definition))
+            .OrderBy(
+                union => AllocatedTypeName(union.Definition, allocatedTypeNames),
+                StringComparer.Ordinal))
+        {
+            EmitUnion(sb, union, typeEnvironment,
+                AllocatedTypeName(union.Definition, allocatedTypeNames));
+        }
+    }
+
+    static void EmitUnion(
+        StringBuilder sb,
+        JsExportUnion union,
+        TypeMappingEnvironment environment,
+        string name)
+    {
+        var usedNames = new HashSet<string>(environment.IdentityNames.Values, StringComparer.Ordinal);
+        string[] parameters = new string[union.Definition.TypeParameters.Count];
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            string parameter = $"T{index}";
+            while (!usedNames.Add(parameter))
+                parameter += "_";
+            parameters[index] = parameter;
+        }
+
+        string[] mapped = [.. union.CaseTypes.SelectMany(type =>
+            TsJsonUnionMapper.MapCase(type, parameters, environment.UnionContext, union.Definition.FullName))];
+        IEnumerable<string> alternatives = mapped.Where(type => type != "null");
+        if (union.IncludesNull == true || mapped.Contains("null", StringComparer.Ordinal))
+            alternatives = alternatives.Append("null");
+
+        sb.Append("export type ").Append(name);
+        if (parameters.Length > 0)
+            sb.Append('<').AppendJoin(", ", parameters).Append('>');
+        sb.Append(" = ").AppendJoin(" | ", alternatives.Distinct(StringComparer.Ordinal))
+            .Append(";\n\n");
     }
 
     static TypeScriptFunctionSignature GetFunctionSignature(
@@ -268,7 +361,8 @@ static class DtsEmitter
                 BlockedAliases(
                     function.ReturnTypeReferences,
                     typeEnvironment.KnownTypeNames,
-                    typeEnvironment.KnownTypeIdentities))
+                    typeEnvironment.KnownTypeIdentities),
+                typeEnvironment.UnionContext)
             : TsTypeMapper.MapReturnType(
                 function.ReturnType,
                 typeEnvironment.KnownTypeNames,
@@ -433,7 +527,19 @@ static class DtsEmitter
             knownTypeIdentities,
             aliases,
             identityNames,
-            delegateMappingContext);
+            delegateMappingContext,
+            new TsJsonUnionMappingContext(
+                surface.AssemblyIdentity,
+                identityNames,
+                surface.AssemblyIdentity is { } unionAssembly
+                    ? surface.Unions
+                        .Where(union => union.Definition.TypeParameters.Count > 0)
+                        .ToDictionary(
+                            union => new ApiTypeReferenceIdentity(
+                                unionAssembly, union.Definition.FullName, union.Definition.DefinitionName),
+                            union => union.Definition.TypeParameters.Count)
+                    : new Dictionary<ApiTypeReferenceIdentity, int>(),
+                delegateMappingContext));
     }
 
     static IReadOnlyDictionary<string, string> MappedTypeNames(
@@ -468,7 +574,20 @@ static class DtsEmitter
         allocatedTypeNames is not null
             && allocatedTypeNames.TryGetValue(type, out string? name)
                 ? name
-                : type.Name;
+                : PreferredTypeName(type);
+
+    internal static string PreferredTypeName(ApiType type)
+    {
+        if (type.HasUnionAttribute == true
+            && type.TypeParameters.Count > 0
+            && type.DefinitionName is { } definition)
+        {
+            string segment = definition.Segments[^1];
+            int arity = segment.LastIndexOf('`');
+            return arity >= 0 ? segment[..arity] : segment;
+        }
+        return type.Name;
+    }
 
     static bool ShouldEmit(
         ILInspector.JsExportSurface.JsExportSurface surface,
@@ -641,7 +760,8 @@ static class DtsEmitter
                         member.SignatureModel?.ReturnTypeReferences
                             ?? []),
                     member.SignatureModel?.ReturnTypeShape,
-                    typeEnvironment.IdentityNames);
+                    typeEnvironment.IdentityNames,
+                    typeEnvironment.UnionContext);
             }
             sb.Append("  readonly ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
@@ -657,6 +777,8 @@ static class DtsEmitter
     {
         foreach (ApiType type in types)
         {
+            if (type.HasUnionAttribute == true)
+                continue;
             bool converterControlled =
                 HasUnsupportedJsonConverter(type);
             foreach (ApiMember member in type.Members)
@@ -1049,7 +1171,8 @@ static class DtsEmitter
         HashSet<ApiTypeReferenceIdentity> KnownTypeIdentities,
         Dictionary<string, string> Aliases,
         Dictionary<ApiTypeReferenceIdentity, string> IdentityNames,
-        TsDelegateMappingContext DelegateMappingContext);
+        TsDelegateMappingContext DelegateMappingContext,
+        TsJsonUnionMappingContext UnionContext);
 
     static void EmitFunction(
         StringBuilder sb,
@@ -1122,7 +1245,7 @@ static class DtsEmitter
         return blocked.Count == 0 ? null : blocked;
     }
 
-    static bool IsAuthenticFrameworkMapping(
+    internal static bool IsAuthenticFrameworkMapping(
         ApiTypeReferenceIdentity reference)
     {
         if (!PlatformKeys.IsPlatform(

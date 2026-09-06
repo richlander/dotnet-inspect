@@ -725,6 +725,9 @@ jobs:
       - name: Run NuGetFetch tests (offline)
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
+      - name: Exercise Catalog research probe (offline)
+        run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
+
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
       # round-trip — so they run unconditionally rather than behind a path filter.
