@@ -14,15 +14,11 @@ Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the c
 ## Quick Example
 
 ```bash
-$ dotnet-inspect type JsonSerializer --package System.Text.Json --shape
+$ dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --markdown -v:q -T q
 
-# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
+# System.Text.Json.JsonSerializer
 
-System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
-   ├─ string Serialize<TValue>(TValue value, JsonSerializerOptions? options = null)
-   ├─ string Serialize(object? value, Type inputType, JsonSerializerOptions? options = null)
-   ├─ void Serialize<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)
-   └─ ...
+Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.0/System.Text.Json.dll | Source: NuGet | Kind: class | Modifiers: static | Properties: 1 | Methods: 103
 ```
 
 ## Documentation
@@ -124,6 +120,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
 | [ReadyToRun Image Projection](design/readytorun-image-projection.md) | PE managed-native and `RTR_HEADER` discovery, validated R2R headers and section directories, manifest-metadata extent identification, bounds, and failure behavior. |
+| [ReadyToRun CLI Projection](design/readytorun-cli-projection.md) | Explicit `@ReadyToRun` library sections and root-consistent `--metadata-root` selection for the existing `@Metadata` lens. |
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Proposed, design-locked, not-yet-implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release for shared CLI and Browser Package Query consumers. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
@@ -137,7 +134,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
 | [Inspect-web Worker Runtime](design/inspect-web-worker-runtime.md) | Long-lived worker epochs, bootstrap readiness, held starts, closed protocol and replay validation, liveness, draining, restart, and hard realm release. |
-| [Inspect Web Runtime Performance Evidence](inspect-web-runtime-performance.md) | Matched-head production-site latency and throughput comparison for the Mono baseline, .NET 12 CoreCLR, and CoreCLR ReadyToRun. |
+| [Inspect Web Runtime Performance Evidence](inspect-web-runtime-performance.md) | Matched-head nightly production-site latency and throughput evidence for the Mono baseline, .NET 12 CoreCLR, and CoreCLR ReadyToRun. |
 | [Inspect-web Async Composition](design/inspect-web-async-composition.md) | Cross-owner scenarios, typed handoff order, runtime-semantics comparison, gate ownership, and focused migration dependencies. |
 | [Engine-to-browser Async Event Streams](design/engine-browser-async-event-stream.md) | Host-neutral ordered progress, durable partial outcomes, one semantic completion, adapter backpressure, batching, and cancellation for engine streams consumed by Browser hosts. |
 | [Inspect Web UI](design/inspect-web-ui.md) | Composition map for the website redesign: redesign summary, product dependencies, document map, cross-document relationships, and reference-product boundary. |

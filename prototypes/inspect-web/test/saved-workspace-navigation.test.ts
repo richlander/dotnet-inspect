@@ -16,6 +16,7 @@ import {
   typeLensesFor,
 } from "../src/data.ts";
 import type {
+  BrowserHomeDemoResolveResult,
   BrowserWorkspaceShareDecodeResult,
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
@@ -31,7 +32,10 @@ import {
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
-import { isProductHomeDemosPath } from "../src/product-home-demos.ts";
+import {
+  isProductHomeDemosPath,
+  productHomeDemoLocationHref,
+} from "../src/product-home-demos.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
@@ -58,7 +62,7 @@ const hostNames = new Set([
   "failWorkspaceCatalogAction", "afterCurrentNavigationFrame",
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
-  "errorMessage", "isRecord", "runHomeDemo", "failDemoWorkspaceOpen",
+  "errorMessage", "isRecord", "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "canRestoreWorkbenchFocus", "isTextEntry",
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
@@ -140,6 +144,28 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function resolvedDemo(): BrowserHomeDemoResolveResult {
+  const members = sharedState().tabs.map(tab => ({
+    kind: "package",
+    id: tab.source,
+    version: tab.version,
+    framework: tab.framework,
+    assembly: null,
+  }));
+  return {
+    found: true,
+    demo: {
+      id: "demo",
+      title: "Example demo",
+      summary: "Open a two-package workspace.",
+      workspaceMembers: members,
+      tabs: members.map((member, index) => ({ id: `demo-${index}`, member })),
+      focusTabIndex: 1,
+      view: { library: null, type: null, memberAnchor: null, memberKey: null, section: null },
+    },
+  };
+}
+
 function harness() {
   const state = {
     home: false, credits: false, packageQueryOpen: false,
@@ -219,6 +245,8 @@ function harness() {
     resets: number;
   } = { current: null, opens: 0, resets: 0 };
   const operations: Promise<unknown>[] = [];
+  const demoResolutions: string[] = [];
+  const callGraphRuns: { id: string; navigationSeq: number }[] = [];
   const controls = {
     share: sharedState(),
     encodeResult: {
@@ -229,6 +257,9 @@ function harness() {
     acquisition: async (_id: string): Promise<boolean> => true,
     queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
     selection: async (): Promise<void> => {},
+    resolveHomeDemo: async (_id: string): Promise<BrowserHomeDemoResolveResult> => resolvedDemo(),
+    demoHref: productHomeDemoLocationHref,
+    callGraph: async (): Promise<void> => {},
     savedFocusAvailable: true,
   };
   function decode(value: string): BrowserWorkspaceShareDecodeResult {
@@ -366,8 +397,20 @@ function harness() {
         navigationHistory.record();
       }
     },
-    inspectResolveHomeDemo: () => ({ found: true, demo: {} }),
-    productHomeDemoLocationHref: () => `/?w=${encodeURIComponent(packet)}#workspace`,
+    engineClient: {
+      catalog: {
+        resolveHomeDemo: (id: string) => {
+          demoResolutions.push(id);
+          return controls.resolveHomeDemo(id);
+        },
+      },
+    },
+    productHomeDemoLocationHref: (...args: Parameters<typeof productHomeDemoLocationHref>) =>
+      controls.demoHref(...args),
+    runCallGraphDemo: (id: string, _snapshot: unknown, navigationSeq: number) => {
+      callGraphRuns.push({ id, navigationSeq });
+      return controls.callGraph();
+    },
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
   };
   runInNewContext(stripTypeScriptTypes(hostDeclarations), context);
@@ -376,6 +419,7 @@ function harness() {
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
     queries, retained, recent, invalidations, toasts, picker, previousEntries,
     catalogRequests, packageComparisonTargets,
+    demoResolutions, callGraphRuns,
     capture: (): string => {
       const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
@@ -727,6 +771,137 @@ test("neighboring demo opening retains the shared transactional failure orchestr
   assert.ok(h.state.queryNoticeRetryAction);
   h.flushFocus();
   assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
+});
+
+test("demo resolution waits before acquisition and commits its complete location with the same navigation sequence", async () => {
+  const h = harness();
+  const resolution = deferred<BrowserHomeDemoResolveResult>();
+  h.controls.resolveHomeDemo = () => resolution.promise;
+  const href = h.location.href;
+  const entryState = h.history.state;
+  h.demo();
+  const sequence = h.navigationSequence.current();
+  assert.equal(h.state.loading, true);
+  assert.equal(h.state.package, sourcePackage);
+  assert.equal(h.location.href, href);
+  assert.equal(h.history.state, entryState);
+  assert.equal(h.writes.length, 0);
+  assert.deepEqual(h.acquisitions, []);
+  assert.deepEqual(h.decoded, []);
+  assert.deepEqual(h.focus, []);
+  assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
+
+  resolution.resolve(resolvedDemo());
+  await h.settle();
+  assert.equal(h.navigationSequence.current(), sequence);
+  assert.equal(h.state.package?.id, "Beta");
+  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+  assert.equal(h.location.searchParams.get("w"), packet);
+  assert.equal(h.context.pendingDemoNavigation, null);
+  h.flushFocus();
+  assert.deepEqual(h.focus, ["heading"]);
+});
+
+for (const failure of ["resolution", "unknown", "projection", "decode"] as const) {
+  test(`demo ${failure} failure retains the source location and existing retry/focus policy`, async () => {
+    const h = harness();
+    const href = h.location.href;
+    const entryState = h.history.state;
+    if (failure === "resolution")
+      h.controls.resolveHomeDemo = async () => { throw new Error("Resolution unavailable"); };
+    if (failure === "unknown")
+      h.controls.resolveHomeDemo = async () => ({ found: false, demo: null });
+    if (failure === "projection")
+      h.controls.demoHref = () => { throw new Error("Projection unavailable"); };
+    if (failure === "decode")
+      h.controls.decodeError = new Error("Decoder unavailable");
+    h.demo();
+    await h.settle();
+    assert.equal(h.location.href, href);
+    assert.equal(h.history.state, entryState);
+    assert.equal(h.writes.length, 0);
+    assert.deepEqual(h.state.packages, [sourcePackage]);
+    assert.equal(h.state.loading, false);
+    assert.match(h.state.queryNotice, /^Demo failed:/);
+    assert.equal(Boolean(h.state.queryNoticeRetryAction), failure === "resolution");
+    assert.equal(h.context.pendingDemoNavigation, null);
+    assert.deepEqual(h.acquisitions, []);
+    assert.deepEqual(h.callGraphRuns, []);
+    h.flushFocus();
+    assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
+  });
+}
+
+test("a demo resolution retry reacquires the result under a new navigation sequence", async () => {
+  const h = harness();
+  h.controls.resolveHomeDemo = async () => { throw new Error("Try again"); };
+  h.demo();
+  await h.settle();
+  const failedSequence = h.navigationSequence.current();
+  assert.ok(h.state.queryNoticeRetryAction);
+  h.controls.resolveHomeDemo = async () => resolvedDemo();
+  h.state.queryNoticeRetryAction();
+  await h.settle();
+  assert.ok(h.navigationSequence.current() > failedSequence);
+  assert.deepEqual(h.demoResolutions, ["demo", "demo"]);
+  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+  h.flushFocus();
+  assert.deepEqual(h.focus, ["heading"]);
+});
+
+for (const outcome of ["success", "unknown", "failure"] as const) {
+  test(`superseded demo resolution ${outcome} cannot disturb a newer saved-workspace open`, async () => {
+    const h = harness();
+    const resolution = deferred<BrowserHomeDemoResolveResult>();
+    const selection = deferred<void>();
+    h.controls.resolveHomeDemo = () => resolution.promise;
+    h.demo();
+    h.controls.selection = () => selection.promise;
+    h.open();
+    await new Promise(resolve => setImmediate(resolve));
+    const pending = h.context.pendingDemoNavigation;
+    const snapshot = structuredClone(h.state);
+    const effects = [...h.effects];
+    const acquisitions = [...h.acquisitions];
+    if (outcome === "failure") resolution.reject(new Error("Stale failure"));
+    else resolution.resolve(outcome === "unknown" ? { found: false, demo: null } : resolvedDemo());
+    await h.operations[0];
+    assert.equal(h.context.pendingDemoNavigation, pending);
+    assert.deepEqual(structuredClone(h.state), snapshot);
+    assert.deepEqual(h.effects, effects);
+    assert.deepEqual(h.acquisitions, acquisitions);
+    assert.deepEqual(h.callGraphRuns, []);
+    assert.equal(h.writes.length, 0);
+    h.flushFocus();
+    assert.deepEqual(h.focus, []);
+    selection.resolve();
+    await h.settle();
+    assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+    h.flushFocus();
+    assert.deepEqual(h.focus, ["heading"]);
+  });
+}
+
+test("call-graph demo execution receives the resolution navigation sequence and stays observed", async () => {
+  const h = harness();
+  const resolution = deferred<BrowserHomeDemoResolveResult>();
+  const execution = deferred<void>();
+  h.controls.resolveHomeDemo = () => resolution.promise;
+  h.controls.demoHref = () => null;
+  h.controls.callGraph = () => execution.promise;
+  h.demo();
+  const sequence = h.navigationSequence.current();
+  assert.deepEqual(h.callGraphRuns, []);
+  resolution.resolve(resolvedDemo());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.callGraphRuns, [{ id: "demo", navigationSeq: sequence }]);
+  assert.equal(h.navigationSequence.current(), sequence);
+  assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
+  assert.equal(h.operations.length, 1);
+  assert.equal(h.writes.length, 0);
+  execution.resolve();
+  await h.settle();
+  assert.equal(h.context.pendingDemoNavigation, null);
 });
 
 function inspectionSelection(h: ReturnType<typeof harness>) {
