@@ -10,7 +10,7 @@ namespace ILInspector.Metadata.Tests;
 /// <summary>
 /// Gates the TypeResolution adapter that turns already-retained defining
 /// images into the optional CA enum-width resolver. Missing, unplanned, or
-/// unopened definitions stay Int32 so guard skip and SRM stay aligned.
+/// unopened definitions keep the owned decoder's Int32 fallback.
 /// </summary>
 public sealed class TypeResolutionEnumWidthTests
 {
@@ -293,12 +293,6 @@ public sealed class TypeResolutionEnumWidthTests
                 harness.Context,
                 [harness.Request]);
 
-        Assert.True(
-            CustomAttributeValueGuard.IsSafeToDecode(
-                harness.UserReader,
-                attribute,
-                beforeMaterialize: null,
-                resolver));
         var decoded = AttributeDecoder.TryDecode(
             harness.UserReader,
             attribute,
@@ -484,7 +478,7 @@ public sealed class TypeResolutionEnumWidthTests
     }
 
     [Fact]
-    public void HostileLeftoverCount_IsUnsafe()
+    public void HostileLeftoverCount_IsRefused()
     {
         using Harness harness = Harness.Create(hostileCount: 100_000_000);
         CustomAttribute attribute = FirstAttribute(harness.UserReader);
@@ -494,19 +488,13 @@ public sealed class TypeResolutionEnumWidthTests
                 [harness.Request]);
         int charged = 0;
 
-        Assert.False(
-            CustomAttributeValueGuard.IsSafeToDecode(
+        Assert.Null(
+            AttributeDecoder.TryDecode(
                 harness.UserReader,
                 attribute,
                 count => charged = checked(charged + count),
                 resolver));
         Assert.InRange(charged, 0, 100_000_000 - 1);
-        Assert.Null(
-            AttributeDecoder.TryDecode(
-                harness.UserReader,
-                attribute,
-                beforeMaterialize: null,
-                resolver));
     }
 
     static CustomAttribute FirstAttribute(MetadataReader reader)

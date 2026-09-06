@@ -245,12 +245,12 @@ substrates, and inspection producers that will extend that space.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the bounding, fail-closed, and fidelity invariants
-  for a decoder this repository will own, the format's adversarial properties
+  for the repository-owned decoder, the format's adversarial properties
   that force them, the two width-resolution paths, and the bound, charging, and
-  refusal semantics. That contract is **prescriptive ahead of the
-  implementation**: until #5288's slice 2 lands, `AttributeDecoder` still calls
-  SRM's `CustomAttribute.DecodeValue` behind `CustomAttributeValueGuard`, and
-  SRM becomes a test-time fidelity oracle only when it does.
+  refusal semantics. `AttributeDecoder` uses the internal
+  `CustomAttributeValueDecoder`; SRM is a test-time fidelity oracle, not a
+  second production walker. The fixtures-first D3 gate landed in #5148;
+  broader certification and the remaining D1/D2 evidence are still open.
   `SignatureBlobGuard` retains its structural signature bounds.
 
 ## Engineering guidance

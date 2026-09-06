@@ -489,9 +489,10 @@ can report an observed exact coordinate with peer failures disclosed, but
 cannot infer absence from unreadable peers. Failed operations, including the
 terminal operation deadline, publish no query rows.
 
-Offline version queries, payload-selecting latest/wildcard/range resolution,
-payload, metadata, search, and extraction paths remain on the legacy
-composition until their package-owned adoption slices land.
+Online caller-pinned extraction now adopts configured authorities as described
+below. Offline version queries and extraction, payload-selecting
+latest/wildcard/range resolution, metadata, search, and other payload consumers
+remain on the legacy composition until their package-owned adoption slices land.
 The process-global authentication decorator therefore
 also remains solely for those legacy paths; it cannot be removed until they no
 longer depend on it. This first live slice does not read or publish the legacy
@@ -529,13 +530,77 @@ Release gates for this adoption. The existing terminal-operation-timeout and
 HTTP source-association gates remain unchanged.
 
 The production adoption path is tracked by
-[#5400](https://github.com/richlander/dotnet-inspect/issues/5400) in five steps:
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400) in six steps:
 configured authorities, ordinary version listing, metadata-only version
-queries, payload/cache authority (including payload-selecting resolution),
-and remaining CLI consumers/legacy retirement. The user explicitly approved
+queries, caller-pinned payload/cache authority, discovered-coordinate
+payload acquisition (latest/wildcard/range), and remaining CLI consumers/legacy
+retirement. Exact pins are independently useful; splitting their adoption from
+discovered coordinates avoids interpreting a legacy producer restriction as
+reporting-authority evidence. The user explicitly approved
 CLI-only continuation ("CLI is good enough. proceed"); browser adoption is
 not a prerequisite for this workstream. These slices do not add browser
 filesystem registration or claim that offline local discovery is supported.
+
+### Caller-pinned payload acquisition
+
+The production consumer is ordinary online single-package
+`package <id>@<version>` inspection, through
+`PackageExtractor.ExtractPinnedPackageAsync`. Its exact-pin path uses the same
+configuration, mapping, client ownership, and association lookup as version
+queries. An eligible cache hit
+precedes cold acquisition; cold local sources precede HTTP sources regardless
+of declaration order. A pin needs one usable authority, not readable peers.
+Failures encountered before success remain available as typed diagnostics and
+in verbose CLI output. Local archive enumeration remains NuGetFetch-owned.
+
+The desktop store reuses existing admission and atomic publication. Local
+authorities publish into `package-authority-content-v1`, keyed by their
+`authority-v1` identity and exact coordinate, with producer evidence retained
+separately. The old `package-content-v5` family remains for unmigrated consumers
+and is never reinterpreted as this new namespace. Local global-packages reuse
+requires the metadata source to resolve to the same canonical local authority.
+
+HTTP authorities currently have no durable cache identity. Their admitted
+payloads use authority-scoped temporary filesystem materialization, retained
+until the extraction consumer calls the existing cleanup API. They do not
+read or write persistent payload or derived package-index entries, including
+HTTP global-packages entries. Temporary ownership is independent of the final
+payload's cache origin: a cached redirect target does not release the consumer
+from cleaning up earlier HTTP wrapper materialization. This deliberately trades
+cross-invocation cache reuse for correct authority; it does not invent a durable
+HTTP key from a credential-bearing endpoint or producer digest. Local derived
+package indexes use the persistent authority key.
+
+One operation context spans exact acquisition, stream consumption, publication,
+and exact tool-wrapper redirects. Each redirect recomputes package-ID
+authorization from the original source policy. The returned extraction retains
+the configured authority separately from producer provenance. Remote metadata
+enrichment is restricted to that resolved source representation; local payload
+inspection uses archive metadata instead. All-library Integration inspection
+uses its existing materialized-input path rather than reacquiring the root
+through the legacy producer-authorized artifact path.
+
+This slice does not migrate multi-package inspection, offline extraction,
+automatic payload selection, range-addressed payloads, package-scoped
+API/dependency commands, symbols, manifest-only requests, platform projection,
+or workspace artifact acquisition.
+Those callers retain `ExtractPackageAsync` and its producer-keyed single-flight
+registry until their own handoffs migrate. The new path does not join those
+legacy flights or share caller-owned temporary directories across extractions.
+Legacy discovered-coordinate restrictions remain on their existing path until
+their resolver can carry reporting authorities end to end. The CLI-only
+approval above covers this adoption; the store-independent composition API
+remains reusable by a future browser host.
+
+Release gates are `ConfiguredPayloadAcquisitionTests` (real local/HTTP payloads,
+source tiers and mapping, partial peer failure, terminal deadlines,
+cancellation, stream/commit lifetime, temporary extraction, and redirected
+package authorization), `AuthorityScopedPackageStoreTests` (authority slots
+and namespace/provenance separation), and
+`PackageInspectorMetadataSourceTests.InspectAsync_ConfiguredAuthoritiesDoNotShareProducerIndexes`
+(derived-index isolation). Existing source-routing, store-publication,
+legacy extraction/concurrency, and payload-admission suites retain their
+contracts.
 
 ### Metadata-only version queries
 
