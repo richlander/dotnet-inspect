@@ -1090,6 +1090,44 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public async Task ArtifactBackedPackageRealization_ReusesAdmissionFactsAcrossRoles()
+    {
+        byte[] surface = IntegrationAssembly("Artifact.Primary", "SurfaceType");
+        byte[] implementation = IntegrationAssembly("Artifact.Primary", "ImplementationType");
+        byte[] shared = IntegrationAssembly("Artifact.Shared", "SharedType");
+        const string sharedPath = "lib/net11.0/Artifact.Shared.dll";
+        var content = new TrackingPackageContent(
+            ("lib/net11.0/Artifact.Primary.dll", surface),
+            (sharedPath, shared),
+            ("runtimes/linux-x64/lib/net11.0/Artifact.Primary.dll", implementation));
+        PackageRootBinding binding = Binding(
+            "Artifact.Projection.Sample",
+            content,
+            runtimeIdentifier: "linux-x64");
+        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        using PackageAssemblyContextRealization realization =
+            await workspace.RealizePackageAssemblyContextRolesAsync(
+                binding,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, content.EntryOpenRequests);
+        Assert.NotSame(realization.SurfaceGroup, realization.ImplementationGroup);
+        ResolvedAssemblyReference surfaceShared = realization.SurfaceParticipants
+            .Single(participant => participant.Asset.Path == sharedPath).Participant.Assembly;
+        ResolvedAssemblyReference implementationShared = realization.ImplementationParticipants
+            .Single(participant => participant.Asset.Path == sharedPath).Participant.Assembly;
+        Assert.Same(
+            surfaceShared.Registration.ArtifactRegistration,
+            implementationShared.Registration.ArtifactRegistration);
+        Assert.Same(surfaceShared.Identity, implementationShared.Identity);
+        Assert.Equal("Artifact.Shared", surfaceShared.Identity.Name);
+        Assert.NotNull(surfaceShared.Registration.ModuleVersionId);
+        Assert.Equal(
+            surfaceShared.Registration.ModuleVersionId,
+            implementationShared.Registration.ModuleVersionId);
+    }
+
+    [Fact]
     public async Task ArtifactBackedPackageRealization_RejectsAggregateBudgetWithoutPartialGroup()
     {
         var content = new TrackingPackageContent(
@@ -1448,7 +1486,8 @@ public sealed class PackageAssemblyContextRealizationTests
     static PackageRootBinding Binding(
         string packageId,
         IPackageContent content,
-        string? displayPackageId = null)
+        string? displayPackageId = null,
+        string? runtimeIdentifier = null)
     {
         const string version = "1.0.0";
         const string producer = "tests";
@@ -1460,6 +1499,7 @@ public sealed class PackageAssemblyContextRealizationTests
         return PackageRootBinding.CreateFromSource(
             payload,
             Framework,
+            runtimeIdentifier,
             displayPackageId: displayPackageId);
     }
 
