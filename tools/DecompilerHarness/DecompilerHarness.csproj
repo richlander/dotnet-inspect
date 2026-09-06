@@ -21,6 +21,7 @@
     <ProjectReference Include="../../src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />

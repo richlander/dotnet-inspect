@@ -3,14 +3,16 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.RoundTripCompilation;
 using DotnetInspector.Services;
 using ILInspector.Findings;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
-using ILInspector.Research;
 using InertText;
 
 using Microsoft.CodeAnalysis;
@@ -43,7 +45,7 @@ sealed record AuthoredRebuildFidelityResult(
     SourceChecksumVerification? ChecksumVerification,
     RecordedBuildContext BuildContext,
     string? Detail,
-    ImplementationMemberDiffResult? ImplementationDiff,
+    [property: JsonIgnore] LocalComparisonQueryResult? MemberComparison,
     RebuildCompilationAttempt? AuthoredAttempt = null)
 {
     public LaneBuildContext AuthoredContext => BuildContext.Assess(AuthoredAttempt);
@@ -163,7 +165,7 @@ static class AuthoredRebuildFidelity
                             buildContext,
                             "Portable PDB acquisition failed: "
                                 + pdbAcquisitionFailure.Message,
-                            ImplementationDiff: null);
+                            MemberComparison: null);
                     }
                     else if (source is { Context.NeedsPdb: true })
                     {
@@ -175,7 +177,7 @@ static class AuthoredRebuildFidelity
                             source.Context.WindowsPdbDetected
                                 ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
                                 : "No matching portable PDB is available.",
-                            ImplementationDiff: null);
+                            MemberComparison: null);
                     }
                     else
                     {
@@ -227,7 +229,7 @@ static class AuthoredRebuildFidelity
                 ChecksumVerification: null,
                 buildContext,
                 "RTS did not produce a final artifact request.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         var subject = new FindingSubject(
@@ -248,7 +250,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 absent.Detail,
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
         if (authored.Lines.Value is FindingInspection<string>.Failed failed)
         {
@@ -258,7 +260,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 failed.Error.Reason,
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
         if (authored.Text is not { } authoredBody)
         {
@@ -268,7 +270,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 "Authored-source acquisition completed without body text.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         if (!TryExtractTargetBody(
@@ -283,7 +285,7 @@ static class AuthoredRebuildFidelity
                 authored.ChecksumVerification,
                 buildContext,
                 "Checksum-verified authored member source did not contain the target body.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         return CompileAuthoredBody(
@@ -839,10 +841,11 @@ static class AuthoredRebuildFidelity
                 checksumVerification,
                 buildContext,
                 "RTS did not produce a final artifact request.",
-                ImplementationDiff: null);
+                MemberComparison: null);
         }
 
         RebuildCompilationAttempt? authoredAttempt = null;
+        LocalComparisonQueryResult? memberComparison = null;
         try
         {
             using var originalPe = new PEReader(File.OpenRead(request.AssemblyPath));
@@ -862,7 +865,7 @@ static class AuthoredRebuildFidelity
                     checksumVerification,
                     buildContext,
                     "RTS did not retain its frozen compilation closure.",
-                    ImplementationDiff: null);
+                    MemberComparison: null);
             }
             MetadataReference[] references =
                 compilationClosure.References;
@@ -888,42 +891,29 @@ static class AuthoredRebuildFidelity
                     error is null
                         ? "The authored body did not compile in the RTS shell."
                         : $"{error.Id}: {error.GetMessage()}",
-                    ImplementationDiff: null,
+                    MemberComparison: null,
                     AuthoredAttempt: authoredAttempt);
             }
 
             var originalMethod = MetadataTokens.MethodDefinitionHandle(
                 MetadataTokens.GetRowNumber(request.TargetMethod));
-            var implementationDiff = ReturnToSender.BuildImplementationDiff(
+            memberComparison = ReturnToSender.CompareMemberBodies(
                 request.AssemblyPath,
                 originalReader,
                 originalMethod,
                 compilation.PeImage,
                 request.FullType,
                 request.MethodName,
-                overload: 0,
-                ImplementationDiffMechanism.IlBody);
-            if (implementationDiff is null)
-            {
-                return new AuthoredRebuildFidelityResult(
-                    decompilerResult,
-                    AuthoredRebuildOutcome.ContextFailed,
-                    checksumVerification,
-                    buildContext,
-                    "The authored rebuild target could not be compared to shipped IL.",
-                    ImplementationDiff: null,
-                    AuthoredAttempt: authoredAttempt);
-            }
+                overload: 0);
+            var (outcome, detail) = ClassifyComparison(memberComparison);
 
             return new AuthoredRebuildFidelityResult(
                 decompilerResult,
-                implementationDiff.IsExact
-                    ? AuthoredRebuildOutcome.Exact
-                    : AuthoredRebuildOutcome.IlDifferent,
+                outcome,
                 checksumVerification,
                 buildContext,
-                Detail: null,
-                implementationDiff,
+                detail,
+                memberComparison,
                 authoredAttempt);
         }
         catch (Exception ex) when (ex is BadImageFormatException
@@ -937,10 +927,22 @@ static class AuthoredRebuildFidelity
                 checksumVerification,
                 buildContext,
                 $"{ex.GetType().Name}: {ex.Message}",
-                ImplementationDiff: null,
+                MemberComparison: memberComparison,
                 AuthoredAttempt: authoredAttempt);
         }
     }
+
+    internal static (AuthoredRebuildOutcome Outcome, string? Detail) ClassifyComparison(
+        LocalComparisonQueryResult comparison)
+        => ReturnToSender.GetIlDiff(comparison)?.Diff.Outcome switch
+        {
+            IlBodyDiffOutcome.Exact => (AuthoredRebuildOutcome.Exact, null),
+            IlBodyDiffOutcome.OpcodeDiff or IlBodyDiffOutcome.OperandDiff =>
+                (AuthoredRebuildOutcome.IlDifferent, null),
+            _ => (AuthoredRebuildOutcome.ContextFailed,
+                "The authored rebuild target could not be compared to shipped IL: "
+                + ReturnToSender.DescribeIlComparisonFailure(comparison)),
+        };
 
     static CSharpParseOptions ParseOptions(RecordedBuildContext context)
     {

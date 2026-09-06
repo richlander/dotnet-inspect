@@ -87,7 +87,7 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.True(
             result.Outcome is AuthoredRebuildOutcome.Exact or AuthoredRebuildOutcome.IlDifferent,
             result.Detail);
-        Assert.NotNull(result.ImplementationDiff);
+        Assert.NotNull(result.MemberComparison);
         Assert.Equal(SourceChecksumVerification.Exact, result.ChecksumVerification);
         Assert.Equal(decompiler, result.DecompilerLane);
     }
