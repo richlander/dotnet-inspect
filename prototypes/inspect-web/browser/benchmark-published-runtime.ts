@@ -49,6 +49,7 @@ interface PackageMeasurement {
   readonly packageId: string;
   readonly version: string;
   readonly framework: string;
+  readonly assemblyName: string;
   readonly assemblies: number;
   readonly types: number;
   readonly members: number;
@@ -281,11 +282,18 @@ async function measurePackage(page: Page): Promise<{
       if (surface.inspectionError) {
         throw new Error(`Package inspection failed: ${surface.inspectionError}`);
       }
+      const assembly = surface.assemblies.find(
+        candidate => candidate.id === surface.defaultAssemblyId,
+      ) ?? surface.assemblies[0];
+      if (!assembly) {
+        throw new Error("Package inspection returned no assemblies.");
+      }
       return {
         milliseconds: performance.now() - started,
         packageId: surface.package,
         version: surface.version,
         framework: surface.activeFramework,
+        assemblyName: assembly.name,
         assemblies: surface.assemblies.length,
         types: surface.types.length,
         members: surface.totalMembers,
@@ -306,15 +314,17 @@ async function measurePackage(page: Page): Promise<{
 
 async function measurePackagePerformance(
   page: Page,
+  assemblyName: string,
 ): Promise<PackagePerformanceMeasurement> {
-  return page.evaluate(async coordinate => {
+  return page.evaluate(async input => {
     const analysis = await import("/inspect-web-analysis.js");
     async function measure() {
       const started = performance.now();
       const result = await analysis.queryPackagePerformance(
-        coordinate.packageId,
-        coordinate.version,
-        coordinate.targetFramework,
+        input.coordinate.packageId,
+        input.coordinate.version,
+        input.coordinate.targetFramework,
+        input.assemblyName,
       );
       if (result.inspectionError) {
         throw new Error(
@@ -343,7 +353,7 @@ async function measurePackagePerformance(
       warmMilliseconds: warm.milliseconds,
       result: first.result,
     };
-  }, scenario);
+  }, { coordinate: scenario, assemblyName });
 }
 
 async function measureMemberThroughput(
@@ -562,6 +572,7 @@ function semanticFingerprint(run: Omit<SuccessfulRun, "semanticFingerprint">) {
       packageId: run.package.cold.packageId,
       version: run.package.cold.version,
       framework: run.package.cold.framework,
+      assemblyName: run.package.cold.assemblyName,
       assemblies: run.package.cold.assemblies,
       types: run.package.cold.types,
       members: run.package.cold.members,
@@ -592,7 +603,10 @@ async function measureRun(
     stage = "package";
     const packageMeasurement = await measurePackage(page);
     stage = "package-performance";
-    const packagePerformance = await measurePackagePerformance(page);
+    const packagePerformance = await measurePackagePerformance(
+      page,
+      packageMeasurement.cold.assemblyName,
+    );
     stage = "member-throughput";
     const memberThroughput = await measureMemberThroughput(page, memberCount);
     stage = "method-comparison";
