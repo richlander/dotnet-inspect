@@ -95,7 +95,7 @@ export interface TypePanelBindingActions {
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
-  onLibraryOpen: () => void;
+  onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
   onMemberBack: () => void;
@@ -137,9 +137,9 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
-  root.querySelector("[data-library-root]")?.addEventListener(
+  root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
-    actions.onLibraryOpen);
+    actions.onTypeNavBack);
   root.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button =>
     button.addEventListener(
       "click",
@@ -308,6 +308,7 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   library: string;
+  parentSubject: "package" | "library";
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -320,7 +321,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
-    library, filtersExpanded, filterSummary, escapeHtml,
+    library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, kindIcon, shortKind,
   } = options;
   return `
@@ -335,7 +336,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${renderContentNavigationCloseButton()}
         </div>
       </div>
-      <button class="nav-back-row" type="button" data-library-root title="Back to library">
+      <button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
         <span class="chevron">‹</span>
         <span class="type-name">${escapeHtml(library)}</span>
         <small>library</small>
