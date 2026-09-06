@@ -53,11 +53,14 @@ The end-to-end tracker is #5602. Six adoption stages are:
 5. Inventory and focused adoption of other CLI source-policy families.
 6. Retirement of obsolete adapter shapes when their migrations are complete.
 
-The catalog consumes `PackagePrefixRequest`; CLI and Browser can independently
-consume `SourceIntent` and `SearchSourceNormalizer`. Neither host must apply
-search defaulting merely to construct or inspect a declaration. The source
-production changes in #5954 and the catalog hints/priorities in #6028 remain
-separate. This slice introduces no universal realization protocol.
+The catalog-facing currency is `PackagePrefixDeclaration`; a consumer adds its
+policy when constructing a `PackagePrefixRequest`. This separation is
+implemented under #6092; the catalog's planned prefix slot remains a separate
+adoption. CLI and Browser can independently consume `SourceIntent` and
+`SearchSourceNormalizer`. Neither host must apply search defaulting merely to
+construct or inspect a declaration. The source-production changes in #5954 and
+the catalog hints/priorities in #6028 remain separate. This slice introduces no
+universal realization protocol.
 
 ## Declaration contract
 
@@ -127,9 +130,11 @@ continue to put Extensions before ASP.NET Core regardless of token order.
 
 ## Package-prefix request
 
-`PackagePrefixRequest` is an immutable request with original prefix spelling,
-a positive `MaxPackages` integer, and `IncludePrerelease`. All three are
-inspectable independently of a declaration or search normalization.
+Prefix declaration and consumer policy are separate immutable values.
+`PackagePrefixDeclaration` retains only the original validated prefix spelling.
+It can be constructed and inspected without a request, source access, or search
+normalization. It carries neither expected nor maximum package counts;
+prerelease policy also belongs to the consumer request, not the declaration.
 
 The prefix is a nonempty literal beginning of a package ID accepted by
 `PackageCoordinateResolver.IsCanonicalPackageId`. It may be a complete valid
@@ -139,17 +144,33 @@ is no trimming, wildcard, query syntax, or case folding at construction.
 Matching semantics, source ordering, and the meaning of returned versions
 remain source-owned.
 
-The bound is required and must be positive; the request does not invent a
-universal provider maximum. Command policy chooses bounds such as the existing
+`PackagePrefixRequest` combines that declaration with a positive `MaxPackages`
+integer and `IncludePrerelease`. It retains the exact supplied declaration;
+different consumers can apply different policies to that same value without
+changing it. A prefix-only declaration is not an unbounded execution request.
+`SourceSelector.PackagePrefix` continues to retain the bounded request, and
+normalization preserves both the request and its declaration.
+
+The bound is required and must be positive; request construction does not invent
+a universal provider maximum. Command policy chooses bounds such as the existing
 500-package type-search limit. A realization adapter must preserve the requested
 bound or visibly reject unsupported intent, rather than silently clamp it.
 Source-work/page limits, deadlines, source configuration, authentication, and
 completion are not request fields. Prerelease eligibility is explicit, with
 `false` as the construction default.
 
-An accepted request proves intrinsic well-formedness only. Catalog discovery
-may retain and return it; it does not prove that the prefix exists, that a
-provider supports it, that a query is complete, or that traversal is permitted.
+The existing string-based request constructor remains a convenience for
+consumers that already have both prefix text and policy. It uses the same
+declaration validation. `PackagePrefixRequest.Create` accepts an existing
+declaration; using a named factory instead of a second public reference-typed
+constructor keeps existing null-input calls unambiguous. Request equality still
+distinguishes original prefix spelling, bound, and prerelease policy, not the
+allocation identity of the declaration.
+
+Construction of either value proves intrinsic well-formedness only. Neither
+proves that the prefix exists, that a provider supports it, that a query is
+complete, or that traversal is permitted. Catalog registration, source
+production, and host adoption remain outside this prerequisite.
 
 ## Search interpretation
 
@@ -188,13 +209,18 @@ not accept an acquisition result as a replacement declaration.
 
 ## Demo
 
-An ordinary consumer can retain a catalog-ready request before running search:
+An ordinary consumer can retain a catalog-ready declaration without choosing
+a package limit. Consumers then apply their own request policy:
 
 ```csharp
-var request = new PackagePrefixRequest("Aspire.", maxPackages: 500);
+var prefix = new PackagePrefixDeclaration("Aspire.");
+var request = PackagePrefixRequest.Create(prefix, maxPackages: 5);
+var broader = PackagePrefixRequest.Create(prefix, maxPackages: 250, includePrerelease: true);
 var intent = SourceIntent.Empty.Append(new SourceSelector.PackagePrefix(request));
 var normalized = SearchSourceNormalizer.Normalize(intent);
 
+// request.Declaration and broader.Declaration are the same prefix
+// request.MaxPackages == 5; broader.MaxPackages == 250
 // intent.Selectors.Count == 1
 // normalized.UsesImplicitPlatform == false
 // normalized.Frameworks.Count == 0
@@ -238,8 +264,8 @@ executable, run in Release in normal CI. Its public-consumer gates cover:
 | Gate | Claim |
 | --- | --- |
 | `SourceIntentTests` | Empty inspection, each typed variant, intrinsic rejection, independent snapshot/append, immutable collections, and package-owner validation |
-| `PackagePrefixRequestTests` | Retained bounded request, malformed prefix/bound rejection, separator and maximum-length boundaries |
-| `SearchSourceNormalizerTests` | Complete finite platform/group truth table, every direct source, stable package precedence/deduplication, retained prefix, and empty-group non-fallback |
+| `PackagePrefixRequestTests` | Declaration-only construction/inspection, independent consumer policies on one declaration, equivalent text-based/composed requests, malformed prefix/bound rejection, separator and maximum-length boundaries |
+| `SearchSourceNormalizerTests` | Complete finite platform/group truth table, every direct source, stable package precedence/deduplication, retained prefix declaration and distinct consumer requests, and empty-group non-fallback |
 | `PackageSourceIntentTests` | Reference/archive inspection, owner-issued parsing and version acceptance, original spelling, mixed-source ordering and equality, and explicit-source non-fallback |
 
 The tests use product construction and normalization, not replacement

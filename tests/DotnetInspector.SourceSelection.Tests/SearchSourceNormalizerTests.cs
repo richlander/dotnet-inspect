@@ -154,6 +154,31 @@ public sealed class SearchSourceNormalizerTests
     }
 
     [Fact]
+    public void SharedPrefixDeclarationRetainsIndependentRequests()
+    {
+        var declaration = new PackagePrefixDeclaration("Aspire.");
+        var small = PackagePrefixRequest.Create(declaration, 5);
+        var large = PackagePrefixRequest.Create(declaration, 250, includePrerelease: true);
+        SourceIntent intent = SourceIntent.Create(
+        [
+            new SourceSelector.PackagePrefix(small),
+            new SourceSelector.PackagePrefix(large),
+        ]);
+
+        SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
+
+        Assert.False(result.UsesImplicitPlatform);
+        Assert.Empty(result.Frameworks);
+        Assert.Empty(result.Packages);
+        Assert.Collection(result.OtherSources,
+            source => Assert.Same(small, Assert.IsType<SourceSelector.PackagePrefix>(source).Request),
+            source => Assert.Same(large, Assert.IsType<SourceSelector.PackagePrefix>(source).Request));
+        Assert.All(result.OtherSources, source => Assert.Same(
+            declaration, Assert.IsType<SourceSelector.PackagePrefix>(source).Request.Declaration));
+        Assert.Equal("Aspire.", declaration.Prefix);
+    }
+
+    [Fact]
     public void OtherSelectorsRetainRelativeOrderAndOccurrences()
     {
         var library = new SourceSelector.Library("first.dll");
