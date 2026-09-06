@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspector.Tests;
 
@@ -254,7 +255,7 @@ public class PackageQueryCliTests
         using var source = Source(out var fixture);
         fixture.InvalidArchive = invalidArchive;
         using var operation = new NuGetOperationContext();
-        var provider = new PackageQueryCommand.ContentProvider(source, new InMemoryPackageStore(), operation);
+        await using var provider = ContentProvider(fixture, operation);
         Assert.True(PackageQueryOptions.TryCreate("Contoso.",
             ["facet=package.query.no-dependencies", "facet=package.query.embedded-skill"],
             true, null, null, false, null, out var query, out var error), error.ToString());
@@ -271,6 +272,24 @@ public class PackageQueryCliTests
             Assert.Contains("PackageContent", result.Output);
             Assert.DoesNotContain("Contoso.Second", result.Output);
         }
+    }
+
+    [Fact]
+    public async Task ContentProvider_RetainsAuthorityStorageThroughUseAndThenCleansIt()
+    {
+        using var source = Source(out var fixture);
+        using var operation = new NuGetOperationContext();
+        string root;
+        await using (var provider = ContentProvider(fixture, operation))
+        {
+            var package = new PackageQueryPackage("Contoso.First", "1.0.0", [], null, null, source.Source);
+            var result = Assert.IsType<PackageQueryContentResult.Available>(
+                await provider.GetContentAsync(package, CancellationToken.None));
+            root = Assert.IsType<string>(result.Content.RootPath);
+            Assert.True(Directory.Exists(root));
+        }
+        Assert.False(Directory.Exists(root));
+        Assert.True(fixture.Payload!.Disposed);
     }
 
     [Fact]
@@ -307,6 +326,32 @@ public class PackageQueryCliTests
             factory => created = new FakeSource(factory));
         fixture = created!;
         return source;
+    }
+
+    private static PackageQueryCommand.ContentProvider ContentProvider(
+        FakeSource fixture, NuGetOperationContext operation) =>
+        new(new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(10), new UnavailableCredentials(),
+            (_, _) => new PayloadHandler(fixture)), operation);
+
+    private sealed class UnavailableCredentials : ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri, bool isRetry, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The public Gallery fixture does not require credentials.");
+    }
+
+    private sealed class PayloadHandler(FakeSource fixture) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal("globalcdn.nuget.org", request.RequestUri!.Host);
+            Assert.Equal("/packages/contoso.first.1.0.0.nupkg", request.RequestUri.AbsolutePath);
+            var result = await fixture.GetPackageAsync("Contoso.First", "1.0.0", cancellationToken);
+            return new(System.Net.HttpStatusCode.OK) { Content = new StreamContent(result.Value!.Content) };
+        }
     }
 
     private sealed class FakeSource(PackageSourceResultFactory results) : IPackageSourceClient

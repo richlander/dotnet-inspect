@@ -24,8 +24,8 @@ internal static class PackageQueryCommand
         deadline.CancelAfter(fetchOptions.OperationTimeout);
         using var operation = new NuGetOperationContext(
             fetchOptions.RequestTimeout, fetchOptions.OperationTimeout, deadline.Token);
-        IPackageQueryContentProvider? provider = options.PackageQuery!.PackageContent
-            ? new ContentProvider(source, new FileSystemPackageStore(), operation)
+        await using ContentProvider? provider = options.PackageQuery!.PackageContent
+            ? new ContentProvider(new DesktopPackageSourceComposition(fetchOptions.RequestTimeout), operation)
             : null;
         try
         {
@@ -77,31 +77,56 @@ internal static class PackageQueryCommand
             ? 0 : 1;
 
     internal sealed class ContentProvider(
-        IPackageSourceClient source,
-        IPackageStore store,
-        NuGetOperationContext operation) : IPackageQueryContentProvider
+        DesktopPackageSourceComposition composition,
+        NuGetOperationContext operation) : IPackageQueryContentProvider, IAsyncDisposable
     {
+        private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores = [];
+        private string? _temporaryRoot;
+
         public async ValueTask<PackageQueryContentResult> GetContentAsync(
             PackageQueryPackage package,
             CancellationToken cancellationToken)
         {
-            var result = await PackagePayloadAcquisition.AcquireAsync(
-                source,
-                PackageSourceIdentity.NuGetOrg,
-                PackageSourceCoordinate.Create(package.PackageId, package.Version),
-                store,
+            var result = await composition.AcquirePinnedAsync(
+                package.PackageId,
+                package.Version,
+                GetStore,
+                new NuGetSourceOptions { Sources = [PackageSource.NuGetOrg.Url] },
                 cancellationToken: cancellationToken,
                 operationContext: operation).ConfigureAwait(false);
-            return result switch
+            if (result.Failures.Count > 0)
             {
-                PackageSourcePayloadResult.Acquired acquired =>
-                    new PackageQueryContentResult.Available(acquired.Payload.Content),
-                PackageSourcePayloadResult.Unavailable unavailable =>
-                    new PackageQueryContentResult.Unavailable(unavailable.Message),
-                PackageSourcePayloadResult.Failed failed =>
-                    new PackageQueryContentResult.Unavailable(failed.Failure.Message),
-                _ => throw new InvalidOperationException("Unknown package payload acquisition result."),
-            };
+                return new PackageQueryContentResult.Unavailable(string.Join(
+                    "; ", result.Failures.Select(failure => $"{failure.Authority}: {failure.Message}")));
+            }
+            return result.Payload is { } payload
+                ? new PackageQueryContentResult.Available(payload.Content)
+                : new PackageQueryContentResult.Unavailable(
+                    "NuGet.org did not supply the selected package archive.");
+        }
+
+        private IPackageStore GetStore(ConfiguredPackageAuthority authority, PackageProducerIdentity producer)
+        {
+            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority, producer,
+                    () => _temporaryRoot ??= Directory.CreateTempSubdirectory("inspect-query").FullName);
+                _stores.Add(authority, store);
+            }
+            return store;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await composition.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                DotnetInspector.Packages.PackageExtractor.Cleanup(_temporaryRoot);
+            }
         }
     }
 }

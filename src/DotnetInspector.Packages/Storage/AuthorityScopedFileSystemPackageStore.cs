@@ -6,15 +6,16 @@ namespace DotnetInspector.Packages;
 /// <summary>
 /// A desktop payload store owned by one configured authority. Producer keys
 /// remain provenance; legacy source-key arguments cannot select another slot.
+/// The caller owns the temporary root and must retain it through content use.
 /// </summary>
-internal sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
+public sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
 {
     private readonly ConfiguredPackageAuthority _authority;
     private readonly PackageProducerIdentity _producer;
     private readonly Func<string> _getTemporaryRoot;
     private readonly Lazy<string> _temporaryCacheRoot;
 
-    internal AuthorityScopedFileSystemPackageStore(
+    public AuthorityScopedFileSystemPackageStore(
         ConfiguredPackageAuthority authority,
         PackageProducerIdentity producer,
         Func<string> getTemporaryRoot)

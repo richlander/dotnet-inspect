@@ -108,6 +108,14 @@ candidate budget to 20, and does not bypass the product's 20-candidate ceiling.
 Without that gesture, package-content selections fail before acquisition.
 Manifest predicates still run before archive acquisition.
 
+The CLI provider consumes the package owner's configured-authority exact-pin
+acquisition and authority-scoped filesystem store. It acquires the selected
+archive itself, without tool-wrapper redirection. Its fixed nuget.org source
+does not borrow the Browser's legacy identity association. The existing
+[HTTP authority storage policy](package-source-model.md#caller-pinned-payload-acquisition)
+applies: temporary materialization remains owned through query completion,
+then is cleaned up; legacy persistent payload caches are not reused.
+
 `--candidates` and `--matches` lower to the existing query execution budgets.
 They are not L2 Head/Top operations or a replacement global item-limit grammar.
 The manifest default is the product's 200 candidates; the match default is
@@ -141,6 +149,8 @@ cancellation remains a failed operation rather than empty success.
 `OutputModes_UseTheSameWindowedMatches` gate semantic row shape;
 `ContentProvider_UsesAdmittedArchiveAndDisposesTransport` exercises the
 production provider over an admitted archive and a rejected archive;
+`ContentProvider_RetainsAuthorityStorageThroughUseAndThenCleansIt` gates the
+temporary storage lifetime;
 `PartialManifestFailure_RetainsMatchesAndNonzeroExit`,
 `EmptySuccessAndSearchFailureRemainDistinct`, and
 `CancellationDoesNotBecomeAnEmptySuccess` gate failure disclosure.
