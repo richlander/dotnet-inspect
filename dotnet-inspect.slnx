@@ -64,6 +64,7 @@
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures/ILInspector.JsExportSurface.UnionFixtures.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.Alpha/TsJsExport.ContextFixtures.Alpha.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.Beta/TsJsExport.ContextFixtures.Beta.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />

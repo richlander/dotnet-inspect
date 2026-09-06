@@ -121,12 +121,22 @@ static class DtsEmitter
             includeRawReturnType);
 
     static ApiType[] GetDeclarationTypes(
-        ILInspector.JsExportSurface.JsExportSurface surface) =>
-        [
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        JsExportUnion? union = surface.Unions.FirstOrDefault(
+            union => ShouldEmit(surface, union.Definition));
+        if (union is not null)
+        {
+            throw new UnsupportedWireContractException(
+                union.Definition.FullName,
+                "native C# union TypeScript lowering is not implemented");
+        }
+        return [
             .. surface.Records
                 .Concat(surface.Enums)
                 .Where(type => ShouldEmit(surface, type)),
         ];
+    }
 
     static IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
         DeclaredTypesByScopedIdentity(
