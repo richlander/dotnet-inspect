@@ -25,6 +25,12 @@ internal static class ApiServices
             ResolvedAssemblyReference> SourceAssemblies,
         bool IsSummary = false)
     {
+        internal string GetLibraryAssetPath(string? packageExtractPath) =>
+            packageExtractPath is null
+                ? Path.GetFullPath(ApiDllPath)
+                : Path.GetRelativePath(packageExtractPath, ApiDllPath)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+
         internal ResolvedAssemblyReference GetSourceAssembly(
             ApiType type)
         {

@@ -2142,12 +2142,16 @@ npm run benchmark:published -- \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 5 \
   --member-count 10 \
-  --output ../../artifacts/inspect-web-runtime-performance.json
+  --output ../../artifacts/inspect-web-runtime-performance.json \
+  --trend-output ../../artifacts/inspect-web-runtime-trend-point.json
 ```
 
 Comparative reports require the sites to serve the same product commit.
 `--allow-mismatched-commits` permits a diagnostic run but leaves the report
-explicitly non-comparable.
+explicitly non-comparable. The daily
+`inspect-web-performance-nightly.yml` workflow runs the comparison on one
+runner, retains raw evidence for 90 days, and emits a trend point only for a
+fully successful, matched-head, semantically equivalent report.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped

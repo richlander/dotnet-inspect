@@ -115,7 +115,8 @@ dotnet-inspect type System.Text.Json JsonSerializer -v:q --markdown
 ```expect
 # System.Text.Json.JsonSerializer
 Kind:
-Library: System.Text.Json
+Library:
+System.Text.Json.dll
 ```
 
 ### Fully qualified name (bare)
@@ -162,7 +163,8 @@ dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q --markdown
 
 ```expect
 # System.Text.Json.Serialization.JsonConverter
-Library: System.Text.Json
+Library:
+System.Text.Json.dll
 ```
 
 ## Qualified names for ASP.NET Core
@@ -179,7 +181,8 @@ dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q --markdown
 
 ```expect
 # Microsoft.AspNetCore.Builder.WebApplication
-Library: Microsoft.AspNetCore
+Library:
+Microsoft.AspNetCore.dll
 Source: Platform
 ```
 

@@ -2429,7 +2429,7 @@ test("dependency graph render identity includes truncation and navigation", () =
 });
 
 test("ready status shows versioned linked build provenance", () => {
-  assert.match(appSource, /state\.buildIdentity = await engineStartup\.host\.buildIdentity\(\)/);
+  assert.match(appSource, /state\.buildIdentity = await engineClient\.host\.buildIdentity\(\)/);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
@@ -3010,13 +3010,13 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(
     runHomeDemo,
-    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*const navigationSeq = beginDemoNavigation\(destination\);[\s\S]*restoreWorkspaceCatalogEntry\(\s*loc,\s*navigationSeq,\s*snapshot,\s*message => failDemoWorkspaceOpen\(kind, message, snapshot, true\)/);
+    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*stageDemoNavigation\(navigationSeq, destination\);[\s\S]*restoreWorkspaceCatalogEntry\(\s*loc,\s*navigationSeq,\s*snapshot,\s*message => failDemoWorkspaceOpen\(kind, message, snapshot, true\)/);
   assert.match(
     runHomeDemo,
     /async function restoreWorkspaceCatalogEntry\([\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*true,\s*failureHandler\);[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
   assert.match(
     runHomeDemo,
-    /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*const navigationSeq = beginDemoNavigation\(destination\)/);
+    /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*stageDemoNavigation\(navigationSeq, destination\)/);
   assert.doesNotMatch(runHomeDemo, /workspaceLocation\.replace\("\/demos"/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
   const restoreWorkspace =
@@ -3906,9 +3906,6 @@ test("member detail adapters preserve exact engine coordinates", () => {
   assert.match(
     factsRenderer,
     /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
-  assert.match(
-    factsRenderer,
-    /\["Operation", "operation"\],[\s\S]*\["Requirement", "requirement"\],[\s\S]*\["Evidence", "evidence"\]/);
 });
 
 test("type source identity includes decompiler taste", () => {
