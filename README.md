@@ -437,9 +437,15 @@ dotnet-inspect graph integrations \
 dotnet-inspect workspace-state decode "$w"
 dotnet-inspect workspace-state decode "$w" | jq
 dotnet-inspect workspace-state encode --file workspace-state.json
+dotnet-inspect workspace-state encode --file workspace-state.json --url
 dotnet-inspect skill list
 dotnet-inspect demo list
 ```
+
+`workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
+for the existing share-packet JSON shape. Packet-only output remains the default.
+This is not an encoder for `workspace --json` inventory output. The packet's
+existing limits and the browser's supported restoration shapes still apply.
 
 ## Requirements
 

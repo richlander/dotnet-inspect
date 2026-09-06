@@ -43,7 +43,8 @@ public static class WorkspaceStateCommand
         string? json,
         string? file,
         CancellationToken cancellationToken,
-        Stream? standardInput = null)
+        Stream? standardInput = null,
+        bool url = false)
     {
         try
         {
@@ -57,7 +58,10 @@ public static class WorkspaceStateCommand
             WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
                 input,
                 cancellationToken);
-            Console.WriteLine(WorkspaceSharePacketCodec.Encode(packet));
+            string encoded = WorkspaceSharePacketCodec.Encode(packet);
+            Console.WriteLine(url
+                ? $"https://dotnet-inspect.net/?w={encoded}"
+                : encoded);
             return 0;
         }
         catch (Exception ex) when (IsExpectedInputFailure(ex))
