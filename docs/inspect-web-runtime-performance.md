@@ -42,10 +42,12 @@ headline ratio.
 ## Pinned scenario
 
 The initial scenario uses
-`Microsoft.Extensions.Primitives@10.0.0` targeting `net10.0`. The coordinate is
-small enough to complete under the current CoreCLR browser operation deadline
-while exercising package acquisition, metadata projection, IL analysis,
-decompilation, and diff production.
+`Microsoft.Extensions.Primitives@10.0.0` targeting `net10.0`. The coordinate
+exercises package acquisition, metadata projection, IL analysis, decompilation,
+and diff production. The current unsupported .NET 11 CoreCLR deployment can
+exceed its 30-second browser package-operation deadline even for this
+coordinate. That timeout is product behavior: the harness must preserve it and
+reject the run rather than increase the deadline or publish partial timings.
 
 The method-body comparison uses
 `Microsoft.Extensions.Primitives.StringSegment.Trim` and `TrimStart`. The
@@ -120,6 +122,12 @@ npm run benchmark:published -- \
   --output ../../artifacts/inspect-web-runtime-performance.json
 ```
 
+If any sample reaches a product deadline, preserve the rejected report and wait
+for the next controlled run or runtime cohort. A scheduled performance lane
+should provide the stable host and repeated opportunities needed for
+multi-sample evidence; retrying interactively on a busy machine does not turn a
+partial run into comparative evidence.
+
 For a short diagnostic run while deployments intentionally differ:
 
 ```bash
@@ -137,8 +145,8 @@ request intentionally records one as durable evidence.
 
 ## Preliminary diagnostic
 
-A one-sample hand-run on 2026-09-05 established that the scenario is both
-feasible and discriminating:
+A one-sample hand-run on 2026-09-05 established that successful executions are
+discriminating:
 
 | Measurement | Mono .NET 11 | CoreCLR .NET 11 |
 | --- | ---: | ---: |
