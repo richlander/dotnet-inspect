@@ -42,10 +42,22 @@ public static class ChangeDetectionApp
             return 0;
         }
 
+        if (args is ["--refresh-decompiler-skip-projects"])
+        {
+            bool changed = DecompilerSkipProjectsGenerator.Generate(repository);
+            Console.WriteLine(changed
+                ? "Refreshed eng/decompiler-gate-skip-projects.txt from the "
+                    + "evaluated Release decompiler project closure."
+                : "eng/decompiler-gate-skip-projects.txt is already current.");
+            return 0;
+        }
+
         if (args.Length != 0)
         {
             throw new InvalidOperationException(
-                "Usage: dotnet run eng/test-ci-change-detection.cs [-- --refresh-evil-provenance-pin]");
+                "Usage: dotnet run eng/test-ci-change-detection.cs "
+                + "[-- --refresh-evil-provenance-pin | "
+                + "--refresh-decompiler-skip-projects]");
         }
 
         InspectWebProjectGraphPolicy.Validate(repository);
