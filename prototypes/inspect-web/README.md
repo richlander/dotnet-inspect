@@ -1,6 +1,6 @@
 # dotnet-inspect browser prototype
 
-This prototype explores a type-first, keyboard-driven browser experience for
+This prototype explores a Library-first, keyboard-driven browser experience for
 `dotnet-inspect`. This branch is a **thin-engine rebuild on current `main`**, and
 its organising rule is:
 
@@ -9,6 +9,12 @@ its organising rule is:
 > is exported as explicitly unsupported and reported as a product API gap. It is
 > never answered by opening a session, a metadata source, an analysis index, or a
 > retained image descriptor.
+
+Opening a package without an explicit destination starts at Library Overview
+using the product-selected default Library. Package remains available one level
+up with its complete Library inventory. Explicit links and restored workspace
+history keep their selected subjects and inspectors; packages with no compile
+Libraries remain at Package with the reason visible.
 
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
