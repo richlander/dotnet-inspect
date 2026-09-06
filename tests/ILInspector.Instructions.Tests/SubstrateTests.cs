@@ -39,6 +39,84 @@ public class InstructionDecoderTests
     }
 
     [Fact]
+    public void Bounded_decode_completes_at_the_exact_instruction_limit()
+    {
+        ReadOnlySpan<byte> il = [0x17, 0x18, 0x58, 0x2A];
+
+        bool completed = InstructionDecoder.TryDecodeBounded(
+            il,
+            maximumInstructions: 4,
+            out ImmutableArray<DecodedInstruction> instructions,
+            out int decodedInstructionCount);
+
+        Assert.True(completed);
+        Assert.Equal(4, decodedInstructionCount);
+        Assert.Equal(
+            [ILOpCode.Ldc_i4_1, ILOpCode.Ldc_i4_2, ILOpCode.Add, ILOpCode.Ret],
+            instructions.Select(instruction => instruction.OpCode));
+    }
+
+    [Fact]
+    public void Bounded_decode_discards_the_prefix_when_the_limit_is_reached()
+    {
+        ReadOnlySpan<byte> il = [0x17, 0x18, 0x58, 0x2A];
+
+        bool completed = InstructionDecoder.TryDecodeBounded(
+            il,
+            maximumInstructions: 3,
+            out ImmutableArray<DecodedInstruction> instructions,
+            out int decodedInstructionCount);
+
+        Assert.False(completed);
+        Assert.Equal(3, decodedInstructionCount);
+        Assert.Empty(instructions);
+    }
+
+    [Fact]
+    public void Bounded_decode_does_not_decode_a_suffix_past_the_limit()
+    {
+        ReadOnlySpan<byte> il = [0x00, 0xFE];
+
+        bool completed = InstructionDecoder.TryDecodeBounded(
+            il,
+            maximumInstructions: 1,
+            out ImmutableArray<DecodedInstruction> instructions,
+            out int decodedInstructionCount);
+
+        Assert.False(completed);
+        Assert.Equal(1, decodedInstructionCount);
+        Assert.Empty(instructions);
+    }
+
+    [Fact]
+    public void Bounded_decode_preserves_malformed_il_classification()
+    {
+        int decodedInstructionCount = 0;
+
+        Assert.Throws<BadImageFormatException>(() =>
+            InstructionDecoder.TryDecodeBounded(
+                [0x00, 0x28, 0x00],
+                maximumInstructions: 2,
+                out _,
+                out decodedInstructionCount));
+        Assert.Equal(1, decodedInstructionCount);
+    }
+
+    [Fact]
+    public void Bounded_decode_observes_cancellation_before_decoding()
+    {
+        var cancellation = new CancellationToken(canceled: true);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            InstructionDecoder.TryDecodeBounded(
+                [0x00],
+                maximumInstructions: 1,
+                cancellation,
+                out _,
+                out _));
+    }
+
+    [Fact]
     public void Decodes_branch_targets_relative_to_next_offset()
     {
         // IL_0000 br.s IL_0003 ; IL_0002 nop ; IL_0003 ret
