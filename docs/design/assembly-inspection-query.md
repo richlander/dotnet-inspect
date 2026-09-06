@@ -572,6 +572,23 @@ to an internal `AssemblyImage` or `AssemblyInspectionSession` for the duration
 of one operation, but the adapter cannot escape the artifact callback or
 recreate a parameterless opener.
 
+`ResolvedAssemblyReference.CreateFromArtifactProjection` adapts successful
+projection facts for existing compatibility consumers without opening content
+again to decode identity or MVID. It requires the exact artifact and generation
+identities, binds the projected MVID, and preserves the caller's independently
+supplied guarded opener and provenance. Neither capability comes from the
+projection. As with existing descriptor factories, the compatibility identity
+must have a nonblank name.
+
+The first production adopter is shared package-role realization:
+`InspectionWorkspace.RealizePackageAssemblyContextRolesAsync`, already used by
+Browser package inspection and the CLI artifact-backed package Integrations
+path. It consumes successful admission facts only after artifact publication.
+Non-projectable images and identities unsuitable for compatibility descriptors
+retain the existing rejection-carrier route, including any partially decoded
+identity. This adoption does not migrate group queries to
+`ArtifactAssemblyInspection.Execute` or enable assembly-pattern Package Query.
+
 General removal of `ResolvedAssemblyReference.Path` and
 `ResolvedAssemblyReference.OpenRead` waits for their existing consumers to
 migrate. This slice adds the content-free route required by context
@@ -611,6 +628,9 @@ conformance or the outer authorization-result mapping.
 - `QueryValidation_ClassifiesNativeModuleMalformedAndEmptyMvid`
 - `QueryValidation_RejectsArtifactGenerationAssemblyIdentityAndMvidMismatch`
 - `AdmissionProjection_ExactArtifactIdentityIsNonVacuous`
+- `CompatibilityDescriptor_UsesProjectedFactsWithoutOpeningContent`
+- `CompatibilityDescriptor_RejectsAnotherArtifactBeforeOpeningContent`
+- `CompatibilityDescriptor_RequiresANonblankIdentity`
 
 The first gate uses the existing artifact-backed fixture from #4954/#4957 and
 requires the same `ArtifactAcquisitionRegistration.Artifact` object, assembly
@@ -627,6 +647,14 @@ gates use both Windows Metadata kinds and require the
 MetadataPrimitives-owned classifier to reject before `MetadataReader`
 construction or other managed metadata work; `MDP017` continues to own the
 classifier's format detection and bounded-work guarantees.
+
+The compatibility gates use real admission projections to require descriptor
+construction without an open, exact artifact/generation correspondence,
+projected identity and MVID, and the unchanged caller-supplied opener. They
+also require rejection of a blank compatibility identity. The package owner's
+`ArtifactBackedPackageRealization_ReusesAdmissionFactsAcrossRoles` gate checks
+that one retained artifact selected into two distinct production role groups
+supplies the same materialized identity facts to both.
 
 ##### Non-goals
 

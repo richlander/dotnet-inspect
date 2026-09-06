@@ -32,6 +32,19 @@ public sealed class JsExportSurface
     public IReadOnlyList<ApiType> Enums { get; init; } = [];
 
     /// <summary>
+    /// Complete extracted same-assembly type inventory available when the
+    /// surface came from <see cref="JsExportSurfaceBuilder"/> rather than a
+    /// hand-composed test fixture.
+    /// </summary>
+    /// <remarks>
+    /// Consumers use this only for same-assembly wire-contract decisions that
+    /// must distinguish "not discovered for emission" from "not present in the
+    /// assembly at all".
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyList<ApiType> AllTypes { get; init; } = [];
+
+    /// <summary>
     /// The wire directions each declared type was reached in, keyed by the
     /// <see cref="ApiType"/> instances published in <see cref="Records"/> and
     /// <see cref="Enums"/>.
@@ -124,6 +137,15 @@ public sealed class JsExportFunction
         { get; init; } = [];
 
     /// <summary>
+    /// Authenticated source-generated serializer-context scopes that produced
+    /// <see cref="ReturnWireTypeReferences"/>. Present only on body-backed
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ReturnWireContextScopeKeys
+        { get; init; } = [];
+
+    /// <summary>
     /// Exact structural shape of <see cref="ReturnWireType"/>. This keeps
     /// primitive nodes distinct from producer-defined types whose C# display
     /// spelling is identical.
@@ -145,6 +167,36 @@ public sealed class JsExportFunction
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
         { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated source-generated serializer-context scopes that produced
+    /// <see cref="ParameterWireTypeReferences"/>. Present only on body-backed
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ParameterWireContextScopeKeys
+        { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated per-call associations between a wire-contract root type,
+    /// the source-generated serializer context scope that supplied it, and the
+    /// direction it participates in.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<JsExportWireTypeContextPath> WireTypeContextPaths
+        { get; init; } = [];
+}
+
+public sealed class JsExportWireTypeContextPath
+{
+    public required JsonWireDirection Direction { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> TypeReferences
+        { get; init; } = [];
+
+    [JsonIgnore]
+    public IReadOnlyList<string> ContextScopeKeys { get; init; } = [];
 }
 
 public enum JsExportDelegateKind

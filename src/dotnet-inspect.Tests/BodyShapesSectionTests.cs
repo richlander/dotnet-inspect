@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -23,6 +24,11 @@ namespace DotnetInspector.Tests;
 public sealed class BodyShapesSectionTests
 {
     static string FixturePath => typeof(BodyShapeFixture).Assembly.Location;
+
+    public BodyShapesSectionTests()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+    }
 
     [Fact]
     public async Task LibraryKindPredicate_AutoSelectsBodyShapesSection()
@@ -1545,10 +1551,12 @@ public sealed class BodyShapesSectionTests
             candidate.FullName == typeof(BodyShapeFixture).FullName);
         var property = Assert.Single(type.Members, member =>
             member.Kind == "property"
-            && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+            && member.Name
+                == $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Value)}");
         var @event = Assert.Single(type.Members, member =>
             member.Kind == "event"
-            && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+            && member.Name
+                == $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Changed)}");
 
         type.Members = [property];
         var propertyMethods = ApiOutputFormatter.ResolveBodyMethods(

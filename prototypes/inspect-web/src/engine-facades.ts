@@ -7,8 +7,8 @@
 // later caller observes, so a stale module or a missing export root fails the application
 // visibly instead of leaving it partially initialized.
 //
-// Nothing here re-exports a managed operation. Application code calls each of the 48
-// operations through the generated module that owns it; this module owns only composition.
+// Nothing here re-exports a managed operation. Application code calls each exported
+// operation through the generated module that owns it; this module owns only composition.
 //
 // The published modules are served beside `_framework/` at the site root, so they are named
 // by their absolute runtime specifier and loaded as modules rather than bundled.
