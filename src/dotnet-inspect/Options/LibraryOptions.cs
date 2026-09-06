@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Options;
 
@@ -94,6 +95,9 @@ public record LibraryOptions : IProjectionOptions
     /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
     /// </summary>
     public string? HeapParameter { get; init; }
+
+    /// <summary>The explicitly selected metadata root; null preserves the existing CLI path.</summary>
+    public MetadataRootKind? MetadataRoot { get; init; }
 
     /// <summary>
     /// Path to a text file containing sparse MethodDef token + IL offset coordinates.

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -437,6 +438,12 @@ public sealed class ReadyToRunImageInspectorTests
 
     static PEReader Open(byte[] bytes) => new(new MemoryStream(bytes));
 
+    /// <summary>
+    /// A thin mapping wrapper over the shared byte builder in
+    /// <see cref="ReadyToRunImageFixture"/>. The geometry lives there so the CLI's public-command
+    /// tests build the same images without referencing this test executable; only the enum
+    /// spelling — which the fixture project deliberately does not know — is applied here.
+    /// </summary>
     internal static SyntheticImage CreateImage(
         bool managedNative,
         bool exported,
@@ -448,160 +455,34 @@ public sealed class ReadyToRunImageInspectorTests
         string exportName = "RTR_HEADER",
         bool manifestAliasesCliMetadata = false)
     {
-        sections ??=
-        [
-            new(ReadyToRunSectionType.CompilerIdentifier, [1, 2, 3]),
-            new(ReadyToRunSectionType.ManifestMetadata, "BSJB"u8.ToArray()),
-        ];
+        SyntheticReadyToRunSection[]? specs = sections?
+            .Select(static section => new SyntheticReadyToRunSection(
+                (uint)section.Type, section.Content, section.RelativeVirtualAddress))
+            .ToArray();
 
-        byte[] bytes = File.ReadAllBytes(SelfPath);
-        using var original = Open(bytes);
-        PEHeaders headers = original.PEHeaders;
-        PEHeader peHeader = headers.PEHeader!;
-
-        int lastSectionIndex = headers.SectionHeaders
-            .Select(static (section, index) => (Section: section, Index: index))
-            .OrderBy(static item => item.Section.VirtualAddress)
-            .Last()
-            .Index;
-        SectionHeader section = headers.SectionHeaders[lastSectionIndex];
-
-        int sectionHeadersOffset = headers.PEHeaderStartOffset + headers.CoffHeader.SizeOfOptionalHeader;
-        int sectionHeaderOffset = sectionHeadersOffset + (lastSectionIndex * 40);
-        int exportDataDirectoryOffset =
-            headers.PEHeaderStartOffset + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
-        int managedNativeDirectoryOffset = headers.CorHeaderStartOffset + 64;
-
-        Array.Clear(bytes, exportDataDirectoryOffset, 8);
-        Array.Clear(bytes, managedNativeDirectoryOffset, 8);
-
-        if (setIlLibrary)
-        {
-            uint corFlags = ReadUInt32(bytes, headers.CorHeaderStartOffset + 16);
-            WriteUInt32(
-                bytes,
-                headers.CorHeaderStartOffset + 16,
-                corFlags | (uint)CorFlags.ILLibrary);
-        }
-        else
-        {
-            uint corFlags = ReadUInt32(bytes, headers.CorHeaderStartOffset + 16);
-            WriteUInt32(
-                bytes,
-                headers.CorHeaderStartOffset + 16,
-                corFlags & ~(uint)CorFlags.ILLibrary);
-        }
-
-        int payloadOffset = Align(Math.Max(bytes.Length, section.PointerToRawData + section.SizeOfRawData), 4);
-        int exportPrefixSize = exported ? Align(40 + 4 + 4 + 2 + exportName.Length + 1, 4) : 0;
-        int headerOffset = payloadOffset + exportPrefixSize;
-        int headerSize =
-            ReadyToRunImageInspector.FixedHeaderSize +
-            (sections.Length * ReadyToRunImageInspector.SectionEntrySize);
-        int contentOffset = Align(headerOffset + headerSize, 4);
-
-        var sectionOffsets = new int[sections.Length];
-        int cursor = contentOffset;
-        for (int i = 0; i < sections.Length; i++)
-        {
-            sectionOffsets[i] = cursor;
-            cursor = Align(cursor + sections[i].Content.Length, 4);
-        }
-
-        int rawEnd = cursor;
-        int rawSize = Align(rawEnd - section.PointerToRawData, peHeader.FileAlignment);
-        int imageLength = Math.Max(bytes.Length, section.PointerToRawData + rawSize);
-        Array.Resize(ref bytes, imageLength);
-
-        int virtualSize = Math.Max(section.VirtualSize, rawEnd - section.PointerToRawData);
-        WriteUInt32(bytes, sectionHeaderOffset + 8, (uint)virtualSize);
-        WriteUInt32(bytes, sectionHeaderOffset + 16, (uint)rawSize);
-        WriteUInt32(
-            bytes,
-            headers.PEHeaderStartOffset + 56,
-            (uint)Align(section.VirtualAddress + virtualSize, peHeader.SectionAlignment));
-
-        int headerRva = ToRva(section, headerOffset);
-        int exportDirectoryOffset = payloadOffset;
-        int exportDirectoryRva = ToRva(section, exportDirectoryOffset);
-        int exportFunctionOffset = exportDirectoryOffset + 40;
-        int exportNamesOffset = exportFunctionOffset + 4;
-        int exportOrdinalOffset = exportNamesOffset + 4;
-        int exportNameOffset = exportOrdinalOffset + 2;
-
-        if (exported)
-        {
-            WriteUInt32(bytes, exportDataDirectoryOffset, (uint)exportDirectoryRva);
-            WriteUInt32(bytes, exportDataDirectoryOffset + 4, 40);
-
-            WriteUInt32(bytes, exportDirectoryOffset + 20, 1);
-            WriteUInt32(bytes, exportDirectoryOffset + 24, 1);
-            WriteUInt32(bytes, exportDirectoryOffset + 28, (uint)ToRva(section, exportFunctionOffset));
-            WriteUInt32(bytes, exportDirectoryOffset + 32, (uint)ToRva(section, exportNamesOffset));
-            WriteUInt32(bytes, exportDirectoryOffset + 36, (uint)ToRva(section, exportOrdinalOffset));
-            WriteUInt32(bytes, exportFunctionOffset, (uint)headerRva);
-            WriteUInt32(bytes, exportNamesOffset, (uint)ToRva(section, exportNameOffset));
-            WriteUInt16(bytes, exportOrdinalOffset, 0);
-            System.Text.Encoding.ASCII.GetBytes(exportName, bytes.AsSpan(exportNameOffset));
-            bytes[exportNameOffset + exportName.Length] = 0;
-        }
-
-        WriteUInt32(bytes, headerOffset, ReadyToRunImageInspector.Signature);
-        WriteUInt16(bytes, headerOffset + 4, majorVersion);
-        WriteUInt16(bytes, headerOffset + 6, minorVersion);
-        WriteUInt32(bytes, headerOffset + 8, (uint)flags);
-        WriteUInt32(bytes, headerOffset + 12, (uint)sections.Length);
-
-        for (int i = 0; i < sections.Length; i++)
-        {
-            SectionSpec spec = sections[i];
-            int entryOffset =
-                headerOffset +
-                ReadyToRunImageInspector.FixedHeaderSize +
-                (i * ReadyToRunImageInspector.SectionEntrySize);
-            bool aliasesCliMetadata =
-                manifestAliasesCliMetadata &&
-                spec.Type == ReadyToRunSectionType.ManifestMetadata;
-            int sectionRva = aliasesCliMetadata
-                ? headers.CorHeader!.MetadataDirectory.RelativeVirtualAddress
-                : spec.RelativeVirtualAddress ?? ToRva(section, sectionOffsets[i]);
-            int sectionSize = aliasesCliMetadata
-                ? headers.CorHeader!.MetadataDirectory.Size
-                : spec.Content.Length;
-
-            WriteUInt32(bytes, entryOffset, (uint)spec.Type);
-            WriteUInt32(bytes, entryOffset + 4, (uint)sectionRva);
-            WriteUInt32(bytes, entryOffset + 8, (uint)sectionSize);
-            if (!aliasesCliMetadata)
-                spec.Content.CopyTo(bytes, sectionOffsets[i]);
-        }
-
-        if (managedNative)
-        {
-            WriteUInt32(bytes, managedNativeDirectoryOffset, (uint)headerRva);
-            WriteUInt32(bytes, managedNativeDirectoryOffset + 4, (uint)headerSize);
-        }
+        SyntheticReadyToRunImage image = ReadyToRunImageFixture.Create(
+            SelfPath,
+            managedNative,
+            exported,
+            setIlLibrary,
+            majorVersion,
+            minorVersion,
+            (uint)flags,
+            specs,
+            exportName,
+            manifestAliasesCliMetadata);
 
         return new SyntheticImage(
-            bytes,
-            headerOffset,
-            headerRva,
-            managedNativeDirectoryOffset,
-            exportDataDirectoryOffset,
-            exportDirectoryOffset,
-            exportDirectoryRva,
-            exportFunctionOffset,
-            exportOrdinalOffset);
+            image.Bytes,
+            image.HeaderOffset,
+            image.HeaderRva,
+            image.ManagedNativeDirectoryOffset,
+            image.ExportDataDirectoryOffset,
+            image.ExportDirectoryOffset,
+            image.ExportDirectoryRva,
+            image.ExportFunctionOffset,
+            image.ExportOrdinalOffset);
     }
-
-    static int ToRva(SectionHeader section, int imageOffset)
-        => checked(section.VirtualAddress + imageOffset - section.PointerToRawData);
-
-    static int Align(int value, int alignment)
-        => checked((value + alignment - 1) / alignment * alignment);
-
-    static uint ReadUInt32(byte[] bytes, int offset)
-        => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, sizeof(uint)));
 
     static void WriteUInt16(byte[] bytes, int offset, ushort value)
         => BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset, sizeof(ushort)), value);

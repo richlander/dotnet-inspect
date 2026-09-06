@@ -32,6 +32,33 @@ dnx dotnet-inspect -y -- library MyLib.dll -D "Metadata: TypeDef" --effective
 `Metadata: TypeDef`, `Metadata: MethodDef`, and `Metadata: MemberRef` decode
 handles, ranges, heap values, and flags instead of dumping raw integers.
 
+## Select a ReadyToRun manifest
+
+CLI metadata is the default root. ReadyToRun images can carry a separate
+manifest root; select it explicitly rather than interpreting its addresses
+against CLI metadata:
+
+```bash
+dnx dotnet-inspect -y -- library System.Private.CoreLib \
+  -S "Metadata: ReadyToRun"
+dnx dotnet-inspect -y -- library System.Private.CoreLib \
+  --metadata-root r2r-manifest
+dnx dotnet-inspect -y -- library System.Private.CoreLib \
+  --metadata-root r2r-manifest -S "Metadata: TypeRef" --jsonl
+dnx dotnet-inspect -y -- library System.Private.CoreLib \
+  --metadata-root r2r-manifest -D @Metadata --effective
+```
+
+`Metadata: ReadyToRun` reports envelope facts, not native instructions.
+An explicit root with no section selection opens `Metadata: Image`, including
+requested root, canonical root, RVA, and size. An exact CLI alias is one
+physical root with manifest-request provenance. Table and heap addresses stay
+relative to the selected root, including `--heap`, `--rows`, and `--count`.
+An absent or malformed requested manifest fails; it never falls back to CLI
+metadata. Use `--metadata-root cli` to request the CLI root explicitly.
+Use `--jsonl` or `--tsv` for structured rows; `--json` is supported for Count
+and discovery, not root-selected or ReadyToRun row output.
+
 ## Query one table
 
 The `#` column is the real metadata row id. `--rows` therefore addresses table

@@ -159,6 +159,13 @@ public class LibraryCommand
         }
         options = aliasNormalized.Options;
         options = NormalizeReferenceProjection(options);
+        if (options.MetadataRoot is not null
+            && options.Discover is null
+            && options.Select is not { Length: > 0 }
+            && string.IsNullOrWhiteSpace(options.HeapParameter))
+        {
+            options = options with { Select = [MetadataSectionNames.Image] };
+        }
 
         if (GetDiscoveryModeError(
                 options.Effective,
@@ -322,6 +329,28 @@ public class LibraryCommand
                     + "--where \"Kind=<C# Body Kinds ID>\".");
                 return 1;
             }
+        }
+
+        if (options.MetadataRoot is not null
+            && options.Discover is null
+            && options.IncludeSections?.Any(section =>
+                MetadataSectionNames.IsMetadataSection(section)
+                && section != MetadataSectionNames.ReadyToRun) != true)
+        {
+            CommandError.Write(
+                "--metadata-root requires a metadata-root section. Omit -S or select a metadata image, table, or heap section.");
+            return 1;
+        }
+
+        if (options.JsonOutput
+            && !options.Count
+            && options.Discover is null
+            && (options.MetadataRoot is not null
+                || options.IncludeSections?.Contains(MetadataSectionNames.ReadyToRun) == true))
+        {
+            CommandError.Write(
+                "Metadata root and ReadyToRun rows do not support --json. Use --jsonl or --tsv for structured rows; --count and discovery support --json.");
+            return 1;
         }
 
         options = options with
@@ -533,7 +562,8 @@ public class LibraryCommand
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
             && !HasILOffsetCoordinate(options)
-            && !HasHeapCoordinate(options);
+            && !HasHeapCoordinate(options)
+            && options.MetadataRoot is null;
 
         if (trace is not null)
             trace.Verbosity = new InertString(TextPolicy.Field, options.Verbosity.ToString());
@@ -747,7 +777,7 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
-                int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
+                int heapExitCode = PopulateMetadataSelection(inspection, options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
                 if (discoveryInspection)
@@ -937,7 +967,7 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
-                int heapExitCode = PopulateMetadataHeapIfRequested(inspections[0], options, logger);
+                int heapExitCode = PopulateMetadataSelection(inspections[0], options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
                 if (discoveryInspection)
@@ -1111,7 +1141,7 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
-                int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
+                int heapExitCode = PopulateMetadataSelection(inspection, options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
                 if (discoveryInspection)
@@ -1855,7 +1885,9 @@ public class LibraryCommand
     }
 
     /// <summary>
-    /// Reads the heap value <c>--heap</c> named onto the model, which is what makes the
+    /// Checks an explicit root and reads the heap value <c>--heap</c> named onto the model.
+    /// A requested root must resolve even when bare discovery renders only category doors.
+    /// The heap value is what makes the
     /// coordinate-scoped section applicable. Returns a process exit code, having written its own
     /// diagnostic, exactly as the <c>--il-offset</c> resolution above it does.
     ///
@@ -1868,9 +1900,16 @@ public class LibraryCommand
     /// <c>Metadata: Heap</c> as an available section. <c>--il-offset</c> already draws the line
     /// here (<c>IL offset 0x… is not an instruction boundary</c>, exit 1) and this matches it.
     /// </summary>
-    private static int PopulateMetadataHeapIfRequested(
+    private static int PopulateMetadataSelection(
         LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
     {
+        if (inspection.RequestedMetadataRoot is not null
+            && inspection.MetadataImageResult is MetadataImageResult.Failed failed)
+        {
+            CommandError.Write($"Could not read the requested metadata root: {failed.Error.Message}");
+            return 1;
+        }
+
         if (string.IsNullOrWhiteSpace(options.HeapParameter)
             || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
             return 0;
@@ -1885,8 +1924,20 @@ public class LibraryCommand
         MetadataValue? value;
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            value = session.MetadataHeapValue(heap, address);
+            if (inspection.RequestedMetadataRoot is not null)
+            {
+                if (inspection.MetadataRoot is not { } root)
+                {
+                    CommandError.Write("The requested metadata root could not be opened; no heap value was read.");
+                    return 1;
+                }
+                value = root.HeapValue(heap, address);
+            }
+            else
+            {
+                using var session = AssemblyInspectionSession.Open(path);
+                value = session.MetadataHeapValue(heap, address);
+            }
         }
         catch (Exception ex)
         {
@@ -2951,7 +3002,8 @@ public class LibraryCommand
             return true;
 
         if (failureSection.Equals(MetadataSectionNames.Image, StringComparison.Ordinal)
-            && MetadataSectionNames.IsMetadataSection(section))
+            && MetadataSectionNames.IsMetadataSection(section)
+            && !section.Equals(MetadataSectionNames.ReadyToRun, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

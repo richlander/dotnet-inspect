@@ -32,6 +32,8 @@ public static class MetadataSectionNames
     /// </summary>
     public const string Image = Prefix + "Image";
 
+    public const string ReadyToRun = Prefix + "ReadyToRun";
+
     /// <summary>
     /// The coordinate-scoped section: the single heap value <c>--heap</c> names.
     ///
@@ -95,7 +97,7 @@ public static class MetadataSectionNames
     /// This is the category membership list and the registration list, so a table can never be
     /// registered without being reachable through the category door.
     /// </summary>
-    public static ImmutableArray<string> All { get; } = [Image, Heap, .. Heaps, .. Tables];
+    public static ImmutableArray<string> All { get; } = [Image, ReadyToRun, Heap, .. Heaps, .. Tables];
 
     static readonly ImmutableDictionary<string, TableIndex> ByName =
         MetadataTableProjector.ProjectedTables.ToImmutableDictionary(
@@ -196,6 +198,7 @@ public static class MetadataSectionNames
     /// </summary>
     public static bool IsMetadataSection(string section)
         => string.Equals(section, Image, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(section, ReadyToRun, StringComparison.OrdinalIgnoreCase)
             || string.Equals(section, Heap, StringComparison.OrdinalIgnoreCase)
             || HeapsByName.ContainsKey(section)
             || ByName.ContainsKey(section);
@@ -249,6 +252,7 @@ public static class MetadataSectionNames
         ArgumentNullException.ThrowIfNull(schema);
 
         schema.Add(Image, "column", "Property", "Value");
+        schema.Add(ReadyToRun, "column", "Property", "Value");
         schema.Add(Heap, "column", [.. ColumnsFor(Heap)]);
         foreach (var heap in MetadataHeapCoordinate.Heaps)
         {

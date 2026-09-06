@@ -28,11 +28,20 @@ public partial class CommandExecutionTests
     /// so both failure directions are caught: a table or heap gaining no section, and a section
     /// left behind by one that was dropped. Without the equality a stale entry would pass
     /// unnoticed.
+    ///
+    /// <see cref="MetadataSectionNames.ReadyToRun"/> is named literally rather than derived,
+    /// because it is not a projection of anything: it is a fixed summary of the ReadyToRun envelope
+    /// that wraps the metadata, so there is no source list to derive it from.
     /// </summary>
     [Fact]
     public void MetadataLens_RegisteredSections_EqualProjectedTables()
     {
-        var expected = new[] { MetadataSectionNames.Image, MetadataSectionNames.Heap }
+        var expected = new[]
+            {
+                MetadataSectionNames.Image,
+                MetadataSectionNames.ReadyToRun,
+                MetadataSectionNames.Heap,
+            }
             .Concat(MetadataHeapCoordinate.Heaps.Select(
                 h => MetadataSectionNames.Prefix + MetadataHeapCoordinate.StreamName(h)))
             .Concat(MetadataTableProjector.ProjectedTables.Select(t => MetadataSectionNames.Prefix + t))

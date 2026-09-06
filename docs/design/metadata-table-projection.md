@@ -383,7 +383,7 @@ category. Three separate mechanisms are involved, and they do different jobs:
   `-S @Metadata` name the whole group and gives `-D` something to list; it does
   not by itself suppress anything.
 
-Heap **addressing** is the one place this lens does introduce a new currency: a
+Heap **addressing** introduces a coordinate currency: a
 heap coordinate such as `#Strings:0x1a4` is not a section name, so it needs a
 carrier. `--heap` is that carrier, and it behaves like `--il-offset` — it makes a
 coordinate-scoped section available and discoverable only when present (see the
@@ -403,6 +403,71 @@ spellings of a heap name are accepted (`#Strings` and `String`), and an address
 is decimal unless it carries an explicit `0x`. Hex is never *inferred*: a bare
 `1a4` is rejected rather than read as `0x1a4`, because guessing would silently
 address a different entry than the one a dump printed.
+
+### CLI root and ReadyToRun selection
+
+Issue #6054 is slice 3 of #5835's four-step adoption path: R2R discovery
+(#5931), manifest-root projection (#5979), this CLI consumer, then browser/Wasm
+adoption. This section owns only CLI selection and presentation. The existing
+root and R2R producers retain their interpretation, capture, and failure
+contracts; the CLI does not parse PE bytes.
+
+`library --metadata-root cli|r2r-manifest` selects the metadata address space
+for one invocation. This is an input selector, not a new output shape or a
+second catalog of table names. Omission preserves the existing CLI-root
+behavior without requiring successful R2R discovery. With no explicit section,
+heap coordinate, or discovery request, an explicit root selects
+`Metadata: Image`. A selector combined with an unrelated render selection is
+an error rather than an ignored option.
+
+Tables, heap coordinates/listings, row windows, counts, and effective discovery
+all consume the selected root. Root-specific discovery bypasses the
+default-root effective catalog cache. Structural discovery needs no image.
+An explicitly requested root that is absent fails visibly; malformed root or
+R2R input is not absence, and neither falls back to CLI metadata.
+
+For an explicit root selection, `Metadata: Image` includes requested root,
+canonical root, canonical RVA, and byte size. Exact CLI aliases preserve both
+the requested manifest provenance and canonical CLI identity. A table or heap
+selection stays one section: its addresses are scoped by the invocation's root
+selector, not by added provenance rows or a second physical-root listing.
+
+`Metadata: ReadyToRun` is an explicit-only, fixed Property/Value summary in
+`@Metadata`. It reports producer-issued role, advertisements, version, complete
+numeric flags, section count, and manifest presence/extent/CLI aliasing.
+Non-R2R input reports `ReadyToRun: no`; a failed advertisement is a visible
+failure of this section and does not invalidate neighboring CLI-root tables.
+No default verbosity enters this section. It is an envelope summary, not a
+native-section decoder or an execution-compatibility claim.
+
+The existing section/query pipeline and shared Markout renderer are extended,
+not replaced. Typed root and R2R models reach the rendering boundary; Markdown,
+TSV, JSONL, and Count use the same fact or metadata rows.
+Library document JSON has not adopted the lowered dialect owned by
+[Projected JSON](projected-json.md). Root-selected and R2R row requests therefore
+reject `--json` instead of returning unrelated typed library metadata. Count
+and discovery retain their existing JSON support. This slice does not broaden
+JSON-dialect adoption.
+This follows the existing `mdi`/SRM-oriented projection rather than adding a
+host parser. The root-scoped facade is the smallest mechanism needed to avoid
+resolving manifest heap addresses against CLI metadata. There is no
+architecture retirement or new platform exception.
+
+The focused Release gates are the CLI `MetadataLens_Manifest*` and
+`MetadataLens_R2R*` cases, alongside the existing metadata-lens disclosure and
+shape cases. They exercise separate and aliased roots, root-local heaps,
+absence/failure, discovery, counts, and machine output using the shared
+synthetic R2R builder. Broad corpus work and native owner-name/fixup decoding
+remain outside this slice.
+
+```bash
+dotnet-inspect library System.Private.CoreLib -S "Metadata: ReadyToRun"
+dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest
+dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest \
+  -S "Metadata: TypeRef" --jsonl
+dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest \
+  -D @Metadata --effective
+```
 
 ### Heaps are not tables
 

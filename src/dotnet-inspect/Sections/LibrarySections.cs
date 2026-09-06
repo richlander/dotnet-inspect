@@ -222,18 +222,34 @@ public static class LibrarySections
                 context.EnterQuery(query.Name, cost.ToSectionCost(query)))
             .Add(MetadataImageQuery.Definition, ctx =>
                 ctx.Scan(
-                    MetadataImageQuery.Execute,
+                    session => MetadataLensQueries.Image(session, ctx.Model),
                     () =>
                     {
                         try
                         {
                             using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
                                 ctx.AssemblyPath);
-                            return MetadataImageQuery.Execute(session);
+                            return MetadataLensQueries.Image(session, ctx.Model);
                         }
                         catch (Exception ex)
                         {
                             return new MetadataImageResult.Failed(ex);
+                        }
+                    }))
+            .Add(MetadataLensQueries.ReadyToRun, ctx =>
+                ctx.Scan(
+                    MetadataLensQueries.InspectReadyToRun,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return MetadataLensQueries.InspectReadyToRun(session);
+                        }
+                        catch (Exception ex) when (ex is BadImageFormatException or IOException or NotSupportedException)
+                        {
+                            return new ReadyToRunInspection.Failed(ex);
                         }
                     }))
             .Add(AssemblyReferencesQuery.Definition, ctx =>

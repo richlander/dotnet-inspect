@@ -89,9 +89,22 @@ internal static class MetadataLensRenderer
         {
             output.WriteLine($"## {MetadataSectionNames.Image}");
             output.WriteLine();
-            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns);
+            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns, root: inspection.MetadataRoot);
             WriteCaveats(output, MetadataProjectionRenderer.Caveats(overview));
             first = false;
+        }
+
+        if (selected.Contains(MetadataSectionNames.ReadyToRun, StringComparer.OrdinalIgnoreCase)
+            && inspection.ReadyToRunInspection is ReadyToRunInspection.Available or ReadyToRunInspection.Absent)
+        {
+            if (!first)
+                output.WriteLine();
+            first = false;
+            output.WriteLine($"## {MetadataSectionNames.ReadyToRun}");
+            output.WriteLine();
+            MetadataProjectionRenderer.RenderReadyToRunFacts(
+                (inspection.ReadyToRunInspection as ReadyToRunInspection.Available)?.Overview,
+                output, columns);
         }
 
         if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
@@ -185,9 +198,17 @@ internal static class MetadataLensRenderer
             // The same fact rows the Markdown path renders, deliberately not the standalone
             // report's three-part shape: one section must mean one set of rows in every format, or
             // --count and --rows would report different sizes for the same selection.
-            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns, format);
+            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns, format, root: inspection.MetadataRoot);
             foreach (string caveat in MetadataProjectionRenderer.Caveats(overview))
                 caveats.WriteLine(caveat);
+        }
+
+        if (selected.Contains(MetadataSectionNames.ReadyToRun, StringComparer.OrdinalIgnoreCase)
+            && inspection.ReadyToRunInspection is ReadyToRunInspection.Available or ReadyToRunInspection.Absent)
+        {
+            MetadataProjectionRenderer.RenderReadyToRunFacts(
+                (inspection.ReadyToRunInspection as ReadyToRunInspection.Available)?.Overview,
+                output, columns, format);
         }
 
         if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
@@ -239,7 +260,16 @@ internal static class MetadataLensRenderer
         {
             projection.RecordTable(
                 MetadataSectionNames.Image,
-                WindowedCount(MetadataProjectionRenderer.CountImageFactRows(overview), rows));
+                WindowedCount(MetadataProjectionRenderer.CountImageFactRows(overview, inspection.MetadataRoot), rows));
+        }
+
+        if (selected.Contains(MetadataSectionNames.ReadyToRun, StringComparer.OrdinalIgnoreCase)
+            && inspection.ReadyToRunInspection is ReadyToRunInspection.Available or ReadyToRunInspection.Absent)
+        {
+            projection.RecordTable(
+                MetadataSectionNames.ReadyToRun,
+                WindowedCount(MetadataProjectionRenderer.CountReadyToRunFactRows(
+                    (inspection.ReadyToRunInspection as ReadyToRunInspection.Available)?.Overview), rows));
         }
 
         if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
@@ -299,6 +329,12 @@ internal static class MetadataLensRenderer
         if (heaps.IsEmpty)
             return [];
 
+        if (inspection.RequestedMetadataRoot is not null && inspection.MetadataRoot is null)
+        {
+            caveats.WriteLine("The requested metadata root could not be opened; no heaps were listed.");
+            return [];
+        }
+
         if (inspection.MetadataAssemblyPath is not { } path)
         {
             caveats.WriteLine(
@@ -308,7 +344,7 @@ internal static class MetadataLensRenderer
 
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
+            using var session = inspection.MetadataRoot is null ? AssemblyInspectionSession.Open(path) : null;
             var options = new MetadataProjectionOptions
             {
                 MaxRowsPerTable = MaxRowsPerTable,
@@ -318,7 +354,10 @@ internal static class MetadataLensRenderer
             var builder = ImmutableArray.CreateBuilder<MetadataHeapEntrySet>(heaps.Length);
             foreach (var heap in heaps)
             {
-                if (session.MetadataHeapEntries(heap, options) is { } entries)
+                var entries = inspection.MetadataRoot is { } root
+                    ? root.HeapEntries(heap, options)
+                    : session!.MetadataHeapEntries(heap, options);
+                if (entries is not null)
                     builder.Add(entries);
                 else
                     caveats.WriteLine($"{path} carries no metadata, so its {MetadataHeapCoordinate.StreamName(heap)} heap could not be listed.");
@@ -351,6 +390,12 @@ internal static class MetadataLensRenderer
         if (tables.IsEmpty)
             return [];
 
+        if (inspection.RequestedMetadataRoot is not null && inspection.MetadataRoot is null)
+        {
+            caveats.WriteLine("The requested metadata root could not be opened; no tables were projected.");
+            return [];
+        }
+
         if (inspection.MetadataAssemblyPath is not { } path)
         {
             caveats.WriteLine(
@@ -364,12 +409,20 @@ internal static class MetadataLensRenderer
             // Projected through AssemblyInspectionSession rather than by opening a PEReader here:
             // the metadata layer owns reading the image, and the CLI is gated against referencing
             // raw readers (LayeringTests.Cli_DoesNotReferenceRawMetadataReaders).
-            using var session = AssemblyInspectionSession.Open(path);
-            projection = session.MetadataTables(new MetadataProjectionOptions
+            var options = new MetadataProjectionOptions
             {
                 Tables = tables,
                 MaxRowsPerTable = MaxRowsPerTable,
-            });
+            };
+            if (inspection.MetadataRoot is { } root)
+            {
+                projection = root.Tables(options);
+            }
+            else
+            {
+                using var session = AssemblyInspectionSession.Open(path);
+                projection = session.MetadataTables(options);
+            }
         }
         catch (Exception ex)
         {

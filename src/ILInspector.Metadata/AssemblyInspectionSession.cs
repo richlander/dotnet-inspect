@@ -326,6 +326,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public MetadataRootInspection? MetadataRoot(MetadataRootKind root = MetadataRootKind.Cli)
         => MetadataRootInspection.Open(_image.PEReader, root);
 
+    /// <summary>The ReadyToRun envelope, or null when the image does not advertise one.</summary>
+    public ReadyToRunImageOverview? ReadyToRunImage()
+        => ReadyToRunImageInspector.Describe(_image.PEReader);
+
     /// <summary>
     /// A single row of one metadata table, read on demand and independent of any
     /// row window. This is the handle click-through primitive: it reaches a

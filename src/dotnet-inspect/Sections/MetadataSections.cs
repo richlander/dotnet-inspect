@@ -60,6 +60,20 @@ public static class MetadataSections
             CanRender = HasMetadata,
         });
 
+        pipeline.Add(new SectionEntry<LibraryInspection>
+        {
+            Name = MetadataSectionNames.ReadyToRun,
+            IsExpensive = false,
+            ExplicitOnly = true,
+            ListedInCatalog = false,
+            SizeClass = SectionSizeClass.Fixed,
+            Cost = SectionCost.NetworkFree,
+            Queries = [MetadataLensQueries.ReadyToRun],
+            HasExplicitApplicability = true,
+            IsApplicable = static model => model.ReadyToRunInspection is ReadyToRunInspection.Available or ReadyToRunInspection.Absent,
+            CanRender = static model => model.ReadyToRunInspection is ReadyToRunInspection.Available or ReadyToRunInspection.Absent,
+        });
+
         // The coordinate-scoped section. Applicable exactly when --heap supplied a coordinate, so
         // it is listed by -D only then — the same discipline the IL-offset coordinate sections
         // follow, and for the same reason: a section with no coordinate has nothing to render, and

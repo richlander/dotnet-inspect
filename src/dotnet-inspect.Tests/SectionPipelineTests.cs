@@ -1810,6 +1810,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 OptimizationOpportunitiesQuery.Definition,
+                MetadataLensQueries.ReadyToRun,
                 ResourceTriageQuery.Definition,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
@@ -5119,11 +5120,23 @@ public class SectionPipelineTests
         Assert.Equal(MetadataSectionNames.Image, failure.Section);
         Assert.Equal(MetadataImageQuery.Definition.Name, failure.Finding);
         Assert.Equal(error.Message, failure.Reason);
+        // Every metadata section but the ReadyToRun summary is projected from the metadata root the
+        // image query opens, so a failure there invalidates all of them. The ReadyToRun summary
+        // describes the envelope *around* that root — it is read from the PE header directory, not
+        // from metadata — so it neither depends on this failure nor is entitled to report it. It
+        // carries its own failure channel instead.
         Assert.All(
-            MetadataSectionNames.All,
+            MetadataSectionNames.All.Where(
+                section => !string.Equals(
+                    section,
+                    MetadataSectionNames.ReadyToRun,
+                    StringComparison.Ordinal)),
             section => Assert.True(LibraryCommand.FailureAffectsSection(
                 failure.Section,
                 section)));
+        Assert.False(LibraryCommand.FailureAffectsSection(
+            failure.Section,
+            MetadataSectionNames.ReadyToRun));
     }
 
     [Fact]
@@ -7421,9 +7434,16 @@ public class SectionPipelineTests
         // projector's table list, which is exactly the drift MetadataSectionNames exists to
         // prevent; reading a real assembly keeps the fixture correct as tables are added.
         using (var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location))
+        {
             library.MetadataImageResult = session.MetadataImage() is { } overview
                 ? new MetadataImageResult.Available(overview)
                 : new MetadataImageResult.NoMetadata();
+            // The ReadyToRun summary gates on its own query result rather than on a Has* flag, and
+            // it answers for every managed image — "no" is a fact, not an absence — so an unseeded
+            // model would make the section undiscoverable here while the real command lists it.
+            // Seeded through the product query so the fixture cannot drift from the mapping.
+            library.ReadyToRunInspection = MetadataLensQueries.InspectReadyToRun(session);
+        }
         yield return DiscoverableCase("library", libraryPipeline, library);
 
         var packagePipeline = PackageSectionDescriptors.CreatePipeline();

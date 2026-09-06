@@ -143,6 +143,7 @@ internal static class LibraryMetadataService
 
                 var nativeAudit = new LibraryInspection
                 {
+                    RequestedMetadataRoot = options.MetadataRoot,
                     FileName = Path.GetFileName(path),
                     FileType = "native",
                     AssemblyInfo = nativeInfo,
@@ -188,6 +189,7 @@ internal static class LibraryMetadataService
                     : null;
             var inspection = new LibraryInspection
             {
+                RequestedMetadataRoot = options.MetadataRoot,
                 FileName = Path.GetFileName(path),
                 FileType = "dll",
                 IsFacadeAssembly = surfaceClassification
@@ -2134,6 +2136,9 @@ internal static class LibraryMetadataService
         InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities)
     {
+        if (results.TryGet(MetadataLensQueries.ReadyToRun, out ReadyToRunInspection? readyToRun))
+            inspection.ReadyToRunInspection = readyToRun;
+
         if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
         {
             // The path remains presentation-layer state for the legacy on-demand row projector. The

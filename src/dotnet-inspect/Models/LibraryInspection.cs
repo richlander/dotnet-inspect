@@ -741,6 +741,24 @@ public class LibraryInspection
     [JsonIgnore]
     public string? MetadataAssemblyPath { get; set; }
 
+    [JsonIgnore]
+    public MetadataRootKind? RequestedMetadataRoot { get; set; }
+
+    [JsonIgnore]
+    public MetadataRootInspection? MetadataRoot { get; set; }
+
+    [JsonIgnore]
+    public ReadyToRunInspection? ReadyToRunInspection
+    {
+        get;
+        set
+        {
+            field = value;
+            _inspectionFailuresInitialized = false;
+            _inspectionFailures = null;
+        }
+    }
+
     /// <summary>
     /// The heap value <c>--heap</c> named, or null when no heap coordinate was given.
     ///
@@ -891,6 +909,13 @@ public class LibraryInspection
                     MetadataSectionNames.Image,
                     MetadataImageQuery.Definition.Name,
                     metadataFailure.Error.Message));
+            }
+            if (ReadyToRunInspection is ReadyToRunInspection.Failed readyToRunFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    MetadataSectionNames.ReadyToRun,
+                    MetadataLensQueries.ReadyToRun.Name,
+                    readyToRunFailure.Error.Message));
             }
             if (SourceAvailabilityQueryResult is SourceAvailabilityResult.Failed availabilityFailure)
             {

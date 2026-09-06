@@ -331,9 +331,20 @@ public static class MetadataProjectionRenderer
     /// multi-section overview and by <see cref="RenderImageFacts"/> so the two cannot report
     /// different facts about the same image.
     /// </summary>
-    static List<string[]> ImageFactRows(MetadataImageOverview overview, UntrustedTextMode mode)
+    static List<string[]> ImageFactRows(
+        MetadataImageOverview overview,
+        UntrustedTextMode mode,
+        MetadataRootInspection? root = null)
     {
         var rows = new List<string[]>();
+
+        if (root is not null)
+        {
+            Add("Requested root", root.RequestedRoot.ToString());
+            Add("Canonical root", root.Identity.Kind.ToString());
+            Add("Root RVA", $"0x{root.Identity.RelativeVirtualAddress:X8}");
+            Add("Root size", $"{root.Identity.Size} bytes");
+        }
 
         // A truncated stamp must carry the ellipsis for the same reason a
         // truncated handle display does: a prefix must never be mistaken for the
@@ -371,10 +382,10 @@ public static class MetadataProjectionRenderer
     /// Returns the number of rows <see cref="RenderImageFacts"/> emits, from the same fact-row
     /// builder the renderer consumes.
     /// </summary>
-    public static int CountImageFactRows(MetadataImageOverview overview)
+    public static int CountImageFactRows(MetadataImageOverview overview, MetadataRootInspection? root = null)
     {
         ArgumentNullException.ThrowIfNull(overview);
-        return ImageFactRows(overview, UntrustedTextMode.Contain).Count + overview.Heaps.Length;
+        return ImageFactRows(overview, UntrustedTextMode.Contain, root).Count + overview.Heaps.Length;
     }
 
     /// <summary>
@@ -398,12 +409,13 @@ public static class MetadataProjectionRenderer
         TextWriter output,
         IReadOnlyCollection<string>? columns = null,
         MetadataTableFormat format = MetadataTableFormat.Markdown,
-        UntrustedTextMode mode = UntrustedTextMode.Contain)
+        UntrustedTextMode mode = UntrustedTextMode.Contain,
+        MetadataRootInspection? root = null)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(output);
 
-        var rows = ImageFactRows(overview, mode);
+        var rows = ImageFactRows(overview, mode, root);
         foreach (var heap in overview.Heaps)
         {
             string addressing = heap.Addressing == MetadataHeapAddressing.Index ? "index" : "byte offset";
@@ -413,6 +425,56 @@ public static class MetadataProjectionRenderer
             ]);
         }
 
+        RenderFactRows(rows, output, columns, format);
+    }
+
+    /// <summary>Renders a fixed R2R envelope summary; null denotes no R2R advertisement.</summary>
+    public static void RenderReadyToRunFacts(
+        ReadyToRunImageOverview? overview,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns = null,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        RenderFactRows(ReadyToRunFactRows(overview), output, columns, format);
+    }
+
+    public static int CountReadyToRunFactRows(ReadyToRunImageOverview? overview)
+        => ReadyToRunFactRows(overview).Count;
+
+    static List<string[]> ReadyToRunFactRows(ReadyToRunImageOverview? overview)
+    {
+        List<string[]> rows = [["ReadyToRun", overview is null ? "no" : "yes"]];
+        if (overview is null)
+            return rows;
+
+        rows.AddRange([
+            ["Role", overview.Role.ToString()],
+            ["Advertisements", overview.Advertisements.ToString()],
+            ["R2R version", $"{overview.MajorVersion}.{overview.MinorVersion}"],
+            ["Header RVA", $"0x{overview.HeaderRelativeVirtualAddress:X8}"],
+            ["Header size", $"{overview.HeaderEncodedSize} bytes"],
+            ["Flags", $"0x{(uint)overview.Flags:X8}"],
+            ["Section count", overview.Sections.Length.ToString()],
+            ["Manifest metadata", overview.ManifestMetadata is null ? "absent" : "present"],
+        ]);
+        if (overview.ManifestMetadata is { } manifest)
+        {
+            rows.AddRange([
+                ["Manifest RVA", $"0x{manifest.RelativeVirtualAddress:X8}"],
+                ["Manifest size", $"{manifest.Size} bytes"],
+                ["Aliases CLI metadata", manifest.AliasesCliMetadataDirectory ? "yes" : "no"],
+            ]);
+        }
+        return rows;
+    }
+
+    static void RenderFactRows(
+        List<string[]> rows,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns,
+        MetadataTableFormat format)
+    {
         string[] headers = ["Property", "Value"];
         string[] headerNames = ["property", "value"];
         if (columns is { Count: > 0 })

@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -251,24 +252,7 @@ public sealed class MetadataRootInspectionTests
         managedNative: true, exported: false,
         sections: [new(ReadyToRunSectionType.ManifestMetadata, BuildManifest())]).Bytes;
 
-    static byte[] BuildManifest()
-    {
-        var metadata = new MetadataBuilder();
-        metadata.AddModule(
-            0, metadata.GetOrAddString("ManifestModule"),
-            metadata.GetOrAddGuid(new Guid("42f15aaf-e64c-492d-9707-5892c0e7c412")), default, default);
-        var dependency = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("Manifest.Dependency"), new Version(1, 0, 0, 0),
-            default, default, 0, default);
-        metadata.AddAssemblyReference(
-            metadata.GetOrAddString("Manifest.Neighbor"), new Version(2, 0, 0, 0),
-            default, default, 0, default);
-        metadata.AddTypeReference(
-            dependency, metadata.GetOrAddString("ManifestOnly"), metadata.GetOrAddString("Widget"));
-        var blob = new BlobBuilder();
-        new MetadataRootBuilder(metadata).Serialize(blob, 0, 0);
-        return blob.ToArray();
-    }
+    static byte[] BuildManifest() => ReadyToRunImageFixture.BuildManifestMetadata();
 
     static MetadataValue.HeapReference NameValue(MetadataTableView table)
     {
