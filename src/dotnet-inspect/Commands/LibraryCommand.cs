@@ -170,6 +170,12 @@ public class LibraryCommand
             return 1;
         }
 
+        if (MetadataRootDiscoveryModeError(options) is { } metadataRootDiscoveryError)
+        {
+            CommandError.Write(metadataRootDiscoveryError);
+            return 1;
+        }
+
         if (options.Discover is not null && options.Schema)
         {
             return StructuralViewRegistry.Execute(
@@ -1756,12 +1762,6 @@ public class LibraryCommand
         if (options.MetadataRoot == MetadataRootKind.Cli)
             return null;
 
-        if (options.Discover is not null && !options.Effective)
-        {
-            return "--metadata-root requires --effective with -D because "
-                + "structural discovery does not inspect an image.";
-        }
-
         if (options.IncludeSections?.Any(
                 MetadataSectionNames.IsMetadataSection) == true)
         {
@@ -1769,6 +1769,19 @@ public class LibraryCommand
         }
 
         return "--metadata-root requires -S @Metadata or a Metadata: section.";
+    }
+
+    private static string? MetadataRootDiscoveryModeError(LibraryOptions options)
+    {
+        if (options.MetadataRoot == MetadataRootKind.Cli
+            || options.Discover is null
+            || options.Effective)
+        {
+            return null;
+        }
+
+        return "--metadata-root requires --effective with -D because "
+            + "structural discovery does not inspect an image.";
     }
 
     private static bool RejectMissingMetadataRoot(LibraryInspection inspection)
