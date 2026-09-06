@@ -358,10 +358,29 @@ public sealed class BrowserPackageQueryOperationsTests
             PackageQueryFacetTier.PackageContent,
             [
                 new PackageQueryEvidence(
-                    PackageQuery.ToolV2FacetId,
+                    PackageQuery.EmbeddedSkillFacetId,
                     new InertString(
                         TextPolicy.Prose,
-                        "DotnetToolSettings.xml declares v2.")),
+                        "2 skill documents: skills/SKILL.md, skills/build/SKILL.md."))
+                {
+                    Scope = PackageQueryEvidenceScope.Package,
+                    Summary = new PackageQueryEvidenceSummary(
+                        2,
+                        [
+                            new InertString(TextPolicy.Field, "skills/SKILL.md"),
+                            new InertString(
+                                TextPolicy.Field,
+                                "skills/build/SKILL.md"),
+                        ]),
+                },
+                new PackageQueryEvidence(
+                    "package.query.source-selection",
+                    new InertString(
+                        TextPolicy.Prose,
+                        "Selected by producer ranking."))
+                {
+                    Scope = PackageQueryEvidenceScope.Query,
+                },
             ]);
         var failure = new PackageQueryFailure(
             "Contoso.Bad",
@@ -380,6 +399,25 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryFacetTier.PackageContent,
             projectedMatch.Row!.Tier);
+        Assert.Collection(
+            projectedMatch.Row.Evidence,
+            evidence =>
+            {
+                Assert.Equal(
+                    BrowserPackageQueryEvidenceScope.Package,
+                    evidence.Scope);
+                Assert.Equal(2, evidence.Summary!.Count);
+                Assert.Equal(
+                    ["skills/SKILL.md", "skills/build/SKILL.md"],
+                    evidence.Summary.Preview);
+            },
+            evidence =>
+            {
+                Assert.Equal(
+                    BrowserPackageQueryEvidenceScope.Query,
+                    evidence.Scope);
+                Assert.Null(evidence.Summary);
+            });
         Assert.Equal(
             BrowserPackageQueryFailureKind.PackageContentAcquisition,
             projectedFailure.Failure!.Kind);

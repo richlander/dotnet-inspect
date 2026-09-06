@@ -10,6 +10,8 @@ export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached
 
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
 
+export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
+
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | number;
 
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
@@ -204,6 +206,13 @@ export interface BrowserPackageQueryEvent {
 export interface BrowserPackageQueryEvidence {
   readonly id: string;
   readonly text: string;
+  readonly scope: BrowserPackageQueryEvidenceScope;
+  readonly summary: BrowserPackageQueryEvidenceSummary | null;
+}
+
+export interface BrowserPackageQueryEvidenceSummary {
+  readonly count: number;
+  readonly preview: ReadonlyArray<string>;
 }
 
 export interface BrowserPackageQueryFacetCatalog {

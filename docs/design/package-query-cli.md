@@ -44,6 +44,10 @@ problem this document surfaced.
 
 Related docs:
 
+- [Package Query inspection evidence](package-query-inspection-evidence.md)
+  owns typed inspection counts and bounded previews, separate from query-wide
+  context. The future CLI facet projection consumes the same compact evidence
+  through Sections/Markout; CLI facet wiring remains pending.
 - [Package Query input selection](package-query-input-selection.md) owns the
   shared choice between exact-ID, explicit-prefix, and explicit Gallery
   candidate inputs. Its host adoption is tracked separately in #6070; the

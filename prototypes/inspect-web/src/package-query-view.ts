@@ -266,7 +266,8 @@ function renderRow(
   escapeHtml: (value: unknown) => string,
 ): string {
   const evidence = row.evidence
-    .map(item => `<li>${escapeHtml(item)}</li>`)
+    .filter(item => item.scope === "package")
+    .map(item => `<li>${escapeHtml(item.text)}</li>`)
     .join("");
   return `
     <article class="query-row">
@@ -280,7 +281,7 @@ function renderRow(
       ${row.description?.trim()
         ? `<p class="query-row-description">${escapeHtml(row.description)}</p>`
         : ""}
-      <ul class="query-evidence">${evidence}</ul>
+      ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
         <span>${row.totalDownloads === null
           ? "Lifetime downloads unavailable"
@@ -291,6 +292,19 @@ function renderRow(
         <button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>
       </div>
     </article>`;
+}
+
+function renderQueryContext(
+  rows: readonly QueryResultRow[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  const evidence = rows[0]?.evidence
+    .filter(item => item.scope === "query")
+    .map(item => `<li>${escapeHtml(item.text)}</li>`)
+    .join("") ?? "";
+  return evidence
+    ? `<section class="query-context" aria-label="Query context"><h2>Query context</h2><ul class="query-evidence">${evidence}</ul></section>`
+    : "";
 }
 
 function renderFacet(
@@ -562,7 +576,7 @@ function renderResults(
     .map(row => renderRow(row, escapeHtml))
     .join("");
   return rows
-    ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
+    ? `${renderProgress(state.outcome, escapeHtml)}${renderQueryContext(state.outcome.rows, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
       ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Acquiring package input</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${renderCompletionFooter(state.outcome, escapeHtml)}`
       : renderEmptyState(state, escapeHtml);
