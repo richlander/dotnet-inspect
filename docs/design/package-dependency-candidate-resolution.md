@@ -242,10 +242,13 @@ selected version.
 
 ## Operation and cancellation
 
-The query accepts the caller's `NuGetOperationContext` and cancellation token
-and passes both unchanged to the source capability. It creates no second
-deadline. Caller cancellation propagates as cancellation carrying the caller
-token; it never becomes `Failed`, `Incomplete`, or an authority failure.
+The query accepts the caller's `NuGetOperationContext` and cancellation token.
+When a context is supplied, it passes that exact context and matching caller
+token unchanged to the source capability. Otherwise it creates one default
+context for the complete query and passes that same instance through every
+source operation and local selection step. Caller cancellation propagates as
+cancellation carrying the caller token; it never becomes `Failed`,
+`Incomplete`, or an authority failure.
 
 An operation-ceiling timeout remains package-source incomplete evidence.
 Neither the query nor a host retries after the shared operation has expired.
@@ -314,7 +317,7 @@ The implementation is gated in Release by:
 | Search observations cannot masquerade as complete enumeration | `CandidateResolution_RejectsNonEnumerationObservations` |
 | Foreign authority observations are rejected | `CandidateResolution_ForeignAuthorityObservationIsRejected` |
 | A Browser-shaped explicit source adapter issues the same candidate currency | `CandidateResolution_HostNeutralSourceIssuesRangeCandidate` |
-| The Browser-shaped adapter owns one shared operation when none is supplied | `CandidateResolution_HostNeutralSourceSharesOneOperationContext` |
+| The query owns one shared operation when none is supplied | `CandidateResolution_QueryOwnsOneSharedOperationContextWhenOmitted` |
 | Operation timeout stops later authorities and prevents publication | `CandidateResolution_OperationTimeoutStopsLaterAuthorities` |
 | Operation timeout prevents publication after local range selection | `CandidateResolution_OperationTimeoutPreventsLocalSelectionPublication` |
 | Gallery listing-state gaps cannot authorize range selection | `CandidateResolution_GalleryUnknownListingStateIsIncomplete` |

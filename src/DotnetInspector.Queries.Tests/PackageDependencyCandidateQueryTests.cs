@@ -360,7 +360,7 @@ public sealed class PackageDependencyCandidateQueryTests
     }
 
     [Fact]
-    public async Task CandidateResolution_HostNeutralSourceSharesOneOperationContext()
+    public async Task CandidateResolution_QueryOwnsOneSharedOperationContextWhenOmitted()
     {
         PackageSource[] configuredSources =
         [
