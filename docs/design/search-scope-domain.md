@@ -168,6 +168,11 @@ not accept an acquisition result as a replacement declaration.
 
 ## Demo
 
+For a user obtaining `Aspire.` through the website's ecosystem catalog, see
+the [catalog discovery mockup](ecosystem-packs.md#aspire-prefix-discovery-website-mockup).
+The component-level example below demonstrates request construction afterward,
+not catalog definition or a host interaction.
+
 An ordinary consumer can retain a catalog-ready declaration without choosing
 a package limit. Consumers then apply their own request policy:
 
