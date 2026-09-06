@@ -1481,8 +1481,9 @@ opens, and prove no result derived from S can be published or read under W's
 identity. This repository-wide cutover rule is unverified as a global
 inventory; each adopting cache must name its owning gate. `MDP017` in
 [member inspection planning and Metadata
-projection](design/member-inspection-planning-and-metadata-projection.md) is the
-worked gate for the library effective-catalog format-admission cutover.
+projection](design/member-inspection-planning-and-metadata-projection.md) gates
+metadata-root admission; the library effective-catalog cutover itself is
+unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478).
 
 ### `InertString`
 
