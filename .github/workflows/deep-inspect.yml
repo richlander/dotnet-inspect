@@ -76,7 +76,7 @@ jobs:
           # evidence, so it wants what ships today, not the pinned pool the EVIL
           # corpus measures. The pin exists to make the corpus reproducible
           # (#3353); honoring it here would quietly turn discovery into a replay.
-          dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
+          dotnet run \
             eng/prepare-decompiler-package-sweep.cs -- \
             artifacts/package-sweep 1 10 --resolve-latest \
             | tee artifacts/package-sweep/acquisition.txt

@@ -160,7 +160,7 @@ public class EvilPoolSweepGateTests
     }
 
     [Fact]
-    public void SweepLauncherSuppressesAmbientSourceAndAuditDiagnostics()
+    public void SweepLauncherUsesRepositoryBuildWarningPolicy()
     {
         var startInfo = EvilPoolSweepProcess.Create("/repository", "/working");
 
@@ -168,8 +168,6 @@ public class EvilPoolSweepGateTests
             [
                 "run",
                 "--disable-build-servers",
-                "-p:NoWarn=NU1507",
-                "-p:NuGetAudit=false",
                 Path.Combine(
                     "/repository",
                     "eng",
