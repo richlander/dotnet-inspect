@@ -15,8 +15,8 @@ adopter-specific Release gates remain separate from the shared authority gate.
 [Issue #5570](https://github.com/richlander/dotnet-inspect/issues/5570) adds
 the operation authority's reusable typed durable-event handoff. The managed
 bridge now supplies one authenticated scoped callback for the complete
-nonterminal union. Worker runtime transport and adopter integration remain
-separately owned.
+nonterminal union. Worker runtime transport supplies its bounded `Events`
+handoff. Concrete adopter integration remains separately owned.
 
 ## Decision
 
@@ -66,11 +66,11 @@ does not replace rows already admitted into the outcome.
 The same engine stream remains the feature contract before and after .NET
 moves to a Web Worker. Today an adapter may invoke a bounded synchronous
 JavaScript callback under the adopting feature's existing current-request
-guard. After the separately owned durable-event handoffs in
+guard. An authority-governed callback or Worker adapter can carry the same
+nonterminal events through the separately owned handoffs in
 [Residual operation-authority and worker
-integration](#residual-operation-authority-and-worker-integration) land, an
-authority-governed callback or worker adapter can carry the same nonterminal
-events. The worker maps them to validated `postMessage` payloads and returns
+integration](#residual-operation-authority-and-worker-integration).
+The worker maps them to validated `postMessage` payloads and returns
 the terminal result through the managed-operation result envelope. Neither
 transport changes the engine event meanings.
 
@@ -209,7 +209,7 @@ feature IAsyncEnumerable<TEvent>
         -> current-operation durable publication authority
            -> feature reducer and renderer
 
-future worker path, after the remaining worker durable-event handoff:
+future Worker feature adoption:
 feature IAsyncEnumerable<TEvent>
   -> managed nonterminal event/batch handoff
      -> validated worker event/batch message
@@ -281,22 +281,23 @@ Operation authority now exposes typed durable nonterminal publication through
 reports without publication. This provides the authority-governed callback
 path in the diagram without defining feature event meaning or batching.
 
-The managed bridge now exposes one scoped callback for the complete
-feature-owned nonterminal union, preserving producer order without
-reclassifying durable Item or ItemFailure events as progress. The worker
-runtime's closed worker-to-main inventory still contains only `Progress` and
-`Settled`. Durable events must not be tunneled through those progress shapes
-or buffered into settlement. Moving an adopter behind the worker depends on
-the remaining separately owned transport and adoption residuals:
+The managed bridge exposes one scoped callback for the complete feature-owned
+nonterminal union, preserving producer order without reclassifying durable
+Item or ItemFailure events as progress. The Worker runtime now supplies the
+bounded `Events` handoff under its
+[durable delivery contract](inspect-web-worker-runtime.md#durable-nonterminal-delivery).
+Durable events must not be tunneled through advisory progress or buffered into
+settlement. Moving a concrete adopter behind the Worker still requires its
+adapter to compose these separately owned handoffs:
 
 - [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) provides
   the implemented operation-authority durable publication boundary.
 - [#5419](https://github.com/richlander/dotnet-inspect/issues/5419) provides
   the implemented authenticated nonterminal union callback, callback lifetime,
   and release; concrete export migration remains in that owner's sequence.
-- [#5418](https://github.com/richlander/dotnet-inspect/issues/5418) extends the
-  worker runtime's closed protocol with validated event or batch messages,
-  payload budgets, ordering before settlement, and epoch behavior.
+- [#5418](https://github.com/richlander/dotnet-inspect/issues/5418) provides
+  the Worker's bounded event transport, payload validation, ordering before
+  settlement, and epoch behavior.
 
 Those owners choose and gate their concrete shapes. Their composition update
 must join the same typed nonterminal payload without reclassifying durable
