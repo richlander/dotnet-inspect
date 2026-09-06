@@ -192,7 +192,8 @@ Package Query adopts
 with this feature-owned vocabulary:
 
 - `Progress(Search, completed, 1)` starts at zero before source discovery is
-  awaited and reaches one only after a usable source result arrives.
+  awaited and reaches one only after a usable source result arrives. It means
+  first usable source evidence, not that all later search pages were fetched.
 - `Progress(Manifest, completed, candidateLimit)` advances once for every
   bounded candidate whose manifest outcome is known. The limit is an upper
   bound, so the UI says "of up to" rather than presenting it as an exact total.
@@ -236,6 +237,13 @@ for match credit, with no producer work in flight, and resumes the remaining
 budget rather than granting a fresh one. Caller cancellation remains effective
 while paused. Source request deadlines and ordinary non-query package
 operation deadlines are unchanged.
+The shared profile now consumes
+[incremental prefix pages](package-prefix-candidate-stream.md):
+each page's manifests are evaluated before
+another page is requested. A late source-page failure retains earlier rows and
+produces failed completion rather than an exhausted-search claim. The Browser
+credit bound therefore also stops later-page work once its held match pauses
+the producer, while still permitting one retained source page.
 A future worker adapter may preserve the same sizes and meanings while
 batching durable events under the shared owner.
 
@@ -474,8 +482,7 @@ and browser-history and focus-return outcomes are proved by
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
    facet, and the segmented .NET tool format control.
 5. **#5816** adds Browser-advertised match credit, scroll-pressure
-   replenishment, and frame-batched query-region rendering. Incremental NuGet
-   prefix candidate production remains a separately owned follow-up.
+   replenishment, and frame-batched query-region rendering through #5832.
 6. [Package Query assembly-pattern
    evaluation](package-query-assembly-evaluation.md) owns one-candidate
    primary-assembly selection, semantic confirmation, evidence, and resource
@@ -491,6 +498,13 @@ and browser-history and focus-return outcomes are proved by
    Delegation protocol. [#5919](https://github.com/richlander/dotnet-inspect/issues/5919)
    retains the counted path through delegation and CLI adoption; CLI query
    discovery belongs to [PR #6004](https://github.com/richlander/dotnet-inspect/pull/6004).
+8. [Incremental prefix candidates](package-prefix-candidate-stream.md), tracked
+   by #5816, removes the complete-search barrier in prefix-profile consumers.
+   [#6070](https://github.com/richlander/dotnet-inspect/issues/6070) restores
+   explicit package-ID and prefix selection on the website and makes Gallery
+   discovery an explicit source gesture. Until that adoption lands, the website's
+   Gallery input does not consume the prefix stream. DOM virtualization and
+   Worker placement remain separate follow-ups.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.

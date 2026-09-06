@@ -677,6 +677,7 @@ public static partial class PackageQuery
         int? sourceCandidates = null;
         long? estimatedTotalHits = null;
         bool searchOutcomeObserved = false;
+        bool sourceSearchFailed = false;
         cancellationToken.ThrowIfCancellationRequested();
         yield return Progress(
             PackageQueryProgressPhase.Search,
@@ -699,6 +700,7 @@ public static partial class PackageQuery
             bool sourceWideSearchFailure =
                 inputEvent is PackageQueryInputEvent.Failure searchFailure
                 && IsSourceWideSearchFailure(searchFailure.Value);
+            sourceSearchFailed |= sourceWideSearchFailure;
             if (!searchOutcomeObserved)
             {
                 searchOutcomeObserved = true;
@@ -867,7 +869,9 @@ public static partial class PackageQuery
                         completed.Candidates,
                         matches,
                         failures,
-                        completed.Completion,
+                        sourceSearchFailed
+                            ? PackageQueryCompletionKind.Failed
+                            : completed.Completion,
                         sourceCandidates,
                         estimatedTotalHits);
                     yield break;
