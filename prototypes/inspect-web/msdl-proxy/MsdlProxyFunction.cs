@@ -17,7 +17,7 @@ public sealed class MsdlProxyFunction(IHttpClientFactory httpClientFactory)
         string symbolKey,
         CancellationToken cancellationToken)
     {
-        _ = request;
+        ApplySecurityHeaders(request.HttpContext.Response);
         if (!MsdlRequestValidator.IsValidPdbFileName(pdbFileName)
             || !MsdlRequestValidator.IsValidSymbolKey(symbolKey))
         {
@@ -41,12 +41,21 @@ public sealed class MsdlProxyFunction(IHttpClientFactory httpClientFactory)
             Route = "healthz")]
         HttpRequest request)
     {
-        _ = request;
+        ApplySecurityHeaders(request.HttpContext.Response);
         return new ContentResult
         {
             Content = "ok",
             ContentType = "text/plain",
             StatusCode = StatusCodes.Status200OK,
         };
+    }
+
+    private static void ApplySecurityHeaders(HttpResponse response)
+    {
+        IHeaderDictionary headers = response.Headers;
+        headers["X-Content-Type-Options"] = "nosniff";
+        headers["Referrer-Policy"] = "no-referrer";
+        headers["X-Frame-Options"] = "DENY";
+        headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains";
     }
 }

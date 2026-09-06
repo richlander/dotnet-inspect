@@ -3,7 +3,8 @@
 ## Status
 
 Implemented for issue #5367. The admission, shared-use, and atomic-refusal
-properties are enforced by the named Release gates below.
+properties are enforced by the named Release gates below. The composed
+product-output compile/SRM endpoint is specified below and remains unverified.
 
 This is the focused successor to superseded PR #5110. It does not inherit that
 PR's proposed declaration-result, receipt, composition, or retention protocol.
@@ -237,6 +238,39 @@ uses
 An exact generated leaf remains on the legacy compatibility path. Its current
 substitute may enter legacy shell output, but it is not an admitted identifier
 and makes no exact identity claim.
+
+## Validation endpoint
+
+The terminal observation for this adopter is the public
+`CSharpTypePrintOutcome`, not the intermediate CSharpText admission result.
+CSharpText proves that one admitted leaf token compiles and preserves its
+TypeDef leaf identity; this component owns whether that token was composed into
+the requested model-bound artifact correctly.
+
+The complete validation goal has two outcome arms:
+
+- `NotRendered` carries the exact self-name failures and exposes no source,
+  units, source artifact, or replacement range.
+- `Printed` carries source produced by `CSharpTypePrinter`. A tools-only gate
+  compiles that source unchanged, reads the emitted TypeDefs through SRM, and
+  requires the complete namespace, nesting, leaf name, and canonical generic
+  arity of every exact admitted declaration to equal the requested Metadata
+  identity. Successful compilation also proves that constructor and
+  destructor-spelled finalizer heads bind to their containing declarations.
+
+The compiler harness may supply references and compilation options, but it must
+not construct, normalize, or repair the source under test. Compilation success
+is distinct from identity agreement, following
+[C# assembly round-trip testing](csharp-member-recompilation.md#proof-levels).
+Roslyn remains tools/test-only; this validation goal adds no compiler dependency
+to `CSharpText` or `ILInspector.CSharp`.
+
+The named gates below currently prove lexical admission, model-bound handoff,
+shared use, hostile-metadata refusal, and atomic publication separately. A
+retained gate that compiles actual `CSharpTypePrinter` output and compares all
+exact emitted TypeDef identities through SRM is **unverified**. That gate is the
+next evidence endpoint; it strengthens evidence without broadening this
+component into member, namespace, generated-name, or whole-assembly policy.
 
 ## Required implementation gates
 
