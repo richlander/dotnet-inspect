@@ -64,7 +64,9 @@ declaration for acquisition ordering. Their normalized package contribution
 does not overwrite the retained user selection or its defaulting decision.
 
 Malformed declaration input produces a clean CLI validation error rather than
-an acquisition attempt or implicit fallback. Type-search prefixes consume
+an acquisition attempt or implicit fallback. The error identifies the public
+option and its value without forwarding framework argument-exception text.
+Type-search prefixes consume
 the source-intent owner's literal-prefix grammar; patternless profiles retain
 their separate grammar. Per-package framework/runtime qualifiers cannot be
 represented by this CLI acquisition path and are visibly rejected, not
@@ -216,6 +218,9 @@ archive spelling, direct-source lowering, source-option identity, concrete
 prefix-bound wiring and warning, direct/prefix/group precedence, retained
 empty-prefix intent, visible prefix failure, clean declaration diagnostics,
 and profile group rejection before type-search prefix validation.
+`InvalidSourceTextUsesTheCleanCliErrorBoundary` and
+`InvalidDirectSourceIdentifiesThePublicOption` gate the exact option-specific
+diagnostics without framework parameter text.
 `EachCommandInspectsExplicitLocalPackage` is the positive local-archive witness
 through all four real command actions, using independently compiled fixtures
 or an existing platform library.

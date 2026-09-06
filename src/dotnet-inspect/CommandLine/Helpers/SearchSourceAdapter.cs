@@ -23,41 +23,31 @@ internal static class SearchSourceAdapter
         Option<string[]>? binOption = null,
         Option<string?>? prefixOption = null)
     {
-        try
-        {
-            return SourceIntent.Create(ReadSelectors());
-        }
-        catch (ArgumentException error)
-        {
-            throw new SearchSourceValidationException(error.Message);
-        }
+        return SourceIntent.Create(ReadSelectors());
 
         IEnumerable<SourceSelector> ReadSelectors()
         {
             foreach (string package in parseResult.GetValue(packageOption) ?? [])
-            {
-                if (package.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-                    yield return new SourceSelector.PackageArchive(package);
-                else
-                {
-                    var (name, version) = PackageReferenceParser.Parse(package);
-                    yield return new SourceSelector.PackageReference(name, version);
-                }
-            }
+                yield return DeclareValue(package, packageOption, CreatePackageSource);
 
             if (prefixOption is not null && parseResult.GetValue(prefixOption) is { } prefix)
-                yield return new SourceSelector.PackagePrefix(
-                    new(prefix, ScopeConstants.PackagePrefixExpansionLimit));
+                yield return DeclareValue(prefix, prefixOption, static value =>
+                    new SourceSelector.PackagePrefix(
+                        new(value, ScopeConstants.PackagePrefixExpansionLimit)));
             foreach (string library in parseResult.GetValue(libraryOption) ?? [])
-                yield return new SourceSelector.Library(library);
+                yield return DeclareValue(library, libraryOption, static value =>
+                    new SourceSelector.Library(value));
             foreach (string library in parseResult.GetValue(platformLibraryOption) ?? [])
-                yield return new SourceSelector.PlatformLibrary(library);
+                yield return DeclareValue(library, platformOption, static value =>
+                    new SourceSelector.PlatformLibrary(value));
             foreach (string project in parseResult.GetValue(projectOption) ?? [])
-                yield return new SourceSelector.Project(project);
+                yield return DeclareValue(project, projectOption, static value =>
+                    new SourceSelector.Project(value));
             if (binOption is not null)
             {
                 foreach (string directory in parseResult.GetValue(binOption) ?? [])
-                    yield return new SourceSelector.BinaryDirectory(directory);
+                    yield return DeclareValue(directory, binOption, static value =>
+                        new SourceSelector.BinaryDirectory(value));
             }
 
             if (parseResult.GetValue(platformOption))
@@ -67,6 +57,29 @@ internal static class SearchSourceAdapter
             if (parseResult.GetValue(aspNetCoreOption))
                 yield return PackageGroup(PackageSetIds.AspNetCore);
         }
+    }
+
+    private static SourceSelector DeclareValue(
+        string value, Option option, Func<string, SourceSelector> create)
+    {
+        try
+        {
+            return create(value);
+        }
+        catch (ArgumentException)
+        {
+            throw new SearchSourceValidationException(
+                $"Invalid value '{value}' for {option.Name}.");
+        }
+    }
+
+    private static SourceSelector.PackageSource CreatePackageSource(string value)
+    {
+        if (value.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+            return new SourceSelector.PackageArchive(value);
+
+        var (name, version) = PackageReferenceParser.Parse(value);
+        return new SourceSelector.PackageReference(name, version);
     }
 
     internal static async Task<(SearchSourceSelection Selection, AssemblySetRequest Request)> BindAsync(

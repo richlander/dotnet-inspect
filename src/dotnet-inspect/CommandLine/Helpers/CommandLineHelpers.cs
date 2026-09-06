@@ -124,15 +124,24 @@ public static class CommandLineHelpers
                 sourceOptions: sourceOptions,
                 fetchOptions: NuGetFetchOptions.FromRequestTimeout(
                     client.Timeout));
-            packages = results.Select(result => new SourceSelector.PackageReference(result.PackageId)).ToArray();
         }
-        catch (Exception ex) when (ex is ArgumentException || IsPrefixResolutionFailure(ex))
+        catch (Exception ex) when (IsPrefixResolutionFailure(ex))
         {
             // The command cannot proceed honestly: it does not know which packages the prefix
             // named. Reported as a clean CLI error rather than an escaping stack trace, and never
             // as an empty expansion, which would exit 0 having inspected nothing.
             throw new PrefixResolutionException(
                 $"Could not resolve packages for prefix \"{prefix}\": {ex.Message}");
+        }
+
+        try
+        {
+            packages = results.Select(result => new SourceSelector.PackageReference(result.PackageId)).ToArray();
+        }
+        catch (ArgumentException)
+        {
+            throw new PrefixResolutionException(
+                $"Could not resolve packages for prefix \"{prefix}\": the source returned an invalid package ID.");
         }
 
         if (results.Count == 0)

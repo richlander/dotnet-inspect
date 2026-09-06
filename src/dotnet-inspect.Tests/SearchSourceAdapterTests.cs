@@ -158,8 +158,10 @@ public class SearchSourceAdapterTests
         using var client = new HttpClient(handler);
         var intent = DeclareSources("find", "--package-prefix", "Contoso.");
 
-        await Assert.ThrowsAsync<PrefixResolutionException>(() =>
+        var error = await Assert.ThrowsAsync<PrefixResolutionException>(() =>
             SearchSourceAdapter.BindAsync(intent, client, false, handler.SourceOptions));
+        Assert.DoesNotContain("Arg_ParamName_Name", error.Message);
+        Assert.DoesNotContain("Parameter", error.Message);
     }
 
     [Theory]
@@ -211,11 +213,27 @@ public class SearchSourceAdapterTests
     [InlineData("depends")]
     public async Task InvalidSourceTextUsesTheCleanCliErrorBoundary(string command)
     {
-        var (exit, _, error) = await Invoke(command, "Probe", "--package", "not a package");
+        foreach (string value in new[] { "not a package", "Foo@bad@ver", "" })
+        {
+            var (exit, _, error) = await Invoke(command, "Probe", "--package", value);
+            Assert.Equal(1, exit);
+            Assert.Equal($"Error: Invalid value '{value}' for --package.", error.Trim());
+        }
+    }
+
+    [Theory]
+    [InlineData("find", "--package-prefix", "Contoso..Bad")]
+    [InlineData("implements", "--package-prefix", "Contoso..Bad")]
+    [InlineData("extensions", "--package-prefix", "Contoso..Bad")]
+    [InlineData("find", "--library", " ")]
+    [InlineData("find", "--project", " ")]
+    [InlineData("find", "--bin", " ")]
+    public async Task InvalidDirectSourceIdentifiesThePublicOption(
+        string command, string option, string value)
+    {
+        var (exit, _, error) = await Invoke(command, "Probe", option, value);
         Assert.Equal(1, exit);
-        Assert.Contains("Error:", error);
-        Assert.DoesNotMatch(@"(?m)^\s+at\s", error);
-        Assert.DoesNotContain("Exception", error);
+        Assert.Equal($"Error: Invalid value '{value}' for {option}.", error.Trim());
     }
 
     [Theory]
