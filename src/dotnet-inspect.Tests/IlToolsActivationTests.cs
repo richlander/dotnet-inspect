@@ -756,6 +756,10 @@ public class IlToolsActivationTests
             "run: dotnet run --project tests/ILInspector.Metadata.Tests " +
             "-c Release -- --long-running 60 --xunit-diagnostics on",
             job);
+        Assert.Contains(
+            "run: dotnet run --project src/ILInspector.Research.Tests " +
+            "-c Release -- --fail-skips on",
+            job);
 
         string checkStep = job[terminalCheck..];
         Assert.Contains(
