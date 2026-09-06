@@ -86,13 +86,6 @@ internal sealed class QueryPopulationProjection
                         input.Binding.Assembly, input.Binding.Resolver, input.Binding.BodyIndex));
                 }
                 break;
-            case QueryComparisonPopulation<BodySignalComparisonBinding> bodySignal:
-                foreach (var input in bodySignal.Inputs)
-                {
-                    occurrences.Add(input.Id,
-                        new BodySignalComparisonInputOccurrence(input.Binding.BodyIndex));
-                }
-                break;
             default:
                 throw new ArgumentException("Unsupported sealed comparison profile.", nameof(population));
         }
@@ -141,7 +134,6 @@ internal sealed class QueryPopulationProjection
         {
             QueryComparisonProfile.ImplementationComparison =>
                 ResearchComparisonProfile.ImplementationComparison,
-            QueryComparisonProfile.BodySignal => ResearchComparisonProfile.BodySignal,
             _ => throw new ArgumentOutOfRangeException(nameof(profile)),
         };
 
