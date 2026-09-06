@@ -128,6 +128,73 @@ public class StepperTests
         Assert.Equal(["parent before import", "parent after import"], descriptions);
     }
 
+    [Theory]
+    [InlineData(nameof(HeterogeneousArmSample.GuardedArea), false, false)]
+    [InlineData(nameof(HeterogeneousArmSample.GuardedArea), true, true)]
+    [InlineData(nameof(HeterogeneousArmSample.Area), false, true)]
+    [InlineData(nameof(HeterogeneousArmSample.Area), true, true)]
+    public void RunWithSteps_UsesOptionalDisjointnessEvidence(
+        string methodName, bool useEvidence, bool expectPatternSwitch)
+    {
+        using var source = MetadataSource.Open(typeof(HeterogeneousArmSample).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(HeterogeneousArmSample).FullName!, methodName);
+        var stagedFunction = IrImporter.Import(source, typeof(HeterogeneousArmSample).FullName!, methodName);
+        Assert.NotNull(function);
+        Assert.NotNull(stagedFunction);
+        var stages = IrPasses.RunWithStages(stagedFunction, importMethodBody: null,
+            typesProvablyDisjoint: useEvidence ? source.AreProvablyDisjoint : null);
+
+        var steps = useEvidence
+            ? IrPasses.RunWithSteps(function, int.MaxValue, importMethodBody: null, source.AreProvablyDisjoint)
+            : IrPasses.RunWithSteps(function, int.MaxValue, importMethodBody: null);
+
+        function.CheckInvariant();
+        Assert.Equal(expectPatternSwitch, function.Descendants.OfType<PatternSwitchExpression>().Any());
+        Assert.Equal(stages[^1].Projection, IrPrinter.Dump(function));
+        Assert.Equal(stagedFunction.Fidelity, function.Fidelity);
+        Assert.Equal(expectPatternSwitch, Flatten(steps.Steps).Any(
+            step => step.Description == "raise nested type-pattern dispatch to switch expression"));
+    }
+
+    [Theory]
+    [InlineData(nameof(HeterogeneousArmSample.GuardedArea))]
+    [InlineData(nameof(HeterogeneousArmSample.Area))]
+    public void RunWithSteps_StopsBeforePatternSwitchRewrite(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(HeterogeneousArmSample).Assembly.Location);
+        IrFunction Import()
+        {
+            var function = IrImporter.Import(source, typeof(HeterogeneousArmSample).FullName!,
+                methodName);
+            Assert.NotNull(function);
+            return function;
+        }
+
+        var completed = Import();
+        var steps = IrPasses.RunWithSteps(completed, int.MaxValue, importMethodBody: null,
+            source.AreProvablyDisjoint);
+        completed.CheckInvariant();
+        Assert.Single(completed.Descendants.OfType<PatternSwitchExpression>());
+        var rewrite = Assert.Single(Flatten(steps.Steps),
+            step => step.Description == "raise nested type-pattern dispatch to switch expression");
+
+        var before = Import();
+        var stopped = IrPasses.RunWithSteps(before, rewrite.Index, importMethodBody: null,
+            source.AreProvablyDisjoint);
+
+        before.CheckInvariant();
+        Assert.Equal(rewrite.Index, stopped.Count);
+        Assert.Empty(before.Descendants.OfType<PatternSwitchExpression>());
+
+        var after = Import();
+        var advanced = IrPasses.RunWithSteps(after, rewrite.Index + 1, importMethodBody: null,
+            source.AreProvablyDisjoint);
+
+        after.CheckInvariant();
+        Assert.Equal(rewrite.Index + 1, advanced.Count);
+        Assert.Single(after.Descendants.OfType<PatternSwitchExpression>());
+    }
+
     [Fact]
     public void PinnedLocalAudit_RecordsFixedStatementRewrite()
     {
