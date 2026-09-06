@@ -205,7 +205,7 @@ async function openSite(
   url: string,
 ): Promise<{ identity: BuildIdentity; startup: StartupMeasurement }> {
   await page.goto(url, {
-    waitUntil: "networkidle",
+    waitUntil: "commit",
     timeout: 180_000,
   });
 
