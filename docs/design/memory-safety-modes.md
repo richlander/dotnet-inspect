@@ -107,9 +107,9 @@ subsequent #5257/#5255 gates; an explicit-layout fixture does not establish them
 
 This is a prerequisite within stage 2 of #5226's existing three-stage adoption:
 Metadata facts, shared CSharp adoption, then CLI and browser/Wasm outcomes.
-Both hosts' whole-type source path uses `AssemblyContextSourceQuery` and the
-same product composer. This slice adds neither a host-local policy nor a new
-adoption stage.
+CLI whole-type decompilation calls `MemberBodyProducer.Project` directly;
+the browser reaches the same composer through `AssemblyContextSourceQuery`.
+This slice adds neither a host-local policy nor a new adoption stage.
 
 ## What the optimistic mode adds
 
