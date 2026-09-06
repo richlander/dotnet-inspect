@@ -110,6 +110,8 @@ internal static class ChangePlanTestSuite
             ("tools/DecompilerHarness/Baseline.txt", "decompiler,docs"),
             ("tools/DecompilerHarness/Harness.cs",
                 "code,decompiler,codeqlcsharp"),
+            ("tools/CatalogChangeBenchmark.cs",
+                "code,decompiler,codeqlcsharp"),
             ("tools/CSharpDiffHarness/H.cs",
                 "csharpdiff,decompiler,codeqlcsharp"),
             ("tools/IlDiffHarness/H.cs", "decompiler,ildiff,codeqlcsharp"),
