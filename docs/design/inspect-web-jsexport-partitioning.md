@@ -3,7 +3,8 @@
 Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 The [page-facing engine client](#page-facing-engine-client) is **partially
-implemented**: startup reads have Promise-valued main-thread bindings.
+implemented**: startup reads and home-demo resolution have Promise-valued
+main-thread bindings.
 The single-runtime Worker cutover remains unimplemented, tracked by
 [#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
 consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
@@ -570,7 +571,7 @@ constraint.
 ### Adoption and evidence
 
 The first caller-adoption slice uses
-[`engine-startup.ts`](../../prototypes/inspect-web/src/engine-startup.ts) for
+[`engine-client.ts`](../../prototypes/inspect-web/src/engine-client.ts) for
 Promise-valued build identity, vocabulary, home demo, Package Query facet, and
 Gallery discovery reads. Its three facade groups retain generated types;
 `engine-facades.ts` still owns the existing single page runtime and readiness.
@@ -580,12 +581,20 @@ independent, and the two Package Query catalogs retain their shared failure
 path. This is asynchronous caller preparation, not Worker execution or a
 responsiveness claim.
 
-`test/engine-startup.test.ts` exercises deferred invocation, exact result and
+`test/engine-client.test.ts` exercises deferred invocation, exact result and
 failure forwarding, and independent neighboring reads;
 `test/engine-facades.test.ts` retains the existing readiness/one-runtime
 composition evidence. Both use the existing inspect-web Node test runner, and
 the TypeScript gate checks the application's awaited DTO use.
-Other caller classes and Worker activation remain outstanding.
+Home-demo resolution also uses the catalog group. Its caller establishes the
+existing navigation sequence before awaiting resolution, then carries that
+sequence into workspace restoration or call-graph execution. A superseded
+resolution cannot publish success or failure over newer navigation.
+Source location, retry policy, and focus remain with the existing transactional
+navigation path. `test/saved-workspace-navigation.test.ts` exercises that
+production caller with delayed success/failure, a newer saved-workspace open,
+and the call-graph handoff. Other computed callers, mutable/control calls,
+and Worker activation remain outstanding.
 
 The user-approved
 [five-milestone plan](https://github.com/richlander/dotnet-inspect/issues/5420#issuecomment-5549528380)

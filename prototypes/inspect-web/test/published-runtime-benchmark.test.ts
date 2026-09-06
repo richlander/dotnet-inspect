@@ -15,6 +15,7 @@ test("published runtime benchmark parses explicit sites and bounds", () => {
     "--samples", "5",
     "--member-count", "12",
     "--output", "artifacts/report.json",
+    "--trend-output", "artifacts/trend-point.json",
     "--allow-mismatched-commits",
   ]), {
     sites: [
@@ -24,6 +25,7 @@ test("published runtime benchmark parses explicit sites and bounds", () => {
     samples: 5,
     memberCount: 12,
     outputPath: "artifacts/report.json",
+    trendOutputPath: "artifacts/trend-point.json",
     allowMismatchedCommits: true,
     help: false,
   });
@@ -52,7 +54,15 @@ test("published runtime benchmark rejects ambiguous inputs", () => {
     ]),
     /--samples must be a positive integer/u,
   );
+  assert.throws(
+    () => parseBenchmarkArguments([
+      "--site", "mono=https://example.test",
+      "--trend-output",
+    ]),
+    /--trend-output requires a value/u,
+  );
   assert.match(benchmarkUsage(), /--allow-mismatched-commits/u);
+  assert.match(benchmarkUsage(), /--trend-output/u);
 });
 
 test("published runtime benchmark reports deterministic distributions", () => {
