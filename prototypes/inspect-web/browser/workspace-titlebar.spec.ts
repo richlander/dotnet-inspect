@@ -1513,7 +1513,7 @@ async function windowContinuityProbe(
 ) {
   await page.goto("/browser/workspace-titlebar.html");
 
-  return page.evaluate(async windowContinuity => {
+  return page.evaluate(async continuityPolicy => {
     const { SlideStripDomController } = await import(
       "../src/slide-strip-dom.ts");
     document.head.insertAdjacentHTML(
@@ -1569,7 +1569,7 @@ async function windowContinuityProbe(
         initialAnchor: "b",
         preferredDirection: "after",
         continuityKey,
-        ...(windowContinuity ? { windowContinuity } : {}),
+        ...(continuityPolicy ? { windowContinuity: continuityPolicy } : {}),
         fallbackVisibilityFloor: 20,
         oversizedAlignment: "start",
       },
@@ -1598,7 +1598,7 @@ async function windowContinuityProbe(
       if (!button) throw new Error("The external focus target is missing.");
       button.focus();
     };
-    if (windowContinuity === "anchor-until-slide") {
+    if (continuityPolicy === "anchor-until-slide") {
       controller.revealForFocus("c");
       const focused = snapshot();
       const focusedId = document.activeElement instanceof HTMLElement
