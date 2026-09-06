@@ -137,6 +137,20 @@
       ]
     },
     {
+      "id": "presentation-stays-host-neutral",
+      "source": "docs/design/member-source-diff-presentation.md#result-and-host-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Presentation"
+      ],
+      "deny": [
+        "dotnet-inspect"
+      ]
+    },
+    {
       "id": "package-library-external-dependencies",
       "source": "docs/overview.md",
       "graphs": [

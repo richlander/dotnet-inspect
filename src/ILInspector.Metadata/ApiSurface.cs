@@ -675,6 +675,16 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsReadOnly { get; set; }
+
+    /// <summary>
+    /// Whether this accessor is a private MethodImpl body, matching the raw
+    /// explicit-implementation member classification. Null when that metadata
+    /// relationship was not retained.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsExplicitInterfaceImplementation { get; set; }
 
     /// <summary>
     /// The accessor MethodDef name. Ordinary properties use <c>get_Value</c>;

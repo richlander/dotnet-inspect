@@ -94,7 +94,7 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
-    public void ShippedPackManifestCarriesOnlyPackageSetIdentity()
+    public void ShippedPackManifestKeepsCuratedMembershipAsIdentity()
     {
         Type[] packTypes =
         [
@@ -113,6 +113,46 @@ public sealed class ProductEcosystemPackTests
                     type.GetProperties(),
                     property => CarriesPackageSetState(property.PropertyType));
             });
+    }
+
+    [Fact]
+    public void ShippedRetrievalKnowledgeMatchesLiteralPolicy()
+    {
+        Assert.Collection(
+            EcosystemPackCatalog.Discover(),
+            platform => AssertKnowledge(platform, ["System"], []),
+            extensions => AssertKnowledge(
+                extensions,
+                ["Microsoft.Extensions"],
+                [
+                    "Microsoft.Extensions.DependencyInjection.Abstractions",
+                    "Microsoft.Extensions.Configuration.Abstractions",
+                    "Microsoft.Extensions.Logging.Abstractions",
+                ]),
+            aspNetCore => AssertKnowledge(
+                aspNetCore,
+                ["Microsoft.AspNetCore"],
+                [
+                    "Microsoft.AspNetCore.OpenApi",
+                    "Microsoft.AspNetCore.Authentication.JwtBearer",
+                ]),
+            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]));
+
+        static void AssertKnowledge(
+            EcosystemPackDescriptor pack,
+            string[] roots,
+            string[] corePackageIds)
+        {
+            Assert.Equal(roots, pack.NamespaceRoots);
+            Assert.Equal(corePackageIds, pack.CorePackages.Select(package => package.PackageId));
+            Assert.All(pack.CorePackages, package =>
+            {
+                Assert.Null(PackageCoordinateResolver.Validate(package));
+                Assert.Null(package.Version);
+                Assert.Null(package.Framework);
+                Assert.Null(package.RuntimeIdentifier);
+            });
+        }
     }
 
     [Fact]
@@ -359,7 +399,6 @@ public sealed class ProductEcosystemPackTests
         type == typeof(PackageSetDescriptor)
         || type == typeof(PackageSetRegistration)
         || type == typeof(PackageSetRegistry)
-        || type == typeof(PackageCoordinate)
         || (type.IsArray && CarriesPackageSetState(type.GetElementType()!))
         || (type.IsGenericType
             && type.GetGenericArguments().Any(CarriesPackageSetState));
