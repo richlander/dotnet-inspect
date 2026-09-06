@@ -66,7 +66,11 @@ public partial class CommandExecutionTests
         string field = Assert.Single(
             output.Split([" | ", "\n"], StringSplitOptions.None),
             value => value.StartsWith("Library: ", StringComparison.Ordinal));
-        string path = field["Library: ".Length..];
+        AssertLibraryAssetPath(field["Library: ".Length..], assemblyName);
+    }
+
+    private static void AssertLibraryAssetPath(string path, string assemblyName)
+    {
         Assert.True(Path.IsPathFullyQualified(path), $"Expected an acquired asset path: {path}");
         Assert.Equal(assemblyName + ".dll", Path.GetFileName(path));
         Assert.True(File.Exists(path), $"Expected the acquired asset to exist: {path}");
@@ -8420,7 +8424,10 @@ public partial class CommandExecutionTests
         Assert.Contains("## Type Info", output);
         Assert.Contains("| Type | System.Text.Json.JsonSerializer |", output);
         Assert.Contains("| Kind | class |", output);
-        Assert.Contains("| Library | System.Text.Json |", output);
+        string libraryRow = Assert.Single(
+            output.Split('\n'),
+            row => row.StartsWith("| Library | ", StringComparison.Ordinal));
+        AssertLibraryAssetPath(libraryRow.Split('|')[2].Trim(), "System.Text.Json");
         // Identity, not inventory: the member sections stay out.
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Method Groups", output);

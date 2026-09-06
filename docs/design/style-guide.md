@@ -119,7 +119,8 @@ focused-inventory behavior, and acquired asset paths.
 `Member_OverloadInventory_TabularWindowsRetainRows` gate the separate default
 tabular inventory shape and its row windows, without document provenance.
 `Type_SingleType_MarkdownQuiet_RendersCompactSectionView`,
-`Type_SingleType_PlaintextIncludesAcquisitionContext`, and
+`Type_SingleType_PlaintextIncludesAcquisitionContext`,
+`Type_TypeInfoSection_RendersIdentityFactsRatherThanMembers`, and
 `Router_FullyQualifiedGenericPlatformType_PreservesContractSource` gate CLI
 header and contract-asset disclosure.
 `ApiServices_RetainsSelectedForwarderDescriptor` gates the separation from
