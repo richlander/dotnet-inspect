@@ -54,6 +54,7 @@ public static class FixtureIds
 {
     public const string JsExportUnions = "js-export.unions";
     public const string MetadataAttributeEnums = "metadata.attribute-enums";
+    public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
@@ -203,6 +204,13 @@ public static class FixtureCatalog
             "InspectWeb.SourceComparisonFixtures.V2",
             "InspectWeb.SourceComparisonFixture.2.0.0.nupkg"),
         Asset("source", "InspectWeb.SourceComparisonFixtures.V2", "Counter.cs"));
+
+    public static readonly FixtureDefinition MetadataMemorySafety = Fixture(
+        FixtureIds.MetadataMemorySafety,
+        "ILInspector.Metadata.MemorySafetyFixtures",
+        "ILInspector.Metadata.MemorySafetyFixtures.dll",
+        Boundaries(FixtureBoundary.ModuleAttribute),
+        "metadata", "memory-safety", "layout");
 
     public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
         FixtureIds.DecompilerAuthoredRebuild,
@@ -727,6 +735,7 @@ public static class FixtureCatalog
     [
         JsExportUnions,
         MetadataAttributeEnums,
+        MetadataMemorySafety,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
@@ -1087,6 +1096,8 @@ public static class FixtureCatalog
                 "fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures",
             "ILInspector.Metadata.AttributeEnumFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
+            "ILInspector.Metadata.MemorySafetyFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
