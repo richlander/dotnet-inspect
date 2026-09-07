@@ -22,6 +22,7 @@ import type {
   WorkerRuntimeHostOptions,
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
+import { bindEngineWorkerStartupClient } from "./engine-worker-startup.ts";
 
 function createEngineWorker(): Worker {
   return new Worker(new URL("./engine-worker-entry.ts", import.meta.url), {
@@ -54,10 +55,8 @@ export function registerEngineWorkerTypeSourceAdapter(
   );
 }
 
-// This published diagnostic harness exercises prepared Worker bindings without
-// connecting them to the production application.
-export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
-  const host = createBrowserWorkerRuntimeHost(createEngineWorker, {
+function createHost(options: EngineWorkerProbeOptions) {
+  return createBrowserWorkerRuntimeHost(createEngineWorker, {
     ...engineWorkerPolicy,
     startupBudgetMilliseconds:
       options.startupBudgetMilliseconds ?? engineWorkerPolicy.startupBudgetMilliseconds,
@@ -67,6 +66,12 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     createDiagnostic: (kind, detail) => `${kind}: ${engineWorkerDiagnostic(detail)}`.slice(0, 4_096),
     callbacks: options.callbacks,
   });
+}
+
+// The existing managed canary is an explicit diagnostic consumer, not a feature
+// migration or a claim that application operations already run in this Worker.
+export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
+  const host = createHost(options);
   const adapter = host.registerOperation({
     kind: engineWorkerCanaryKind,
     allowance: { kind: "unbounded" },
@@ -106,5 +111,18 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
       typeSourceSession.dispose();
       host.dispose();
     },
+  };
+}
+
+export function createEngineWorkerStartupClient(origin: string, options: EngineWorkerProbeOptions) {
+  const host = createHost(options);
+  const started = host.start(origin);
+  if (started.kind === "rejected") {
+    host.dispose();
+    throw new Error(`Worker could not start: ${started.reason}.`, { cause: started.detail });
+  }
+  return {
+    client: bindEngineWorkerStartupClient(host, options.operationDiagnostic),
+    dispose: () => host.dispose(),
   };
 }

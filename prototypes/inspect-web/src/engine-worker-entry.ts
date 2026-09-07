@@ -10,9 +10,27 @@ import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
+import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
+registerEngineWorkerStartupOperations(operations, {
+  async buildIdentity() {
+    return (await import("/inspect-web-host.js")).buildIdentity();
+  },
+  async listVocabulary() {
+    return (await import("/inspect-web-catalog.js")).listVocabulary();
+  },
+  async listHomeDemos() {
+    return (await import("/inspect-web-catalog.js")).listHomeDemos();
+  },
+  async listPackageQueryFacets() {
+    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  },
+  async listGalleryDiscoveryCatalog() {
+    return (await import("/inspect-web-package.js")).listGalleryDiscoveryCatalog();
+  },
+});
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
 registerEngineWorkerTypeSourceOperation(operations, () => {
   if (sourceFacade === undefined)

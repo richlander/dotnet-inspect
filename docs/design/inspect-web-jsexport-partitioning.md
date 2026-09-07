@@ -597,6 +597,33 @@ production caller with delayed success/failure, a newer saved-workspace open,
 and the call-graph handoff. Other computed callers, mutable/control calls,
 and Worker activation remain outstanding.
 
+The first Worker-only client slice binds exactly five startup reads:
+`buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets`,
+and `listGalleryDiscoveryCatalog`. It consumes the corresponding `EngineClient`
+subset in the separately published Worker client entry, not the production
+page bootstrap. All calls share the existing full-facade and managed-reporter
+readiness barrier. Concurrent calls, including repeated calls to one method,
+have independent operation sessions and cannot supersede each other. An
+individual managed rejection does not fail neighboring reads. Disposal and
+epoch loss reject outstanding reads; a client cannot follow a replacement
+epoch. Promise completion does not assert physical quiescence.
+
+Each read has a closed Worker operation and consumes the generated function
+and result type. Its JSON-representable result uses a transport JSON string,
+limited to 1,048,576 UTF-16 code units before parsing and checked against the
+generated DTO shape. This deliberate transport encoding bounds decoding by
+text length without adding a recursive object-budget framework; it does not
+replace generated managed serialization. Extra JSON properties and the
+vocabulary's generated `unknown` values are preserved. Oversized results,
+invalid shapes, managed exceptions, and Worker failures remain visible.
+
+`test/engine-worker-startup.test.ts` gates generated-shaped result forwarding,
+shared readiness, independent calls, rejection, disposal, and epoch binding
+using the actual host, realm, and operation authority. The existing published
+Worker gate compares all five client results with the actual generated facade
+results in the same Worker. This is the first portion of milestone 4 below,
+not production activation, Source adoption, or managed-work responsiveness.
+
 Dependency-coordinate matching uses the package group without moving NuGet
 selection into JavaScript. Dependency lists await results before enabling
 open/load actions; graph construction awaits the same matcher before Mermaid
