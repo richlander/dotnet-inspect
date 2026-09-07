@@ -485,11 +485,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, authority composition, source-bound caches, selection, and
   enrichment.
-- [Package dependency evidence](design/package-dependency-evidence.md):
-  normalized declared dependency observations across typed package-manifest
-  and restored-project inputs, additive resolution and owner evidence,
-  cross-input equivalence, completion, and query-result `InertString`
-  containment.
+- [Package input and dependency evidence](design/package-dependency-evidence.md):
+  common package declarations and produced relationships across authored
+  project, package-manifest, restored-project, and runtime-dependency inputs,
+  preserving authorship, requested versus resolved versions, processing
+  evidence, equivalence, independent completion, and query-result
+  `InertString` containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes
