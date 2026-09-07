@@ -88,12 +88,12 @@ public static class FindOptionsParser
         }
         if (select is not null)
         {
-            SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            SelectResult sectionSelection = SelectResolver.ResolveSelectAsSections(
                 select, [PackageProfileSections.Packages],
                 categories: new Dictionary<string, string[]>());
-            if (SelectOutput.WriteUnresolved(selection))
+            if (SelectOutput.WriteUnresolved(sectionSelection))
                 return new Invalid();
-            if (selection.Sections?.Contains(PackageProfileSections.Packages) != true)
+            if (sectionSelection.Sections?.Contains(PackageProfileSections.Packages) != true)
             {
                 CommandError.Write("A package-prefix data selection must include Packages.");
                 return new Invalid();
