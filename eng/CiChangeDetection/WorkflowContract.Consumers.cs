@@ -11,6 +11,7 @@ internal static partial class WorkflowContract
         [
             "markdownlint",
             "skill-gate",
+            "repository-guards",
             "test",
             "dependency-policy",
             "build-net10",
@@ -36,8 +37,154 @@ internal static partial class WorkflowContract
         }
 
         ValidateConsumerStepGuards(jobs, jobNames);
+        ValidateRepositoryGuardsJob(jobs);
         ValidateDependencyPolicyJob(jobs);
         ValidateIlDiffTestStep(jobs);
+    }
+
+    private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)
+    {
+        YamlMappingNode job = GetRequiredMapping(
+            jobs,
+            "repository-guards",
+            "jobs");
+        RequireExactKeys(
+            job,
+            ["needs", "if", "runs-on", "timeout-minutes", "steps"],
+            "jobs.repository-guards");
+        RequireScalarValue(
+            job,
+            "needs",
+            "changes",
+            "jobs.repository-guards");
+        RequireScalarValue(
+            job,
+            "if",
+            "fromJSON(needs.changes.outputs.plan).validations.repositoryGuards",
+            "jobs.repository-guards");
+        RequireScalarValue(
+            job,
+            "runs-on",
+            "ubuntu-24.04",
+            "jobs.repository-guards");
+        RequireScalarValue(
+            job,
+            "timeout-minutes",
+            "15",
+            "jobs.repository-guards");
+
+        YamlSequenceNode steps = GetRequiredSequence(
+            job,
+            "steps",
+            "jobs.repository-guards");
+        if (steps.Children.Count != 5)
+        {
+            throw new InvalidOperationException(
+                "jobs.repository-guards must contain exactly five steps.");
+        }
+
+        YamlMappingNode checkout = RequireMapping(
+            steps.Children[0],
+            "jobs.repository-guards checkout step");
+        RequireExactKeys(
+            checkout,
+            ["uses"],
+            "jobs.repository-guards checkout step");
+        RequireScalarValue(
+            checkout,
+            "uses",
+            "actions/checkout@v7",
+            "jobs.repository-guards checkout step");
+
+        YamlMappingNode setup = RequireMapping(
+            steps.Children[1],
+            "jobs.repository-guards setup step");
+        RequireExactKeys(
+            setup,
+            ["name", "uses", "with"],
+            "jobs.repository-guards setup step");
+        RequireScalarValue(
+            setup,
+            "name",
+            "Setup .NET",
+            "jobs.repository-guards setup step");
+        RequireScalarValue(
+            setup,
+            "uses",
+            "actions/setup-dotnet@v6",
+            "jobs.repository-guards setup step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                setup,
+                "with",
+                "jobs.repository-guards setup step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dotnet-version"] = "11.0.x",
+                ["dotnet-quality"] = "preview",
+            },
+            "jobs.repository-guards setup step.with");
+
+        YamlMappingNode cache = RequireMapping(
+            steps.Children[2],
+            "jobs.repository-guards cache step");
+        RequireExactKeys(
+            cache,
+            ["name", "uses", "with"],
+            "jobs.repository-guards cache step");
+        RequireScalarValue(
+            cache,
+            "name",
+            "Cache NuGet packages",
+            "jobs.repository-guards cache step");
+        RequireScalarValue(
+            cache,
+            "uses",
+            "actions/cache@v4",
+            "jobs.repository-guards cache step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                cache,
+                "with",
+                "jobs.repository-guards cache step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["path"] = "~/.nuget/packages",
+                ["key"] =
+                    "nuget-${{ runner.os }}-${{ runner.arch }}-" +
+                    "${{ hashFiles('**/*.csproj', '**/*.props', " +
+                    "'**/*.targets', '**/*.slnx') }}",
+                ["restore-keys"] =
+                    "nuget-${{ runner.os }}-${{ runner.arch }}-\n",
+            },
+            "jobs.repository-guards cache step.with");
+
+        RequireNamedRunStep(
+            steps.Children[3],
+            "Run repository line-ending guard",
+            "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
+                "--filter-class \"DotnetInspector.Tests.RepositoryLineEndingTests\" " +
+                "--minimum-expected-tests 2\n",
+            "jobs.repository-guards line-ending step");
+        RequireNamedRunStep(
+            steps.Children[4],
+            "Run legacy source-identity guard",
+            "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
+                "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
+                "--minimum-expected-tests 1\n",
+            "jobs.repository-guards source-identity step");
+    }
+
+    private static void RequireNamedRunStep(
+        YamlNode node,
+        string name,
+        string run,
+        string context)
+    {
+        YamlMappingNode step = RequireMapping(node, context);
+        RequireExactKeys(step, ["name", "run"], context);
+        RequireScalarValue(step, "name", name, context);
+        RequireScalarValue(step, "run", run, context);
     }
 
     private static void ValidateDependencyPolicyJob(YamlMappingNode jobs)
