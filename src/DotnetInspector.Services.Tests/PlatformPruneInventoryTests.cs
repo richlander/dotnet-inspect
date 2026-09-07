@@ -283,4 +283,33 @@ public class PlatformPruneInventoryTests
             PlatformSubsumption.NotSubsumed,
             composed.Subsumes("System.Text.Json", "10.0.0"));
     }
+
+    [Fact]
+    public void NoPlatformInventorySubsumesNothing()
+    {
+        // Removing the platform is a coherent workspace, not a broken one: nothing is subsumed,
+        // so every package reference is followed as a package reference.
+        var none = PlatformPruneInventory.None("net10.0");
+
+        Assert.Empty(none.Entries);
+        Assert.Empty(none.Families);
+        Assert.Equal("net10.0", none.TargetFramework);
+
+        Assert.Equal(
+            PlatformPruneClassification.PackageOnly,
+            none.Classify("System.Text.Json", hasPlatformLibrary: false));
+        Assert.Equal(
+            PlatformSubsumption.NotSubsumed,
+            none.Subsumes("System.Text.Json", "9.0.0"));
+        Assert.Equal(
+            PlatformSubsumption.NotSubsumed,
+            none.Subsumes("System.Text.Json", (string?)null));
+        Assert.False(none.TryGetSuppliedVersion("System.Text.Json", out _, out _));
+
+        // A library the platform would have supplied is still reported as platform-only when the
+        // catalog says so; the inventory only answers the package question.
+        Assert.Equal(
+            PlatformPruneClassification.PlatformOnly,
+            none.Classify("System.Private.CoreLib", hasPlatformLibrary: true));
+    }
 }

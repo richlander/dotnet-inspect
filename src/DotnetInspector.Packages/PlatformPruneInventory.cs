@@ -115,6 +115,21 @@ public sealed class PlatformPruneInventory
     public IEnumerable<PlatformPruneEntry> LiveEntries => Entries.Where(entry => entry.IsLive);
 
     /// <summary>
+    /// The inventory of a workspace with no platform registered. Nothing is subsumed and every
+    /// identity classifies as package-only, so every package reference is followed as one. This
+    /// is a coherent configuration rather than a degraded one, and modelling it as an empty
+    /// inventory keeps consumers from having to special-case a missing platform.
+    /// </summary>
+    public static PlatformPruneInventory None(string targetFramework)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        return new PlatformPruneInventory(
+            targetFramework,
+            ImmutableDictionary<string, NuGetVersion>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase),
+            ImmutableDictionary<string, PlatformPruneEntry>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Reads one shared framework's <c>data/PackageOverrides.txt</c>. Each non-empty line is
     /// <c>PackageId|Version</c>; an entry whose version equals <paramref name="packVersion"/> is
     /// live. A malformed line is a failure rather than a silently dropped identity, because a
