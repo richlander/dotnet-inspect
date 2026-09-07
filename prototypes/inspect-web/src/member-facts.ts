@@ -55,11 +55,7 @@ export function renderMemberFacts(
     ${renderAllocationFacts(facts.allocations)}
     ${renderCallFacts(facts.calls)}
     ${renderSafetyFacts(facts.safety)}
-    ${renderFactTable("Exception regions", facts.exceptionRegions, [
-      ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
-      ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
-      ["Caught type", row => row.caughtType || ""]
-    ], "No exception regions were found in this method.")}
+    ${renderExceptionRegions(facts.exceptionRegions)}
     <section class="document-section performance-facts">
       <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
       ${facts.performanceOpportunities.length
@@ -143,23 +139,27 @@ function renderSafetyFacts(safety: MemberFacts["safety"]) {
   </section>`;
 }
 
-type FactTableColumn<T> =
-  readonly [label: string, field: keyof T | ((row: T) => unknown)];
-
-function renderFactTable<T extends object>(
-  title: string,
-  rows: readonly T[],
-  columns: readonly FactTableColumn<T>[],
-  emptyText: string,
-) {
-  return `<section class="document-section fact-group">
-    <div class="section-title"><h2>${escapeHtml(title)}</h2><span>${rows.length}</span></div>
-    ${rows.length
-      ? `<div class="fact-table" style="--fact-columns:${columns.length}">${columns.map(([label]) => `<strong>${escapeHtml(label)}</strong>`).join("")}${rows.map(row => columns.map(([, field]) => {
-          const value = typeof field === "function" ? field(row) : row[field];
-          return `<code>${escapeHtml(value ?? "")}</code>`;
-        }).join("")).join("")}</div>`
-      : `<div class="empty-fact-group">${escapeHtml(emptyText)}</div>`}
+function renderExceptionRegions(regions: MemberFacts["exceptionRegions"]) {
+  return `<section class="exception-regions" aria-labelledby="exception-regions-title">
+    <header><h2 id="exception-regions-title">Exception regions</h2><span>${regions.length} ${regions.length === 1 ? "region" : "regions"}</span></header>
+    ${regions.length
+      ? `<ol class="exception-rows">${regions.map(region => `
+        <li class="exception-row">
+          <div class="exception-identity"><span>Region <code>${escapeHtml(region.region)}</code></span><code class="exception-clause">${escapeHtml(region.clause)}</code></div>
+          <div class="exception-main">
+            <dl class="exception-type"><div><dt>Caught type</dt><dd>${region.caughtType == null
+              ? '<span class="exception-unavailable">not supplied</span>'
+              : `<code>${escapeHtml(region.caughtType)}</code>`}</dd></div></dl>
+            <dl class="exception-ranges">${[
+              ["Try", region.tryRange],
+              ["Handler", region.handlerRange],
+              ["Filter", region.filterRange],
+            ].map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value == null
+              ? '<span class="exception-unavailable">not supplied</span>'
+              : `<code>${escapeHtml(value)}</code>`}</dd></div>`).join("")}</dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="exception-empty">No exception regions were found in this method.</p>'}
   </section>`;
 }
 
