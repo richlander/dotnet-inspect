@@ -829,8 +829,13 @@ ambiguity and diagnostic cases gate these host behaviors.
 Package Overview contains session-local **Comparison targets**. Diff defaults
 to the preceding listed stable release, including earlier previews when the
 active version is a preview. An exact version can be selected instead.
-Clone defaults to the current Workspace, including self, or can be narrowed
-to another retained Package.
+
+The current prototype also renders a Package-specific Clone selector. It is a
+temporary target placeholder: the shared
+[Structural Clone Search Scope](../../docs/design/structural-clone-search-scope.md)
+contract replaces it with `Self`, `Self + similar names`, and
+`Everything in scope`, using the middle mode by default. The Browser adoption
+stage will remove the Package-specific state and selector.
 
 Subject navigation preserves these settings. Replacing or removing the Package
 resets its settings; removing an explicit Clone target leaves that choice
@@ -840,7 +845,9 @@ platform inputs.
 
 These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
-[Browser comparison targets](../../docs/design/inspect-web-comparison-targets.md).
+[Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
+Diff baseline and Structural Clone Search Scope for the replacement Clone
+focal length.
 
 ## Method Body Diff
 
