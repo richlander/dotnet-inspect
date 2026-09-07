@@ -111,6 +111,22 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
+For an overview, explicitly select `Body Shape Summary` to group identical
+rendered matches with an occurrence count:
+
+```bash
+dnx dotnet-inspect -y -- type StringBuilder --platform System.Private.CoreLib \
+  --where "Kind=ObjectCreationExpression" -S "Body Shape Summary" \
+  --columns "Match;Count"
+```
+
+`Body Shapes` retains individual occurrences. Keep `Member`, `Token`, and the
+start/end line and column fields to locate each match in the method's rendered
+C# body; these coordinates are not IL offsets or original source locations.
+Hiding columns never groups rows. Summary row limits select groups without
+reducing their occurrence counts; `--count` counts the selected view's rows.
+Both views are available on `library`, `type`, and `member`.
+
 Use `--jsonl` for one machine-readable row per match or `--count` for the row
 count. Bodies that cannot be reconstructed at full fidelity are reported on
 stderr rather than mixed into structured output.

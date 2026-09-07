@@ -59,6 +59,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | -------- | ----------- |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
+| [Body Shape Views](design/body-shape-views.md) | Explicit counted summaries and locatable rendered-syntax occurrences. |
 | [Uncertified Scan Results](design/uncertified-scan-results.md) | How a command reports a multi-candidate scan that lost a candidate: exclusions named first, uncertainty carried beside the outcome, exit code `3`. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Typed ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |

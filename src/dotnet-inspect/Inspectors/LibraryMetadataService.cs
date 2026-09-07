@@ -205,6 +205,8 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage,
                 BodyKindQueryOptions = options.BodyKindQuery,
                 IntegrationQuery = options.IntegrationQuery,
+                BodyShapeSections = options.IncludeSections,
+                BodyShapeSummaryRows = options.Rows,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
