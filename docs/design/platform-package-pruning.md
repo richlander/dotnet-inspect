@@ -217,6 +217,89 @@ the runtime, so the comparison is the whole question. A consumer that wants to
 explain *why* a name resolved to the platform will find the distinction more
 useful than the raw verdict.
 
+## Where the rule applies
+
+Pruning transforms **resolution**, never **selection**. That single line settles
+the cases; the rest of this section is its consequences.
+
+### Selection is never transformed
+
+A user who names a subject gets that subject. `System.Text.Json` on nuget.org
+is a real, official asset, and opening it must stay trivial. Pruning never
+suppresses it, redirects it, or downgrades it to a footnote.
+
+Search advertises a subsumed name as **both**. Platform is the preferred
+default because it is what a build would bind, and the package remains a
+visible, selectable alternative labeled by source. Preferring is ranking, not
+hiding.
+
+### Navigation inside a selected subject stays inside it
+
+Opening the `System.Text.Json` package and walking Library to Type to Member
+never leaves the assembly, so no reference is resolved and pruning never fires.
+The user is inspecting that artifact, and every view answers from it.
+
+Pruning becomes interesting only where an edge leaves an assembly.
+
+### Resolution across an edge delegates to the platform
+
+An edge into a subsumed identity resolves to the platform, matching what the
+SDK does at build time — and it does so **even when the workspace also
+contains that package**. Containment is not binding. A workspace holding both
+Platform 11.0 and the `System.Text.Json` package traverses every reference to
+`System.Text.Json`, from the platform or from any other package, into the
+platform.
+
+Two edges are involved, and only the first is this owner's:
+
+| Edge | Carries | Pruning's role |
+| --- | --- | --- |
+| Package-graph edge | package identity and version | **Direct.** A subsumed edge delegates rather than acquiring the package. |
+| `AssemblyRef` | assembly name and assembly version | **Indirect.** Nothing to decide, because the competing package-backed participant was never admitted. |
+
+That split matters because the two are not the same currency. Package
+`10.0.11` presents assembly version `10.0.0.0`, so comparing an `AssemblyRef`
+version against a package-version watermark would be a category error. This
+owner decides package-graph edges; assembly binding stays with the resolver.
+
+### Delegation is bounded by the supplied version
+
+Unconditional with respect to workspace containment; still bounded by the
+comparison. An edge requesting a version **above** the supplied version is not
+subsumed, and delegating it would show an older surface while hiding the newer
+package — the over-claiming failure this design exists to prevent.
+
+For the common case the distinction is invisible: Platform 11.0 against
+`System.Text.Json` 10.x or 11.x subsumes either way. It becomes visible only
+when a package leapfrogs the runtime, which is exactly when it must.
+
+### Relationship to platform composition and overlays
+
+[Platform composition and overlays](platform-composition-and-overlays.md)
+already governs which *artifact* backs one assembly identity among admitted
+participants, and its precedence rule prefers a designated artifact over a
+platform one. The two do not overlap and do not conflict:
+
+| | Question | Decided among | Decided at |
+| --- | --- | --- | --- |
+| Pruning | package identity or platform? | a package-graph edge's candidates | package-graph construction |
+| Overlay precedence | which artifact for this assembly identity? | admitted participants | reference binding |
+
+They compose in the expected direction. That owner already states its
+exception "does not weaken identity matching or promote package, project,
+sibling, discovered, or other non-designated candidates" — so a package-backed
+participant never outranks a platform one there either, which is the same
+outcome pruning produces earlier and for a different reason. A designated
+local build of `System.Text.Json.dll` still wins over the platform, because
+pruning says nothing about designated artifacts; it only declines to fetch a
+package.
+
+The overlay work is not, as might be assumed, confined to low-level assemblies
+without package twins. Its motivating shape is a local build composed over an
+installed hive, which applies equally to an assembly that does have a package
+twin. The distinction is designated-versus-platform, not twinned-versus-not,
+which is why it stays orthogonal to this owner.
+
 ## Contracts
 
 ### Subsumption never over-claims
@@ -309,6 +392,10 @@ Named here, unimplemented; each lands with the work it covers.
 | A version above the supplied version is not subsumed | `Pruning_LeapfroggingPackageIsNotSubsumed` |
 | Uncertainty resolves to not-subsumed | `Pruning_UnknownTargetIsNotSubsumed` |
 | The derivation binds to the committed target | `Pruning_DerivationDoesNotAdoptDiscoveredVersion` |
+| Selecting a subsumed package opens that package | `Pruning_SelectedPackageIsNotRedirectedToPlatform` |
+| Navigation inside a selected package stays in it | `Pruning_IntraAssemblyNavigationDoesNotDelegate` |
+| A subsumed edge delegates although the workspace holds the package | `Pruning_ContainedPackageDoesNotCaptureSubsumedEdge` |
+| Search advertises a subsumed name as both | `Pruning_SubsumedNameRemainsSelectableAsPackage` |
 | The derived supplied version matches an acquired pack | `Pruning_DerivedVersionMatchesAcquiredReferencePack` |
 | The projection is stable across patch releases | `Pruning_ProjectionIsStableAcrossPatchReleases` |
 
