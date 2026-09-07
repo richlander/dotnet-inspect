@@ -621,6 +621,36 @@ test("Finding census publishes exact current results and initializes its reader"
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
 });
 
+test("Finding census viewer admission failure publishes only the visible error", async () => {
+  const result = findingCensusResult();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFindingCensus: async () => ({
+        ...result,
+        annotatedSource: {
+          ...result.annotatedSource,
+          viewerCatalog: {
+            ...result.annotatedSource.viewerCatalog,
+            supportedMedia: ["Il"],
+          },
+        },
+      }),
+    }));
+
+  await coordinator.loadFindingCensus(findingCensusRequest());
+
+  assert.equal(
+    state.memberAnnotatedError,
+    "Annotated Source viewer catalog must support CSharp",
+  );
+  assert.equal(state.memberFindingInteraction, null);
+  assert.equal(state.memberAnnotated, null);
+  assert.equal(state.memberAnnotatedEmbedded, null);
+  assert.equal(state.memberAnnotatedModal, null);
+  assert.equal(state.memberAnnotatedLoading, false);
+});
+
 test("cached annotated failure renders without querying again", async () => {
   let queries = 0;
   let renders = 0;

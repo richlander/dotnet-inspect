@@ -4055,6 +4055,14 @@ test("source operations cancel when superseded or hidden", () => {
     }),
     "annotated");
   assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "facts"
+    }),
+    "annotated");
+  assert.equal(
     activeSourceOperationKind({
       ...visible,
       lens: "api",

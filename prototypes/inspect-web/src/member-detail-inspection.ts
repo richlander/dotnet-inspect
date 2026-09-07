@@ -203,14 +203,16 @@ export function createMemberDetailInspectionCoordinator(
       try {
         const census = await dependencies.queryFindingCensus(request);
         const interaction = createMemberFindingInteraction(census);
+        const annotated = census.annotatedSource;
+        const embedded = createEmbeddedSession(
+          createAnnotatedSourceViewerModel(annotated),
+        );
         if (request.isCurrent()
           && state.memberAnnotatedKey === request.signature
           && memberFindingCensusRequestId === requestId) {
           state.memberFindingInteraction = interaction;
-          state.memberAnnotated = census.annotatedSource;
-          state.memberAnnotatedEmbedded = createEmbeddedSession(
-            createAnnotatedSourceViewerModel(census.annotatedSource),
-          );
+          state.memberAnnotated = annotated;
+          state.memberAnnotatedEmbedded = embedded;
         }
       } catch (error) {
         if (request.isCurrent()
