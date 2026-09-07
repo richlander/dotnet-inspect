@@ -92,7 +92,7 @@ public sealed partial class BrowserEngineBoundaryTests
         int scopesBefore = BrowserPackageWorkspace.Stats().Workspaces;
 
         BrowserPlatformCatalogResult result = await BrowserPlatformCatalog.GetCatalogAsync(
-            "net11.0", version, source, PackageSourceIdentity.NuGetOrg,
+            "net11.0", version, source,
             TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.Equal("net11.0", result.Tfm);
@@ -138,7 +138,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PlatformCatalog_WarmupOnlyAcquiresArchivesAndDetailReusesThem()
+    public async Task PlatformCatalog_WarmupOnlyAcquiresArchivesAndRuntimeSelectionReusesThem()
     {
         const string version = "11.0.404";
         var handler = new PlatformCatalogHandler(version)
@@ -155,24 +155,24 @@ public sealed partial class BrowserEngineBoundaryTests
         int scopesBefore = BrowserPackageWorkspace.Stats().Workspaces;
 
         await BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
-            source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+            source, TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(scopesBefore, BrowserPackageWorkspace.Stats().Workspaces);
         Assert.Equal(2, handler.Requests.Count);
         await BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
-            source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+            source, TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
         Assert.Equal(2, handler.Requests.Count);
 
-        using var client = new HttpClient(new CatalogNoNetworkHandler());
-        await using BrowserPlatformScopeResolution detail =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                "net11.0", version, "Warmed.dll", "netcore.app", client,
-                new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]),
-                TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        Assert.Equal(version, detail.Coordinate.Version);
-        Assert.Equal("Warmed", detail.Participant.Participant.Assembly.Identity.Name);
+        BrowserPackage runtime = await BrowserPlatformCatalog.AcquireRuntimeAsync(
+            "net11.0", "runtime", version, source,
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(runtime.Content.FromCache);
+        Assert.Equal(version, runtime.Version);
+        Assert.Equal("runtimes/linux-x64/lib/net11.0/Warmed.dll",
+            Assert.Single(runtime.Content.EnumerateEntries()));
+        Assert.Equal(scopesBefore, BrowserPackageWorkspace.Stats().Workspaces);
         Assert.Equal(2, handler.Requests.Count);
     }
 
@@ -208,7 +208,7 @@ public sealed partial class BrowserEngineBoundaryTests
         };
         using IPackageSourceClient source = CatalogSource(handler);
         BrowserPlatformCatalogResult result = await BrowserPlatformCatalog.GetCatalogAsync(
-            "net11.0", version, source, PackageSourceIdentity.NuGetOrg,
+            "net11.0", version, source,
             TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.Equal(4, result.Rows.Length);
@@ -224,7 +224,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 new BrowserPackage(CatalogPackages[1], version, runtime, fromCache: false).Content,
                 "net11.0", "linux-x64"));
 
-        using var client = new HttpClient(new CatalogNoNetworkHandler());
+        // The HTTP loader has a distinct source client, not this catalog's cache.
+        var detailHandler = new PlatformCatalogHandler(version) { Packages = handler.Packages };
+        using var client = new HttpClient(detailHandler);
         await using BrowserPlatformScopeResolution detail =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0", version, client,
@@ -233,6 +235,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("System.Private.CoreLib", detail.Participant.Participant.Assembly.Identity.Name);
         Assert.Equal(version, detail.Coordinate.Version);
         Assert.Equal(4, handler.Requests.Count);
+        Assert.Single(detailHandler.Requests);
     }
 
     [Fact]
@@ -251,10 +254,10 @@ public sealed partial class BrowserEngineBoundaryTests
         using IPackageSourceClient source = CatalogSource(handler);
         await Task.WhenAll(
             BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
-                source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+                source, TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken),
             BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
-                source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+                source, TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken));
         Assert.Equal(2, handler.Requests.Count);
     }
@@ -269,11 +272,11 @@ public sealed partial class BrowserEngineBoundaryTests
         using IPackageSourceClient source = CatalogSource(handler);
         await Assert.ThrowsAsync<ArgumentException>(() =>
             BrowserPlatformCatalog.GetCatalogAsync(tfm, version, source,
-                PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             BrowserPlatformCatalog.PrefetchAsync(tfm, version, source,
-                PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken));
         Assert.Empty(handler.Requests);
     }
@@ -302,7 +305,7 @@ public sealed partial class BrowserEngineBoundaryTests
         using IPackageSourceClient missingSource = CatalogSource(missing);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             BrowserPlatformCatalog.PrefetchAsync("net11.0", "11.0.407",
-                missingSource, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+                missingSource, TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken));
         var corrupt = new PlatformCatalogHandler("11.0.408")
         {
@@ -314,7 +317,7 @@ public sealed partial class BrowserEngineBoundaryTests
         using IPackageSourceClient corruptSource = CatalogSource(corrupt);
         var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             BrowserPlatformCatalog.GetCatalogAsync("net11.0", "11.0.408",
-                corruptSource, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+                corruptSource, TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken));
         Assert.Contains("Corrupt.dll", failure.Message);
     }
@@ -330,7 +333,7 @@ public sealed partial class BrowserEngineBoundaryTests
         int scopesBefore = BrowserPackageWorkspace.Stats().Workspaces;
         await Assert.ThrowsAsync<TimeoutException>(() =>
             BrowserPlatformCatalog.PrefetchAsync("net11.0", "11.0.409",
-                source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromMilliseconds(100),
+                source, TimeSpan.FromMilliseconds(100),
                 TestContext.Current.CancellationToken));
         Assert.Equal(scopesBefore, BrowserPackageWorkspace.Stats().Workspaces);
     }
@@ -358,10 +361,10 @@ public sealed partial class BrowserEngineBoundaryTests
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             TestContext.Current.CancellationToken);
         Task cancelled = BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
-            source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5), cancellation.Token);
+            source, TimeSpan.FromSeconds(5), cancellation.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Task continuing = BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
-            source, PackageSourceIdentity.NuGetOrg, TimeSpan.FromSeconds(5),
+            source, TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
         try
         {
@@ -441,7 +444,8 @@ public sealed partial class BrowserEngineBoundaryTests
                                 """{"catalogEntry":{"version":""" +
                                 JsonSerializer.Serialize(candidate) + ""","listed":true}}""")) + "]}]}");
                 }
-                if (uri.AbsolutePath == $"/packages/{package}.{version}.nupkg"
+                if ((uri.AbsolutePath == $"/packages/{package}.{version}.nupkg"
+                    || uri.AbsolutePath == $"/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg")
                     && Packages.TryGetValue(package, out byte[]? archive))
                     return new(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) };
             }
@@ -452,10 +456,4 @@ public sealed partial class BrowserEngineBoundaryTests
             new(HttpStatusCode.OK) { Content = new StringContent(json) };
     }
 
-    sealed class CatalogNoNetworkHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException($"Detail did not reuse the warmed archive: {request.RequestUri}");
-    }
 }

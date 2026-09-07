@@ -6536,7 +6536,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 "1.0.0",
                 client,
                 PackageSourceIdentity.NuGetOrg,
-                TimeSpan.FromSeconds(5));
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -6597,12 +6598,12 @@ public sealed partial class BrowserEngineBoundaryTests
 
         BrowserPackage first = await BrowserPackageWorkspace.AcquireAsync(
             packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         IPackageContent second = await QueryContent(secondSource);
         IPackageContent firstAgain = await QueryContent(firstSource);
         BrowserPackage secondAgain = await BrowserPackageWorkspace.AcquireAsync(
             packageId, "1.0.0", secondSource, PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.False(second.FromCache);
         Assert.True(firstAgain.FromCache);
@@ -6775,7 +6776,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 packageId, "1.0.0", first.Framework));
         BrowserPackage firstCached = await BrowserPackageWorkspace.AcquireAsync(
             packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(firstCached.Content.FromCache);
         Assert.Same(first.Package.Content.GenerationIdentity, firstCached.Content.GenerationIdentity);
         Assert.Same(first.Package.RetainedBytes, firstCached.RetainedBytes);

@@ -228,6 +228,15 @@ internal static class BrowserPackageWorkspace
             PackageOperationTimeout,
             cancellationToken);
 
+    internal static Task<BrowserPackage> AcquireGalleryAsync(
+        string packageId,
+        string? version,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        AcquireAsync(packageId, version, source, GalleryConfiguredIdentity,
+            operationTimeout, cancellationToken);
+
     internal static Task<BrowserPackage> AcquireAsync(
         string packageId,
         string? version,

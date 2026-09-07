@@ -85,14 +85,13 @@ internal static class BrowserPlatformCatalog
         string platformVersion,
         CancellationToken cancellationToken = default) =>
         PrefetchAsync(targetFramework, platformVersion, BrowserPackageWorkspace.Gallery,
-            PackageSourceIdentity.NuGetOrg, BrowserPackageWorkspace.PackageOperationTimeout,
+            BrowserPackageWorkspace.PackageOperationTimeout,
             cancellationToken);
 
     internal static Task PrefetchAsync(
         string targetFramework,
         string platformVersion,
         IPackageSourceClient source,
-        PackageSourceIdentity configuredSourceIdentity,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
@@ -103,8 +102,8 @@ internal static class BrowserPlatformCatalog
                 using var leases = new BrowserPackageWorkspace.PackageLeaseSet();
                 foreach (Family family in Families)
                 {
-                    BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
-                        family.RuntimePackage, version, source, configuredSourceIdentity,
+                    BrowserPackage package = await BrowserPackageWorkspace.AcquireGalleryAsync(
+                        family.RuntimePackage, version, source,
                         deadline.Remaining, deadline.Token).ConfigureAwait(false);
                     leases.Lease(package.CacheKey);
                 }
@@ -118,6 +117,17 @@ internal static class BrowserPlatformCatalog
         string targetFramework,
         string family,
         string version,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        AcquireRuntimeAsync(targetFramework, family, version,
+            BrowserPackageWorkspace.Gallery,
+            timeout, cancellationToken);
+
+    internal static Task<BrowserPackage> AcquireRuntimeAsync(
+        string targetFramework,
+        string family,
+        string version,
+        IPackageSourceClient source,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
@@ -133,8 +143,8 @@ internal static class BrowserPlatformCatalog
             "aspnetcore" => Families[1].RuntimePackage,
             _ => throw new ArgumentException("Unknown platform family.", nameof(family)),
         };
-        return BrowserPackageWorkspace.AcquireAsync(package, version,
-            BrowserPackageWorkspace.Gallery, PackageSourceIdentity.NuGetOrg,
+        return BrowserPackageWorkspace.AcquireGalleryAsync(package, version,
+            source,
             timeout, cancellationToken);
     }
 
@@ -143,14 +153,13 @@ internal static class BrowserPlatformCatalog
         string platformVersion,
         CancellationToken cancellationToken = default) =>
         GetCatalogAsync(targetFramework, platformVersion, BrowserPackageWorkspace.Gallery,
-            PackageSourceIdentity.NuGetOrg, BrowserPackageWorkspace.PackageOperationTimeout,
+            BrowserPackageWorkspace.PackageOperationTimeout,
             cancellationToken);
 
     internal static Task<BrowserPlatformCatalogResult> GetCatalogAsync(
         string targetFramework,
         string platformVersion,
         IPackageSourceClient source,
-        PackageSourceIdentity configuredSourceIdentity,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
@@ -197,8 +206,8 @@ internal static class BrowserPlatformCatalog
 
                 async Task<Dictionary<string, Library>> ReadPackAsync(string packageId, bool runtime)
                 {
-                    BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
-                        packageId, version, source, configuredSourceIdentity,
+                    BrowserPackage package = await BrowserPackageWorkspace.AcquireGalleryAsync(
+                        packageId, version, source,
                         deadline.Remaining, deadline.Token).ConfigureAwait(false);
                     using var leases = new BrowserPackageWorkspace.PackageLeaseSet();
                     leases.Lease(package.CacheKey);
