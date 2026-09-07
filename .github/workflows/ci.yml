@@ -361,11 +361,9 @@ jobs:
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
-      - name: Build browser frontend
+      - name: Install browser dependencies
         working-directory: prototypes/inspect-web
-        run: |
-          npm ci
-          npm run build
+        run: npm ci
 
       - name: Check generated inspect-web TypeScript facade for drift
         env:
@@ -376,9 +374,6 @@ jobs:
           else
             eng/generate-inspect-web-engine-facade.sh --fast-check
           fi
-
-      - name: Typecheck generated ts-jsexport facade
-        run: eng/test-ts-jsexport-typescript.sh
 
   inspect-web-multi-facade:
     name: inspect-web multi-facade canary
@@ -455,6 +450,37 @@ jobs:
           else
             eng/test-inspect-web-managed-operation-bridge-canary.sh --fast
           fi
+
+  inspect-web-ts-jsexport:
+    name: inspect-web ts-jsexport typecheck
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Install browser dependencies
+        working-directory: prototypes/inspect-web
+        run: npm ci
+
+      - name: Typecheck generated ts-jsexport facade
+        run: eng/test-ts-jsexport-typescript.sh
 
   inspect-web-managed-tests:
     name: inspect-web managed tests
@@ -711,6 +737,7 @@ jobs:
       - inspect-web-facades
       - inspect-web-multi-facade
       - inspect-web-managed-bridge
+      - inspect-web-ts-jsexport
       - inspect-web-managed-tests
       - inspect-web-browser
       - inspect-web-published
@@ -727,7 +754,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 9
+            | ($results | length) == 10
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -1761,6 +1788,7 @@ jobs:
       - inspect-web-facades
       - inspect-web-multi-facade
       - inspect-web-managed-bridge
+      - inspect-web-ts-jsexport
       - inspect-web-managed-tests
       - inspect-web-browser
       - inspect-web-published
