@@ -126,6 +126,36 @@ hosts; the ILDiff suite also retains its test-only Roslyn dependency for source
 inspection. See the [instruction substrate](../src/ILInspector.Instructions/README.md)
 and [IL comparison boundary](../src/ILInspector.ILDiff/README.md).
 
+### Model-bound C# tests
+
+Run the C# formatting, declaration, and type-shell suite:
+
+```bash
+dotnet run --project tests/ILInspector.CSharp.Tests -c Release
+```
+
+This is an xUnit in-process executable with its built output under `artifacts/`.
+Its compiler-produced sample types stay with the test host, including the types
+inspected through its own assembly. Keep this suite distinct from the model-free
+`tests/CSharpText.Tests` suite. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Inspection query tests
+
+Build the solution before running the inspection-query suite so every
+FixtureCatalog binary is available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source and embedded
+resources live under `tests/`; the independently compiled binaries it inspects
+remain under `fixtures/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ## Test tooling activation
 
 The CLI and decompiler suites skip `ilasm`/`ildasm` checks when those tools are

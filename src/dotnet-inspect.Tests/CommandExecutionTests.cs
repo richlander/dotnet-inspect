@@ -3757,7 +3757,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.StartsWith("System.Text.Json.JsonSerializer\n\n", output);
+        Assert.StartsWith(
+            "System.Text.Json.JsonSerializer\n\n",
+            output.ReplaceLineEndings("\n"));
         AssertLibraryAsset(output, "System.Text.Json");
         Assert.Contains("Source: Platform", output);
         Assert.Contains("Version:", output);
@@ -22043,7 +22045,7 @@ public partial class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "Body Shapes", "SourceLink: Files", "SourceLink: Availability",
+                     "Unsafe Members", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
                      "Integration: Opportunities"
                  })
@@ -24643,6 +24645,7 @@ public partial class CommandExecutionTests
         [
             MetadataSectionNames.Heap,
             SectionNames.BodyShapes,
+            SectionNames.BodyShapeSummary,
         ];
 
         var pipeline = LibrarySections.CreatePipeline();

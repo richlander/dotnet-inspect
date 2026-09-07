@@ -77,14 +77,12 @@ src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Presentation
-src/DotnetInspector.Queries.Tests
 src/DotnetInspector.Sections
 src/DotnetInspector.Services.Tests
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.Analysis.Tests
-src/ILInspector.CSharp.Tests
 src/ILInspector.JsExportSurface
 src/ILInspector.Research.Tests
 src/ILInspector.TypeScriptGeneration
@@ -106,6 +104,7 @@ tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Presentation.Tests
+tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests
 tests/DotnetInspector.RuntimeFlavorProbe
@@ -113,6 +112,7 @@ tests/DotnetInspector.Sections.Tests
 tests/DotnetInspector.SourceDelegation.Tests
 tests/DotnetInspector.SourceSelection.Tests
 tests/HarnessReportDiff.Tests
+tests/ILInspector.CSharp.Tests
 tests/ILInspector.ILDiff.Tests
 tests/ILInspector.Instructions.Tests
 tests/ILInspector.JsExportSurface.AsyncDelegateCompileNegative

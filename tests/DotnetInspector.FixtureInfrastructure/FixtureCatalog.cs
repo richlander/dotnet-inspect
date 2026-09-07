@@ -88,6 +88,7 @@ public static class FixtureIds
     public const string AnalysisRender = "analysis.render";
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
+    public const string AnalysisStringLiterals = "analysis.string-literals";
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerAuthoredRebuild = "decompiler.authored-rebuild";
@@ -114,6 +115,8 @@ public static class FixtureIds
 
     public const string HostileLiterals = "hostile.literals";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
+    public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
+    public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
     public const string SourceLinkMalformed = "sourcelink.malformed";
     public const string SourceLinkPartiallyMalformed = "sourcelink.partially-malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
@@ -166,6 +169,42 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.SidecarAsset, FixtureBoundary.PostBuildTransformation),
         Asset("reference", "InspectWeb.MethodBodyFixtures", "ref/InspectWeb.MethodBodyFixtures.dll"),
         Asset("package", "InspectWeb.MethodBodyFixtures", "InspectWeb.MethodBodyFixtures.1.0.0.nupkg"));
+
+    // The browser Source comparison pair needs the same authored difference as the
+    // queries source-diff pair, but reachable from a browser participant: an embedded
+    // PDB (no adjacent file, no symbol transport) and a SourceLink map on a host the
+    // browser source-fetch policy admits. Changing the queries pair's debug or map
+    // contract would erase its acquisition-failure evidence, so this pair recompiles
+    // the same Counter.cs inputs under the browser-reachable shape.
+    public static readonly FixtureDefinition InspectWebSourceComparisonV1 = Fixture(
+        FixtureIds.InspectWebSourceComparisonV1,
+        "InspectWeb.SourceComparisonFixtures.V1",
+        "InspectWebSourceComparisonFixture.dll",
+        ["inspect-web", "source", "version-pair"],
+        Boundaries(
+            FixtureBoundary.VersionPair,
+            FixtureBoundary.SourceLinkMap,
+            FixtureBoundary.PostBuildTransformation),
+        Asset(
+            "package",
+            "InspectWeb.SourceComparisonFixtures.V1",
+            "InspectWeb.SourceComparisonFixture.1.0.0.nupkg"),
+        Asset("source", "InspectWeb.SourceComparisonFixtures.V1", "Counter.cs"));
+
+    public static readonly FixtureDefinition InspectWebSourceComparisonV2 = Fixture(
+        FixtureIds.InspectWebSourceComparisonV2,
+        "InspectWeb.SourceComparisonFixtures.V2",
+        "InspectWebSourceComparisonFixture.dll",
+        ["inspect-web", "source", "version-pair"],
+        Boundaries(
+            FixtureBoundary.VersionPair,
+            FixtureBoundary.SourceLinkMap,
+            FixtureBoundary.PostBuildTransformation),
+        Asset(
+            "package",
+            "InspectWeb.SourceComparisonFixtures.V2",
+            "InspectWeb.SourceComparisonFixture.2.0.0.nupkg"),
+        Asset("source", "InspectWeb.SourceComparisonFixtures.V2", "Counter.cs"));
 
     public static readonly FixtureDefinition MetadataMemorySafety = Fixture(
         FixtureIds.MetadataMemorySafety,
@@ -381,6 +420,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
         "analysis", "caller-loop", "allocation");
+
+    public static readonly FixtureDefinition AnalysisStringLiterals = Fixture(
+        FixtureIds.AnalysisStringLiterals,
+        "ILInspector.Analysis.Fixtures",
+        "ILInspector.Analysis.Fixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "string-literals");
 
     public static readonly FixtureDefinition
         AnalysisMethodCorrespondenceRuntime = Fixture(
@@ -699,6 +745,8 @@ public static class FixtureCatalog
         MetadataAttributeEnums,
         MetadataMemorySafety,
         InspectWebMethodBodies,
+        InspectWebSourceComparisonV1,
+        InspectWebSourceComparisonV2,
         DecompilerAuthoredRebuild,
         HostileLiterals,
         SourceLinkMalformed,
@@ -723,6 +771,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphTargetV2,
         AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
+        AnalysisStringLiterals,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
         AnalysisExceptionBase,
@@ -769,6 +818,10 @@ public static class FixtureCatalog
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
     public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
+    public static readonly FixturePair InspectWebSourceComparisonPair = new(
+        "inspect-web.source-comparison",
+        InspectWebSourceComparisonV1,
+        InspectWebSourceComparisonV2);
 
     public static readonly FixtureGroup DiffAssemblyFixtures = new(
         "diff-asm",
@@ -781,6 +834,7 @@ public static class FixtureCatalog
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
+            AnalysisStringLiterals,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
             AnalysisCallerGraphCallerTwin,
@@ -1055,6 +1109,10 @@ public static class FixtureCatalog
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
+            "InspectWeb.SourceComparisonFixtures.V1" =>
+                "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
+            "InspectWeb.SourceComparisonFixtures.V2" =>
+                "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2",
             "DiffAsmFixtures.Caller" => "fixtures/diff/DiffAsmFixtures.Caller",
             "DiffAsmFixtures.LibA" => "fixtures/diff/DiffAsmFixtures.LibA",
             "DiffAsmFixtures.LibB" => "fixtures/diff/DiffAsmFixtures.LibB",
