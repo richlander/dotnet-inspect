@@ -286,20 +286,16 @@ snapshot satisfies the prerequisite. The duration context comes from
 ### Reviewer roster
 
 [How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
-states the binding tier table and roster names. Pick the second seat from the
-prior round's clean count, using [Agent model mapping](agent-models.md) to
-resolve names to dispatch IDs:
+states the binding tier table and roster name. Review is one seat, GPT-6 Astra,
+for every non-trivial change; there is no second seat and no clean-count-based
+selection. Use [Agent model mapping](agent-models.md) to resolve the name to a
+dispatch ID.
 
-- **No prior round, or 0/2 clean:** prefer GPT-6 Astra again for the second
-  seat.
-- **1/2 clean:** keep GPT-6 Astra fixed, rule out last round's second seat,
-  then prefer a different family than the author (the author's family only as
-  a fallback) at that model's highest available quality.
-
-Record the choice and its reasoning on the PR. If a roster model is
-unavailable, substitute another model for that seat, report the substitution
-on the PR, and proceed without approval — a substituted seat still counts as
-filled. One round evaluates one settled head with all required reviewers.
+If GPT-6 Astra is unavailable, substitute another model at its highest
+available quality, preferring a different family than the author, report the
+substitution and its reasoning on the PR, and proceed without approval — a
+substituted seat still counts as filled. One round evaluates one settled head
+with its required reviewer.
 
 ### Dispatch
 
@@ -351,9 +347,9 @@ changed surfaces, and exact-head diff. If required fields cannot be filled or
 non-applicability cannot be established, return to design or scope
 clarification before spending a review round.
 
-Give every seat the same completed prompt except for its worktree path. State
-candidate facts rather than rewarding findings; the canonical prompt already
-makes reporting CLEAN an explicit successful outcome.
+Give the seat the completed prompt and its worktree path. State candidate
+facts rather than rewarding findings; the canonical prompt already makes
+reporting CLEAN an explicit successful outcome.
 
 Isolate every reviewer in a separate linked review worktree under the primary
 checkout's `.worktrees/` directory or an operating-system temporary directory;
@@ -374,18 +370,10 @@ brief. An exploit-tutorial-style prompt can trip a model's content filter, and
 response with a clean worktree, which is indistinguishable from a broken model
 or a stalled harness.
 
-This has happened here, and it cost most of a day. A seat returned empty
-several times across two heads and was nearly reported to the user as a
-non-functional model in need of repinning. A reviewer from a different family
-then failed with an explicit message naming content filtering as the cause,
-which is the only reason the real explanation surfaced at all. The prompt had
-been written as a catalog of concrete strings to try against a gate that rejects
-markup able to run unreviewed code. Rewording it -- same surfaces, same required
-evidence, same rigor -- produced full reports from both seats on the first
-attempt.
-
-The reviewer was refusing the prompt, not the work. Keep prompts in terms of the
-property:
+This has happened here and cost most of a day, so treat it as a live hazard
+rather than a theoretical one. The reviewer is refusing the prompt, not the
+work, and rewording it costs no surfaces, no required evidence, and no rigor.
+Keep prompts in terms of the property:
 
 - **Say what the property actually is.** If the gate enforces static-analysis
   coverage, say that, and say the concern is unreviewed code rather than
@@ -442,7 +430,7 @@ prompt:
 ```text
 Round <n> is complete for PR <number>.
 - Theme: <one-sentence session theme>.
-- Review models <model-a> and <model-b> were used for adversarial review.
+- Review model <model> was used for adversarial review.
 - Design basis: normative owner <path#section> — <owned claim>; supporting
   <path and role for each model, adjacent contract, constraint, or consumer>.
 - Review feedback is: [converging, diverging, neutral, clean].
@@ -470,7 +458,7 @@ Classification must match the reviewer outcomes:
   `neutral`, even when every finding was dismissed and the head stayed
   unchanged. Explain dismissals in the public reconciliation.
 
-`Reviews` records the dual-clean count that GitHub cannot observe. Every
+`Reviews` records the clean count that GitHub cannot observe. Every
 `Blocked` entry must be an existing PR or issue; file one before citing a new
 shared failure. `Waiting` records one or more comma-separated predicates tooling
 can evaluate, such as `check:<name>`, `checks`, `merge`, or `review`; it is not
@@ -629,7 +617,7 @@ Before requesting another block, answer:
    findings retired, and confidence gained. Separate durable progress from
    churn.
 2. **Are reviews converging?** Cite clean counts and repeated versus new finding
-   categories. State why dual-clean is or is not likely in the next block.
+   categories. State why a clean round is or is not likely in the next block.
 3. **Are the foundations sound?** Classify remaining findings as architectural,
    coverage gaps, contract expansion, or harness-only concerns.
 4. **Should implementation pause for a docs-only design PR?** Recommend it when
