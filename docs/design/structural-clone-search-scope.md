@@ -2,19 +2,24 @@
 
 ## Status and requested scope
 
-This document defines the target Structural Clone Search Scope contract for
-[#6282](https://github.com/richlander/dotnet-inspect/issues/6282), within the
-Diff, Clone, and immersive-viewer experience tracked by
+This document defines the target Structural Clone Search Scope contract,
+originally established under
+[#6282](https://github.com/richlander/dotnet-inspect/issues/6282) and revised
+under [#6289](https://github.com/richlander/dotnet-inspect/issues/6289), within
+the Diff, Clone, and immersive-viewer experience tracked by
 [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
 It is **not implemented**; the target behavior and acceptance scenarios below
 remain **unverified**.
 
-The requested three-step Clone target experience is:
+Clone separates two request dimensions:
 
-- `Self`;
-- `SelfAndSimilarNames`;
-- `Everything`; and
-- `SelfAndSimilarNames` as the default.
+- candidate breadth: `Self`, `SelfAndRegisteredEcosystems`, or `Everything`;
+- candidate discovery: `SimilarNames` or `All`; and
+- `Everything` plus `SimilarNames` as the default.
+
+The breadth labels intentionally match Diff. Their Workspace population
+meaning reuses the existing focal-operation contract also adopted by Call
+Graph rather than introducing Clone-specific ecosystem semantics.
 
 This effort transfers one cohesive responsibility from
 [Browser Diff targets](inspect-web-diff-targets.md): Clone candidate scope is
@@ -23,9 +28,9 @@ setting. The Browser owner retains the Diff baseline. The current
 Package-specific Clone selector is an implementation scheduled for retirement,
 not a compatibility surface.
 
-The production consumers are Inspect Web and the CLI. Shared seed and candidate
-scope contracts must reach both hosts; host-specific controls, navigation, and
-rendering remain with each host.
+The production consumers are Inspect Web and the CLI. Shared seed, breadth, and
+candidate-discovery contracts must reach both hosts; host-specific controls,
+navigation, and rendering remain with each host.
 
 ## Authority and exact claim
 
@@ -33,16 +38,18 @@ This document is the normative owner of one claim:
 
 > A structural clone search binds one Library, Type, or Member seed population
 > to one exact Workspace revision and independently chooses candidate breadth
-> through `Self`, `SelfAndSimilarNames`, or `Everything`.
-> `SelfAndSimilarNames` is the default and admits cross-library candidates only
-> when both decoded declaring-type and member names meet the product's fixed
-> normalized similarity threshold.
+> through `Self`, `SelfAndRegisteredEcosystems`, or `Everything`, then candidate
+> discovery through `SimilarNames` or `All`. `Everything` plus `SimilarNames`
+> is the default. Similar-name discovery admits a candidate only when both
+> decoded declaring-type and member names meet the product's fixed normalized
+> similarity threshold.
 
 This owner defines:
 
-- the three focal-length values, labels, order, and default;
+- the three breadth values, two candidate-discovery values, labels, order, and
+  combined default;
 - Library, Type, and Member seed-population meaning;
-- candidate-population admission for each focal length;
+- candidate-population admission for each breadth and discovery value;
 - the fixed name-similarity threshold and its role;
 - identical-pair exclusion and duplicate-pair suppression;
 - one global ranking across a multi-seed search;
@@ -53,19 +60,20 @@ It does not own Analysis scoring or verification, Workspace membership or
 acquisition, Metadata decoding, portable clone composition, presentation, CLI
 syntax, Browser interaction, or source viewing.
 
-## Three independent decisions
+## Four independent decisions
 
-Clone search keeps three decisions separate:
+Clone search keeps four decisions separate:
 
 | Decision | Meaning |
 | --- | --- |
 | Seed scope | Which methods supply the reference side of the search |
-| Candidate focal length | Which Workspace methods may be ranked against those seeds |
+| Candidate breadth | Which Workspace populations may contribute candidate methods |
+| Candidate discovery | Which methods inside that breadth may be ranked against the seeds |
 | Result and work bounds | How much candidate work runs and how many globally ranked pairs are returned |
 
-Changing focal length does not change the selected Library, Type, or Member.
-Changing a row limit does not change which methods qualify as candidates.
-Changing the name threshold is not a version-1 user operation.
+Changing breadth or discovery does not change the selected Library, Type, or
+Member. Changing a row limit does not change which methods qualify as
+candidates. Changing the name threshold is not a version-1 user operation.
 
 The candidate scope is relevance and cost control. It is not:
 
@@ -99,17 +107,21 @@ Library Clone therefore has no mandatory member-picking step. Type and Member
 navigation narrow the seed population and execute their own search; they do not
 filter a previously truncated Library result.
 
-## Candidate focal lengths
+## Candidate breadth
 
-The request axis is:
+Clone reuses the Workspace breadth vocabulary established for focal
+operations:
 
 | Value | Display label | Candidate population |
 | --- | --- | --- |
-| `Self` | Self | Every method in the selected subject's containing exact library |
-| `SelfAndSimilarNames` | Self + similar names | `Self` plus qualifying methods in every other library represented by the bound Workspace revision |
-| `Everything` | Everything in scope | Every method in every library represented by the bound Workspace revision |
+| `Self` | Self | The selected subject's containing exact library |
+| `SelfAndRegisteredEcosystems` | Self + registered ecosystems | `Self` plus the finite realized populations contributed by every ecosystem registration in the bound Workspace revision |
+| `Everything` | Everything | Every exact-library, package-prefix, ecosystem, Root-derived, and already admitted participant available through the bound Workspace revision |
 
-`SelfAndSimilarNames` is the default in both hosts.
+The breadth values have the same Workspace meaning as
+[Workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md#call-graph-focal-lengths).
+This owner adopts that population vocabulary for Clone; it does not redefine
+registration, discovery, resolution, acquisition, or participant identity.
 
 The containing library is the exact selected library, not every library in its
 Package, every library with the same simple assembly name, or every currently
@@ -126,13 +138,49 @@ or Member seed, candidates may come from other types in that same library.
 `Self` therefore remains useful for finding internal duplication and does not
 mean comparing a method only with itself.
 
-### Self + similar names
+### Self + registered ecosystems
 
-`SelfAndSimilarNames` starts with the complete `Self` population. It then
-examines decoded metadata names in every other library represented by the
-bound Workspace revision.
+This breadth starts with `Self` and adds every ecosystem registration from the
+exact Workspace revision bound to the request. Other exact-library and
+package-prefix registrations do not join this breadth merely because they are
+registered.
 
-A cross-library candidate method qualifies when at least one seed method has:
+The Clone operation consumes finite participant outcomes supplied by Workspace,
+source, and resolution owners under the host's policy and explicit work
+bounds. Registration is relevance, not permission or proof that every
+contribution is already acquired.
+
+### Everything
+
+`Everything` admits every participant available through the bound Workspace
+revision. It may consume bounded discovery, resolution, and acquisition
+outcomes that add participants to that Workspace during the operation.
+
+"Everything" means everything available through this Workspace, not every
+package on nuget.org, every installed SDK or runtime pack, an unbounded
+filesystem search, or ambient remote discovery. Source authorization and
+operation bounds remain explicit.
+
+## Candidate discovery
+
+Candidate discovery is independent of breadth:
+
+| Value | Display label | Admission within the selected breadth |
+| --- | --- | --- |
+| `SimilarNames` | Similar names | Methods whose declaring-type and member names both qualify against at least one seed |
+| `All` | All | Every method in the realized breadth |
+
+`SimilarNames` is the default in both hosts. Combined with the breadth default,
+an ordinary request is `Everything` plus `SimilarNames`.
+
+All six breadth/discovery combinations are meaningful. `Self` plus
+`SimilarNames` is a name-filtered local search; `Self` plus `All` is an
+exhaustive same-library search. Changing discovery never silently changes the
+Workspace population selected by breadth.
+
+### Similar names
+
+A candidate method qualifies when at least one seed method has:
 
 1. a declaring-type simple base name whose normalized similarity to the
    candidate declaring-type simple base name is at least `0.6`; and
@@ -154,30 +202,19 @@ another host-owned threshold.
 
 Name similarity runs before method-body production. It may admit structural
 hard negatives and omit renamed or moved clones whose names differ. That is
-intentional: the middle mode is a useful bounded default, not a completeness
-claim. `Everything` is the explicit broader search.
+intentional: `SimilarNames` is a useful bounded default, not a completeness
+claim. Selecting `All` preserves the chosen breadth while removing the lexical
+filter.
 
 Name decode failure, name-work exhaustion, or a candidate library that cannot
 be inspected remains visible candidate-coverage evidence. The search does not
 silently discard that library and report a complete result.
 
-### Everything in scope
+### All
 
-`Everything` admits every method in every library represented by the exact
-Workspace revision bound to the request.
-
-"Everything in scope" is finite and Workspace-relative. It does not mean:
-
-- every package on nuget.org;
-- every installed SDK or runtime pack;
-- every package or ecosystem registration not yet represented by a library;
-- filesystem search;
-- source acquisition; or
-- remote package discovery.
-
-Workspace and source owners may later define operations that add libraries
-before Clone starts. This contract consumes the resulting exact revision; it
-does not discover or acquire additional content while ranking clones.
+`All` admits every method in the finite participant population realized for the
+selected breadth. It disables only lexical candidate filtering; structural
+production, ranking, comparison, result, and operation bounds still apply.
 
 ## Pair identity and duplicate suppression
 
@@ -223,7 +260,7 @@ the result distinguishes an intentional returned-row limit from incomplete
 candidate coverage.
 
 The Browser may choose a small useful default N. The CLI may expose additional
-work and result controls. Those host choices do not alter focal-length
+work and result controls. Those host choices do not alter breadth or discovery
 semantics.
 
 ## Workspace association
@@ -231,15 +268,22 @@ semantics.
 Every request binds:
 
 - the selected subject identity;
-- the exact Workspace revision or equivalent owner-issued snapshot identity;
-- the focal length;
-- the fixed name threshold when the middle mode is selected;
+- the exact starting Workspace revision;
+- candidate breadth;
+- candidate discovery;
+- the fixed name threshold when `SimilarNames` is selected;
 - candidate and result bounds; and
 - source/operation policy supplied by the host and Workspace owners.
 
-The complete seed and candidate population is evaluated against that revision.
-A later Workspace edit does not silently change an in-flight or completed
-result. A new search after the edit binds the new revision.
+Breadth realization returns one complete owner-issued participant snapshot and
+its effective Workspace revision. If bounded discovery, resolution, or
+acquisition commits additional participants, that effective revision may
+differ from the starting revision. The clone query evaluates candidates only
+against that exact snapshot; it does not join participants from a later
+ambient Workspace state.
+
+A later independent Workspace edit does not silently change an in-flight or
+completed result. A new search after the edit binds the new starting revision.
 
 Removing a library after a result is produced does not rewrite endpoint
 identity. Navigation may report the endpoint unavailable under the current
@@ -250,8 +294,9 @@ Workspace, but the result does not retarget to a same-named library.
 The host-neutral result carries:
 
 - the selected subject and seed-population description;
-- requested focal length;
-- exact Workspace revision;
+- requested candidate breadth and discovery;
+- starting and effective Workspace revisions plus the exact participant
+  snapshot identity;
 - effective library and method populations;
 - fixed name threshold and qualifying name scores where applicable;
 - global result and work bounds;
@@ -284,16 +329,37 @@ PMD CPD likewise separates the files/directories to inspect from its
 
 - [PMD: Finding duplicated code with CPD](https://docs.pmd-code.org/latest/pmd_userdocs_cpd.html)
 
-dotnet-inspect follows the conventional separation between search corpus and
-duplicate evidence. It deliberately diverges by offering a middle,
-name-prefiltered Workspace scope. Binary workspaces can contain many unrelated
-libraries, and producing IL/CFG features for every method is materially more
-expensive than comparing decoded names. The name threshold therefore controls
-candidate work only; it does not become a clone-detection threshold.
+dotnet-inspect follows the conventional separation between search corpus,
+cheap candidate discovery, and duplicate evidence. Binary workspaces can
+contain many unrelated libraries, and producing IL/CFG features for every
+method is materially more expensive than comparing decoded names. Breadth and
+name admission are therefore independent: the name threshold controls
+candidate work only and does not become a clone-detection threshold.
 
-No surveyed tool establishes this exact three-step binary-Workspace contract.
-The broad mode preserves recall when the deliberate middle-mode tradeoff is not
-appropriate.
+No surveyed tool establishes this exact two-axis binary-Workspace contract.
+`Everything` plus `SimilarNames` supplies broad relevance with bounded default
+work; selecting `All` removes lexical omission within any chosen breadth.
+
+## Future clone-assisted Diff
+
+Name similarity and structural-clone retrieval can occupy the same
+candidate-discovery role without carrying the same evidence. `SimilarNames`
+uses decoded lexical evidence to admit work. Structural retrieval ranks
+implementation evidence and can find candidates whose names changed.
+
+A future clone-assisted differ may use cross-image structural retrieval to
+recover plausible renamed or moved counterparts, then pass an explicitly
+selected pair to ordinary Diff. Retrieval rank does not establish subject
+identity, historical correspondence, or a checked clone relation, and Diff
+must not infer those claims from the rank.
+
+[#5269](https://github.com/richlander/dotnet-inspect/issues/5269) separately
+owns the Analysis prerequisite for checked cross-image structural relations.
+[#4304](https://github.com/richlander/dotnet-inspect/issues/4304) established
+implementation-diff presentation for an explicitly selected pair; it does not
+discover the pair. This design records the future composition boundary but
+does not add a `SimilarImplementation` discovery value or define the
+clone-assisted differ.
 
 ## Ownership and adoption
 
@@ -301,12 +367,12 @@ appropriate.
 | --- | --- |
 | [Structural clone analysis](structural-clone-analysis.md) | Method-body feature production, structural ranking, exact/near comparison, blockers, and receipts |
 | `ILInspector.MetadataPrimitives` and Metadata | Neutral string-distance currency, decoded exact names, and metadata safety |
-| [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Exact Workspace revision, represented libraries, participant outcomes, and lifetime |
-| Structural Clone Search Scope | Seed populations, focal lengths, name-filter admission, pair suppression, global ranking composition, and coverage |
+| [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Exact Workspace revision, registrations, participant outcomes, and lifetime |
+| Structural Clone Search Scope | Seed populations, candidate breadth and discovery, name-filter admission, pair suppression, global ranking composition, and coverage |
 | Queries | Focused execution over retained Workspace participants |
 | [Comparison Document](comparison-document.md) and Presentation | Portable clone composition and shared presentation lowering when adopted |
 | CLI host | Request binding, advanced work controls, Markout lowering, and disclosure |
-| Inspect Web | Three-step control, operation lifetime, master/detail interaction, navigation, and host-native rendering |
+| Inspect Web | Breadth and candidate-discovery controls, operation lifetime, master/detail interaction, navigation, and host-native rendering |
 
 The counted production-adoption path under #5083 has seven stages:
 
@@ -318,8 +384,9 @@ The counted production-adoption path under #5083 has seven stages:
 4. Adopt the shared request and result in the CLI over an explicit Workspace
    scope.
 5. Add the managed Browser facade and transport.
-6. Replace Inspect Web's Package-specific Clone selector with the three focal
-   lengths and add the Library, Type, and Member master/detail experience.
+6. Replace Inspect Web's Package-specific Clone selector with the breadth and
+   candidate-discovery controls and add the Library, Type, and Member
+   master/detail experience.
 7. Complete the matching product release and website deployment.
 
 Each implementation PR adopts this contract in one owning component. This
@@ -338,24 +405,26 @@ The following future outcome-level scenarios are required:
 
 | Scenario | Required observation |
 | --- | --- |
-| Open Library, Type, and Member Clone without changing target settings | Each subject supplies its own seed population; all use `SelfAndSimilarNames` |
-| Run one Member seed at all three focal lengths | `Self` stays in the containing library, the middle mode adds only cross-library methods whose type and member names both meet `0.6`, and `Everything` admits every Workspace library |
+| Open Library, Type, and Member Clone without changing target settings | Each subject supplies its own seed population; all use `Everything` plus `SimilarNames` |
+| Run one Member seed at all three breadths with `All` | `Self` stays in the containing library, the middle breadth adds registered ecosystems, and `Everything` admits every available Workspace participant |
+| Run all six breadth/discovery combinations | Breadth changes only the Workspace population and discovery changes only method admission inside that population |
 | Run a Library search | Results are one global ranking across all admitted seeds, not N rows per method or library |
 | Encounter the same same-library pair from both seed orientations | One deterministic result row is returned |
 | Encounter the selected physical method in its candidate population | It is excluded rather than ranked as a perfect self hit |
-| Use similar member names on dissimilar types, or similar types with dissimilar member names | The cross-library method is excluded from the middle mode and remains eligible under `Everything` |
-| Use renamed/moved structural peers with dissimilar names | The middle result makes no absence claim; `Everything` can rank the peer |
+| Use similar member names on dissimilar types, or similar types with dissimilar member names | `SimilarNames` excludes the method at every breadth; `All` admits it without changing breadth |
+| Use renamed/moved structural peers with dissimilar names | `SimilarNames` makes no absence claim; `All` can rank the peer |
 | Exhaust name, metadata, body, or candidate work | Existing ranked evidence remains usable and incomplete coverage is visible |
-| Edit the Workspace while a search runs | The result remains associated with its original revision; a later search binds the new revision |
+| Edit the Workspace while a search runs | The result retains its starting revision and exact effective participant snapshot; a later search binds the new revision |
 | Remove a result endpoint's library | The exact result identity remains; navigation reports current unavailability rather than retargeting |
 
-Shared owner suites run in Release and gate request defaults, exact revision
-association, focal-length admission, name-threshold behavior, duplicate
-suppression, global ranking, and coverage. CLI tests gate shared presentation
-and structured output. Browser original-host and Firefox suites gate the
-three-step control, subject narrowing, stale-result exclusion, master/detail
-navigation, and retirement of the Package-specific selector. The design
-remains unverified until those focused adoptions land.
+Shared owner suites run in Release and gate request defaults, starting/effective
+revision and participant-snapshot association, breadth and discovery
+admission, name-threshold behavior, duplicate suppression, global ranking, and
+coverage. CLI tests gate shared presentation and structured output. Browser
+original-host and Firefox suites gate the breadth and discovery controls,
+subject narrowing, stale-result exclusion, master/detail navigation, and
+retirement of the Package-specific selector. The design remains unverified
+until those focused adoptions land.
 
 ## Non-claims
 
@@ -368,6 +437,8 @@ This design does not define:
 - Workspace construction, registration, acquisition, or eviction;
 - package, platform, ecosystem, or remote-source discovery;
 - a user-configurable name threshold;
+- clone-assisted rename or move discovery;
+- checked cross-image structural comparison;
 - the Browser top-N value, layout, virtualization, or viewer actions;
 - CLI option spelling;
 - portable clone payload topology or Markout schema;
