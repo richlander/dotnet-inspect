@@ -62,9 +62,12 @@ select, configure, or enable. Selecting a platform version selects its rules;
 there is no version whose rules can be swapped, and no way to pair one
 version's inventory with another's libraries.
 
-**Pruning is therefore always on.** There is no disable switch, because the
-alternative is to disagree with what the SDK does for the same target. What
-varies is which platform version is registered, not whether its rules apply.
+**The on/off switch for pruning is the platform itself.** Pruning is on
+exactly when a platform version is registered and off exactly when none is,
+which is the no-platform case below. There is no second switch, because the
+alternative is to disagree with what the SDK does for the same target, and
+because a switch of its own is the thing that would let the rules drift from
+the libraries they describe.
 
 Every .NET and ASP.NET Core shared framework in the catalog publishes an
 inventory, `net6.0` through `net11.0`, both families. A target that publishes
