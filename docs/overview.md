@@ -141,7 +141,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing. It owns the accepted package/metadata XML structure
+  and nuspec parsing. `AssemblyDependencyResolver` owns the
+  [assembly dependency candidate inventory](design/assembly-dependency-candidate-inventory.md):
+  explicit undiscarded discovery evidence, target-input association and
+  acquisition outcomes before consumer selection.
+  Services owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
   Its [package metadata persistence](design/package-metadata-persistence.md)
