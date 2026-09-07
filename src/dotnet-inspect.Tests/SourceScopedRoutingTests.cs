@@ -492,6 +492,90 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("1.0.0", "1.0.0", "2.0.0")]
+    [InlineData("latest", "2.0.0", "1.0.0")]
+    public async Task ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow(
+        string requestedVersion,
+        string expectedVersion,
+        string excludedVersion)
+    {
+        string packageName = $"PinnedSemantic{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@{requestedVersion}",
+                    "--versions",
+                    "-n",
+                    "1",
+                    "--json",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            $"""
+            "version": "{expectedVersion}"
+            """,
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"""
+            "version": "{excludedVersion}"
+            """,
+            output,
+            StringComparison.Ordinal);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("1.0.0", "1.0.0")]
+    [InlineData("latest", "2.0.0")]
+    [InlineData("1.0.0..2.0.0", "1.0.0")]
+    [InlineData("2.0.0..1.0.0", "2.0.0")]
+    [InlineData("2.1.0-preview.1", "2.1.0-preview.1")]
+    public async Task FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity(
+        string selector,
+        string expectedVersion)
+    {
+        string packageName = $"FeedCoordinate{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0", "2.1.0-preview.1"],
+                [
+                    "package",
+                    $"{packageName}@{selector}",
+                    "--versions-with-feed",
+                    "-n",
+                    "1",
+                    "--json",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document =
+            JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(
+                document.RootElement.EnumerateArray());
+        Assert.Equal(
+            expectedVersion,
+            row.GetProperty("version").GetString());
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                row.GetProperty("feed").GetString()));
+        Assert.True(row.GetProperty("listed").GetBoolean());
+    }
+
     [Fact]
     public async Task StableSingleVersionListingDoesNotFallBackToPrerelease()
     {
@@ -505,6 +589,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
+                    "-n",
                     "1",
                     "--count",
                     "--source",
@@ -514,6 +599,90 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task LatestVersionListing_RefreshesOnlineEvidence(string selector)
+    {
+        string packageName = $"FreshFeed{Guid.NewGuid():N}";
+        string[] ordinaryArgs =
+        [
+            "package", packageName, "--versions-with-feed", "-n", "1",
+            "--json", "--source", SecondSource,
+        ];
+        var warm = await RunOnlineVersionFeedCommandAsync(
+            packageName, "1.0.0", ordinaryArgs);
+        Assert.Equal(0, warm.Exit);
+        Assert.Empty(warm.Error);
+        Assert.Contains(
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
+            warm.Requests);
+
+        string[] publishedVersions = ["1.0.0", "2.0.0"];
+        var refreshed = await RunOnlineVersionFeedCommandAsync(
+            packageName, publishedVersions, ordinaryArgs);
+        Assert.Equal(0, refreshed.Exit);
+        Assert.Empty(refreshed.Error);
+        Assert.Contains(
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
+            refreshed.Requests);
+        using JsonDocument refreshedDocument = JsonDocument.Parse(refreshed.Output);
+        Assert.Equal(
+            "2.0.0",
+            Assert.Single(refreshedDocument.RootElement.EnumerateArray())
+                .GetProperty("version").GetString());
+
+        var fresh = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            publishedVersions,
+            [
+                "package", $"{packageName}@latest", selector, "-n", "1",
+                "--json", "--source", SecondSource,
+            ]);
+        Assert.Equal(0, fresh.Exit);
+        Assert.Empty(fresh.Error);
+        Assert.Contains(
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
+            fresh.Requests);
+        using JsonDocument freshDocument = JsonDocument.Parse(fresh.Output);
+        JsonElement row = Assert.Single(freshDocument.RootElement.EnumerateArray());
+        Assert.Equal("2.0.0", row.GetProperty("version").GetString());
+        if (selector == "--versions-with-feed")
+        {
+            Assert.False(string.IsNullOrWhiteSpace(row.GetProperty("feed").GetString()));
+            Assert.True(row.GetProperty("listed").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task FeedLatest_RefreshFailureDoesNotFallBackToCachedRows()
+    {
+        string packageName = $"RefreshedRefusal{Guid.NewGuid():N}";
+        var warm = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            "1.0.0",
+            [
+                "package", packageName, "--versions-with-feed", "-n", "1",
+                "--json", "--source", SecondSource,
+            ]);
+        Assert.Equal(0, warm.Exit);
+        Assert.Empty(warm.Error);
+        Assert.NotEmpty(warm.Requests);
+
+        var refused = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            "2.0.0",
+            [
+                "package", $"{packageName}@latest", "--versions-with-feed",
+                "-n", "1", "--json", "--source", SecondSource,
+            ],
+            requireAuthorization: true);
+        Assert.Equal(1, refused.Exit);
+        Assert.Empty(refused.Output);
+        Assert.NotEmpty(refused.Requests);
+        Assert.Contains("requires credentials", refused.Error);
     }
 
     [Theory]
@@ -654,6 +823,182 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.DoesNotContain("HTTP 401", error);
     }
 
+    [Theory]
+    [InlineData("--versions", "--head", "false", false)]
+    [InlineData("--versions", "--tail", "false", false)]
+    [InlineData("--versions", "--head", "true", false)]
+    [InlineData("--versions", "--tail", "true", false)]
+    [InlineData("--versions-with-feed", "--head", "false", false)]
+    [InlineData("--versions-with-feed", "--tail", "false", false)]
+    [InlineData("--versions-with-feed", "--head", "true", false)]
+    [InlineData("--versions-with-feed", "--tail", "true", false)]
+    [InlineData("--versions", "--head", "false", true)]
+    [InlineData("--versions", "--tail", "false", true)]
+    [InlineData("--versions", "--head", "true", true)]
+    [InlineData("--versions", "--tail", "true", true)]
+    [InlineData("--versions-with-feed", "--head", "false", true)]
+    [InlineData("--versions-with-feed", "--tail", "false", true)]
+    [InlineData("--versions-with-feed", "--head", "true", true)]
+    [InlineData("--versions-with-feed", "--tail", "true", true)]
+    public async Task PackageVersionListing_DirectionPreservesBooleanPackageInput(
+        string selector,
+        string modifier,
+        string packageName,
+        bool implicitCommand)
+    {
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0"],
+            [
+                .. implicitCommand ? Array.Empty<string>() : new[] { "package" },
+                selector,
+                modifier,
+                packageName,
+                "-n",
+                "1",
+                "--json",
+                "--source",
+                SecondSource
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.NotEmpty(requests);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            modifier == "--head" ? "2.0.0" : "1.0.0",
+            document.RootElement[0].GetProperty("version").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageVersionListing_IncludeUnlistedLimitOneStillReportsPartialEvidence(
+        bool countProjection)
+    {
+        string packageName = $"PartialListingAware{Guid.NewGuid():N}";
+        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0"],
+            [
+                "package",
+                packageName,
+                "--versions",
+                "--include-unlisted",
+                "-n",
+                "1",
+                countProjection ? "--count" : "--json",
+                "--source",
+                RefusedSource,
+                "--source",
+                SecondSource
+            ],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(RefusedSource, error, StringComparison.Ordinal);
+        if (countProjection)
+        {
+            Assert.Equal("1", output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(1, document.RootElement.GetArrayLength());
+            Assert.Equal("2.0.0", document.RootElement[0].GetProperty("version").GetString());
+            Assert.Equal("listed", document.RootElement[0].GetProperty("listing").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData("@2.0.0", false, false)]
+    [InlineData("@2.0.0", true, false)]
+    [InlineData("@2.0.0", false, true)]
+    [InlineData("@2.0.0", true, true)]
+    [InlineData("@latest", false, false)]
+    [InlineData("@latest", true, false)]
+    [InlineData("@latest", false, true)]
+    [InlineData("@latest", true, true)]
+    [InlineData("@1.0.0..3.0.0", false, false)]
+    [InlineData("@1.0.0..3.0.0", true, false)]
+    [InlineData("@1.0.0..3.0.0", false, true)]
+    [InlineData("@1.0.0..3.0.0", true, true)]
+    public async Task CoordinateVersionListing_PreservesPartialEvidence(
+        string coordinate,
+        bool includeUnlisted,
+        bool countProjection)
+    {
+        string packageName = $"PartialCoordinate{Guid.NewGuid():N}";
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0", "3.0.0"],
+            [
+                "package",
+                packageName + coordinate,
+                "--versions",
+                "-n",
+                "1",
+                .. includeUnlisted ? new[] { "--include-unlisted" } : Array.Empty<string>(),
+                countProjection ? "--count" : "--json",
+                "--source",
+                RefusedSource,
+                "--source",
+                SecondSource
+            ],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.Contains(RefusedSource, requests);
+        Assert.Contains(RefusedSource, error, StringComparison.Ordinal);
+        if (coordinate != "@2.0.0")
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires credentials", error);
+            return;
+        }
+
+        Assert.Equal(0, exit);
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        if (countProjection)
+        {
+            Assert.Equal("1", output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(1, document.RootElement.GetArrayLength());
+            Assert.Equal("2.0.0", document.RootElement[0].GetProperty("version").GetString());
+            if (includeUnlisted)
+                Assert.Equal("listed", document.RootElement[0].GetProperty("listing").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task SingularCoordinateVersionListing_PreservesSourceFailureDisclosure()
+    {
+        string packageName = $"LegacyCoordinate{Guid.NewGuid():N}";
+        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0"],
+            [
+                "package",
+                packageName + "@2.0.0",
+                "--version",
+                "--source",
+                RefusedSource,
+                "--source",
+                SecondSource
+            ],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(RefusedSource, error);
+    }
+
     [Fact]
     public async Task PackageVersionListing_LimitOneStillReportsPartialEvidence()
     {
@@ -667,6 +1012,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
+                    "-n",
                     "1",
                     "--source",
                     RefusedSource,
@@ -677,6 +1023,35 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Equal("2.0.0", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains(RefusedSource, error);
+    }
+
+    [Fact]
+    public async Task PackageVersionFeedListing_LimitOneStillReportsPartialEvidence()
+    {
+        string packageName = $"PartialLimitedFeedList{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions-with-feed",
+                    "-n",
+                    "1",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("2.0.0", output, StringComparison.Ordinal);
         Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("requires credentials", error);
         Assert.Contains(RefusedSource, error);
@@ -1031,7 +1406,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
     [Theory]
     [InlineData("Newtonsoft.Json.", null, "package ID")]
-    [InlineData("Newtonsoft.Json", "0", "version limit")]
+    [InlineData("Newtonsoft.Json", "0", "positive whole number")]
     public async Task PackageVersionListing_InvalidInputReportsTypedFailure(
         string packageName,
         string? limit,
@@ -1056,7 +1431,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "--versions",
             };
             if (limit is not null)
-                arguments.Add(limit);
+                arguments.AddRange(["-n", limit]);
             arguments.AddRange(["--source", SecondSource]);
 
             var (exit, output, error) =
@@ -1070,10 +1445,13 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 " at DotnetInspector.",
                 error,
                 StringComparison.Ordinal);
-            Assert.Contains(
-                "Correct the package command input",
-                error,
-                StringComparison.Ordinal);
+            if (limit is null)
+            {
+                Assert.Contains(
+                    "Correct the package command input",
+                    error,
+                    StringComparison.Ordinal);
+            }
             Assert.DoesNotContain(
                 "Correct the package source configuration",
                 error,
@@ -1150,7 +1528,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 return new VersionFeedHandler(
                     SecondSource,
                     packageName,
-                    "2.0.0",
+                    ["2.0.0"],
                     refusedStatus: null,
                     requireAuthorization: false,
                     new ConcurrentQueue<string>(),
@@ -1356,6 +1734,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
+                    "-n",
+                    "1",
                     "--source",
                     fileUri ? new Uri(localSource).AbsoluteUri : localSource,
                 ]);
@@ -1400,7 +1780,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "2.0.0",
                 [
                     "package", PackageName, "--versions",
-                    .. limit is { } count ? new[] { count.ToString() } : [],
+                    .. limit is { } count ? new[] { "-n", count.ToString() } : [],
                     "--source", sources[0], "--source", sources[1],
                     .. preview ? new[] { "--preview" } : [],
                     "--jsonl",
@@ -1481,7 +1861,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 PackageName,
                 "2.0.0",
                 [
-                    "package", PackageName, "--versions", "1", "--jsonl",
+                    "package", PackageName, "--versions", "-n", "1", "--jsonl",
                     "--source", local, "--source", SecondSource,
                 ]);
 
@@ -1901,7 +2281,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         WriteLocalPackage(local, PackageName, "2.0.0");
         var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
             PackageName, "2.0.0",
-            ["package", PackageName, "--versions-with-feed", "--versions", "1",
+            ["package", PackageName, "--versions-with-feed", "-n", "2",
                 "--include-unlisted", format, "--source", local, "--source", SecondSource]);
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1919,7 +2299,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         WriteLocalPackage(local, PackageName, "1.0.0");
         WriteLocalPackage(local, PackageName, "2.0.0");
         WriteLocalPackage(local, PackageName, "3.0.0");
-        string[] args = ["package", PackageName + "@3.0.0..1.0.0", "--versions", "2",
+        string[] args = ["package", PackageName + "@3.0.0..1.0.0", "--versions", "-n", "2",
             "--include-unlisted", "--rows", "2..2", "--source", local];
         var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
             PackageName, "9.0.0", [.. args, "--jsonl"]);
@@ -2121,6 +2501,23 @@ public sealed class SourceScopedRoutingTests : IDisposable
             string version,
             string[] args,
             HttpStatusCode? refusedStatus = null,
+            bool requireAuthorization = false) =>
+        await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            [version],
+            args,
+            refusedStatus,
+            requireAuthorization);
+
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
+            string packageName,
+            IReadOnlyList<string> versions,
+            string[] args,
+            HttpStatusCode? refusedStatus = null,
             bool requireAuthorization = false)
     {
         var requests = new ConcurrentQueue<string>();
@@ -2128,7 +2525,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             innerHandler => new VersionFeedHandler(
                 SecondSource,
                 packageName,
-                version,
+                versions,
                 refusedStatus,
                 requireAuthorization,
                 requests,
@@ -2139,7 +2536,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             _ => new VersionFeedHandler(
                 SecondSource,
                 packageName,
-                version,
+                versions,
                 refusedStatus,
                 requireAuthorization,
                 requests,
@@ -2182,7 +2579,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     private sealed class VersionFeedHandler(
         string sourceUrl,
         string packageName,
-        string version,
+        IReadOnlyList<string> versions,
         HttpStatusCode? refusedStatus,
         bool requireAuthorization,
         ConcurrentQueue<string> requests,
@@ -2242,9 +2639,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     """,
                 _ when url.Equals(
                     $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.OrdinalIgnoreCase) => $$"""
-                    {"versions":["{{version}}"]}
-                    """,
+                    StringComparison.OrdinalIgnoreCase) =>
+                    $$"""{"versions":[{{string.Join(",", versions.Select(static version => $"\"{version}\""))}}]}""",
                 _ => null,
             };
 

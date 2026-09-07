@@ -28,7 +28,7 @@ oracle disagreement failures without downloading any package content:
 
 ```bash
 dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
-  -method '*PackageManifestCorpusTests*'
+  --filter-method '*PackageManifestCorpusTests*'
 ```
 
 Live verification is explicit:

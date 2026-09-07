@@ -388,15 +388,22 @@ notification was ever sent. Detection latency was unbounded, not weekly
 
 The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
 run it by default, except for measured false positives in
-`eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
-its tests, which do not feed the gate. `DecompilerProjectGraphPolicy` in the
-`eng/CiChangeDetection` gate asserts that every exemption names a project root
-and that no exempted project tree overlaps a project in MSBuild's evaluated
-Release project-reference closure rooted at `ILInspector.Decompiler.Tests`.
-New project trees therefore run the gate without a list update; neither a
-nested project nor a nested exemption can silently hide sources compiled by a
-graph project. An unreadable, invalid, or vacuous graph or skip list exempts
-nothing. Global build inputs and the gate's own scripts and pins remain
+`eng/decompiler-gate-skip-projects.txt`. That manifest is generated, not
+hand-maintained: `dotnet run eng/test-ci-change-detection.cs -- \
+--refresh-decompiler-skip-projects` recomputes it from every project directory
+under `fixtures/`, `src/`, `tests/`, and `tools/` that falls outside MSBuild's
+evaluated Release project-reference closure rooted at
+`ILInspector.Decompiler.Tests`, so it stays comprehensive as the repository
+grows instead of drifting back toward a small hand-picked list. Re-run it and
+commit the result whenever a project is added, removed, or re-wired.
+`DecompilerProjectGraphPolicy` in the `eng/CiChangeDetection` gate still
+asserts that every exemption names a project root and that no exempted project
+tree overlaps that same closure — the generator and the assertion share the
+one evaluated graph, so they cannot disagree. New project trees therefore run
+the gate until the manifest is regenerated; neither a nested project nor a
+nested exemption can silently hide sources compiled by a graph project. An
+unreadable, invalid, or vacuous graph or skip list exempts nothing. Global
+build inputs and the gate's own scripts and pins remain
 explicit triggers. The job runs separately so it never serializes with the hot
 `test` lane, and executes `--gate pre-merge`.
 
