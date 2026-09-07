@@ -53,6 +53,9 @@ public static class PackageExtractor
     private static void ExtractWithValidation(string zipPath, string destinationPath)
     {
         string fullDestination = Path.GetFullPath(destinationPath);
+        string destinationPrefix = Path.EndsInDirectorySeparator(fullDestination)
+            ? fullDestination
+            : fullDestination + Path.DirectorySeparatorChar;
 
         using ZipArchive archive = ZipFile.OpenRead(zipPath);
 
@@ -71,10 +74,9 @@ public static class PackageExtractor
                 throw new InvalidDataException($"Zip entry '{entry.FullName}' contains invalid path components.");
             }
 
-            string targetPath = Path.GetFullPath(Path.Combine(fullDestination, entry.FullName));
+            string targetPath = Path.GetFullPath(entry.FullName, fullDestination);
 
-            if (!targetPath.StartsWith(fullDestination + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-                && !targetPath.Equals(fullDestination, StringComparison.Ordinal))
+            if (!targetPath.StartsWith(destinationPrefix, StringComparison.Ordinal))
             {
                 throw new InvalidDataException($"Zip entry '{entry.FullName}' would extract outside the target directory.");
             }
