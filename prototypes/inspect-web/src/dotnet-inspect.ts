@@ -3563,6 +3563,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "library" && state.libraryLens === "references";
   const libraryIntegrationsWorkingSurface =
     activeScope === "library" && state.libraryLens === "integrations";
+  const libraryOpportunitiesWorkingSurface =
+    activeScope === "library" && state.libraryLens === "opportunities";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3602,6 +3604,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryIntegrationsWorkingSurface
+    || libraryOpportunitiesWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -3696,7 +3699,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4287,6 +4290,7 @@ function renderLibraryView() {
   if (state.libraryLens === "overview"
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
+    || state.libraryLens === "opportunities"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -4728,9 +4732,7 @@ function packageScopeSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
-// The Opportunities and Analysis lenses run over one platform library at a time, so on the
-// Platform they render the same inline library picker as Integrations and prompt for a choice
-// when nothing is scoped. This mirrors renderPackageIntegrations' platform handling.
+// Analysis runs over one platform library at a time and keeps its picker with the result.
 function platformLensPicker(dataAttr: string) {
   const scopedLib = scopedPlatformLibrary();
   return `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr, selected: scopedLib || "" })}</div></section>`;
@@ -4738,14 +4740,18 @@ function platformLensPicker(dataAttr: string) {
 
 function renderPackageOpportunities() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
-  const picker = isPlatform ? platformLensPicker("data-platform-opportunities-library") : "";
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
   return renderPackageOpportunitiesPure({
-    isPlatform,
-    scopedLibrary: selectedLibraryName() || null,
-    activeFramework: pkg.activeFramework,
-    picker,
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({ dataAttr: "data-platform-opportunities-library", selected: scopedLib || "" })
+      : "",
     fresh: state.packageOpportunitiesKey === current,
     loading: state.packageOpportunitiesLoading,
     error: state.packageOpportunitiesError,

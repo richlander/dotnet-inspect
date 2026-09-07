@@ -731,6 +731,49 @@ long/many results, state distinctions, Library switching, and platform controls.
 Scan classification, catalog ownership, other lenses, and subject-strip
 interaction remain separate work.
 
+### Library Opportunities
+
+Library Opportunities uses a quiet count/state header, an optional platform
+Library selector, one full-area results scroller, and bottom assembly context.
+It replaces the generic Library hero, repeated summary/noninteractive category
+chips, and inset opportunity cards while retaining every live row action.
+
+```text
+Opportunities                           area/suggestion count or state
+optional platform Library selector
+compact interaction guidance
+category headings and full-width opportunity rows
+Library asset and assembly identity              TFM · package@version
+```
+
+Existing category and opportunity order, type navigation, suggested-package
+loading, "look for" search actions, and exact/unknown/legacy source identity
+remain. The platform selector stays above scrolling results and keeps its
+existing acquisition and selection behavior. The footer retains the Library
+asset path, full assembly identity, and package/version/framework context.
+
+Loading and query failure retain the same frame. Incomplete results retain their
+available categories and diagnostics, visibly marked as partial. An incomplete
+scan with no returned suggestions does not claim established absence; only a
+complete empty result says no integration opportunities were found.
+
+At narrow widths the existing Types/details control shares the quiet header.
+Category names, API identities, integration-kind text, package names, and search
+hints wrap within the pane. Many rows scroll locally while header, selector, and
+bottom context stay put.
+
+The explicitly approved browser-only presentation scope has
+[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6273):
+wire production Library Opportunities to this frame and retire only that
+consumer's old composition. Browser HTML lowering consumes the existing typed
+`BrowserPackageOpportunities` result. Integrations and References supply the
+local layout conventions; this is not a new analysis or rendering architecture.
+
+Focused renderer and production-composition browser gates cover wide/narrow,
+long/many results, live actions, state distinctions, Library switching, and
+platform controls. Opportunity classification, catalog ownership, other lenses,
+and subject-strip interaction remain separate work.
+
 ### Package Metadata
 
 Package Metadata uses the complete package inspector area. It does not retain

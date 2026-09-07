@@ -101,6 +101,7 @@ async function installFacades(
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
   references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
+  opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
 ) {
   const common = "export async function initializeRuntime() {}";
   const surfaceLookup = `
@@ -238,6 +239,60 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.name + ".dll" === file);
         if (!selected) throw new Error("Unknown platform library: " + file);
         return queryPackageIntegrations(surface.package, version, framework, selected.id);
+      }
+      export async function queryPackageOpportunities(id, version, framework, asset) {
+        document.documentElement.dataset.opportunityRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const scenario = ${JSON.stringify(opportunities)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-opportunities-ready:" + asset, resolve, { once: true }));
+        }
+        if (scenario === "query-error") throw new Error("Opportunity query unavailable.");
+        const item = (api, integrationType, lookFor) => ({
+          api, integrationType, lookFor,
+          sourceDefinitionId: api,
+          sourceAssembly: selected.name,
+          sourceAssemblyVersion: selected.version,
+          sourceAssemblyCulture: selected.culture,
+          sourceAssemblyPublicKeyToken: selected.publicKeyToken
+        });
+        const categories = scenario === "empty" || scenario === "partial-empty" ? [] : [
+          { integration: "Cloud clients", items: [
+            item("Example.Widget", "Microsoft.Extensions.Http IHttpClientBuilder registration", "AddHttpClient, AddStandardResilienceHandler"),
+            item(selected.name + ".LegacyCloudClient", "IServiceCollection registration", "AddCloudClient")
+          ] },
+          { integration: "Configuration", items: [
+            item(selected.name + ".LegacyOptions", "IConfiguration binding", "AddOptions, Configure")
+          ] }
+        ];
+        if (scenario === "long") {
+          categories[0].integration += "." + "LongOpportunityArea".repeat(25);
+          categories[0].items = Array.from({ length: 80 }, (_, index) => item(
+            selected.name + "." + "LongNamespace.".repeat(18)
+              + "LongOpportunityType".repeat(12) + index,
+            "Microsoft.Extensions." + "LongSuggestedPackage".repeat(15)
+              + " " + "Long integration kind ".repeat(15),
+            Array.from({ length: 8 }, (_, token) => "Add" + "LongApiName".repeat(8) + token).join(", ")
+          ));
+        }
+        const partial = scenario.startsWith("partial");
+        return {
+          package: id, version, activeFramework: framework, categories,
+          totalOpportunities: categories.reduce((total, category) => total + category.items.length, 0),
+          isComplete: !partial,
+          inspectionError: partial ? "A library participant could not be inspected." : null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPlatformOpportunities(framework, version, file, pack) {
+        document.documentElement.dataset.platformOpportunityRequest = file + ":" + pack;
+        const surface = surfaceFor("Microsoft.NETCore.App");
+        const selected = surface.assemblies.find(item => item.name + ".dll" === file);
+        if (!selected) throw new Error("Unknown platform library: " + file);
+        return queryPackageOpportunities(surface.package, version, framework, selected.id);
       }`,
     source: "",
     "call-graph": "",
@@ -428,6 +483,146 @@ async function openIntegrations(page: Page, location = root) {
   await page.keyboard.press("Enter");
   await expect(page.locator('[data-library-lens="integrations"]')).toHaveAttribute("aria-selected", "true");
 }
+
+async function openOpportunities(page: Page, location = root) {
+  await page.goto(location);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  if (await page.locator('[data-library-lens="references"]').count()) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-library-lens="opportunities"]'))
+    .toHaveAttribute("aria-selected", "true");
+}
+
+for (const width of [1440, 390]) {
+  test(`production Opportunities retains selected Library results at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await openOpportunities(page);
+    const frame = page.locator(".library-opportunities-surface");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+    await expect(frame.locator("header")).toContainText("2 areas");
+    await expect(frame.locator("header")).toContainText("3 suggestions");
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(frame.locator("[data-opp-type]")).toHaveCount(3);
+    await expect(frame.locator("[data-opp-package]")).toHaveCount(1);
+    await expect(frame.locator("[data-opp-lookfor]")).toHaveCount(5);
+    await expect(page.locator("html")).toHaveAttribute("data-opportunity-request", "asset:core");
+    await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
+    const panelBox = await page.locator("#inspector-panel").boundingBox();
+    const frameBox = await frame.boundingBox();
+    const rowBox = await frame.locator(".opp-row").first().boundingBox();
+    expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
+    expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath("opportunities.png") });
+    if (width === 390) {
+      const back = page.getByRole("button", { name: "Types", exact: true });
+      await back.click();
+      await expect(page.locator("#type-list")).toBeFocused();
+      await page.getByRole("button", { name: "Show details", exact: true }).click();
+      await expect(back).toBeFocused();
+      await expect(frame).toBeVisible();
+    }
+  });
+
+  test(`production Opportunities contains long fields and keeps its frame while scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
+    await installFacades(page, {
+      ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
+    }, [], "ready", "ready", "long");
+    await openOpportunities(page);
+    const frame = page.locator(".library-opportunities-surface");
+    await expect(frame.locator(".opp-row")).toHaveCount(81);
+    const header = await frame.locator("header").boundingBox();
+    const footer = await frame.locator("footer").boundingBox();
+    const scroll = frame.locator(".library-opportunities-scroll");
+    const geometry = await scroll.evaluate(element => ({
+      width: element.clientWidth, scrollWidth: element.scrollWidth,
+      height: element.clientHeight, scrollHeight: element.scrollHeight,
+      pageWidth: document.documentElement.clientWidth,
+      pageScrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+    expect(geometry.pageScrollWidth).toBeLessThanOrEqual(geometry.pageWidth + 1);
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.height);
+    await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(frame.locator(".opp-row").last()).toBeInViewport();
+    expect(await frame.locator("header").boundingBox()).toEqual(header);
+    expect(await frame.locator("footer").boundingBox()).toEqual(footer);
+  });
+
+  for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
+    test(`production Opportunities retains its ${scenario} state at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installFacades(page, surface, [], "ready", "ready", scenario);
+      await openOpportunities(page);
+      const frame = page.locator(".library-opportunities-surface");
+      if (scenario === "partial") {
+        await expect(frame.locator(".opp-row")).toHaveCount(3);
+        await expect(frame.locator("header")).toContainText("partial");
+      } else {
+        await expect(frame.locator("h2")).toHaveText(scenario === "empty"
+          ? "No integration opportunities" : scenario === "partial-empty"
+            ? "Opportunity scan incomplete" : "Opportunity scan failed");
+        await expect(frame.locator(".opp-row")).toHaveCount(0);
+      }
+      if (scenario.startsWith("partial")) {
+        await expect(frame).toContainText("A library participant could not be inspected.");
+        await expect(frame).not.toContainText("No integration opportunities");
+      }
+      await expect(frame.locator("footer")).toBeInViewport();
+    });
+  }
+
+  test(`production Opportunities keeps platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const platform = {
+      ...surface, package: "Microsoft.NETCore.App",
+      assemblies: surface.assemblies.map(item => ({ ...item, platformPack: "netcore.app" })),
+    };
+    await installFacades(page, platform);
+    await openOpportunities(page, root.replace("Example.Package", platform.package));
+    const frame = page.locator(".library-opportunities-surface");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+    const picker = frame.locator(".library-opportunities-controls select");
+    await expect(picker).toBeVisible();
+    await expect(picker).toHaveValue(core.name);
+    await picker.selectOption(other.name);
+    await expect(frame.locator("footer")).toContainText(other.asset);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-platform-opportunity-request", "Example.Other.dll:netcore.app");
+    const controls = await frame.locator(".library-opportunities-controls").boundingBox();
+    const content = await frame.locator(".library-opportunities-scroll").boundingBox();
+    expect(controls!.y + controls!.height).toBeLessThanOrEqual(content!.y + 1);
+  });
+}
+
+test("production Opportunities keeps deferred Library results out of the incoming scan", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", "deferred");
+  await openOpportunities(page);
+  await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
+  await expect(page.locator(".library-opportunities-surface footer")).toContainText(core.asset);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-opportunities-ready:asset:core")));
+  await expect(page.locator(".library-opportunities-scroll .opp-row")).toHaveCount(3);
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
+  await expect(page.locator(".library-opportunities-surface footer")).toContainText(other.asset);
+  await expect(page.locator(".library-opportunities-surface")).not.toContainText(core.name);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-opportunities-ready:asset:other")));
+  await expect(page.locator(".library-opportunities-scroll .opp-type-ns").nth(1)).toContainText(other.name);
+});
 
 for (const width of [1440, 390]) {
   test(`production Integrations retains selected Library results at ${width}px`, async ({ page }, testInfo) => {

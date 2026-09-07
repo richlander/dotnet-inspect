@@ -1010,6 +1010,7 @@ kbd {
 .detail-scroll.overview-working-surface,
 .detail-scroll.library-references-working-surface,
 .detail-scroll.library-integrations-working-surface,
+.detail-scroll.library-opportunities-working-surface,
 .detail-scroll.package-dependencies-working-surface,
 .detail-scroll.package-metadata-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 
@@ -1093,12 +1094,15 @@ kbd {
 .api-surface-head p span,
 .metadata-surface-head p span { margin-left: 6px; }
 .library-integrations-surface,
+.library-opportunities-surface,
 .library-references-surface,
 .metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; background: var(--bg); }
 .library-integrations-scroll,
+.library-opportunities-scroll,
 .library-references-scroll,
 .metadata-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
 .library-integrations-scroll > .document-section,
+.library-opportunities-scroll > .document-section,
 .library-references-scroll > .document-section,
 .metadata-surface-scroll > .document-section,
 .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding: 24px 16px 0; }
@@ -1554,6 +1558,23 @@ kbd {
 .library-integrations-scroll .signal-ns { overflow: visible; white-space: normal; }
 .library-integrations-scroll .signal-kind { min-width: 0; max-width: 24ch; justify-self: end; padding: 0; border: 0; border-radius: 0; }
 .library-integrations-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
+.library-opportunities-with-controls { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
+.library-opportunities-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.library-opportunities-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
+.library-opportunities-scroll { overflow-wrap: anywhere; }
+.library-opportunities-note { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.opportunity-category > .section-title { min-width: 0; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.opportunity-category > .section-title h2 { min-width: 0; }
+.library-opportunities-scroll .opp-list { gap: 0; padding: 0; border-top: 0; }
+.library-opportunities-scroll .opp-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 12px; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.library-opportunities-scroll .opp-type-chip { min-width: 0; max-width: 100%; flex-wrap: wrap; text-align: left; }
+.library-opportunities-scroll .opp-type-name,
+.library-opportunities-scroll .opp-type-ns,
+.library-opportunities-scroll .opp-kind,
+.library-opportunities-scroll .opp-kind-text,
+.library-opportunities-scroll .opp-chip,
+.library-opportunities-scroll .opp-pattern { min-width: 0; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.library-opportunities-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
 .opp-list { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
 .opp-row { display: flex; align-items: flex-start; gap: 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .opp-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -1978,11 +1999,16 @@ kbd {
   .library-references-scroll .dep-version { text-align: left; }
   .library-references-scroll > .document-section { padding-inline: 12px; }
   .library-integrations-controls,
+  .library-opportunities-controls,
   .integration-category > .section-title,
-  .library-integrations-scroll > .document-section { padding-inline: 12px; }
+  .opportunity-category > .section-title,
+  .library-integrations-scroll > .document-section,
+  .library-opportunities-scroll > .document-section,
+  .library-opportunities-note { padding-inline: 12px; }
   .library-integrations-scroll .signal-row { grid-template-columns: 24px minmax(0, 1fr); gap: 4px 12px; padding-inline: 12px; }
   .library-integrations-scroll .signal-badge { grid-row: 1 / span 2; }
   .library-integrations-scroll .signal-kind { grid-column: 2; justify-self: start; max-width: 100%; }
+  .library-opportunities-scroll .opp-row { padding-inline: 12px; }
   .metadata-surface-head { padding-inline: 12px; }
   .metadata-surface-scroll > .document-section,
   .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }
