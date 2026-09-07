@@ -400,6 +400,7 @@ public static class PackageDependencyTraversalQuery
                         return;
                     }
 
+                    projection.Diagnostics = acquired.Diagnostics;
                     (PackageDependencyEvidenceRoot? projectedRoot,
                         PackageManifestFailure? manifestFailure) =
                         ProjectManifestBytes(
@@ -419,7 +420,6 @@ public static class PackageDependencyTraversalQuery
                         return;
                     }
 
-                    projection.Diagnostics = acquired.Diagnostics;
                     projection.Evidence = projectedRoot;
                     return;
                 case PackageDependencyTraversalManifestResult.Failed failedResult:

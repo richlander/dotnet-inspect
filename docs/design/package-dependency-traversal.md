@@ -864,6 +864,7 @@ The implementation adds focused Release gates for:
 | Untrusted display evidence remains inert. | `Traversal_InertTextRemainsInertThroughGraphResult` |
 | Explicit-source manifest acquisition rejects candidates issued by another source context. | `Traversal_AuthorizedManifestSourceRejectsForeignCandidate` |
 | Successful desktop and explicit-source fallback retains earlier source diagnostics without changing successful completion. | `Traversal_HostManifestFallbackPreservesSourceDiagnostics` |
+| A later manifest-projection failure retains earlier successful-fallback source diagnostics while remaining partial for the manifest failure. | `Traversal_FailedManifestProjectionRetainsFallbackSourceDiagnostics` |
 | CLI and Browser/Wasm consume equivalent typed graph identity. | `Traversal_HostAdaptersPreserveEquivalentGraph` |
 
 The source and candidate owners keep their existing authority, range-selection,

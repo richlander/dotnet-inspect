@@ -1520,6 +1520,58 @@ public sealed class PackageDependencyTraversalQueryTests
         }
     }
 
+    [Fact]
+    public async Task Traversal_FailedManifestProjectionRetainsFallbackSourceDiagnostics()
+    {
+        string desktopSources = CreateTemporaryDirectory();
+        string missingFolder = Directory.CreateDirectory(
+            Path.Combine(desktopSources, "a-missing")).FullName;
+        string invalidFolder = Directory.CreateDirectory(
+            Path.Combine(desktopSources, "b-invalid")).FullName;
+        WriteLocalSourcePackage(
+            invalidFolder,
+            "dependency",
+            "1.2.3",
+            Dependency("child", "not-a-version"));
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(30));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [missingFolder, invalidFolder],
+        };
+
+        PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
+            [
+                Root(
+                    "roota",
+                    "1.0.0",
+                    Dependency("dependency", "[1.2.3]"),
+                    PackageDependencyTraversalExpansionAuthority.RecursiveSources),
+            ],
+            new PackageDependencyTraversalCandidateAdapter(
+                new DesktopPackageDependencyCandidateSource(
+                    composition,
+                    sourceOptions)),
+            new DesktopPackageDependencyTraversalManifestSource(composition));
+
+        PackageDependencyTraversalProjection projection = FindProjection(
+            outcome,
+            PackageSourceCoordinate.Create("dependency", "1.2.3"));
+        PackageAuthorityFailure diagnostic = Assert.Single(
+            projection.Diagnostics);
+        Assert.IsType<InertString>(diagnostic.Authority);
+        Assert.NotNull(diagnostic.SourceFailure);
+        var identity = Assert.IsType<
+            PackageDependencyTraversalManifestFailureDetail.Identity>(
+                Assert.Single(outcome.Failures).Detail);
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            identity.Failure.Reason);
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.Partial,
+            outcome.Roots[0].Completion);
+    }
+
     // ---- Shared fixtures and helpers ----
 
     private static PackageDependencyTraversalRequest BuildRequest(
@@ -1648,7 +1700,8 @@ public sealed class PackageDependencyTraversalQueryTests
             node => node.Coordinate == coordinate);
         return outcome.Projections.Single(
             projection => projection.NodeIndex == nodeIndex
-                && projection.Evidence is not null);
+                && projection.Kind
+                    == PackageDependencyTraversalProjectionKind.CandidateAcquired);
     }
 
     private static PackageDependencyTraversalRootOccurrence Root(
