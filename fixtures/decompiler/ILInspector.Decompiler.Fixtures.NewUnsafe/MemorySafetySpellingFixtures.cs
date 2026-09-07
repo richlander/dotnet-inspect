@@ -42,3 +42,14 @@ public struct MemorySafetyExplicitLayoutFixture
 
     public static int StaticField;
 }
+
+public interface IMemorySafetyAccessorContract
+{
+    unsafe int Value { get; }
+}
+
+public sealed class MemorySafetyExplicitAccessorFixture
+    : IMemorySafetyAccessorContract
+{
+    unsafe int IMemorySafetyAccessorContract.Value => 42;
+}

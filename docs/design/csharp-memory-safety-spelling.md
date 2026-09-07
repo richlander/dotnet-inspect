@@ -190,6 +190,15 @@ unsupported selected member. This slice proves safety-modifier spelling and
 caller-contract preservation, not body reconstruction or general layout
 reconstruction.
 
+Method-like admission requires the Metadata-owned
+`ApiMember.MethodSemantics` fact. A positive `None` permits the ordinary
+method, constructor, finalizer, extension, or explicit-interface method path.
+Any property or event MethodSemantics role is an unsupported accessor and
+refuses the complete output. Null is unavailable evidence rather than proof of
+an ordinary method. This distinction follows the MethodSemantics relationship
+and does not infer accessor shape from a qualified MethodDef name,
+`SpecialName`, or an empty declaration-accessor collection.
+
 `safe` is illegal on an ordinary field when its enclosing layout is not
 emitted (CS9388), so the supported updated-rules explicit-layout path emits a
 `StructLayoutAttribute(LayoutKind.Explicit, ...)` on the type and a

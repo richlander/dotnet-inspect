@@ -4540,6 +4540,30 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void SnapshotTypeForRendering_CarriesMethodSemanticsEvidence()
+    {
+        var accessor = new ApiMember
+        {
+            Name = "IValue.get_Value",
+            Kind = "explicit-interface-implementation",
+            MethodSemantics = ApiMethodSemanticsKind.PropertyGetter,
+        };
+        var type = new ApiType
+        {
+            Name = "Example",
+            Kind = "class",
+            Members = [accessor],
+        };
+
+        ApiType snapshot =
+            CSharpTypePrinter.SnapshotTypeForRendering(type, type.Members);
+
+        Assert.Equal(
+            ApiMethodSemanticsKind.PropertyGetter,
+            Assert.Single(snapshot.Members).MethodSemantics);
+    }
+
+    [Fact]
     public void SnapshotTypeForRendering_CarriesLayoutFactsWithoutEmittingLayoutSyntax()
     {
         Guid moduleVersionId = Guid.NewGuid();

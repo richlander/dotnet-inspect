@@ -1129,6 +1129,57 @@ public sealed class CSharpMemorySafetySpellingTests
         Assert.Contains(name, declaration, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(ApiMethodSemanticsKind.PropertyGetter)]
+    [InlineData(ApiMethodSemanticsKind.PropertySetter)]
+    [InlineData(ApiMethodSemanticsKind.PropertyOther)]
+    [InlineData(ApiMethodSemanticsKind.EventAdder)]
+    [InlineData(ApiMethodSemanticsKind.EventRemover)]
+    [InlineData(ApiMethodSemanticsKind.EventRaiser)]
+    [InlineData(ApiMethodSemanticsKind.EventOther)]
+    public void MethodSemanticsAccessorsAreUnavailable(
+        ApiMethodSemanticsKind semantics)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember member = Method(
+            "IContract.Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.Explicit,
+            MemorySafetyPointerEvidence.Absent,
+            kind: "explicit-interface-implementation");
+        member.MethodSemantics = semantics;
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(
+            () => Format(
+                type,
+                member,
+                CSharpMemorySafetyLanguage.UpdatedCallerContracts));
+
+        Assert.Contains("accessor", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("supported", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MissingMethodSemanticsEvidenceIsUnavailable()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember member = Method(
+            "Run",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent);
+        member.MethodSemantics = null;
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(
+            () => Format(
+                type,
+                member,
+                CSharpMemorySafetyLanguage.UpdatedCallerContracts));
+
+        Assert.Contains("MethodSemantics", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("unavailable", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void ConstructorsPreserveOnlySupportedUpdatedContracts()
     {
@@ -1491,6 +1542,7 @@ public sealed class CSharpMemorySafetySpellingTests
         {
             Name = name,
             Kind = kind,
+            MethodSemantics = ApiMethodSemanticsKind.None,
             MetadataToken = token,
             IsStatic = kind != "constructor" && kind != "finalizer"
                 && kind != "explicit-interface-implementation",

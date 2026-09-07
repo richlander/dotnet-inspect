@@ -18,6 +18,8 @@ public sealed class CSharpMemorySafetySpellingCompileTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
     const string ExplicitLayoutFixtureType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
+    const string ExplicitAccessorFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitAccessorFixture";
 
     [Theory]
     [InlineData(CSharpMemorySafetyLanguage.Legacy, true)]
@@ -230,6 +232,39 @@ public sealed class CSharpMemorySafetySpellingCompileTests
         Assert.Equal("<batch>", failure.TypeName);
         Assert.Contains("legacy", failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("updated", failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceAccessorIsAtomicallyUnavailable()
+    {
+        ApiType original = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExplicitAccessorFixtureType);
+        ApiMember accessor = Assert.Single(
+            original.Members,
+            member => member.Kind == "explicit-interface-implementation");
+
+        Assert.Equal(
+            ApiMethodSemanticsKind.PropertyGetter,
+            accessor.MethodSemantics);
+        var outcome = Assert.IsType<CSharpTypePrintOutcome.NotRendered>(
+            new CSharpTypePrinter().Print(
+                new CSharpTypePrintRequest(
+                    original,
+                    CSharpBodyPolicy.Stub,
+                    [accessor]),
+                new CSharpTypePrintOptions
+                {
+                    MemorySafetyLanguage =
+                        CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+                }));
+
+        Assert.Empty(outcome.SelfNameFailures);
+        CSharpTypePrintDiagnostic failure =
+            Assert.Single(outcome.MemorySafetyFailures);
+        Assert.Equal(original.FullName, failure.TypeName);
+        Assert.Contains(accessor.Name, failure.Message, StringComparison.Ordinal);
+        Assert.Contains("accessor", failure.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

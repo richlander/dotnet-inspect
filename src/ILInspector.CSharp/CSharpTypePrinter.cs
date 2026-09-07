@@ -1032,6 +1032,7 @@ public sealed class CSharpTypePrinter
         {
             Name = member.Name,
             Kind = member.Kind,
+            MethodSemantics = member.MethodSemantics,
             MetadataToken = member.MetadataToken,
             DeclarationMetadataToken = member.DeclarationMetadataToken,
             Attributes = attributes?.ToList()!,

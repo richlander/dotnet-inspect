@@ -100,6 +100,15 @@ internal static class CSharpMemorySafetySpelling
         {
             return Refuse($"model-aware {member.Kind} spelling is not supported.");
         }
+        if (member.Kind is "method" or "extension-method"
+                or "explicit-interface-implementation" or "constructor"
+                or "finalizer")
+        {
+            if (member.MethodSemantics is null)
+                return Refuse("MethodSemantics evidence is unavailable.");
+            if (member.MethodSemantics != ApiMethodSemanticsKind.None)
+                return Refuse("model-aware accessor spelling is not supported.");
+        }
         if (member.SignatureModel is null
             || member.SignatureDecodeStatus == SignatureDecodeStatus.Degraded)
         {

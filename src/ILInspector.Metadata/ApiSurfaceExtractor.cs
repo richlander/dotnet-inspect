@@ -958,6 +958,10 @@ public static class ApiSurfaceExtractor
             // property or event rows. Raiser and Other semantic methods have no
             // ApiMember token slots, so they stay methods.
             var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+            MemorySafetyMetadataIndex memorySafety = GetMemorySafetyIndex();
+            bool accessorAssociationsAvailable =
+                memorySafety.Rules is MemorySafetyRulesResult.Available
+                && memorySafety.AssociationFailure is null;
             var runtimeJsExportWrapperCandidateMethods =
                 new Dictionary<string, List<int>>(
                     StringComparer.Ordinal);
@@ -1011,7 +1015,10 @@ public static class ApiSurfaceExtractor
                 // hide the public contract. Public MethodImpl accessors — static
                 // abstract implementations, covariant overrides, VB Implements —
                 // stay on that public row. ApiSurfaceEmitSetTests is the gate.
-                if (accessorMethods.Contains(methodHandle)
+                if (accessorMethods.TryGetValue(
+                        methodHandle,
+                        out ApiMethodSemanticsKind methodSemantics)
+                    && IsCSharpAccessor(methodSemantics)
                     && !(isExplicitInterfaceImplementation
                         && methodAccess == MethodAttributes.Private))
                 {
@@ -1124,6 +1131,11 @@ public static class ApiSurfaceExtractor
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
+                    MethodSemantics = accessorAssociationsAvailable
+                        ? accessorMethods.GetValueOrDefault(
+                            methodHandle,
+                            ApiMethodSemanticsKind.None)
+                        : null,
                     IsStatic = modifiers.IsStatic,
                     IsVirtual = modifiers.IsVirtual,
                     IsAbstract = modifiers.IsAbstract,
@@ -1949,7 +1961,10 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string methodName = reader.GetString(method.Name);
-            if ((accessorMethods.Contains(methodHandle)
+            if ((accessorMethods.TryGetValue(
+                        methodHandle,
+                        out ApiMethodSemanticsKind methodSemantics)
+                    && IsCSharpAccessor(methodSemantics)
                     && !(isExplicitImplementation
                         && methodAccess == MethodAttributes.Private))
                 || methodName.StartsWith('<'))
@@ -2431,7 +2446,7 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// Property getter/setter and event adder/remover bodies from
+    /// Property and event semantic methods from
     /// <c>MethodSemantics</c>. Ordinary accessors are represented by their
     /// property or event row; raiser and Other semantic methods have no
     /// <see cref="ApiMember"/> token slots, so they stay methods.
@@ -2443,35 +2458,55 @@ public static class ApiSurfaceExtractor
     /// because its property or event row does not represent the public contract.
     /// A public MethodImpl accessor is represented by that public row.
     /// </remarks>
-    private static HashSet<MethodDefinitionHandle> GetSemanticAccessorMethods(
+    private static Dictionary<MethodDefinitionHandle, ApiMethodSemanticsKind>
+        GetSemanticAccessorMethods(
         MetadataReader reader,
         TypeDefinition typeDef)
     {
-        HashSet<MethodDefinitionHandle> accessors = [];
+        Dictionary<MethodDefinitionHandle, ApiMethodSemanticsKind> accessors = [];
         foreach (PropertyDefinitionHandle propertyHandle in typeDef.GetProperties())
         {
             PropertyAccessors propertyAccessors =
                 reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-            Add(propertyAccessors.Getter);
-            Add(propertyAccessors.Setter);
+            Add(propertyAccessors.Getter, ApiMethodSemanticsKind.PropertyGetter);
+            Add(propertyAccessors.Setter, ApiMethodSemanticsKind.PropertySetter);
+            foreach (MethodDefinitionHandle other in propertyAccessors.Others)
+                Add(other, ApiMethodSemanticsKind.PropertyOther);
         }
 
         foreach (EventDefinitionHandle eventHandle in typeDef.GetEvents())
         {
             EventAccessors eventAccessors =
                 reader.GetEventDefinition(eventHandle).GetAccessors();
-            Add(eventAccessors.Adder);
-            Add(eventAccessors.Remover);
+            Add(eventAccessors.Adder, ApiMethodSemanticsKind.EventAdder);
+            Add(eventAccessors.Remover, ApiMethodSemanticsKind.EventRemover);
+            Add(eventAccessors.Raiser, ApiMethodSemanticsKind.EventRaiser);
+            foreach (MethodDefinitionHandle other in eventAccessors.Others)
+                Add(other, ApiMethodSemanticsKind.EventOther);
         }
 
         return accessors;
 
-        void Add(MethodDefinitionHandle accessor)
+        void Add(
+            MethodDefinitionHandle accessor,
+            ApiMethodSemanticsKind semantics)
         {
-            if (!accessor.IsNil)
-                accessors.Add(accessor);
+            if (accessor.IsNil)
+                return;
+
+            accessors.TryGetValue(
+                accessor,
+                out ApiMethodSemanticsKind existing);
+            accessors[accessor] = existing | semantics;
         }
     }
+
+    static bool IsCSharpAccessor(ApiMethodSemanticsKind semantics)
+        => (semantics
+            & (ApiMethodSemanticsKind.PropertyGetter
+                | ApiMethodSemanticsKind.PropertySetter
+                | ApiMethodSemanticsKind.EventAdder
+                | ApiMethodSemanticsKind.EventRemover)) != 0;
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
         MetadataReader reader, TypeDefinition typeDef)
@@ -2995,6 +3030,7 @@ public static class ApiSurfaceExtractor
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
+                    MethodSemantics = extension.MethodSemantics,
                     MetadataToken = extension.MetadataToken,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
