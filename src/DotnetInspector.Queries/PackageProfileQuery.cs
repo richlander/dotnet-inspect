@@ -135,146 +135,80 @@ public static class PackageProfileQuery
         ArgumentNullException.ThrowIfNull(request);
         Validate(request);
 
-        PackageSourceOperationResult<PackageSearchResult> search =
-            await source.SearchByPrefixAsync(
+        int candidates = 0;
+        int matches = 0;
+        int failures = 0;
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None;
+        await foreach (PackageSourceOperationResult<PackageSearchResult> search
+            in source.SearchByPrefixPagesAsync(
                 request.Prefix,
                 request.MaximumPackages,
                 request.IncludePrerelease,
                 cancellationToken,
-                operationContext).ConfigureAwait(false);
-        if (search.Failure is { } searchFailure)
+                operationContext).ConfigureAwait(false))
         {
-            yield return new PackageProfileEvent.Failure(
-                new PackageProfileFailure(
-                    PackageId: null,
-                    Version: null,
-                    searchFailure.Source,
-                    PackageProfileFailureKind.Search,
-                    searchFailure.Message));
-            yield return new PackageProfileEvent.Completed(
-                new PackageProfileSummary(
-                    request.Prefix,
-                    source.Source,
-                    Candidates: 0,
-                    Matches: 0,
-                    Failures: 1,
-                    PackageSearchTruncationReason.None));
-            yield break;
-        }
-
-        PackageSearchResult searchResult =
-            search.Value
-            ?? throw new InvalidOperationException(
-                "The package source search completed without a value or failure.");
-        PackageSearchMatch[] searchMatches =
-        [
-            .. searchResult.Matches.Take(request.MaximumPackages + 1),
-        ];
-        if (searchResult.Matches.Count > request.MaximumPackages
-            || searchMatches.Length > request.MaximumPackages
-            || searchMatches.Length != searchResult.Matches.Count)
-        {
-            yield return new PackageProfileEvent.Failure(
-                new PackageProfileFailure(
-                    PackageId: null,
-                    Version: null,
-                    source.Source,
-                    PackageProfileFailureKind.SearchContract,
-                    "The package source returned more matches than requested."));
-            yield return new PackageProfileEvent.Completed(
-                new PackageProfileSummary(
-                    request.Prefix,
-                    source.Source,
-                    Candidates: 0,
-                    Matches: 0,
-                    Failures: 1,
-                    PackageSearchTruncationReason.None));
-            yield break;
-        }
-
-        int candidates = 0;
-        int matches = 0;
-        int failures = 0;
-        foreach (PackageSearchMatch candidate in searchMatches)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            candidates++;
-            PackageSourceCoordinate? expectedCoordinate = null;
-            bool metadataIsValid = true;
-            try
-            {
-                expectedCoordinate = PackageSourceCoordinate.Create(
-                    candidate.Metadata.Id,
-                    candidate.Metadata.Version);
-            }
-            catch (ArgumentException)
-            {
-                metadataIsValid = false;
-            }
-
-            if (!metadataIsValid
-                || expectedCoordinate is null
-                || candidate.Candidate.Coordinate != expectedCoordinate
-                || !ReferenceEquals(
-                    candidate.Candidate.Source,
-                    source.Source)
-                || candidate.Candidate.DiscoveryContract
-                    != PackageDiscoveryContract.KeywordSearch
-                || candidate.Candidate.ListingState
-                    != PackageListingState.Listed)
+            if (search.Failure is { } searchFailure)
             {
                 failures++;
-                yield return Failure(
+                yield return new PackageProfileEvent.Failure(
+                    new PackageProfileFailure(
+                        PackageId: null,
+                        Version: null,
+                        searchFailure.Source,
+                        PackageProfileFailureKind.Search,
+                        searchFailure.Message));
+                break;
+            }
+
+            PackageSearchResult searchResult =
+                search.Value
+                ?? throw new InvalidOperationException(
+                    "The package source search completed without a value or failure.");
+            int remaining = request.MaximumPackages - candidates;
+            PackageSearchMatch[] searchMatches =
+            [
+                .. searchResult.Matches.Take(remaining + 1),
+            ];
+            if (searchResult.Matches.Count > remaining
+                || searchMatches.Length > remaining
+                || searchMatches.Length != searchResult.Matches.Count)
+            {
+                failures++;
+                yield return new PackageProfileEvent.Failure(
+                    new PackageProfileFailure(
+                        PackageId: null,
+                        Version: null,
+                        source.Source,
+                        PackageProfileFailureKind.SearchContract,
+                        "The package source returned more matches than requested."));
+                break;
+            }
+
+            truncationReason = searchResult.TruncationReason;
+            foreach (PackageSearchMatch candidate in searchMatches)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                candidates++;
+                PackageProfileEvent profileEvent = await EvaluateCandidateAsync(
+                    source,
+                    request.Prefix,
                     candidate,
-                    PackageProfileFailureKind.SearchContract,
-                    "The package source returned inconsistent search metadata or provenance.");
-                continue;
+                    cancellationToken,
+                    operationContext).ConfigureAwait(false);
+                if (profileEvent is PackageProfileEvent.Match)
+                    matches++;
+                else
+                    failures++;
+                yield return profileEvent;
             }
 
-            if (!candidate.Metadata.Id.StartsWith(
-                    request.Prefix,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                failures++;
-                yield return Failure(
-                    candidate,
-                    PackageProfileFailureKind.SearchContract,
-                    "The package source returned an item outside the requested prefix.");
-                continue;
-            }
-
-            var (manifestFacts, manifestFailure) = await AcquireManifestAsync(
-                source,
-                candidate.Candidate,
-                candidate.Metadata.Id,
-                candidate.Metadata.Version,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
-            if (manifestFailure is not null)
-            {
-                failures++;
-                yield return new PackageProfileEvent.Failure(manifestFailure);
-                continue;
-            }
-
-            matches++;
-            yield return new PackageProfileEvent.Match(
-                new PackageProfileMatch(
-                    candidate.Metadata.Id,
-                    candidate.Metadata.Version,
-                    [
-                        .. (candidate.Metadata.Owners ?? [])
-                            .Where(owner =>
-                                !string.IsNullOrWhiteSpace(owner)),
-                    ],
-                    candidate.Metadata.TotalDownloads,
-                    candidate.Metadata.Verified,
-                    candidate.Candidate.Source,
-                    manifestFacts
-                        ?? throw new InvalidOperationException(
-                            "Manifest acquisition returned no facts or failure.")));
+            if (truncationReason != PackageSearchTruncationReason.None
+                || candidates == request.MaximumPackages)
+                break;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         yield return new PackageProfileEvent.Completed(
             new PackageProfileSummary(
                 request.Prefix,
@@ -282,7 +216,79 @@ public static class PackageProfileQuery
                 candidates,
                 matches,
                 failures,
-                searchResult.TruncationReason));
+                truncationReason));
+    }
+
+    private static async Task<PackageProfileEvent> EvaluateCandidateAsync(
+        IPackageSourceClient source,
+        string prefix,
+        PackageSearchMatch candidate,
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext)
+    {
+        PackageSourceCoordinate expectedCoordinate;
+        try
+        {
+            expectedCoordinate = PackageSourceCoordinate.Create(
+                candidate.Metadata.Id,
+                candidate.Metadata.Version);
+        }
+        catch (ArgumentException)
+        {
+            return Failure(
+                candidate,
+                PackageProfileFailureKind.SearchContract,
+                "The package source returned inconsistent search metadata or provenance.");
+        }
+
+        if (candidate.Candidate.Coordinate != expectedCoordinate
+            || !ReferenceEquals(candidate.Candidate.Source, source.Source)
+            || candidate.Candidate.DiscoveryContract
+                != PackageDiscoveryContract.KeywordSearch
+            || candidate.Candidate.ListingState != PackageListingState.Listed)
+        {
+            return Failure(
+                candidate,
+                PackageProfileFailureKind.SearchContract,
+                "The package source returned inconsistent search metadata or provenance.");
+        }
+
+        if (!candidate.Metadata.Id.StartsWith(
+                prefix,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Failure(
+                candidate,
+                PackageProfileFailureKind.SearchContract,
+                "The package source returned an item outside the requested prefix.");
+        }
+
+        var (manifestFacts, manifestFailure) = await AcquireManifestAsync(
+            source,
+            candidate.Candidate,
+            candidate.Metadata.Id,
+            candidate.Metadata.Version,
+            cancellationToken,
+            operationContext).ConfigureAwait(false);
+        if (manifestFailure is not null)
+        {
+            return new PackageProfileEvent.Failure(manifestFailure);
+        }
+
+        return new PackageProfileEvent.Match(
+            new PackageProfileMatch(
+                candidate.Metadata.Id,
+                candidate.Metadata.Version,
+                [
+                    .. (candidate.Metadata.Owners ?? [])
+                        .Where(owner => !string.IsNullOrWhiteSpace(owner)),
+                ],
+                candidate.Metadata.TotalDownloads,
+                candidate.Metadata.Verified,
+                candidate.Candidate.Source,
+                manifestFacts
+                    ?? throw new InvalidOperationException(
+                        "Manifest acquisition returned no facts or failure.")));
     }
 
     internal static async ValueTask<(
