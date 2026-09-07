@@ -1,12 +1,11 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
+using DotnetInspector.Queries;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Research;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace DotnetInspector.RoundTripCompilation;
@@ -42,7 +41,7 @@ public sealed record RoundTripMemberComparison(
     IlBodyDiffOutcome IlStatus,
     RoundTripCSharpEvidence? CSharpDiff,
     RoundTripIlEvidence? IlDiff,
-    [property: JsonIgnore] ImplementationMemberDiffResult? Evidence,
+    [property: JsonIgnore] LocalComparisonQueryResult? Evidence,
     string? CSharpFailure,
     string? IlFailure);
 
@@ -81,6 +80,8 @@ public static class RoundTripComparison
             File.WriteAllBytes(temporaryPath, donorPe);
             using var original = DecompilerMetadataSource.OpenWithoutSymbols(request.Artifact.Path);
             using var donor = DecompilerMetadataSource.OpenWithoutSymbols(temporaryPath);
+            using var workspace = new InspectionWorkspace();
+            var query = new RoundTripComparisonQuery(workspace, original, donor);
             var members = ImmutableArray.CreateBuilder<RoundTripMemberComparison>();
             foreach (var target in request.Targets)
             {
@@ -103,34 +104,17 @@ public static class RoundTripComparison
                     continue;
                 }
 
-                var subject = new FindingSubject(
-                    target.Anchor.StableSelector,
-                    $"{target.Anchor.TypeFullName}.{target.Anchor.MemberName}");
-                var oldInspection = CSharpFindings.Inspect(original, target.Method.Handle, subject);
-                var newInspection = CSharpFindings.Inspect(donor, donorTarget.Handle, subject);
-                var evidence = ImplementationDiff.CompareMembers(
-                    original,
-                    target.Method.Handle,
-                    donor,
-                    donorTarget.Handle);
-                var csharpStatus = oldInspection is FindingInspection<CSharpCanonicalLine>.Complete
-                    && newInspection is FindingInspection<CSharpCanonicalLine>.Complete
-                        ? evidence.CSharpDiff is { IsExact: true }
-                            ? RoundTripEvidenceStatus.Exact
-                            : RoundTripEvidenceStatus.Changed
-                        : RoundTripEvidenceStatus.Unavailable;
+                var evidence = query.Compare(target.Method, donorTarget);
                 members.Add(new RoundTripMemberComparison(
                     target,
                     correspondence,
-                    csharpStatus,
-                    evidence.IlDiff?.Diff.Outcome ?? IlBodyDiffOutcome.Unavailable,
-                    ToEvidence(evidence.CSharpDiff),
-                    ToEvidence(evidence.IlDiff?.Diff),
-                    evidence,
-                    CSharpFailure: csharpStatus == RoundTripEvidenceStatus.Unavailable
-                        ? InspectionFailure(oldInspection, newInspection)
-                        : null,
-                    IlFailure: evidence.IlDiff?.Diff.Failure));
+                    evidence.CSharpStatus,
+                    evidence.IlStatus,
+                    evidence.CSharpDiff,
+                    evidence.IlDiff,
+                    evidence.Evidence,
+                    evidence.CSharpFailure,
+                    evidence.IlFailure));
             }
 
             return new RoundTripComparisonResult(
@@ -157,42 +141,6 @@ public static class RoundTripComparison
             }
         }
     }
-
-    static string? InspectionFailure(
-        FindingInspection<CSharpCanonicalLine> oldInspection,
-        FindingInspection<CSharpCanonicalLine> newInspection)
-    {
-        List<string> failures = [];
-        if (oldInspection is FindingInspection<CSharpCanonicalLine>.Absent oldAbsent)
-            failures.Add($"old absent: {oldAbsent.Detail}");
-        else if (oldInspection is FindingInspection<CSharpCanonicalLine>.Failed oldFailed)
-            failures.Add($"old failed: {oldFailed.Error.Reason}");
-        if (newInspection is FindingInspection<CSharpCanonicalLine>.Absent newAbsent)
-            failures.Add($"new absent: {newAbsent.Detail}");
-        else if (newInspection is FindingInspection<CSharpCanonicalLine>.Failed newFailed)
-            failures.Add($"new failed: {newFailed.Error.Reason}");
-        return failures.Count == 0 ? null : string.Join("; ", failures);
-    }
-
-    static RoundTripCSharpEvidence? ToEvidence(CSharpBodyDiffResult? diff)
-        => diff is null
-            ? null
-            : new RoundTripCSharpEvidence(
-                Normalize(diff.Rows),
-                Normalize(diff.FailureRows),
-                Normalize(diff.IdentityFailures));
-
-    static RoundTripIlEvidence? ToEvidence(IlBodyDiffResult? diff)
-        => diff is null
-            ? null
-            : new RoundTripIlEvidence(
-                diff.Outcome,
-                diff.Failure,
-                Normalize(diff.Rows),
-                Normalize(diff.FailureRows));
-
-    static ImmutableArray<T> Normalize<T>(ImmutableArray<T> values)
-        => values.IsDefault ? [] : values;
 
     static string HashFile(string path)
     {

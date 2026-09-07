@@ -82,6 +82,42 @@ public sealed class RowsCohortContractTests
     }
 
     [Fact]
+    public void RowsCohortAppliesUnorderedIntentInDeclaredOrder()
+    {
+        RowsCohortResult<string, int> result =
+            RowsCohortExecutor.ApplyUnordered(
+                [
+                    RowsCohortSequence<string, int>.Create(
+                        "versions",
+                        [1, 2, 3, 4])
+                ],
+                RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Head(3),
+                        RowSelectionIntentOperation<string>.Tail(2)
+                    ]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            [2, 3],
+            Assert.Single(result.RowSets).Values);
+
+        Assert.Throws<InvalidOperationException>(
+            () => RowsCohortExecutor.ApplyUnordered(
+                [
+                    RowsCohortSequence<string, int>.Create(
+                        "versions",
+                        [1, 2, 3])
+                ],
+                RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Top(
+                            1,
+                            "version")
+                    ])));
+    }
+
+    [Fact]
     public void RowsCohortBindsStrictFailureAtomically()
     {
         RowsCohortResult<string, int> result =

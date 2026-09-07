@@ -45,6 +45,14 @@ problem this document surfaced.
 
 Related docs:
 
+- [Package Query inspection evidence](package-query-inspection-evidence.md)
+  owns typed inspection counts and bounded previews, separate from query-wide
+  context. The future CLI facet projection consumes the same compact evidence
+  through Sections/Markout; CLI facet wiring remains pending.
+- [Package Query input selection](package-query-input-selection.md) owns the
+  shared choice between exact-ID, explicit-prefix, and explicit Gallery
+  candidate inputs. Its host adoption is tracked separately in #6070; the
+  explicitly named CLI `--package-prefix` remains prefix intent.
 - [The package query experience](package-query-experience.md) — the browser
   front end this document is the CLI counterpart to. Its own non-goals already
   commit to "facets map 1:1 to the CLI's named profiles so the browser

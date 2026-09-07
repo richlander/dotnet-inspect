@@ -110,6 +110,11 @@ public sealed class PackageQueryGalleryTests
             Assert.Contains(match.Evidence, item => item.Id == PackageQuery.GalleryPackageTypeEvidenceId);
             Assert.Contains(match.Evidence, item => item.Id == PackageQuery.GalleryOrderEvidenceId);
             Assert.DoesNotContain(match.Evidence, item => item.Id == PackageQuery.ToolFacetId);
+            Assert.All(match.Evidence, item =>
+            {
+                Assert.Equal(PackageQueryEvidenceScope.Query, item.Scope);
+                Assert.Null(item.Summary);
+            });
         });
         var summary = Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
         Assert.Equal(count, summary.SourceCandidates);

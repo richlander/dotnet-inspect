@@ -113,6 +113,8 @@ The policy also supplies:
 - a deterministic initial window anchor;
 - the preferred owner-order direction for equal-ranked window placements;
 - a window-continuity key;
+- an optional window-continuity policy, `retain-leading` by default or
+  `anchor-until-slide`;
 - a positive fallback-visibility floor that exposes the complete focus
   indicator and a policy-chosen recognizable portion of an oversized item; and
 - the normal focused-item alignment when one item is wider than the viewport.
@@ -180,6 +182,20 @@ successful slide request updates it to the resulting window's leading
 identity. If the identity is removed or the key changes, the control discards
 it and places a new window around the adopter's current initial anchor. Width
 alone does not reset the retained identity.
+
+The default `retain-leading` policy establishes a retained leading identity
+from the first applied window and updates it on focus navigation or successful
+sliding. The opt-in `anchor-until-slide` policy establishes and updates that
+identity only on a successful explicit slide. Until then, ordinary layout
+continues to contain the policy anchor when no item owns focus; an automatically
+expanded window does not become a manually retained window. Focus navigation
+still reveals and preserves its destination, but does not replace the retained
+window under this policy. Once focus leaves, the next layout uses the retained
+leading identity, or the anchor when no explicit slide has established one.
+A slide at an inventory edge with no hidden destination establishes no retained
+window. Both policies discard a retained identity when its continuity key
+changes or the identity is removed. Adopters include the policy choice in their
+continuity-key version and own any selection-driven key changes.
 
 ## Capacity and sliding
 
@@ -312,6 +328,12 @@ The bounded first-adopter pairing proves the reusable contract before another
 Inspect Web owner adopts it. Future controls require their own focused adoption
 work; this design does not pre-approve migration of every existing control.
 
+The `anchor-until-slide` option is the control slice of
+[#6157](https://github.com/richlander/dotnet-inspect/issues/6157). Its production
+adoption path has two slices: this reusable policy and its Browser gate, then a
+separate Navigation Presentation adoption for the subject strip. The inspector
+strip retains the default unless its owner explicitly chooses otherwise.
+
 ## Non-claims
 
 This design does not claim:
@@ -341,6 +363,8 @@ The implementation PR must add focused tests that prove:
 - deterministic mode and contiguous-window selection;
 - empty inventory and the one-item capacity floor;
 - retained and reset window-continuity keys;
+- default initial-window retention versus opt-in anchor following before an
+  explicit slide, including focus navigation, edge no-ops, and reset afterward;
 - visible counts from complete inventory through one item;
 - unequal item widths;
 - focused-item, retained-leading-identity, and active-anchor precedence;
@@ -365,6 +389,10 @@ The implementation PR must add focused tests that prove:
 
 These properties are `unverified` until the implementation gates run in the
 normal Inspect Web frontend and production Browser/Wasm suites.
+
+The window-continuity policies are exercised by
+`browser/workspace-titlebar.spec.ts` in the existing Firefox frontend gate:
+`npm run test:browser -- workspace-titlebar.spec.ts -g 'window continuity'`.
 
 ## Acceptance scenarios
 

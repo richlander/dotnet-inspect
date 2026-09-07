@@ -76,6 +76,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             payload.ProducerKey)
         {
             Authority = result.Authority,
+            AcquiredPayload = payload,
         };
     }
 

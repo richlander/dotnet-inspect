@@ -310,6 +310,29 @@ version-resolution contract to the union of authority-bearing candidate
 evidence only after the aggregate has sufficient completeness for that
 operation.
 
+The package owner may project those retained observations into one immutable,
+resource-free `PackageAcquisitionCandidate`. A caller-pinned candidate carries
+every usable authority eligible for its exact coordinate. A discovered
+candidate carries only authorities whose adopted observations reported its
+coordinate under the retained discovery contract. Its opaque correspondence
+identity binds the coordinate, candidate kind, discovery contract, issuing
+source context, and authority reference-identity set.
+
+`PackageAcquisitionCandidateIssuer` is the host-neutral construction boundary
+for hosts that already possess explicit `PackageSourceAuthorization` and
+owner-issued `PackageSourceOperationResult<PackageVersionResult>` values. It
+adopts those results, applies package-owned completeness and listing policy,
+and issues the same candidate currency without requiring desktop
+configuration or credential-provider services. Host adapters invoke source
+clients; they do not reproduce candidate aggregation or correspondence.
+
+The
+[Package Dependency Candidate Query](package-dependency-candidate-resolution.md)
+uses that currency for NuGet dependency constraints. It may choose a version
+only from a discovery result whose complete retained contract admits
+dependency-range selection; `Authoritative` without that contract is
+insufficient.
+
 The Release gates are
 `Discovery_AllEligibleAuthoritiesMustSettleBeforeAuthoritativeSelection`,
 `Discovery_UnreadableAuthorityCannotBecomePackageAbsence`,
@@ -675,12 +698,15 @@ the existing visible/`listed` presentation convention. Feed labels are
 credential-safe presentation only; colliding labels get operation-local
 ordinals, never hashes of HTTP authority keys.
 
-Limits apply to distinct versions after the union, not source rows. Range
-limits apply after inclusive endpoint resolution in caller direction.
+Source-composition limits apply to distinct versions after the union, not
+source rows. The CLI's adopted `-n` instead counts the selected lens's rows
+after query resolution, under
+[CLI row selection](cli-row-selection.md#command-by-command-adoption).
+Range limits apply after inclusive endpoint resolution in caller direction.
 Explicit latest queries exclude unlisted versions even when their output
 requests the listing column. Pinned queries enumerate including prereleases
 and unlisted coordinates, compare normalized versions, and do not consult
-legacy payload caches online. Raw partial listings (including `--versions 1`)
+legacy payload caches online. Raw partial listings (including `--versions -n 1`)
 retain warnings; bare `--version`, explicit latest, and range queries fail
 before rendering when evidence is partial.
 

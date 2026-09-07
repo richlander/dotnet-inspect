@@ -43,7 +43,10 @@ import {
 } from "../src/type-panel.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
-import { allocationFactsFixture, callFactsFixture, memberFactsFixture } from "../test/member-facts-fixture.ts";
+import { renderOverviewSurface } from "../src/overview-surface.ts";
+import { renderPackageNav } from "../src/package-view.ts";
+import { renderPackageDocuments } from "../src/doc-viewer.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -99,14 +102,20 @@ let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
+const packageOverviewMode = params.has("package-overview");
+const libraryOverviewMode = params.has("library-overview");
+const overviewMode = packageOverviewMode || libraryOverviewMode;
 const packageDependenciesMode = params.has("package-dependencies");
 const packageMetadataMode = params.has("package-metadata");
 const packageMode =
-  params.has("package") || packageDependenciesMode || packageMetadataMode;
+  params.has("package") || overviewMode
+  || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
 const memberFactsMode = params.get("member-facts");
 const allocationFactsMode = params.get("allocation-facts");
 const callFactsMode = params.get("call-facts");
+const safetyFactsMode = params.get("safety-facts");
+const exceptionRegionsMode = params.get("exception-regions");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -128,7 +137,7 @@ const packageIcon = params.has("fallback")
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
   ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
-  : packageMetadataMode
+  : packageMetadataMode || libraryOverviewMode
     ? [
         { kind: "package", label: "System.Text.Json", copyable: true },
         { kind: "library", label: "System.Text.Json", copyable: true },
@@ -221,7 +230,7 @@ function workspaceDetailHtml(): string {
 
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
-  : packageMetadataMode
+  : packageMetadataMode || libraryOverviewMode
     ? "library"
     : packageMode
     ? "package"
@@ -239,7 +248,7 @@ let activeTypeLens: TypeLens = sourceMode
     : "api";
 let activeMemberSection: MemberSection = sourceMode
   ? "source"
-  : memberFactsMode || allocationFactsMode || callFactsMode ? "facts" : "overview";
+  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode || exceptionRegionsMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -331,9 +340,17 @@ function scopeBarHtml() {
   });
 }
 
-const contentNavigationLabel = memberMode ? "Members" : "Types";
+const contentNavigationLabel = packageOverviewMode
+  ? "Libraries"
+  : memberMode ? "Members" : "Types";
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
+  : packageOverviewMode
+    ? renderPackageNav({
+        libraries: [{ id: "example", name: "Example.Library", types: 32, members: 1234 }],
+        selectedLibrary: "example",
+        escapeHtml,
+      })
   : `<aside id="content-navigation-pane" class="type-browser${memberMode ? " member-nav" : ""}" aria-label="${contentNavigationLabel}">
       <header class="browser-head">
         <span class="pane-label">${contentNavigationLabel.toUpperCase()}</span>
@@ -373,6 +390,59 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
+  if (overviewMode) {
+    const name = longMode
+      ? `Example.${"LongNamespace.".repeat(12)}Library`
+      : "Example.Library";
+    const libraries = emptyMode ? "" : Array.from(
+      { length: longMode ? 30 : 2 },
+      (_, index) => `<button class="library-row as-button" data-lib-scope="${name}${index}">
+        <span class="library-row-head">
+          <span class="library-name">${name}${index}</span>
+          <span class="library-metric">16 types · 617 members</span>
+        </span>
+        <span class="library-asset">lib/net10.0/${name}${index}.dll</span>
+      </button>`,
+    ).join("");
+    return renderOverviewSurface({
+      subject: packageOverviewMode ? "package" : "library",
+      subjectLabel: packageOverviewMode ? "Package" : "Library",
+      displayName: longMode ? name : packageOverviewMode ? "System.Text.Json" : name,
+      iconHtml: `<span class="subject-icon" aria-hidden="true"><img src="${escapeHtml(packageIcon)}" alt=""></span>`,
+      details: libraryOverviewMode
+        ? [`lib/net10.0/${name}.dll`, `${name}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null`]
+        : [],
+      packageId: "System.Text.Json",
+      packageVersion: "10.0.0",
+      activeFramework: "net10.0",
+      totalTypes: emptyMode ? 0 : 32,
+      totalMembers: emptyMode ? 0 : 1234,
+      coordinateFieldsHtml: packageOverviewMode ? `
+        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
+        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>` : "",
+      contentHtml: packageOverviewMode ? `
+        <section class="document-section">
+          <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} admitted</span></div>
+          <div class="library-list">${libraries}</div>
+        </section>
+        ${renderPackageDocuments([{
+          kind: "readme",
+          name: longMode ? `${name}.README.md` : "README.md",
+          path: "README.md",
+          size: 1024,
+        }], escapeHtml)}` : `
+        <section class="document-section">
+          <div class="section-title"><h2>Public surface</h2></div>
+          <div class="type-chip-list"><button class="type-chip" data-kind-jump="class">32 classes</button></div>
+        </section>
+        <section class="document-section">
+          <div class="section-title"><h2>Namespaces</h2></div>
+          <div class="type-chip-list">${Array.from({ length: longMode ? 30 : 1 },
+            (_, index) => `<button class="type-chip" data-namespace-jump="${name}${index}">${name}${index}</button>`).join("")}</div>
+        </section>`,
+      escapeHtml,
+    });
+  }
   if (packageDependenciesMode) {
     return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
       <header class="api-surface-head package-dependencies-surface-head">
@@ -427,7 +497,11 @@ function detailHtml() {
         ? allocationFactsFixture(allocationFactsMode === "long" ? "long" : "populated")
         : callFactsMode
           ? callFactsFixture(callFactsMode === "long" ? "long" : "populated")
-          : memberFactsFixture(mode);
+          : safetyFactsMode
+            ? safetyFactsFixture(safetyFactsMode === "long" ? "long" : "populated")
+            : exceptionRegionsMode
+              ? exceptionRegionsFixture(exceptionRegionsMode === "long" ? "long" : "populated")
+              : memberFactsFixture(mode);
       return `<section class="member-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">DeserializeSync</h1>
@@ -725,12 +799,13 @@ app.innerHTML = `
         ? ""
         : sourceMode
           || (packageMode
+            && !overviewMode
             && !packageDependenciesMode
             && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>

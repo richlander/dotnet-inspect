@@ -72,6 +72,7 @@ public interface IPackageSourceClient : IDisposable
 
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(...);
+    IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixPagesAsync(...);
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
     Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(...);
     Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
@@ -88,6 +89,11 @@ The boundary preserves these properties:
 - absence, unsupported capability, timeout, authentication failure, and
   transport failure are distinct results; and
 - no consumer above NuGetFetch constructs protocol URLs.
+
+[Incremental package-prefix candidates](package-prefix-candidate-stream.md)
+owns the pull-driven page sequence, including its remaining active-work budget
+and first adoption by the shared package-profile query. It consumes this
+owner's unchanged result identities, immutable snapshots, and request bounds.
 
 `PackageSource` must not mean only "NuGet v3 service-index URL." A registered
 source descriptor identifies the source kind and its non-secret configuration:
@@ -1354,6 +1360,41 @@ Symbol packages have independent provenance. NuGet Gallery's known symbol CDN
 is a Gallery capability. A custom v3 feed does not acquire symbols from
 NuGet.org merely because the same package ID exists there.
 
+### Browser retained-acquisition association
+
+The selected runtime-client association survives completion of a Browser
+acquisition. Payload-cache entries, download reservations, archive leases, and
+workspace reuse retain that association alongside the exact coordinate.
+Repeating an acquisition through the same client may reuse its retained
+content; a distinct client cannot answer from, overwrite, or join that content
+merely because the coordinate or producer matches.
+
+This consumes the same exact client-reference currency as pending acquisition.
+Any Browser-issued namespace needed by internal scope keys is session-local,
+not producer identity, a configured endpoint, or portable configuration.
+Package composition may supply one composed client when it establishes
+authority equivalence; Browser does not establish that equivalence itself.
+Package, byte, and scope limits remain aggregate session limits rather than
+separate allowances for each client.
+
+The Release `BrowserEngineBoundaryTests` gates are
+`PackageAcquisition_SameClientReusesCompletedPayload`,
+`PackageAcquisition_DistinctSameProducerClientsRetainTheirOwnPayloads`, and
+`PackageQueryContent_UsesTheSelectedClientsCompletedCache` for completed-cache
+reuse and separation;
+`PackageAcquisition_DistinctClientReservationsShareGlobalBudget` for
+independent reservations under the global package and byte limits; and
+`BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate` for
+workspace reuse, retirement, and archive leases across those acquisitions.
+The coordinate-only method-body exports resolve retained scopes through the
+production Gallery client association, not through a source-agnostic key.
+`BrowserMethodBodyOperationTests` gates that retained lookup, including missing
+contexts, removal-requested scopes, and ambiguous content generations.
+Configured-authority retirement and result admission remain separate
+obligations of the live registry adoption in [#5637][browser-adoption].
+
+[browser-adoption]: https://github.com/richlander/dotnet-inspect/issues/5637
+
 ## Timeout ownership
 
 JavaScript cancellation is a host convenience, not the reliability boundary.
@@ -1436,7 +1477,9 @@ request deadline inside the remaining shared ceiling; it does not create
 another operation ceiling. Retries, authentication exchanges, and retry delays
 reuse that request's deadline adapter. Gallery pagination and manifest
 acquisition likewise reuse one adapter for their complete public source
-operation.
+operation. The incremental prefix-page API's source-work budget is described
+by its [focused owner](package-prefix-candidate-stream.md#work-and-deadline-ownership);
+a caller-supplied context still has this section's unchanged wall-clock meaning.
 
 A caller-supplied context is caller-owned and must outlive every payload stream
 returned through it. Disposing it cancels outstanding work. The invocation
@@ -1702,6 +1745,13 @@ unavailable from a selected mirror is shown as a source-specific availability
 fact, not as a contradictory global package state.
 
 ## Implementation direction
+
+Production Browser adoption is tracked in [#5637][browser-adoption] in three
+steps: client-associated retained acquisition, live configured-authority and
+engine-operation adoption, and Settings integration with Browser/Wasm
+end-to-end coverage. The retained-acquisition step keeps Gallery as the
+production source; it does not expose configured feeds or session PATs before
+their complete configuration and operation paths are available.
 
 The existing NuGetFetch shape is a useful base:
 

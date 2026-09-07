@@ -1168,9 +1168,11 @@ internal interface IAssemblyBindingResolver
 > `AssemblyBindingSelectionSnapshot`, and Metadata validates the returned token
 > before interpreting a cold answer and validates the current token again at
 > the generation commit point. Focused Release tests enforce foreign-snapshot
-> rejection and policy-publication exclusion. Non-reused transforming-policy
-> tokens, delegated-version refresh, supersession retry, and full
-> model-to-implementation correspondence remain unverified.
+> rejection and policy-publication exclusion. Queries facade adoption in
+> #5669 adds distinct transforming-policy tokens, delegated-version refresh,
+> and continuation-preserving descriptor adaptation, with the focused gates
+> listed below. Broader policy adoption, supersession retry, and full
+> model-to-implementation correspondence remain separate work.
 
 `AssemblyBindingSelectionSnapshot` is the policy owner's immutable answer for
 one request. It atomically carries the exact
@@ -1310,6 +1312,35 @@ mutations, commit-point validation, pre-commit policy-publication exclusion,
 and eventual publication. Its companion composite model checks matching success,
 foreign-snapshot propagation, state refresh, route replacement, and retry
 progress.
+
+**Queries facade adoption (#5669).** Two existing facades transform policy
+answers; neither is transparent. `CancellationObservingBindingPolicy` adapts
+selected descriptors to observe cancellation during later reads.
+`AssemblyContextAnalysisSource.BindingPolicyResolver` retains descriptors and
+maps seed requests to its configured participant. Their outer occurrences
+retain the delegate's original occurrence, so continued requests preserve that
+context rather than repeat seed routing. The immutable `RoleBindingPolicy`
+leaf has no delegate and keeps its existing fixed token.
+
+This is one production-adoption step, shared by existing callers: CLI
+`MemberCommand` reaches the source facade through
+`AssemblyContextSourceComparisonQuery` for Source Diff; Browser `SourceExports`
+uses member/type source queries, and `AnalysisExports` uses method analysis
+and optimization queries. The step replaces delegate tokens used as outer
+tokens and descriptor reconstruction that erased the selected continuation.
+It introduces no host presentation change or workspace retry.
+
+`AssemblyContextAnalysisSourceTests` gates stable distinct versions,
+uninterpreted foreign snapshots, descriptor effects, state refresh, delegated
+continuations, retired-origin rejection, Metadata's null-snapshot failure,
+and the retained-analysis publication guard. `AssemblyContextSourceQueryTests`
+gates cancellation and failure observation, foreign-snapshot failure in source
+comparison, and the source query's captured participant-version boundary.
+The affected analysis queries also validate the group's captured version
+before publishing, including a foreign snapshot that lower-level analysis
+may have handled as incomplete evidence. The existing composite model supports
+the version transitions; these Release cases establish the Queries
+correspondence rather than claiming that the model proves the implementation.
 
 #### Resolver-lineage continuations
 

@@ -126,7 +126,7 @@ versions, or evidence of correspondence. The typed identities owned by
 ## Validation status
 
 The Release test
-`src/ILInspector.Instructions.Tests/FindingValueEqualityTests.cs` verifies:
+`tests/ILInspector.Instructions.Tests/FindingValueEqualityTests.cs` verifies:
 
 - sequence equality and hashing for complete censuses, match evidence,
   Finding soft keys, completed comparisons, and correlated occurrences;
@@ -139,10 +139,10 @@ The Release test
 move candidates. Its non-empty value equality is covered by
 `FindingMatch_UsesOrderedSequenceEquality`; candidate construction and ordering
 are covered separately by
-`src/ILInspector.ILDiff.Tests/FindingPilotTests.cs`.
+`tests/ILInspector.ILDiff.Tests/FindingPilotTests.cs`.
 
 The Release test
-`src/ILInspector.Instructions.Tests/AnalysisDiffTests.cs` verifies canonical
+`tests/ILInspector.Instructions.Tests/AnalysisDiffTests.cs` verifies canonical
 relation equality and hashing, independently allocated equal endpoint and
 coordinate arrays, unequal membership and classifications, invalid collection
 state, and the boundary between payload equality and correspondence.

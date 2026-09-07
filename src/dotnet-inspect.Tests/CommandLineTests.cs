@@ -709,10 +709,6 @@ public class CommandLineTests
     [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
     [InlineData("--version", "-1")]
-    [InlineData("--versions", "-n1")]
-    [InlineData("--versions", "-1")]
-    [InlineData("--versions-with-feed", "-n1")]
-    [InlineData("--versions-with-feed", "-1")]
     public void PreprocessArgs_OptionalPackageValueDoesNotHideLineLimit(
         string option,
         string lineLimit)
@@ -720,6 +716,26 @@ public class CommandLineTests
         PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--versions", "-n1")]
+    [InlineData("--versions", "-1")]
+    [InlineData("--versions-with-feed", "-n1")]
+    [InlineData("--versions-with-feed", "-1")]
+    public void PreprocessArgs_VersionLensPreservesSemanticLimit(
+        string option,
+        string rowLimit)
+    {
+        string[] args = ["package", "Foo", option, rowLimit];
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        string[] result =
+            CommandLineBuilder.PreprocessArgs(args, root);
+
+        Assert.Equal(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
 
@@ -920,6 +936,56 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--out")]
+    [InlineData("--nugetconfig")]
+    public void PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection(string option)
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            [option, "--versions", "--head", "false", "normal", "-n", "1"]);
+
+        Assert.Equal(
+            ["router", "normal", option, "--versions", "--head", "false", "-n", "1"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue()
+    {
+        string[] args = ["--head", "true", "find", "Example", "--versions"];
+
+        Assert.Equal(args, CommandLineBuilder.PreprocessArgs(args));
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public void PreprocessArgs_ZeroArityVersionFlagsPreserveBooleanTarget(string option)
+    {
+        string[] args = option is "--versions" or "--versions-with-feed"
+            ? [option, "false"]
+            : ["--versions", "-n", "1", option, "false"];
+
+        Assert.Equal(
+            ["router", "false", .. args[..^1]],
+            CommandLineBuilder.PreprocessArgs(args));
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public void PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues(string direction)
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["--json", "false", "--versions", direction, "true", "-n", "1"]);
+
+        Assert.Equal(
+            ["router", "true", "--json", "false", "--versions", direction, "-n", "1"],
+            result);
+    }
+
+    [Theory]
     [InlineData("--head", "true")]
     [InlineData("--head", "false")]
     [InlineData("--tail", "true")]
@@ -953,6 +1019,7 @@ public class CommandLineTests
     [InlineData("--match", "first", "System.Text.Json")]
     [InlineData("--path", "lib/*", "System.Text.Json")]
     [InlineData("--il-offset", "0x06000001+0x0", "System.Text.Json")]
+    [InlineData("--metadata-root", "r2r-manifest", "System.Text.Json")]
     [InlineData("--extract-resources", "/tmp/out", "System.Text.Json")]
     [InlineData("--row", "1", "System.Text.Json")]
     [InlineData("--top", "5", "System.Text.Json")]

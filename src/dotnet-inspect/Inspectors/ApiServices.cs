@@ -25,6 +25,12 @@ internal static class ApiServices
             ResolvedAssemblyReference> SourceAssemblies,
         bool IsSummary = false)
     {
+        internal string GetLibraryAssetPath(string? packageExtractPath) =>
+            packageExtractPath is null
+                ? Path.GetFullPath(ApiDllPath)
+                : Path.GetRelativePath(packageExtractPath, ApiDllPath)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+
         internal ResolvedAssemblyReference GetSourceAssembly(
             ApiType type)
         {
@@ -261,6 +267,14 @@ internal static class ApiServices
         ApiOptions options,
         string? platformFramework = null)
     {
+        if (string.Equals(
+                apiSource,
+                SourceKind.Library,
+                StringComparison.Ordinal))
+        {
+            return AssemblyResolutionProvenance.Designated("ApiServices");
+        }
+
         if (string.Equals(
                 apiSource,
                 SourceKind.Platform,

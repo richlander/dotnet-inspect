@@ -117,9 +117,9 @@ Adjacent owners remain separate:
 - the CLI adoption in
   [issue #4718](https://github.com/richlander/dotnet-inspect/issues/4718) owns
   command and structured-output presentation;
-- Inspect Web transport in
-  [issue #5516](https://github.com/richlander/dotnet-inspect/issues/5516) owns
-  managed result envelopes and wire field names; and
+- [Inspect Web Finding census transport](inspect-web-finding-census-transport.md)
+  owns managed result envelopes and wire field names under
+  [issue #5516](https://github.com/richlander/dotnet-inspect/issues/5516); and
 - Inspect Web interaction in
   [issue #5517](https://github.com/richlander/dotnet-inspect/issues/5517) owns
   cross-view selection and stale-result behavior.

@@ -1,10 +1,170 @@
+using System.Net;
 using System.Text;
+using System.Text.Json;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class PackageProfileQueryTests
 {
+    [Fact]
+    public async Task ExecuteAsync_FetchesManifestsBeforeAdvancingSearchPage()
+    {
+        var handler = new PagedGalleryHandler(
+            SearchPage("Contoso.First", "Contoso.Second"),
+            SearchPage("Contoso.Third"),
+            SearchPage());
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+        await using IAsyncEnumerator<PackageProfileEvent> events =
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken)
+                .GetAsyncEnumerator(TestContext.Current.CancellationToken);
+
+        Assert.Empty(handler.Requests);
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal("Contoso.First",
+            Assert.IsType<PackageProfileEvent.Match>(events.Current).Value.PackageId);
+        Assert.Equal(["search:0", "manifest:contoso.first"], handler.Requests);
+
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal("Contoso.Second",
+            Assert.IsType<PackageProfileEvent.Match>(events.Current).Value.PackageId);
+        Assert.Equal(
+            ["search:0", "manifest:contoso.first", "manifest:contoso.second"],
+            handler.Requests);
+
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal("Contoso.Third",
+            Assert.IsType<PackageProfileEvent.Match>(events.Current).Value.PackageId);
+        Assert.Equal(
+            [
+                "search:0", "manifest:contoso.first", "manifest:contoso.second",
+                "search:2", "manifest:contoso.third",
+            ],
+            handler.Requests);
+        Assert.True(await events.MoveNextAsync());
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events.Current).Value;
+        Assert.Equal(3, summary.Matches);
+        Assert.False(summary.Truncated);
+        Assert.Equal("search:3", handler.Requests[^1]);
+        Assert.False(await events.MoveNextAsync());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DisposalDoesNotRequestLaterPage()
+    {
+        var handler = new PagedGalleryHandler(SearchPage("Contoso.First"));
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+        await using (IAsyncEnumerator<PackageProfileEvent> events =
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken)
+                .GetAsyncEnumerator(TestContext.Current.CancellationToken))
+        {
+            Assert.True(await events.MoveNextAsync());
+            Assert.IsType<PackageProfileEvent.Match>(events.Current);
+        }
+
+        Assert.Equal(["search:0", "manifest:contoso.first"], handler.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteToArrayAsync_UsesIncrementalSearchOrder()
+    {
+        var handler = new PagedGalleryHandler(
+            SearchPage("Other.Package"),
+            SearchPage("Contoso.First"),
+            SearchPage());
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+        var events = await PackageProfileQuery.ExecuteToArrayAsync(
+            source,
+            new PackagePrefixProfileRequest("Contoso."),
+            TestContext.Current.CancellationToken);
+
+        Assert.Single(events.OfType<PackageProfileEvent.Match>());
+        Assert.Equal(
+            ["search:0", "search:1", "manifest:contoso.first", "search:2"],
+            handler.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RetainsMatchesWhenLaterPageFails()
+    {
+        var handler = new PagedGalleryHandler(
+            SearchPage("Contoso.First"), "invalid JSON");
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(3, events.Count);
+        Assert.IsType<PackageProfileEvent.Match>(events[0]);
+        Assert.Equal(PackageProfileFailureKind.Search,
+            Assert.IsType<PackageProfileEvent.Failure>(events[1]).Value.Kind);
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events[2]).Value;
+        Assert.Equal(1, summary.Candidates);
+        Assert.Equal(1, summary.Matches);
+        Assert.Equal(1, summary.Failures);
+        Assert.Equal(["search:0", "manifest:contoso.first", "search:1"],
+            handler.Requests);
+    }
+
+    [Fact]
+    public async Task PackageQuery_LatePageFailureIsFailedNotExhausted()
+    {
+        var handler = new PagedGalleryHandler(
+            SearchPage("Contoso.First"), "invalid JSON");
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(new PackageQueryRequest("Contoso."))).Plan;
+        List<PackageQueryEvent> events = [];
+        await foreach (PackageQueryEvent item in PackageQuery.ExecuteAsync(
+            source, plan, TestContext.Current.CancellationToken))
+            events.Add(item);
+
+        Assert.Single(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(events.OfType<PackageQueryEvent.Failure>());
+        PackageQuerySummary summary =
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
+        Assert.Equal(PackageQueryCompletionKind.Failed, summary.Completion);
+        Assert.Equal(1, summary.Candidates);
+        Assert.Equal(1, summary.Matches);
+        Assert.Equal(1, summary.Failures);
+    }
+
+    [Fact]
+    public async Task PackageQuery_MatchLimitDoesNotFetchFollowingPages()
+    {
+        var handler = new PagedGalleryHandler(
+            SearchPage("Contoso.First", "Contoso.Second"));
+        using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(), handler);
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(new PackageQueryRequest(
+                "Contoso.", MaximumCandidates: 100, MaximumMatches: 1))).Plan;
+        List<PackageQueryEvent> events = [];
+        await foreach (PackageQueryEvent item in PackageQuery.ExecuteAsync(
+            source, plan, TestContext.Current.CancellationToken))
+            events.Add(item);
+
+        Assert.Single(events.OfType<PackageQueryEvent.Match>());
+        Assert.Equal(PackageQueryCompletionKind.MatchLimitReached,
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value.Completion);
+        Assert.Equal(["search:0", "manifest:contoso.first"], handler.Requests);
+    }
+
     [Fact]
     public async Task ExecuteAsync_StreamsManifestMatchesWithoutPackagePayloads()
     {
@@ -370,6 +530,48 @@ public sealed class PackageProfileQueryTests
             packageId,
             version,
             Owners: owners);
+
+    private static string SearchPage(params string[] packageIds) =>
+        JsonSerializer.Serialize(new
+        {
+            data = packageIds.Select(id => new { id, version = "1.0.0" }),
+        });
+
+    private sealed class PagedGalleryHandler(params string[] pages)
+        : HttpMessageHandler
+    {
+        private int _nextPage;
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Uri uri = request.RequestUri!;
+            HttpContent content;
+            if (uri.AbsolutePath == "/query")
+            {
+                string skip = uri.Query.TrimStart('?').Split('&')
+                    .Single(value => value.StartsWith("skip=", StringComparison.Ordinal));
+                Requests.Add($"search:{skip[5..]}");
+                Assert.True(_nextPage < pages.Length, "Unexpected later search page.");
+                content = new StringContent(pages[_nextPage++]);
+            }
+            else
+            {
+                Assert.EndsWith(".nuspec", uri.AbsolutePath, StringComparison.Ordinal);
+                string packageId = uri.Segments[^3].TrimEnd('/');
+                Requests.Add($"manifest:{packageId}");
+                content = new ByteArrayContent(Manifest(packageId, "1.0.0"));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+            });
+        }
+    }
 
     private static byte[] Manifest(
         string packageId,
