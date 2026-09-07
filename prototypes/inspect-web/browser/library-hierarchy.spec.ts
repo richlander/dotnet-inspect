@@ -138,6 +138,7 @@ async function installFacades(
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
   references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
 ) {
   const catalogTarget: PlatformCatalogTarget = {
@@ -300,7 +301,55 @@ async function installFacades(
         document.documentElement.dataset.tableRequest = asset;
         return { index, name: "Module", rowCount: 1, startRowId, columns: [], rows: [], error: null };
       }`,
-    analysis: "",
+    analysis: `
+      ${surfaceLookup}
+      export async function queryPackageIntegrations(id, version, framework, asset) {
+        document.documentElement.dataset.integrationRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return integrationsFor(surface, selected, version, framework, asset);
+      }
+      async function integrationsFor(surface, selected, version, framework, asset) {
+        const scenario = ${JSON.stringify(integrations)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-integrations-ready:" + asset, resolve, { once: true }));
+        }
+        if (scenario === "query-error") throw new Error("Integration query unavailable.");
+        const categories = scenario === "empty" || scenario === "partial-empty" ? [] : [
+          { integration: "Dependency Injection", signals: [
+            { name: selected.name + ".ServiceExtensions.AddWidgets(IServiceCollection services)", shape: "Method", kind: "Extension method" },
+            { name: selected.name + ".WidgetService", shape: "Type", kind: "Implementation" }
+          ] },
+          { integration: "Logging", signals: [
+            { name: selected.name + ".WidgetLogger.Write(ILogger logger)", shape: "Method", kind: "Parameter" }
+          ] }
+        ];
+        if (scenario === "long") {
+          categories[0].integration += "." + "LongCategory".repeat(30);
+          categories[0].signals = Array.from({ length: 80 }, (_, index) => ({
+            name: selected.name + "." + "LongNamespace.".repeat(20)
+              + "Add" + "LongSignalName".repeat(15) + index + "(IServiceCollection services)",
+            shape: "Method", kind: "LongKind".repeat(30)
+          }));
+        }
+        const partial = scenario.startsWith("partial");
+        return {
+          package: surface.package, version, framework, categories,
+          totalSignals: categories.reduce((total, category) => total + category.signals.length, 0),
+          isComplete: !partial, inspectionError: partial ? "A library participant could not be inspected." : null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPlatformIntegrations(framework, version, file, pack) {
+        document.documentElement.dataset.platformIntegrationRequest = file + ":" + pack;
+        const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
+        if (!row) throw new Error("Unknown platform library: " + file);
+        const surface = { ...surfaces[0], package: "Microsoft.NETCore.App" };
+        const selected = { id: "platform:" + pack + ":" + file, name: row.assembly, asset: row.file };
+        return integrationsFor(surface, selected, version, framework, selected.id);
+      }`,
     source: "",
     "call-graph": "",
     catalog: `
@@ -346,7 +395,7 @@ async function installFacades(
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 
 async function openPlatform(page: Page, options: PlatformFixture = {}) {
-  await installFacades(page, surface, [], "ready", options);
+  await installFacades(page, surface, [], "ready", "ready", options);
   await page.goto("/");
   await page.locator("[data-sl-load-runtime]").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
@@ -417,7 +466,7 @@ test("Platform mismatched catalog does not relabel the installed inventory", asy
 });
 
 test("Spotlight offers separate NuGet and Platform System.Text.Json destinations without warming packs", async ({ page }) => {
-  await installFacades(page, surface, [], "ready", {});
+  await installFacades(page, surface, [], "ready", "ready", {});
   await page.route("https://azuresearch-usnc.nuget.org/query?**", route => route.fulfill({
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
   }));
@@ -549,7 +598,7 @@ test("Platform requests metadata identity while sharing the exact physical Libra
 
 test("Package and catalog-only Platform remain distinct coordinates in the same shared Workspace", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await installFacades(page, surface, [], "ready", {});
+  await installFacades(page, surface, [], "ready", "ready", {});
   await page.goto(root);
   await page.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
   await page.locator("[data-sl-load-runtime]").click();
@@ -567,6 +616,246 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await page.locator("[data-workspace-platform]").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+});
+
+for (const initialWidth of [1440, 390]) {
+  test(`active subject continuity keeps Library visible from ${initialWidth}px entry`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: initialWidth, height: 844 });
+    await installFacades(page);
+    await page.goto(root);
+    await expect(page.locator('[data-scope="package"]')).toBeVisible();
+    await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+    const libraryTab = page.locator('[data-scope="library"]');
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expect(libraryTab).toBeVisible();
+    await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
+    const location = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const menu = page.getByRole("button", { name: "Application menu", exact: true });
+    await menu.focus();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expect(menu).toBeFocused();
+    await expect(page).toHaveURL(location);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    await testInfo.attach("active-library-390", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+
+    await page.reload();
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
+    await page.setViewportSize({ width: 1440, height: 844 });
+    for (const subject of ["package", "library", "type"]) {
+      await expect(page.locator(`[data-scope="${subject}"]`)).toBeVisible();
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+test("active subject continuity retains explicit browsing until the subject changes", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  const libraryTab = page.locator('[data-scope="library"]');
+  const packageTab = page.locator('[data-scope="package"]');
+  await expect(libraryTab).toBeVisible();
+  const menu = page.getByRole("button", { name: "Application menu", exact: true });
+  await menu.focus();
+  const location = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  await page.locator(".slide-strip-subject").hover();
+  await page.mouse.wheel(-100, 0);
+  await expect(packageTab).toBeVisible();
+  await expect(libraryTab).toBeHidden();
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+  await expect(packageTab).toHaveAttribute("aria-selected", "false");
+  await expect(menu).toBeFocused();
+  await expect(page).toHaveURL(location);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await expect(libraryTab).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(packageTab).toBeVisible();
+  await expect(libraryTab).toBeHidden();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
+  await expect(packageTab).toBeVisible();
+  await expect(libraryTab).toBeHidden();
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+
+  await packageTab.click();
+  await expect(packageTab).toHaveAttribute("aria-selected", "true");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+  await expect(libraryTab).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
+});
+
+test("active subject continuity preserves focus without making a manual window", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  const libraryTab = page.locator('[data-scope="library"]');
+  const typeTab = page.locator('[data-scope="type"]');
+  await typeTab.focus();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(typeTab).toBeFocused();
+  await expect(typeTab).toBeInViewport({ ratio: 1 });
+  await expect(typeTab).toHaveAttribute("aria-selected", "false");
+  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("button", { name: "Application menu", exact: true }).focus();
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await expect(libraryTab).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(libraryTab).toBeInViewport({ ratio: 1 });
+  await libraryTab.press("ArrowLeft");
+  await expect(page.locator('[data-scope="package"]')).toBeFocused();
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+});
+
+async function openIntegrations(page: Page, location = root) {
+  await page.goto(location);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  if (await page.locator('[data-library-lens="references"]').count()) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-library-lens="integrations"]')).toHaveAttribute("aria-selected", "true");
+}
+
+for (const width of [1440, 390]) {
+  test(`production Integrations retains selected Library results at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await openIntegrations(page);
+    await expect(page.locator("#inspector-panel .signal-row")).toHaveCount(3);
+    await expect(page.locator("#inspector-panel .signal-name").first()).toHaveText("WidgetService");
+    await expect(page.locator("#inspector-panel")).toContainText("Dependency Injection");
+    await expect(page.locator("#inspector-panel")).toContainText("Logging");
+    await expect(page.locator("html")).toHaveAttribute("data-integration-request", "asset:core");
+    const frame = page.locator(".library-integrations-surface");
+    await expect(frame.locator("header")).toContainText("2 categories");
+    await expect(frame.locator("header")).toContainText("3 signals");
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
+    const panelBox = await page.locator("#inspector-panel").boundingBox();
+    const frameBox = await frame.boundingBox();
+    const rowBox = await frame.locator(".signal-row").first().boundingBox();
+    expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
+    expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath("integrations.png") });
+    if (width === 390) {
+      const back = page.getByRole("button", { name: "Types", exact: true });
+      await back.click();
+      await expect(page.locator("#type-list")).toBeFocused();
+      await page.getByRole("button", { name: "Show details", exact: true }).click();
+      await expect(back).toBeFocused();
+      await expect(frame).toBeVisible();
+    }
+  });
+
+  test(`production Integrations contains long fields and keeps its frame while scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
+    await installFacades(page, {
+      ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
+    }, [], "ready", "long");
+    await openIntegrations(page);
+    const frame = page.locator(".library-integrations-surface");
+    await expect(frame.locator(".signal-row")).toHaveCount(81);
+    const header = await frame.locator("header").boundingBox();
+    const footer = await frame.locator("footer").boundingBox();
+    const scroll = frame.locator(".library-integrations-scroll");
+    const geometry = await scroll.evaluate(element => ({
+      width: element.clientWidth, scrollWidth: element.scrollWidth,
+      height: element.clientHeight, scrollHeight: element.scrollHeight,
+      pageWidth: document.documentElement.clientWidth, pageScrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+    expect(geometry.pageScrollWidth).toBeLessThanOrEqual(geometry.pageWidth + 1);
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.height);
+    await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(frame.locator(".signal-row").last()).toBeInViewport();
+    expect(await frame.locator("header").boundingBox()).toEqual(header);
+    expect(await frame.locator("footer").boundingBox()).toEqual(footer);
+  });
+
+  for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
+    test(`production Integrations retains its ${scenario} state at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installFacades(page, surface, [], "ready", scenario);
+      await openIntegrations(page);
+      const frame = page.locator(".library-integrations-surface");
+      if (scenario === "partial") {
+        await expect(frame.locator(".signal-row")).toHaveCount(3);
+        await expect(frame.locator("header")).toContainText("partial");
+      } else {
+        await expect(frame.locator("h2")).toHaveText(scenario === "empty"
+          ? "No ecosystem integrations detected" : scenario === "partial-empty"
+            ? "Integration scan incomplete" : "Integration scan failed");
+        await expect(frame.locator(".signal-row")).toHaveCount(0);
+      }
+      if (scenario.startsWith("partial")) {
+        await expect(frame).toContainText("A library participant could not be inspected.");
+        await expect(frame).not.toContainText("No ecosystem integrations detected");
+      }
+      await expect(frame.locator("footer")).toBeInViewport();
+    });
+  }
+
+  test(`production Integrations uses Platform navigation without a second library picker at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openPlatform(page);
+    await page.locator('[data-platform-library]').filter({ hasText: "System.Text.Json" }).click();
+    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+    await page.keyboard.press("Enter");
+    const frame = page.locator(".library-integrations-surface");
+    await expect(frame.locator(".signal-row")).toHaveCount(3);
+    await expect(frame.locator(".library-integrations-controls")).toHaveCount(0);
+    await expect(frame.locator(".signal-ns").first()).toContainText("System.Text.Json");
+    await page.locator('[data-scope="library"]').press("Home");
+    await page.locator('[data-platform-library]').filter({ hasText: "System.Facade" }).click();
+    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
+    await expect(frame.locator("footer")).toContainText("System.Facade.dll");
+    await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "System.Facade.dll:netcore.app");
+  });
+}
+
+test("production Integrations keeps deferred Library results out of the incoming scan", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "deferred");
+  await openIntegrations(page);
+  await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
+  await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-integrations-ready:asset:core")));
+  await expect(page.locator(".library-integrations-scroll .signal-row")).toHaveCount(3);
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
+  await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
+  await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
+  await page.evaluate(() => document.dispatchEvent(new Event("fixture-integrations-ready:asset:other")));
+  await expect(page.locator(".library-integrations-scroll .signal-ns").first()).toContainText(other.name);
 });
 
 async function openReferences(page: Page) {

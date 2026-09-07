@@ -102,7 +102,7 @@ internal static class BrowserPlatformCatalog
                 using var leases = new BrowserPackageWorkspace.PackageLeaseSet();
                 foreach (Family family in Families)
                 {
-                    BrowserPackage package = await BrowserPackageWorkspace.AcquireGalleryAsync(
+                    BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
                         family.RuntimePackage, version, source,
                         deadline.Remaining, deadline.Token).ConfigureAwait(false);
                     leases.Lease(package.CacheKey);
@@ -143,7 +143,7 @@ internal static class BrowserPlatformCatalog
             "aspnetcore" => Families[1].RuntimePackage,
             _ => throw new ArgumentException("Unknown platform family.", nameof(family)),
         };
-        return BrowserPackageWorkspace.AcquireGalleryAsync(package, version,
+        return BrowserPackageWorkspace.AcquireAsync(package, version,
             source,
             timeout, cancellationToken);
     }
@@ -206,7 +206,7 @@ internal static class BrowserPlatformCatalog
 
                 async Task<Dictionary<string, Library>> ReadPackAsync(string packageId, bool runtime)
                 {
-                    BrowserPackage package = await BrowserPackageWorkspace.AcquireGalleryAsync(
+                    BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
                         packageId, version, source,
                         deadline.Remaining, deadline.Token).ConfigureAwait(false);
                     using var leases = new BrowserPackageWorkspace.PackageLeaseSet();
