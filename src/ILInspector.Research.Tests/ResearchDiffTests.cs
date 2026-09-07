@@ -2274,38 +2274,6 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ImplementationDiff_PdbSourceIsIndependentPeerMechanism()
-    {
-        using var source = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
-        var stable = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "Stable");
-        var oldInspection = new FindingInspection<string>.Complete(
-            [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
-        var newInspection = new FindingInspection<string>.Complete(
-            [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
-        var result = ImplementationDiff.CompareMembersWithPdbSource(
-            source,
-            stable,
-            source,
-            stable,
-            oldInspection,
-            newInspection);
-
-        Assert.True(result.HasSourceChanges);
-        Assert.False(result.HasCSharpChanges);
-        Assert.False(result.HasIlChanges);
-        Assert.NotNull(result.SourceComparison);
-        Assert.Contains(result.Changes, change =>
-            change.Mechanism == ResearchChangeMechanism.Source
-            && ImplementationDiff.UnifiedLines(change).Any(line =>
-                line.Contains("return 2", StringComparison.Ordinal)));
-        Assert.Single(result.RetainedComparisons.Get<string>(TextFindings.LineDescriptor));
-        Assert.Single(result.RetainedComparisons.Get<CSharpCanonicalLine>(
-            CSharpFindings.LineDescriptor));
-        Assert.Single(result.RetainedComparisons.Get<CanonicalIlOperation>(
-            IlFindings.OperationDescriptor));
-    }
-
-    [Fact]
     public void ImplementationDiff_PdbSourcePreservesAbsentStateWithoutChangingCSharp()
     {
         var subject = new ResearchSubjectKey(

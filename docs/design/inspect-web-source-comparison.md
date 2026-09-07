@@ -19,7 +19,9 @@ the browser experience tracker
 [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
 S1-S3 already landed, including the shared query and its CLI consumer in
 [#5984](https://github.com/richlander/dotnet-inspect/pull/5984).
-S6 is subsequent scoped retirement, not permission to delete broader callers.
+S6 is the separate scoped retirement in
+[#6250](https://github.com/richlander/dotnet-inspect/issues/6250), not
+permission to delete broader callers.
 
 ## Basis and consumed boundaries
 
