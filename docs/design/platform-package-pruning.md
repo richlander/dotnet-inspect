@@ -519,16 +519,29 @@ Four things they confirm:
 | Supplied version is an inclusive ceiling | "The version is consider to the maximum version to be pruned"; NuGet removes "any of the specified packages or lower" |
 | Membership is per target framework | "The feature is framework specific" |
 | The inventory is the `PackageOverrides` data | "The list of packages being removed is the exact same that's part of the build time conflict resolution in the .NET SDK" |
-| Selection is never transformed; resolution is | "Pruning is only possible for transitive packages, if a direct package reference is attempted to be pruned, a warning will be raised" (NU1510) |
+| Something the human named is exempt from pruning | "Pruning direct PackageReference of current project - Warn and don't prune" (NU1510) |
 
-The last row matters most. The split this document draws between selection and
-resolution is not an inspection-specific analogy — it is the same line NuGet
-draws between a direct and a transitive reference. A package the user names
-stays; a package reached through the graph is pruned. #14325 proposes softening
-the direct case from a warning to privatizing the reference
-(`PrivateAssets='all'`, `IncludeAssets='none'`), which keeps the package
-present while contributing nothing. That direction moves toward this document's
-position rather than away from it: the named package remains a subject.
+The last row is a correspondence, not an identity, and the mapping needs
+stating because the two models have different vocabularies.
+
+The spec's exemption is narrow: only the **project being built** keeps its
+direct reference. A referenced project's own direct `PackageReference` is
+pruned, and a package's dependency on another package is transitive from the
+root project and always pruned. So the exempt thing is one app-authored
+reference, and the spec never discusses choosing a subject to inspect, because
+it has no such concept.
+
+This product has no project. The structural match is between NuGet's root
+project and this product's **selected subject**: in both, exactly one thing the
+human named is exempt, and everything reached from it is decided by the rules.
+That is why selection is not transformed here — not because the spec says so
+about inspection, which it does not, but because both models privilege the
+named thing and neither extends that privilege to what it reaches.
+
+NuGet/Home#14325 proposes softening the direct case from a warning to
+privatizing the reference (`PrivateAssets='all'`, `IncludeAssets='none'`), which keeps the
+package present while contributing nothing. That direction is consistent with
+this document's position: the named package remains addressable.
 
 ### Named divergence: this product has one switch, not two
 
