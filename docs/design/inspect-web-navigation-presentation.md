@@ -157,8 +157,9 @@ independently meaningful adaptive groups:
 
 The subject group renders the ordered root, Library, Type, and Member
 descriptors supplied by Inspection Subject Navigation. The inspector group
-follows it and renders the active subject's owner-ordered lenses or, for Member,
-its applicable sections. Subject changes replace the inspector inventory;
+follows it and renders the effective owner-ordered inspector inventory supplied
+by View Facet Registry, including retained-coordinate inspectors while
+Workspace is active. Subject changes replace the inspector inventory;
 inspectors never become workspace coordinate switchers or inspected-subject
 identities. Application and contextual actions are not inventory items in
 either group.
@@ -172,8 +173,9 @@ Each non-empty group has exactly two presentation forms:
 - **Chooser** renders one menu button labelled by the committed item plus a
   disclosure indicator. Activating it opens the complete owner-ordered
   inventory. A non-empty inspector inventory with no effective inspector uses
-  `Choose inspector` and marks no item as committed. The subject group always
-  uses its active subject label.
+  `Choose inspector` and marks no item as committed. While Workspace is active,
+  a non-empty subject inventory has no committed subject; its trigger uses
+  `Choose subject` and likewise marks no item as committed.
 
 An empty inspector inventory omits the inspector group and separator. The
 subject group then receives the complete available width. No presentation
@@ -189,9 +191,10 @@ one current-label
 [menu button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) rather than
 adding its own scroll buttons. The accepted cost is one disclosure before a
 hidden choice can be activated. The benefit is that the committed subject and
-inspector stay readable, every hidden item is one disclosure away, and each
-affordance names the group it controls. No code or component architecture is
-copied from those comparisons.
+inspector stay readable when they exist, an honest `Choose subject` or
+`Choose inspector` label appears when they do not, every hidden item is one
+disclosure away, and each affordance names the group it controls. No code or
+component architecture is copied from those comparisons.
 
 #### Measured fit and allocation
 
@@ -204,8 +207,8 @@ against the width Surface Composition assigns to the whole region:
 2. Otherwise, among the mixed pairs that fit, use the pair with the greater
    **inline-choice gain**. A group's gain is its owner-ordered inventory count
    minus one when its Chooser represents a committed item, or the complete
-   inventory count when a no-effective-inspector Chooser represents none.
-   Labels, duplicate labels, and availability status do not change the count.
+   inventory count when it represents none. Labels, duplicate labels, and
+   availability status do not change the count.
    A gain tie favors the subject group because subject identity establishes the
    context in which the inspector inventory is interpreted.
 3. Otherwise use Chooser for both groups.
@@ -227,7 +230,7 @@ An open Chooser pins that group in Chooser form until it closes. Width changes
 may adapt the peer, but never remove the open menu or its trigger. Escape
 closes, returns focus to the trigger, then atomically re-evaluates the ordinary
 measured pair; if Tabs replace that focused trigger, focus moves to the
-committed tab or the first owner-ordered inspector as defined below. Tab first
+committed tab or the first owner-ordered item as defined below. Tab first
 closes and advances focus according to the current document order, then
 re-evaluates while focus is outside the group, so representation replacement
 does not redirect traversal. Measurement state is presentation-local: it does
@@ -238,8 +241,8 @@ results, or retained user preferences.
 
 Both roomy groups use the same manual-activation tab convention:
 
-- each tablist has one roving tab stop, initially the committed tab or, when no
-  effective inspector exists, the first owner-ordered inspector;
+- each tablist has one roving tab stop, initially the committed tab or, when
+  that group has no committed item, its first owner-ordered item;
 - Left and Right Arrow move focus without activation;
 - Home and End move focus to the first and last tab;
 - unavailable and failed tabs remain focusable and expose their owner-issued
@@ -272,12 +275,11 @@ The same descriptor-state rules apply in both forms:
 
 Each Chooser follows the WAI-ARIA menu-button pattern. Its button identifies
 the owning group, exposes `aria-haspopup="menu"` and `aria-expanded`, and
-controls a bounded menu. Ordinary subject and inspector descriptors use
-`menuitemradio`; the committed item alone is checked, and a
-no-effective-inspector menu has no checked item. The `Selection required`
-action uses `menuitem` as defined above. Unavailable and failed entries remain
-discoverable with `aria-disabled="true"` and preserve their distinct reason or
-diagnostic.
+controls a bounded menu. Ordinary subject and inspector descriptors use `menuitemradio`; the committed
+item alone is checked, and a group with no committed item has no checked radio
+item. The `Selection required` action uses `menuitem` as defined above.
+Unavailable and failed entries remain discoverable with
+`aria-disabled="true"` and preserve their distinct reason or diagnostic.
 
 Enter, Space, or pointer activation opens the menu without activating an item.
 Focus enters on the committed item when one exists, otherwise the first
@@ -300,8 +302,8 @@ A presentation-local change from Tabs to Chooser transfers focus from a tab in
 that group to the new trigger before removing the tablist. It does not open the
 menu or commit the previously focused item. A change from a closed, focused
 Chooser to Tabs transfers focus to the committed tab, or to the first
-owner-ordered tab when no effective inspector exists. When focus is outside the
-changing group, representation changes do not move focus.
+owner-ordered tab when that group has no committed item. When focus is outside
+the changing group, representation changes do not move focus.
 
 An open Chooser remains mounted across width-only changes, so its focused item
 and menu traversal survive. Focus continuity is keyed by the stable descriptor
@@ -807,15 +809,17 @@ add and pass these named Inspect Web tests:
   `adaptive subject and inspector groups choose one measured presentation`
   covers all four Tabs/Chooser pairs, complete full-label fit, deterministic
   mixed-pair selection by the exact inline-choice-gain score, subject tie-break,
-  empty and no-effective-inspector inventories, equal constrained shares,
-  complete accessible labels under visual elision, open-Chooser pinning, and
-  the absence of allocation controls, compact representations, windows, edge
-  indicators, and wheel-sliding state.
+  empty inventories, no-effective-inspector and Workspace-active
+  no-committed-subject states, equal constrained shares, complete accessible
+  labels under visual elision, open-Chooser pinning, and the absence of
+  allocation controls, compact representations, windows, edge indicators, and
+  wheel-sliding state.
 - `workspace-titlebar.spec.ts`:
   `adaptive navigation preserves committed state and focus across fit changes`
   covers manual activation for both roomy tablists, Tabs-to-Chooser and
   Chooser-to-Tabs focus handoff, an open menu surviving resize, menu
-  cancellation and Tab dismissal, current-item and `Selection required`
+  cancellation and Tab dismissal, the Workspace-active retained-coordinate
+  handoff with no committed subject, current-item and `Selection required`
   activation, disabled evidence, same-lifetime stable-identity retention with
   new action rebinding, asynchronous replacement parking, and rejection of an
   outgoing generation's menu action or DOM target.
@@ -915,7 +919,11 @@ are proved by the gates in
    closed trigger owns focus and confirm that focus moves to the committed tab.
    Repeat with a non-empty inspector inventory that has no effective inspector:
    the trigger reads `Choose inspector`, no item is checked, and widening moves
-   focus to the first owner-ordered tab without selecting it.
+   focus to the first owner-ordered tab without selecting it. Repeat while
+   Workspace is active with a retained coordinate: the subject trigger reads
+   `Choose subject`, no subject item is checked or selected, Package remains
+   the first owner-ordered roving tab, and the effective inspector stays
+   independently committed.
 7. Replace an open menu's inventory while retaining the renderer lifetime.
    Confirm that an exact surviving stable descriptor identity retains focus,
    including across availability or generation changes, while activation
