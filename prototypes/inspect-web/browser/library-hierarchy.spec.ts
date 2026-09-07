@@ -365,7 +365,7 @@ for (const preferred of [other, empty]) {
       await page.setViewportSize({ width, height: 900 });
       await installFacades(page, { ...surface, defaultAssemblyId: preferred.id });
       await page.goto(root.replace("#pkg", ""));
-      await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+      await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
       await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
       await page.reload();
       await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
@@ -392,7 +392,7 @@ for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
       totalMembers: 0,
     });
     await page.goto(root.replace("#pkg", ""));
-    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
     await expect(page.locator(".library-list")).toContainText("No managed libraries");
     await expect(page.locator(".query-notice-text")).toContainText(status);
@@ -424,7 +424,8 @@ for (const incomingPackage of [surface.package, "Second.Package"]) {
       if (destination === "Package") {
         await expect(page.locator(".package-overview-surface h1")).toHaveText(incomingPackage);
       } else if (destination === "Metadata") {
-        await expect(page.locator('[data-library-lens="metadata"]')).toHaveAttribute("aria-selected", "true");
+        await expect(inspectorTab(page, "data-library-lens", "metadata"))
+          .toHaveAttribute("aria-selected", "true");
         await expect(page.locator("html")).toHaveAttribute("data-metadata-request", preferred.id);
       } else {
         await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
