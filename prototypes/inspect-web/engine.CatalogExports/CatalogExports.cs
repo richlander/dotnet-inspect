@@ -394,9 +394,7 @@ public static partial class CatalogExports
         string focusFramework =
             BrowserFrameworkText.Require(resolution.Scope.Framework);
         string focusAssembly =
-            focusCoordinate.Assembly
-            ?? throw new InvalidOperationException(
-                "The Platform home demo focus has no realized assembly.");
+            focusProjection.Participant.Participant.Assembly.Identity.Name;
         BrowserTypeSurfaceInfo[] types =
         [
             .. focusProjection.Surface.Types.Where(type =>

@@ -5441,7 +5441,7 @@ public sealed class BrowserEngineBoundaryTests
                         "System.Private.CoreLib.dll",
                         "netcore.app"),
                     new(
-                        "InspectWeb.Engine.Tests.dll",
+                        "inspectweb.engine.tests.dll",
                         "netcore.app"),
                 ],
                 client,
@@ -5489,6 +5489,10 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             "InspectWeb.Engine.Tests",
             activation.FocusAssembly);
+        Assert.Contains(
+            result.Packages,
+            surface => surface.DefaultAssemblyId
+                == activation.FocusAssembly);
         Assert.Equal(
             $"InspectWeb.Engine.Tests:{typeof(BrowserEngineBoundaryTests).FullName}",
             activation.TypeId);
