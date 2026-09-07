@@ -24,6 +24,7 @@ export interface SlideStripPolicy<TId extends string = string> {
   initialAnchor: TId;
   preferredDirection: SlideStripDirection;
   continuityKey: string;
+  windowContinuity?: "retain-leading" | "anchor-until-slide";
   fallbackVisibilityFloor: number;
   oversizedAlignment: "start" | "end";
 }
