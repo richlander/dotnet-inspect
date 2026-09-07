@@ -235,26 +235,54 @@ internal static class BrowserProductHomeDemos
             WorkspaceMemberCoordinate.PackageMember package =>
                 throw new InspectionDefinitionException(
                     $"Home demo '{scenarioId}' package '{package.PackageId}' must pin version and framework for browser execution."),
-            WorkspaceMemberCoordinate.PlatformMember
-            {
-                Assembly: { Length: > 0 } assembly,
-                Version: { Length: > 0 } platformVersion,
-            } platform
-                when (platform.Framework ?? contextFramework)
-                    is { Length: > 0 } platformFramework =>
-                new BrowserHomeDemoRunRequest.Platform(
-                    platform.Family,
-                    assembly,
-                    platformVersion,
-                    platformFramework),
             WorkspaceMemberCoordinate.PlatformMember platform =>
-                throw new InspectionDefinitionException(
-                    $"Home demo '{scenarioId}' Platform coordinate "
-                    + $"'{platform.Family}:{platform.Assembly ?? "(all)"}' must pin "
-                    + "assembly, version, and framework for browser execution."),
+                ToPlatformRunRequest(
+                    scenarioId,
+                    platform,
+                    contextFramework),
             _ => throw new InspectionDefinitionException(
                 $"Home demo '{scenarioId}' browser execution does not support coordinate kind '{coordinate.GetType().Name}'."),
         };
+
+    private static BrowserHomeDemoRunRequest.Platform ToPlatformRunRequest(
+        string scenarioId,
+        WorkspaceMemberCoordinate.PlatformMember platform,
+        string? contextFramework)
+    {
+        if (platform.Framework is { Length: > 0 } memberFramework
+            && contextFramework is { Length: > 0 }
+            && !string.Equals(
+                memberFramework,
+                contextFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{scenarioId}' Platform coordinate "
+                + $"'{platform.Family}:{platform.Assembly ?? "(all)"}' framework "
+                + $"'{memberFramework}' conflicts with workspace context framework "
+                + $"'{contextFramework}'.");
+        }
+
+        if (platform is not
+            {
+                Assembly: { Length: > 0 } assembly,
+                Version: { Length: > 0 } platformVersion,
+            }
+            || (platform.Framework ?? contextFramework)
+                is not { Length: > 0 } platformFramework)
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{scenarioId}' Platform coordinate "
+                + $"'{platform.Family}:{platform.Assembly ?? "(all)"}' must pin "
+                + "assembly, version, and framework for browser execution.");
+        }
+
+        return new BrowserHomeDemoRunRequest.Platform(
+            platform.Family,
+            assembly,
+            platformVersion,
+            platformFramework);
+    }
 
     private static BrowserHomeDemoNavigationTab ToTab(ResolvedNavigationTab tab) =>
         new(tab.Id, ToMember(tab.Coordinate));

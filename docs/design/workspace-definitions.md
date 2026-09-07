@@ -799,7 +799,8 @@ engine execution do admit exact, assembly-scoped Platform coordinates so the
 coordinate migration can occur without fabricating package inputs. A Browser
 home-demo context is source-homogeneous; a Platform context uses only the
 supported `runtime` and `aspnetcore` families, one exact Platform version and
-target framework, and distinct case-insensitive family/assembly coordinates.
+target framework that agrees with the context-wide framework constraint, and
+distinct case-insensitive family/assembly coordinates.
 Execution projects requests in declared order, binds activation to the realized
 focus coordinate and scope framework, and joins the focused Platform surface by
 `activation.focusAssembly == surface.defaultAssemblyId`. It then releases the
@@ -842,6 +843,7 @@ bindings. These properties are gated by
 `ToRunPlan_RejectsMixedPackageAndPlatformWorkspace`,
 `ToRunPlan_RejectsUnsupportedPlatformFamily`,
 `ToRunPlan_RejectsNonUniformPlatformTarget`,
+`ToRunPlan_RejectsPlatformFrameworkConflictingWithContext`,
 `ToRunPlan_RejectsCaseInsensitivePlatformDuplicates`,
 `ToRunPlan_PlatformWorkspacePreservesNonFirstFocus`,
 `ToRunPlan_RejectsUnsupportedBrowserSection`,

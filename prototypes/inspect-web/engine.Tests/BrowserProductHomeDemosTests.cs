@@ -254,7 +254,6 @@ public sealed class BrowserProductHomeDemosTests
 
     [Theory]
     [InlineData("11.0.0", "net10.0")]
-    [InlineData("10.0.0", "net11.0")]
     public void ToRunPlan_RejectsNonUniformPlatformTarget(
         string secondVersion,
         string secondFramework)
@@ -271,6 +270,20 @@ public sealed class BrowserProductHomeDemosTests
 
         Assert.Contains(
             "must use one exact target framework and Platform version",
+            error.Message);
+    }
+
+    [Fact]
+    public void ToRunPlan_RejectsPlatformFrameworkConflictingWithContext()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        contextFramework: "net9.0")));
+
+        Assert.Contains(
+            "framework 'net10.0' conflicts with workspace context framework 'net9.0'",
             error.Message);
     }
 
@@ -458,6 +471,7 @@ public sealed class BrowserProductHomeDemosTests
         string family = "runtime",
         string version = "10.0.0",
         string framework = "net10.0",
+        string? contextFramework = null,
         (string Family, string Assembly, string Version, string Framework)?
             secondPlatform = null,
         bool focusSecond = false)
@@ -499,7 +513,7 @@ public sealed class BrowserProductHomeDemosTests
             [
                 new WorkspaceContextDefinition(
                     "context",
-                    framework: framework,
+                    framework: contextFramework ?? framework,
                     members: [.. members]),
             ]));
         registry.Add(new ViewDefinition(
