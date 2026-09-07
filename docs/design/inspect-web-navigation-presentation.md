@@ -85,22 +85,21 @@ owners:
 - **Workspace** is the product-issued Workspace subject presented as the entry
   to retained-coordinate management.
 
-Inspection Subject Navigation continues to own Workspace, Package or
-non-package Root, Library, Type, and Member identity. Inspect Web presents
-Workspace separately because it manages retained coordinates, while Package,
-Library, Type, and Member form the progressively narrower active-coordinate
-subject strip:
+Inspection Subject Navigation continues to own Workspace, Package, Library,
+Type, and Member identity. Inspect Web presents Workspace separately because it
+manages retained Packages, while Package, Library, Type, and Member form the
+progressively narrower active-coordinate subject strip:
 
 - **Package** means one selected package-adapter coordinate.
 - **Library** means all admitted libraries or one library in that coordinate.
 - **Type** means one selected type in the active Library subject.
 - **Member** means one selected member of the active Type.
 
-A local file, restored project, or another non-package artifact source occupies
-the same coordinate position without being mislabelled as a Package. Package is
-one common root subject, not the universal acquisition model. A non-package
-coordinate uses its product-owned root subject and overview when no Library,
-Type, or Member is active. This document does not invent package lenses for it.
+Current Browser platform rows remain working host-local inventory behavior
+outside shared Scope and Navigation. This cutover neither suppresses those rows
+nor relabels them Package, but it does not give them a product-owned subject or
+overview. A future Platform or other structural subject requires its own named
+consumer and focused owner contract.
 
 ### Persistent navigation composition
 
@@ -381,9 +380,9 @@ encoded-file contract because the shell renders the image at 20 CSS pixels.
 The UI never fetches the deprecated nuspec `<iconUrl>`. When no usable embedded
 icon exists, the package uses NuGet Gallery's default package icon:
 `https://nuget.org/Content/gallery/img/default-package-icon-256x256.png`.
-Platform and other root subjects may use their own marks. The
-`dotnet-inspect` bot retains its product-mark slot before the adjacent inspected
-target.
+Current host-local Platform rows may use their own marks without creating a
+shared structural subject. The `dotnet-inspect` bot retains its product-mark
+slot before the adjacent inspected target.
 
 NuGet Gallery's header logo is recorded separately for a future
 source-attribution affordance:

@@ -425,7 +425,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   package-prefix requests, and opaque Integration-owned semantic-scanner
   bindings without making reusable infrastructure depend on the catalog.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
   reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website

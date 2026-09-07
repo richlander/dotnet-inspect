@@ -49,7 +49,7 @@ and acceptance scenarios. This document does not repeat those contracts.
 This document composes four adjacent owner contracts without defining them:
 
 - [Inspection Subject Navigation](inspection-subject-navigation.md) owns
-  Workspace-bound Package or non-package Root, Library, Type, and Member
+  Workspace-bound Package, Library, Type, and Member
   descriptors, availability, initial recommendation, and reconciliation, plus
   retained-session intent and effect authority. Workspace is the inventory
   container for retained coordinate occurrences; the website does not recreate package
