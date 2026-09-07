@@ -286,10 +286,17 @@ Public graph edges are package-resolving relationships:
 Each edge retains:
 
 - stable edge, parent-node, and dependency-node identities;
+- for a root edge, the exact correlated `project.frameworks` declaration-group
+  identity that supplied its authored constraint;
 - the exact resolved package coordinate;
 - canonical NuGet constraint semantics;
 - the source constraint as `InertString`; and
 - direct or transitive role relative to the restored root.
+
+A non-root edge carries no declaration-group association. The type enforces
+that root edges have the association and non-root edges do not, so a consumer
+can classify application authorship through owner-issued correspondence rather
+than through direct/transitive role.
 
 The package collection contains exactly the package nodes reached from the
 root. A package is direct when a root entry resolves to it; otherwise it is
@@ -401,6 +408,8 @@ The contract is gated by:
   reachable graph nodes;
 - unclassified dependency targets being invalid rather than assumed packages;
 - exact direct and transitive package coordinates plus a diamond edge shape;
+- root edges carrying their correlated declaration-group identity while
+  package- and project-parent edges carry no declaration association;
 - coalescing equal duplicate edges and refusing conflicting ones;
 - complete-empty, incomplete, unavailable, and failed graph outcomes;
 - declaration failure remaining independent of usable graph evidence and the
