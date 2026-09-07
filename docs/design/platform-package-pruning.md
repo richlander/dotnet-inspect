@@ -273,6 +273,79 @@ For the common case the distinction is invisible: Platform 11.0 against
 `System.Text.Json` 10.x or 11.x subsumes either way. It becomes visible only
 when a package leapfrogs the runtime, which is exactly when it must.
 
+### The selected dependency group is the local oracle
+
+Inside an opened package the author has already answered "package or platform"
+for us, per target framework, in the nuspec dependency group. `System.Text.Json`
+10.0.0 declares:
+
+| Group | Declared dependencies |
+| --- | --- |
+| `net10.0` | **0** |
+| `net9.0`, `net8.0` | 2 |
+| `netstandard2.0` | 7 |
+| `net462` | 8 |
+
+On `net10.0` the group is empty because the platform supplies everything, while
+`lib/net10.0/System.Text.Json.dll` still carries 15 `AssemblyRef`s, all at
+`10.0.0.0`. That is the quantified form of the observation that platform
+references have no package edge to follow: 15 assembly references, zero package
+references.
+
+Down-level the same names are packages again. `lib/netstandard2.0` references
+`System.Memory 4.0.2.0` and `System.Buffers 4.0.2.0`, and the group declares
+both as real dependencies. So the same assembly name is platform or package
+depending only on the selected group, and no oracle in this document is needed
+to know which — the group already says.
+
+An asset outside every dependency group has no such answer. Analyzers are the
+case: they follow analyzer rules and target `netstandard2.0`, so
+`System.Text.Json`'s source generator references
+`System.Collections.Immutable 6.0.0.0`, `System.Memory 4.0.1.2`, and
+`netstandard 2.0.0.0`. Resolving those against the workspace's platform target
+would bind a compiler-host assembly to a surface it was never built against.
+Framework context follows the asset, not the workspace.
+
+### Worked example: a multi-assembly package
+
+`Microsoft.Azure.SignalR` 1.33.1 exercises all three outcomes from one
+`lib/net8.0/Microsoft.Azure.SignalR.dll`, and contains the discriminator case
+that any implementation must get right:
+
+| Reference | Version | Outcome | Decided by |
+| --- | --- | --- | --- |
+| `Microsoft.Azure.SignalR.Common` | 1.33.1.0 | in-package | present in `lib/net8.0/` |
+| `Microsoft.Azure.SignalR.Protocols` | 1.33.1.0 | package edge | declared dependency |
+| `Microsoft.AspNetCore.SignalR` | 8.0.0.0 | platform | `aspnetcore.app` catalog |
+| `System.Memory` | 8.0.0.0 | platform | `netcore.app` catalog |
+| `Azure.Core` | 1.38.0.0 | package edge | transitive, via `Azure.Identity` |
+
+`Common` and `Protocols` share a name prefix, a version, and a public key
+token. Nothing about the references distinguishes them. Only the asset group's
+contents and the dependency group do — which is why the boundary is the asset
+group rather than the package, and why name shape must never stand in for
+either.
+
+`Azure.Core` adds the reminder that a package edge may be transitive rather
+than declared, so the third step consults the resolved graph, not the group's
+literal list.
+
+### Boundary: this owner decides only the package edge
+
+The full ladder for an `AssemblyRef` leaving an assembly is:
+
+1. satisfied inside the referencing asset's own group — follow it;
+2. otherwise a platform library in that asset's framework context, and platform
+   traversal is enabled — follow it;
+3. otherwise a package edge — apply this document, then approved traversal;
+4. otherwise remain visibly unresolved.
+
+Only step 3 belongs to this owner. Step 1 is asset-group composition, step 2 is
+the platform library catalog, and step 4 is the existing rule that failure stays
+visible. They are recorded here because the pruning rule is unreadable without
+them, not because this document specifies them. A focused design for
+`AssemblyRef` resolution across these steps remains to be written.
+
 ### Relationship to platform composition and overlays
 
 [Platform composition and overlays](platform-composition-and-overlays.md)
