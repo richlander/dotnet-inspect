@@ -25,7 +25,6 @@
     <SignAssembly>false</SignAssembly>
     <!-- CS0436: our System.Linq.Expressions types intentionally shadow the real ones. -->
     <NoWarn>$(NoWarn);CS0436</NoWarn>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
 </Project>

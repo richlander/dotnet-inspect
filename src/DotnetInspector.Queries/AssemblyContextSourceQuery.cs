@@ -888,8 +888,7 @@ public static class AssemblyContextSourceQuery
             bindingPolicyVersion);
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
-                participant.BindingPolicy,
-                bindingPolicyVersion);
+                participant.BindingPolicy);
         MemberRenderResult decompiled =
             MemberBodyProducer.ProduceMember(
                 target.Type,
@@ -994,8 +993,7 @@ public static class AssemblyContextSourceQuery
             bindingPolicyVersion);
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
-                participant.BindingPolicy,
-                bindingPolicyVersion);
+                participant.BindingPolicy);
         ResolvedAssemblyReference decompilerAssembly =
             retained.WithoutLocalPath();
         DecompilerResult decompiled =
@@ -1329,9 +1327,8 @@ public static class AssemblyContextSourceQuery
     }
 
     internal sealed class CancellationObservingBindingPolicy(
-        IAssemblyBindingPolicy inner,
-        AssemblyBindingPolicyVersion expectedVersion)
-        : IAssemblyBindingPolicy
+        IAssemblyBindingPolicy inner)
+        : AssemblyBindingPolicyFacade(inner)
     {
         ExceptionDispatchInfo? _cancellation;
         ExceptionDispatchInfo? _inspectionFailure;
@@ -1340,41 +1337,12 @@ public static class AssemblyContextSourceQuery
             ResolvedAssemblyReference> _observedAssemblies =
                 new(ReferenceEqualityComparer.Instance);
 
-        public AssemblyBindingPolicyVersion Version
-        {
-            get
-            {
-                EnsureVersion();
-                return expectedVersion;
-            }
-        }
-
-        public AssemblyBindingSelectionSnapshot Select(
+        public override AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            EnsureVersion();
             try
             {
-                AssemblyBindingSelectionSnapshot? snapshot =
-                    inner.Select(request);
-                if (snapshot is null)
-                    return null!;
-                if (!ReferenceEquals(
-                        snapshot.Version,
-                        expectedVersion))
-                {
-                    throw new InvalidOperationException(
-                        "The participant binding-policy snapshot changed during source inspection.");
-                }
-
-                AssemblyBindingSelection selection =
-                    AssemblyBindingSelection.ValidateForRequest(
-                        request,
-                        snapshot.Selection);
-                EnsureVersion();
-                return new AssemblyBindingSelectionSnapshot(
-                    expectedVersion,
-                    ObserveSelectedAssemblies(selection));
+                return base.Select(request);
             }
             catch (OperationCanceledException ex)
             {
@@ -1394,18 +1362,12 @@ public static class AssemblyContextSourceQuery
             Volatile.Read(ref _inspectionFailure)?.Throw();
         }
 
-        void EnsureVersion()
-        {
-            if (!ReferenceEquals(
-                    inner.Version,
-                    expectedVersion))
-            {
-                throw new InvalidOperationException(
-                    "The participant binding-policy snapshot changed during source inspection.");
-            }
-        }
+        protected override void ObserveForeignSnapshot() =>
+            ObserveInspectionFailure(
+                new InvalidOperationException(
+                    "The participant binding-policy snapshot changed during source inspection."));
 
-        AssemblyBindingSelection ObserveSelectedAssemblies(
+        protected override AssemblyBindingSelection TransformSelection(
             AssemblyBindingSelection selection)
             => selection switch
             {

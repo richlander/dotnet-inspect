@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  Its [ReadyToRun CLI projection](design/readytorun-cli-projection.md) owns the
+  explicit ReadyToRun section lens and metadata-root subject selection while
+  retaining PE and metadata interpretation in `ILInspector.Metadata`.
   The target
   [dependency inspection command](design/dependency-inspection-command.md)
   owns asset admission, traversal intent, evidence disclosure, graph row
@@ -122,7 +125,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
-  query results. Its proposed, design-locked but not yet implemented
+  query results. Its
+  [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md)
+  query composes normalized declarations with package-owned source
+  authorization and candidate evidence while leaving traversal and Workspace
+  policy to their owners. Its proposed, design-locked but not yet implemented
   [Package Query assembly-pattern
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
@@ -167,6 +174,10 @@ substrates, and inspection producers that will extend that space.
   navigation-result consumer, shell interaction, and page-level composition
   across six focused owners while individual components retain rendering,
   binding, and state-transition responsibilities.
+  [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md)
+  owns the managed Source-facade envelope that carries one Research-issued
+  receipt and its Facts/document instance-key mappings without reconstructing
+  identity in the host.
 - [Approved lazy traversal](design/approved-lazy-traversal.md) is the
   operator-approved cross-owner target experience for subjects, traversal
   permissions, operation demand, Browser defaults, and ecosystem-assisted
@@ -416,6 +427,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Research Finding census projection](design/research-finding-census-projection.md):
   Research preservation of one body-fact census through Facts and Annotated
   Source.
+- [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md):
+  Source-facade wire projection of one Research-issued receipt and its
+  Facts/document instance-key mappings.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

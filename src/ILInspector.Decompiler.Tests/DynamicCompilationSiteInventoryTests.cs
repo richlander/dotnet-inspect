@@ -65,6 +65,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Cross-assembly reference seam.
             ["CompileReferenceSetTests.cs"] = (3, "Compiler-reference semantic-model seam: binds consumer syntax against selected cataloged images to verify aliases, source exclusion, and retained snapshot identity; emits no inspected fixture."),
+            ["CompileReferencePlatformPolicyTests.cs"] = (1, "Platform-reference semantic-model seam: binds consumer syntax to owner-authorized retained platform images; emits no inspected fixture."),
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
             ["AuthoredRebuildFidelityTests.cs"] = (2, "Cross-assembly snapshot + portable-PDB seams: replaces a same-identity dependency after RTS acquisition, and emits checksum-bearing PDB fixtures for live source-acquisition outcomes."),
             ["ReferenceEqualityMetadataFactsTests.cs"] = (1, "Cross-assembly version-pair seam: builds same-name hierarchy assemblies with distinct versions to gate exact visited identity."),
@@ -142,9 +143,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #6005 adds CompileReferenceSetTests.cs (3 sites): binds consumer syntax
     //     against frozen cataloged images for alias, source-exclusion, and
     //     retained-snapshot reference contracts.
-    //   Combined: 45 files, 59 sites.
-    const int ExpectedDynamicFiles = 45;
-    const int ExpectedDynamicSites = 59;
+    //   #6120 adds CompileReferencePlatformPolicyTests.cs (1 site): binds against
+    //     the same retained platform images that Metadata resolves.
+    //   Combined: 46 files, 60 sites.
+    const int ExpectedDynamicFiles = 46;
+    const int ExpectedDynamicSites = 60;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

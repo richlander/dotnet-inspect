@@ -459,11 +459,6 @@ public static class ApiOutputFormatter
         bool memberFilterActive = options is MemberOptions { MemberFilter.Count: > 0 };
         var selectedMember = memberDetail ? type.Members[0] : null;
 
-        // Build title with package context
-        var packageInfo = packageName != null && packageVersion != null
-            ? $" ({packageName} {packageVersion})"
-            : packageName != null ? $" ({packageName})" : "";
-
         // One source of truth for type-level modifiers, base type, and interface ordering: the
         // presentation-neutral projection in ILInspector.Research. C# constraint spelling for
         // type parameters stays in this layer (ConstraintSummary) because Research is Roslyn-free
@@ -531,9 +526,11 @@ public static class ApiOutputFormatter
 
         bool topFieldsOnly = options.Verbosity == Verbosity.Quiet
             || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail);
+        bool showProvenance = topFieldsOnly
+            || (!options.Tabular && !memberDetail && options.IncludeSections is null);
         var title = memberDetail
             ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
-            : $"{FormatGenericFullName(type)}{packageInfo}";
+            : FormatGenericFullName(type);
 
         return new TypeView
         {
@@ -546,16 +543,16 @@ public static class ApiOutputFormatter
             Modifiers = topFieldsOnly ? (modifiers.Count > 0 ? string.Join(", ", modifiers) : null) : null,
             BaseType = topFieldsOnly ? baseType : null,
             TypeParametersInline = typeParamsInline,
-            Assembly = topFieldsOnly ? foundIn : null,
-            Package = topFieldsOnly ? packageName : null,
-            Version = topFieldsOnly ? packageVersion : null,
-            Source = topFieldsOnly ? apiSource : null,
+            Assembly = showProvenance ? foundIn : null,
+            Package = showProvenance ? packageName : null,
+            Version = showProvenance ? packageVersion : null,
+            Source = showProvenance ? apiSource : null,
             SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
             SourceFilePath = type.SourceFilePath,
             SourceChecksum = type.SourceChecksum,
             SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
-            Tfm = topFieldsOnly ? selectedTfm : null,
+            Tfm = showProvenance ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
             Constructors = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
@@ -595,16 +592,16 @@ public static class ApiOutputFormatter
     {
         List<MarkoutField> fields = [new("Type", FormatGenericFullName(type))];
 
-        if (!string.IsNullOrEmpty(foundIn))
-            fields.Add(new("Library", foundIn));
         if (!string.IsNullOrEmpty(packageName))
             fields.Add(new("Package", packageName));
         if (!string.IsNullOrEmpty(packageVersion))
             fields.Add(new("Version", packageVersion));
-        if (!string.IsNullOrEmpty(apiSource))
-            fields.Add(new("Source", apiSource));
         if (!string.IsNullOrEmpty(selectedTfm))
             fields.Add(new("TFM", selectedTfm));
+        if (!string.IsNullOrEmpty(foundIn))
+            fields.Add(new("Library", foundIn));
+        if (!string.IsNullOrEmpty(apiSource))
+            fields.Add(new("Source", apiSource));
 
         return fields;
     }

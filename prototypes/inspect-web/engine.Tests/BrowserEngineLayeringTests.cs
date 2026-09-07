@@ -399,6 +399,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+Rejected",
             "DotnetInspector.Queries.MemberCallGraphSession",
             "DotnetInspector.Queries.PackageAssemblyRoleCorrespondence",
+            "DotnetInspector.Queries.PackageInspectionAssemblyReference",
             "DotnetInspector.Services.PlatformTypeLookupCandidate",
             "ILInspector.Analysis.CallerResolutionPlan",
             "ILInspector.Analysis.CatalogCallGraphParticipant",

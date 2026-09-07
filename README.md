@@ -133,7 +133,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace package occurrences | `workspace --package X --tfm TFM` | Render the exact ordered package occurrences of one runtime Workspace through the same product-owned view used by Inspect Web. Repeat `--package` to compose the Workspace. |
+| Workspace scope | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Scope snapshot. Repeat `--package` to compose the Workspace; exact duplicate Roots coalesce in first-request order. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -157,7 +157,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `workspace` | Render an ordered runtime Workspace package-occurrence view for packages with selected managed assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. |
+| `workspace` | Render the committed ordered package Roots of one runtime Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -227,16 +227,21 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
 ```
 
-### Raw metadata
+### ReadyToRun and raw metadata
 
-Metadata sections are opt-in only. Use `@Metadata` to discover or render decoded
-table rows, and `--heap` for one exact heap address.
+ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
+validated image header and section directory. Use `@Metadata` to discover or
+render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
+the ReadyToRun manifest metadata instead of the default CLI root, and `--heap`
+for one exact heap address in the selected root.
 
 ```bash
+dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll --heap "#Strings:0x1a4"
+dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
 
 ## Output and querying

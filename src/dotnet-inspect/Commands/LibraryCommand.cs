@@ -66,6 +66,7 @@ public class LibraryCommand
     internal static readonly HostQueryDemand[] DiscoveryQueries =
     [
         new("discovery catalog", MetadataImageQuery.Definition),
+        new("ReadyToRun applicability", ReadyToRunImageQuery.Definition),
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
@@ -186,6 +187,14 @@ public class LibraryCommand
             return 1;
         }
 
+        if (MetadataRootDiscoveryModeError(
+                options,
+                hasInputSource) is { } metadataRootDiscoveryError)
+        {
+            CommandError.Write(metadataRootDiscoveryError);
+            return 1;
+        }
+
         if (options.Discover is not null && options.Schema)
         {
             return StructuralViewRegistry.Execute(
@@ -295,6 +304,12 @@ public class LibraryCommand
                 IncludeSections = selectResult.Sections,
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
+        }
+
+        if (MetadataRootSelectionError(options) is { } metadataRootError)
+        {
+            CommandError.Write(metadataRootError);
+            return 1;
         }
 
         if (options.Discover is null || fullEffectiveDiscovery)
@@ -569,7 +584,8 @@ public class LibraryCommand
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
             && !HasILOffsetCoordinate(options)
-            && !HasHeapCoordinate(options);
+            && !HasHeapCoordinate(options)
+            && options.MetadataRoot == MetadataRootKind.Cli;
 
         if (trace is not null)
             trace.Verbosity = new InertString(TextPolicy.Field, options.Verbosity.ToString());
@@ -777,7 +793,6 @@ public class LibraryCommand
                 {
                     return 1;
                 }
-
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, subject, null, null, isPlatformAssembly: true,
                     options, context.HttpClient, logger);
@@ -959,7 +974,6 @@ public class LibraryCommand
                 {
                     return 1;
                 }
-
                 bool identifierAuditIncomplete =
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
@@ -1141,7 +1155,6 @@ public class LibraryCommand
                 {
                     return 1;
                 }
-
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, subject, null, null, isPlatformAssembly: false,
                     options, context.HttpClient, logger);
@@ -1770,6 +1783,42 @@ public class LibraryCommand
     private static bool HasHeapCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.HeapParameter);
 
+    private static string? MetadataRootSelectionError(LibraryOptions options)
+    {
+        if (options.MetadataRoot == MetadataRootKind.Cli)
+            return null;
+
+        if (options.IncludeSections?.Any(
+                MetadataSectionNames.IsMetadataSection) == true)
+        {
+            return null;
+        }
+
+        return "--metadata-root requires -S @Metadata or a Metadata: section.";
+    }
+
+    private static string? MetadataRootDiscoveryModeError(
+        LibraryOptions options,
+        bool hasInputSource)
+    {
+        if (options.MetadataRoot == MetadataRootKind.Cli
+            || options.Discover is null)
+        {
+            return null;
+        }
+
+        if (!options.Effective)
+        {
+            return "--metadata-root requires --effective with -D because "
+                + "structural discovery does not inspect an image.";
+        }
+
+        return hasInputSource
+            ? null
+            : "--metadata-root requires a library path, package, or --platform "
+                + "with -D because effective discovery must inspect an image.";
+    }
+
     private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
     {
         if (options.Discover != null)
@@ -1918,11 +1967,24 @@ public class LibraryCommand
             throw new UnreachableException("NormalizeHeapSelection rejects a malformed --heap coordinate before this point.");
 
         string name = MetadataHeapCoordinate.StreamName(heap);
+        if (inspection.MetadataImageResult
+            is not MetadataImageResult.Available available)
+        {
+            return 0;
+        }
+
         MetadataValue? value;
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            value = session.MetadataHeapValue(heap, address);
+            if (available.Root is { } root)
+            {
+                value = root.HeapValue(heap, address);
+            }
+            else
+            {
+                using var session = AssemblyInspectionSession.Open(path);
+                value = session.MetadataHeapValue(heap, address);
+            }
         }
         catch (Exception ex)
         {
@@ -2689,8 +2751,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v28: deterministic, non-prefetched unsafe presence changes applicability.
-    private const string EffectiveCategory = "effective-v28";
+    // Bumped to v29: ReadyToRun applicability adds sections and a category door.
+    private const string EffectiveCategory = "effective-v29";
 
     static LibraryCommand()
     {
@@ -2962,6 +3024,16 @@ public class LibraryCommand
         if (emptySection is null)
             return false;
 
+        // A requested alternate root that is not present makes the metadata lens
+        // inapplicable. Preserve the ordinary no-data outcome even for an exact
+        // metadata section instead of treating absence as an empty producer failure.
+        if (MetadataSectionNames.IsMetadataSection(section)
+            && inspections.All(static inspection =>
+                inspection.MetadataImageResult is MetadataImageResult.MissingRoot))
+        {
+            return false;
+        }
+
         bool explainedByFailure = inspections.Any(inspection =>
             (inspection.InspectionFailures ?? []).Any(failure =>
                 FailureAffectsSection(
@@ -2992,6 +3064,14 @@ public class LibraryCommand
 
         if (failureSection.Equals(MetadataSectionNames.Image, StringComparison.Ordinal)
             && MetadataSectionNames.IsMetadataSection(section))
+        {
+            return true;
+        }
+
+        if (failureSection.Equals(ReadyToRunSectionNames.Image, StringComparison.Ordinal)
+            && ReadyToRunSectionNames.All.Contains(
+                section,
+                StringComparer.OrdinalIgnoreCase))
         {
             return true;
         }

@@ -1927,6 +1927,227 @@ public class ResearchDiffTests
         Assert.StartsWith("ConstantValue~", changed.Subject.Id, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(LibraryBodyAnalysisFeatures.None)]
+    [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
+    public void BodyIndexIdentity_AcceptsMatchingImageRegardlessOfCapabilities(
+        LibraryBodyAnalysisFeatures features)
+    {
+        byte[] image = File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var input = IdentityInput(image, image, features);
+
+        var result = ImplementationDiff.Compare(
+            [input], [input],
+            new ImplementationDiffOptions(ImplementationDiffMechanism.IlBody));
+
+        Assert.NotNull(result.Research);
+    }
+
+    [Theory]
+    [InlineData(LibraryBodyAnalysisFeatures.None)]
+    [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
+    public void BodyIndexIdentity_RejectsDifferentImageRegardlessOfCapabilities(
+        LibraryBodyAnalysisFeatures features)
+    {
+        byte[] image = File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath());
+        byte[] other = File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var input = IdentityInput(image, other, features);
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            ImplementationDiff.Compare([input], []));
+
+        Assert.Contains("does not match assembly content", error.Message);
+    }
+
+    [Theory]
+    [InlineData(LibraryBodyAnalysisFeatures.None)]
+    [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
+    public void BodyIndexIdentity_AcceptsMatchingMethodlessImage(
+        LibraryBodyAnalysisFeatures features)
+    {
+        byte[] image = BuildIdentityAssembly("Identity", Guid.NewGuid());
+        var input = IdentityInput(image, image, features);
+        Assert.Empty(input.BodyIndex.DeclaredMethods);
+        Assert.Empty(input.BodyIndex.Methods);
+
+        var result = ImplementationDiff.Compare([input], [input]);
+
+        Assert.Empty(result.Members);
+    }
+
+    [Theory]
+    [InlineData("name")]
+    [InlineData("version")]
+    [InlineData("culture")]
+    [InlineData("public-key")]
+    [InlineData("mvid")]
+    public void BodyIndexIdentity_RejectsMethodlessIdentityMismatch(string difference)
+    {
+        Guid mvid = Guid.NewGuid();
+        byte[] image = BuildIdentityAssembly("Identity", mvid);
+        byte[] other = BuildIdentityAssembly(
+            difference == "name" ? "Other" : "Identity",
+            difference == "mvid" ? Guid.NewGuid() : mvid,
+            version: difference == "version" ? new Version(2, 0, 0, 0) : null,
+            culture: difference == "culture" ? "fr" : null,
+            publicKey: difference == "public-key" ? [1, 2, 3, 4] : null);
+        var input = IdentityInput(image, other, LibraryBodyAnalysisFeatures.MethodEvidence);
+        Assert.Empty(input.BodyIndex.DeclaredMethods);
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            ImplementationDiff.Compare([input], []));
+
+        Assert.Contains("does not match assembly content", error.Message);
+    }
+
+    [Theory]
+    [InlineData(ResearchChangeMechanism.BodySignals, false)]
+    [InlineData(ResearchChangeMechanism.IlBody, false)]
+    [InlineData(ResearchChangeMechanism.IlBody, true)]
+    public void BodyIndexIdentity_MethodlessGroupingIgnoresDisplayPaths(
+        ResearchChangeMechanism mechanism,
+        bool retainOperations)
+    {
+        byte[] firstImage = BuildIdentityAssembly("First", Guid.NewGuid());
+        byte[] secondImage = BuildIdentityAssembly("Second", Guid.NewGuid());
+        LibraryBodyIndex Index(byte[] image, string label) =>
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                label, [.. image], LibraryBodyAnalysisFeatures.MethodEvidence);
+        var oldInput = new ResearchDiffInput([])
+        {
+            BodyIndexes = [Index(firstImage, "shared.dll"), Index(secondImage, "shared.dll")],
+        };
+        var newInput = new ResearchDiffInput([])
+        {
+            BodyIndexes = [Index(firstImage, "renamed-first.dll"), Index(secondImage, "renamed-second.dll")],
+        };
+        var first = IdentityInput(firstImage, firstImage, LibraryBodyAnalysisFeatures.MethodEvidence);
+        var second = IdentityInput(secondImage, secondImage, LibraryBodyAnalysisFeatures.MethodEvidence);
+        using var firstSource = DecompilerMetadataSource.OpenWithoutSymbols(first.Assembly, first.Resolver);
+        using var secondSource = DecompilerMetadataSource.OpenWithoutSymbols(second.Assembly, second.Resolver);
+        if (mechanism == ResearchChangeMechanism.IlBody)
+        {
+            oldInput = oldInput with
+            {
+                AssemblyContents =
+                [
+                    new(firstSource, oldInput.BodyIndexes[0]),
+                    new(secondSource, oldInput.BodyIndexes[1]),
+                ],
+            };
+            newInput = newInput with
+            {
+                AssemblyContents =
+                [
+                    new(firstSource, newInput.BodyIndexes[0]),
+                    new(secondSource, newInput.BodyIndexes[1]),
+                ],
+            };
+        }
+
+        var result = ResearchDiff.Compare(oldInput, newInput, new ResearchDiffOptions(mechanism)
+        {
+            RetainedComparisonDescriptorIds = retainOperations
+                ? ImmutableHashSet.Create(IlFindings.OperationDescriptor.Id)
+                : ImmutableHashSet<string>.Empty,
+        });
+
+        Assert.Empty(result.Changes);
+    }
+
+    [Fact]
+    public void BodyIndexIdentity_StandaloneModuleDoesNotAcquireAKeyFromItsLabel()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            "pretend-assembly.dll",
+            [.. BuildNetmodule("Widget")],
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        Assert.Null(index.ModuleIdentity.AssemblyIdentity);
+        var input = new ResearchDiffInput([], BodyIndexes: [index]);
+
+        var error = Assert.Throws<ArgumentException>(() => ResearchDiff.Compare(
+            input, input, new ResearchDiffOptions(ResearchChangeMechanism.BodySignals)));
+
+        Assert.Contains("standalone module has no assembly pairing key", error.Message);
+    }
+
+    [Fact]
+    public void BodyIndexIdentity_VersionAndMvidChangesRemainComparable()
+    {
+        byte[] oldImage = BuildIdentityAssembly(
+            "Versioned", Guid.NewGuid(), new Version(1, 0, 0, 0), returnValue: 1);
+        byte[] newImage = BuildIdentityAssembly(
+            "Versioned", Guid.NewGuid(), new Version(2, 0, 0, 0), returnValue: 2);
+        var before = IdentityInput(oldImage, oldImage, LibraryBodyAnalysisFeatures.MethodEvidence);
+        var after = IdentityInput(newImage, newImage, LibraryBodyAnalysisFeatures.MethodEvidence);
+        Assert.NotEqual(before.BodyIndex.ModuleIdentity.ModuleVersionId,
+            after.BodyIndex.ModuleIdentity.ModuleVersionId);
+        Assert.NotEqual(before.BodyIndex.ModuleIdentity.AssemblyIdentity!.Version,
+            after.BodyIndex.ModuleIdentity.AssemblyIdentity!.Version);
+
+        var result = ImplementationDiff.Compare(
+            [before], [after],
+            new ImplementationDiffOptions(ImplementationDiffMechanism.IlBody));
+
+        Assert.Contains(result.Members, member =>
+            member.Subject.MemberName == "Read"
+            && member.Changes.Any(change =>
+                change.Mechanism == ResearchChangeMechanism.IlBody
+                && change.Kind == ResearchChangeKind.Changed));
+    }
+
+    static ImplementationAssemblyInput IdentityInput(
+        byte[] image,
+        byte[] indexedImage,
+        LibraryBodyAnalysisFeatures features)
+    {
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        AssemblyReferenceIdentity identity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
+        var reference = ResolvedAssemblyReference.Create(
+            identity, "display-only.dll",
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("Research body-index identity fixture"));
+        return new(
+            reference,
+            DecompilerMetadataSource.DefaultAssemblyReferenceResolver(
+                FixtureCatalog.DiffPair.OldAssemblyPath()),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "unrelated-index-label.dll", [.. indexedImage], features));
+    }
+
+    static byte[] BuildIdentityAssembly(
+        string name,
+        Guid mvid,
+        Version? version = null,
+        string? culture = null,
+        byte[]? publicKey = null,
+        int? returnValue = null)
+    {
+        MetadataBuilder metadata = NewResearchMetadata(name, mvid, version, culture, publicKey);
+        AddResearchModuleType(metadata);
+        var il = new BlobBuilder();
+        if (returnValue is int value)
+        {
+            AddResearchType(metadata, "Value");
+            var code = new InstructionEncoder(new BlobBuilder());
+            code.LoadConstantI4(value);
+            code.OpCode(ILOpCode.Ret);
+            int offset = new MethodBodyStreamEncoder(il).AddMethodBody(code);
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature).MethodSignature().Parameters(
+                0, result => result.Type().Int32(), parameters => { });
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Read"),
+                metadata.GetOrAddBlob(signature),
+                offset,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return SerializeResearchMetadata(metadata, il);
+    }
+
     [Fact]
     public void ImplementationDiff_CompareAssemblies_GroupsCSharpAndIlEvidence()
     {
@@ -2461,7 +2682,12 @@ public class ResearchDiffTests
         return SerializeResearchMetadata(metadata);
     }
 
-    static MetadataBuilder NewResearchMetadata(string assemblyName)
+    static MetadataBuilder NewResearchMetadata(
+        string assemblyName,
+        Guid? mvid = null,
+        Version? version = null,
+        string? culture = null,
+        byte[]? publicKey = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2469,15 +2695,15 @@ public class ResearchDiffTests
             moduleName:
                 metadata.GetOrAddString($"{assemblyName}.dll"),
             mvid:
-                metadata.GetOrAddGuid(Guid.NewGuid()),
+                metadata.GetOrAddGuid(mvid ?? Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
             metadata.GetOrAddString(assemblyName),
-            new Version(1, 0, 0, 0),
-            culture: default,
-            publicKey: default,
-            flags: default,
+            version ?? new Version(1, 0, 0, 0),
+            culture: culture is null ? default : metadata.GetOrAddString(culture),
+            publicKey: publicKey is null ? default : metadata.GetOrAddBlob(publicKey),
+            flags: publicKey is null ? default : AssemblyFlags.PublicKey,
             hashAlgorithm: default);
         return metadata;
     }
@@ -2507,14 +2733,15 @@ public class ResearchDiffTests
                 MetadataTokens.MethodDefinitionHandle(1));
 
     static byte[] SerializeResearchMetadata(
-        MetadataBuilder metadata)
+        MetadataBuilder metadata,
+        BlobBuilder? il = null)
     {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(
                 metadata,
                 suppressValidation: true),
-            new BlobBuilder(),
+            il ?? new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);

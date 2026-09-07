@@ -416,34 +416,18 @@ internal static class CorpusSensor
                     var controlFlowCandidates = captureControlFlow
                         ? CaptureControlFlowCandidates(function)
                         : [];
+                    var changedPasses = RunCompletenessPasses(function, source, profile);
                     if (profile == CorpusProfile.OptInNet11)
                     {
-                        var stages = IrPasses.RunWithStages(function);
                         RecordMethodFeatureCoverage(
                             function,
                             source.AssemblyName,
-                            StageDump.PassesThatChanged(stages),
+                            changedPasses,
                             featureCoverage);
                     }
                     else if (profile == CorpusProfile.ClassicStateMachines)
                     {
-                        // Wires the cross-method import seam (same helper the
-                        // product and --dump/--library-report paths use) so
-                        // cross-method passes like ClassicAsyncReconstructionPass
-                        // can pull in the sibling MoveNext body, exactly as they
-                        // do outside the corpus sensor (#2818).
-                        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(method => IrImporter.Import(source, method)));
                         RecordClassicStateMachineFeatureCoverage(typeName, methodName, featureCoverage);
-                    }
-                    else
-                    {
-                        // Wires the cross-method import seam for the same reason
-                        // #2818 wired it above for classic state machines: without
-                        // it, cross-method passes (LocalFunctionRaisingPass here)
-                        // decline every candidate, so the sensor measures a pipeline
-                        // strictly less raised than the one the product ships and
-                        // reports raisable methods as residue.
-                        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(method => IrImporter.Import(source, method)));
                     }
 
                     if (captureControlFlow)
@@ -805,6 +789,24 @@ internal static class CorpusSensor
                 AddFeature(featureCoverage, "union-declarations");
             }
         }
+    }
+
+    internal static IReadOnlyCollection<string> RunCompletenessPasses(
+        IrFunction function,
+        MetadataSource source,
+        CorpusProfile profile)
+    {
+        // Only the opt-in profile needs stage snapshots for feature coverage.
+        // Both runners receive the capabilities used by MemberBodyProducer.
+        if (profile == CorpusProfile.OptInNet11)
+        {
+            return StageDump.PassesThatChanged(IrPasses.RunWithStages(function,
+                method => IrImporter.Import(source, method), source.AreProvablyDisjoint));
+        }
+
+        IrPasses.Run(function, IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method), source.AreProvablyDisjoint));
+        return [];
     }
 
     static void RecordMethodFeatureCoverage(

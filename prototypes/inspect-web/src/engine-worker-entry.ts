@@ -1,11 +1,11 @@
 import { startEngine } from "./engine-facades.ts";
 import {
+  createEngineWorkerProducerClasses,
   engineWorkerCanaryKind,
   engineWorkerDiagnostic,
-  engineWorkerPolicy,
   engineWorkerText,
 } from "./engine-worker-contract.ts";
-import { WorkerProducerClassRegistry } from "./worker-runtime-core.ts";
+import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
@@ -24,18 +24,25 @@ operations.register({
 });
 
 let heartbeat: ReturnType<typeof setInterval> | undefined;
+const bootstrap = createEngineWorkerBootstrap(
+  startEngine,
+  () => import("/inspect-web-host.js"),
+  {
+    startEpochWork: (producerClass, sequence, allowance) =>
+      realm.startEpochWork(producerClass, sequence, allowance),
+    finishEpochWork: sequence => realm.finishEpochWork(sequence),
+    fail: detail => realm.fail(detail),
+  },
+);
 const realm = new WorkerRuntimeRealm({
-  bootstrap: { decoder: engineWorkerText, bootstrap: startEngine },
+  bootstrap: { decoder: engineWorkerText, bootstrap: bootstrap.bootstrap },
   diagnostic: engineWorkerDiagnostic,
   unknownOperationRejection: kind => ({
     error: `Unknown Worker operation: ${kind}`,
     diagnostic: `Unknown Worker operation: ${kind}`,
   }),
   operations,
-  producerClasses: new WorkerProducerClassRegistry(
-    engineWorkerPolicy.idleHeartbeatIntervalMilliseconds
-      + engineWorkerPolicy.schedulingToleranceMilliseconds,
-  ),
+  producerClasses: createEngineWorkerProducerClasses(),
   post(message) {
     globalThis.postMessage(message, { transfer: [] });
     if (message.kind === "ready") {
@@ -46,6 +53,7 @@ const realm = new WorkerRuntimeRealm({
     }
     if (message.kind === "startup-failed" || message.kind === "epoch-failed") {
       clearInterval(heartbeat);
+      void bootstrap.close().catch((error: unknown) => { realm.fail(error); });
     }
   },
 });
