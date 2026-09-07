@@ -59,6 +59,8 @@ public static class FixtureIds
     public const string DiffV2 = "diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
     public const string SourceDiffV2 = "source-diff.v2";
+    public const string LibraryApiDiffV1 = "library-api-diff.v1";
+    public const string LibraryApiDiffV2 = "library-api-diff.v2";
     public const string DiffAsmCaller = "diff-asm.caller";
     public const string DiffAsmLibA = "diff-asm.lib-a";
     public const string DiffAsmLibB = "diff-asm.lib-b";
@@ -294,6 +296,20 @@ public static class FixtureCatalog
         "SourceDiffFixture.dll",
         Boundaries(FixtureBoundary.VersionPair, FixtureBoundary.SourceLinkMap),
         "queries", "source", "version-pair");
+
+    public static readonly FixtureDefinition LibraryApiDiffV1 = Fixture(
+        FixtureIds.LibraryApiDiffV1,
+        "LibraryApiDiff.V1",
+        "LibraryApiDiffFixture.dll",
+        Boundaries(FixtureBoundary.VersionPair),
+        "presentation", "api-diff", "version-pair");
+
+    public static readonly FixtureDefinition LibraryApiDiffV2 = Fixture(
+        FixtureIds.LibraryApiDiffV2,
+        "LibraryApiDiff.V2",
+        "LibraryApiDiffFixture.dll",
+        Boundaries(FixtureBoundary.VersionPair),
+        "presentation", "api-diff", "version-pair");
 
     /// <summary>
     /// Purpose-built member shapes for Research target requests (#5049):
@@ -748,6 +764,8 @@ public static class FixtureCatalog
         DiffV2,
         SourceDiffV1,
         SourceDiffV2,
+        LibraryApiDiffV1,
+        LibraryApiDiffV2,
         DiffAsmCaller,
         DiffAsmLibA,
         DiffAsmLibB,
@@ -809,6 +827,10 @@ public static class FixtureCatalog
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
     public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
+    public static readonly FixturePair LibraryApiDiffPair = new(
+        "library-api-diff",
+        LibraryApiDiffV1,
+        LibraryApiDiffV2);
     public static readonly FixturePair InspectWebSourceComparisonPair = new(
         "inspect-web.source-comparison",
         InspectWebSourceComparisonV1,
@@ -1111,6 +1133,8 @@ public static class FixtureCatalog
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
             "DotnetInspector.SourceDiff.V1" => "fixtures/queries/DotnetInspector.SourceDiff.V1",
             "DotnetInspector.SourceDiff.V2" => "fixtures/queries/DotnetInspector.SourceDiff.V2",
+            "LibraryApiDiff.V1" => "fixtures/presentation/LibraryApiDiff.V1",
+            "LibraryApiDiff.V2" => "fixtures/presentation/LibraryApiDiff.V2",
             "DotnetInspector.HostileNameFixtures" => "fixtures/cli/DotnetInspector.HostileNameFixtures",
             "DotnetInspector.RestoredProjectFixtures" => "fixtures/queries/DotnetInspector.RestoredProjectFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",

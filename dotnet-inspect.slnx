@@ -99,6 +99,10 @@
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
   </Folder>
+  <Folder Name="/fixtures/presentation/">
+    <Project Path="fixtures/presentation/LibraryApiDiff.V1/LibraryApiDiff.V1.csproj" />
+    <Project Path="fixtures/presentation/LibraryApiDiff.V2/LibraryApiDiff.V2.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
