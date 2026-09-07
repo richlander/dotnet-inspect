@@ -23,6 +23,51 @@ async function openPublishedSite(page: Page, url = site!): Promise<void> {
   });
 }
 
+async function chooseMemberSection(
+  page: Page,
+  section: string,
+  label: string,
+): Promise<void> {
+  const tab = page.locator(
+    `[data-inspector-tab][data-member-section="${section}"]`,
+  );
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+
+  await trigger.click();
+  await page.locator("#inspector-navigation-menu")
+    .locator(`[data-member-section="${section}"]`)
+    .click();
+  await expect(trigger).toHaveAccessibleName(label);
+}
+
+async function chooseSubject(
+  page: Page,
+  subject: string,
+  label: string,
+): Promise<void> {
+  const tab = page.locator(`[data-subject-tab][data-scope="${subject}"]`);
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+  } else {
+    await trigger.click();
+    await page.locator("#subject-navigation-menu")
+      .locator(`[data-scope="${subject}"]`)
+      .click();
+  }
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  if (await trigger.isVisible())
+    await expect(trigger).toHaveAccessibleName(label);
+}
+
 test.describe("published authored Source comparison", () => {
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(180_000);
@@ -110,7 +155,7 @@ test.describe("published authored Source comparison", () => {
       await page.locator("button.api-row[data-member]").filter({
         hasText: /\bTrim\b/,
       }).click();
-      await page.locator('[data-member-section="source"]').click();
+      await chooseMemberSection(page, "source", "Source");
       const action = page.locator("#compare-authored-source");
       await expect(action).toBeEnabled();
       const beforeUrl = page.url();
@@ -211,7 +256,7 @@ test.describe("published authored Source comparison", () => {
         await page.locator("button.api-row[data-member]").filter({
           hasText: new RegExp(`\\b${name}\\b`),
         }).click();
-        await page.locator('[data-member-section="source"]').click();
+        await chooseMemberSection(page, "source", "Source");
         await page.locator("#compare-authored-source").click();
         await expect(dialog.locator("#source-diff-after-version")).toBeFocused();
         await dialog.locator("#source-diff-after-version").fill("2.0.0");
@@ -226,8 +271,7 @@ test.describe("published authored Source comparison", () => {
         await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
         await expect(page.locator("#compare-authored-source")).toBeFocused();
-        await page.locator("[data-subject-tab]:not([hidden])").first().press("End");
-        await page.getByRole("tab", { name: "Member", exact: true }).press("ArrowLeft");
+        await chooseSubject(page, "type", "Type");
         await expect(page.locator("button.api-row[data-member]").first()).toBeVisible();
       }
 

@@ -19,6 +19,29 @@ async function openPublishedSite(page: Page, url = site!): Promise<void> {
   });
 }
 
+async function chooseMemberSection(
+  page: Page,
+  section: string,
+  label: string,
+): Promise<void> {
+  const tab = page.locator(
+    `[data-inspector-tab][data-member-section="${section}"]`,
+  );
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+
+  await trigger.click();
+  await page.locator("#inspector-navigation-menu")
+    .locator(`[data-member-section="${section}"]`)
+    .click();
+  await expect(trigger).toHaveAccessibleName(label);
+}
+
 test.describe("published Method Body Diff", () => {
   test.skip(!site, "Set INSPECT_WEB_METHOD_BODY_URL to the published Wasm site.");
   test.setTimeout(180_000);
@@ -204,7 +227,7 @@ test.describe("published Method Body Diff", () => {
       has: page.getByText("StringSegment", { exact: true }),
     }).first().click({ timeout: 90_000 });
     await page.locator("button.api-row[data-member]").filter({ hasText: /\bTrim\b/ }).click();
-    await page.locator('[data-member-section="source"]').click();
+    await chooseMemberSection(page, "source", "Source");
     const action = page.locator("#compare-method-bodies");
     await expect(action).toBeEnabled();
     const beforeUrl = page.url();
