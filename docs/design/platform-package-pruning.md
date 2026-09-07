@@ -74,6 +74,33 @@ version that cannot be compared subsumes nothing. An empty inventory expresses
 that state directly. It does not assert that any package is absent or decide
 what a consumer should acquire or traverse.
 
+## Boundary scenarios
+
+### A package may target a higher platform version than the workspace
+
+A workspace using .NET 10 may open a package whose selected assets target
+.NET 11. The package remains a valid inspection subject; the version mismatch
+is not an error in this owner.
+
+For a package edge carrying a .NET 11 package version, the .NET 10 inventory
+answers `NotSubsumed` when that request is above its supplied-version ceiling.
+It does not relabel the package, reject the subject, or claim that the older
+platform can satisfy it. Whether a later traversal can compose that package
+with the workspace platform is owned by platform compatibility and resolution,
+not by this comparison.
+
+### A workspace may have no platform at all
+
+Removing the platform is a coherent workspace configuration, not a broken
+inventory. This owner represents it with an empty inventory: no package
+identity has a subsumption entry and every version comparison answers
+`NotSubsumed`.
+
+The scenario makes absence concrete without turning it into package policy.
+The empty inventory does not assert that packages exist, choose which edges a
+consumer follows, or authorize acquisition; it says only that no platform
+target is available to subsume them.
+
 ## The upstream fact
 
 The SDK ships the decision as `PackageId|Version` pairs, in the reference
