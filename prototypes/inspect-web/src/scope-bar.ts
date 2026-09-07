@@ -549,7 +549,7 @@ export function renderScopeBar<TId extends string>(
          aria-label="Subjects and inspectors">
       <div class="slide-strip slide-strip-subject scope-switch"
            data-slide-strip="subject"
-           data-continuity-key="${escapeHtml(`${subjectIds}:v1`)}"
+           data-continuity-key="${escapeHtml(`${scope}:${subjectIds}:v2`)}"
            data-initial-anchor="${subjectAnchor}"
            role="tablist"
            aria-label="Subject">
@@ -620,6 +620,7 @@ function readPolicy(
     initialAnchor,
     preferredDirection: "after",
     continuityKey,
+    ...(subject ? { windowContinuity: "anchor-until-slide" } : {}),
     fallbackVisibilityFloor: subject ? 48 : 28,
     oversizedAlignment: "start",
   };
