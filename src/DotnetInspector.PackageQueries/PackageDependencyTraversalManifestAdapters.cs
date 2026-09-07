@@ -30,7 +30,9 @@ public sealed class DesktopPackageDependencyTraversalManifestSource(
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
         return result.Manifest is { } manifest
-            ? new PackageDependencyTraversalManifestResult.Acquired(manifest)
+            ? new PackageDependencyTraversalManifestResult.Acquired(
+                manifest,
+                [.. result.Failures])
             : ClassifyFailure(result.Failures);
     }
 
@@ -76,7 +78,9 @@ public sealed class AuthorizedPackageDependencyManifestSource(
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
         return result.Manifest is { } manifest
-            ? new PackageDependencyTraversalManifestResult.Acquired(manifest)
+            ? new PackageDependencyTraversalManifestResult.Acquired(
+                manifest,
+                [.. result.Failures])
             : DesktopPackageDependencyTraversalManifestSource.ClassifyFailure(
                 result.Failures);
     }

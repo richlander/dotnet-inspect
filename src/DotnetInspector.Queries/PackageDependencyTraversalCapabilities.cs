@@ -104,8 +104,13 @@ public abstract record PackageDependencyTraversalManifestResult
     {
     }
 
-    /// <summary>The exact manifest bytes and their source association.</summary>
-    public sealed record Acquired(PackageSourceManifest Manifest) :
+    /// <summary>
+    /// The exact manifest bytes, their source association, and attributed failures
+    /// from earlier authorized sources consulted before the successful source.
+    /// </summary>
+    public sealed record Acquired(
+        PackageSourceManifest Manifest,
+        ImmutableArray<PackageAuthorityFailure> Diagnostics) :
         PackageDependencyTraversalManifestResult;
 
     /// <summary>No admitted authority could supply the manifest.</summary>

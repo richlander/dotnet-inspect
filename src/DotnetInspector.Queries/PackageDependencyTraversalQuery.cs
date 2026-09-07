@@ -126,6 +126,8 @@ public static class PackageDependencyTraversalQuery
 
         public int? RootOccurrenceIndex { get; init; }
 
+        public ImmutableArray<PackageAuthorityFailure> Diagnostics { get; set; } = [];
+
         public List<int> OutgoingEdgeIndexes { get; } = [];
     }
 
@@ -268,7 +270,9 @@ public static class PackageDependencyTraversalQuery
                 distance++;
             }
 
-            return BuildOutcome();
+            PackageDependencyTraversalOutcome outcome = BuildOutcome();
+            token.ThrowIfCancellationRequested();
+            return outcome;
         }
 
         private async Task VisitAsync(
@@ -402,6 +406,7 @@ public static class PackageDependencyTraversalQuery
                             acquired.Manifest,
                             projection.Candidate!.Coordinate,
                             request.FrameworkMode.RequestedFramework);
+                    token.ThrowIfCancellationRequested();
                     if (manifestFailure is not null)
                     {
                         RecordFailure(
@@ -414,6 +419,7 @@ public static class PackageDependencyTraversalQuery
                         return;
                     }
 
+                    projection.Diagnostics = acquired.Diagnostics;
                     projection.Evidence = projectedRoot;
                     return;
                 case PackageDependencyTraversalManifestResult.Failed failedResult:
@@ -759,6 +765,7 @@ public static class PackageDependencyTraversalQuery
                         projection.Evidence,
                         projection.Candidate,
                         projection.RootOccurrenceIndex,
+                        projection.Diagnostics,
                         [.. projection.OutgoingEdgeIndexes])),
             ];
             ImmutableArray<PackageDependencyTraversalEdge> edges = [.. _edges];

@@ -865,6 +865,40 @@ public sealed class PackageDependencyTraversalQueryTests
     }
 
     [Fact]
+    public async Task Traversal_CancellationAfterFinalAcquisitionDoesNotPublishOutcome()
+    {
+        PackageDependencyTraversalRootOccurrence root = Root(
+            "roota",
+            "1.0.0",
+            Dependency("child", "[1.0.0]"),
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        var issuer = new PackageAcquisitionCandidateIssuer();
+        PackageAcquisitionCandidate candidate = Pinned(
+            issuer,
+            Authorize("authority-a"),
+            "child",
+            "1.0.0");
+        var resolver = new StubCandidateResolver();
+        resolver.SetResponse("roota", "child", () => Resolved(candidate));
+        var cancellation = new CancellationTokenSource();
+        PackageSourceResultFactory factory = CreateResultFactoryFor(
+            candidate.Authorities[0].Authority);
+        var acquirer = new CancelingManifestAcquirer(
+            cancellation,
+            factory.Manifest(
+                candidate.Coordinate,
+                ManifestBytes("child", "1.0.0", "")));
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => PackageDependencyTraversalQuery.ExecuteAsync(
+                    BuildRequest([root], resolver, acquirer),
+                    cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
+    [Fact]
     public async Task Traversal_SourceCompletionOrderDoesNotAffectResult()
     {
         PackageDependencyTraversalRootOccurrence root = Root(
@@ -1404,6 +1438,88 @@ public sealed class PackageDependencyTraversalQueryTests
         ];
     }
 
+    [Fact]
+    public async Task Traversal_HostManifestFallbackPreservesSourceDiagnostics()
+    {
+        PackageDependencyTraversalRootOccurrence root = Root(
+            "roota",
+            "1.0.0",
+            Dependency("dependency", "[1.2.3]"),
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        PackageSource missingSource = new(
+            "missing",
+            "https://missing.example/v3/index.json");
+        PackageSource successfulSource = new(
+            "successful",
+            "https://successful.example/v3/index.json");
+        var authorization = new UniformPackageSourceAuthorization(
+            [missingSource, successfulSource]);
+        PackageSourceAuthorization dependencyAuthorization =
+            authorization.AuthorizeSourcesFor("dependency");
+        var missingRegistry = new PackageRegistry();
+        var successfulRegistry = new PackageRegistry();
+        successfulRegistry.Add("dependency", "1.2.3", "");
+        using var missingClient = new RegistryPackageSourceClient(
+            CreateResultFactoryFor(dependencyAuthorization.Authorities[0]),
+            missingRegistry);
+        using var successfulClient = new RegistryPackageSourceClient(
+            CreateResultFactoryFor(dependencyAuthorization.Authorities[1]),
+            successfulRegistry);
+        var candidateSource = new AuthorizedPackageDependencyCandidateSource(
+            authorization,
+            authority => ReferenceEquals(
+                authority.Association,
+                dependencyAuthorization.Authorities[0].Association)
+                    ? missingClient
+                    : successfulClient);
+        PackageDependencyTraversalOutcome explicitOutcome = await ExecuteAsync(
+            [root],
+            new PackageDependencyTraversalCandidateAdapter(candidateSource),
+            new AuthorizedPackageDependencyManifestSource(candidateSource));
+
+        PackageDependencyTraversalProjection explicitProjection = FindProjection(
+            explicitOutcome,
+            PackageSourceCoordinate.Create("dependency", "1.2.3"));
+        AssertManifestFallbackDiagnostics(explicitOutcome, explicitProjection);
+
+        string desktopSources = CreateTemporaryDirectory();
+        string missingFolder = Directory.CreateDirectory(
+            Path.Combine(desktopSources, "a-missing")).FullName;
+        string successfulFolder = Directory.CreateDirectory(
+            Path.Combine(desktopSources, "b-successful")).FullName;
+        WriteLocalSourcePackage(successfulFolder, "dependency", "1.2.3", "");
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(30));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [missingFolder, successfulFolder],
+        };
+        PackageDependencyTraversalOutcome desktopOutcome = await ExecuteAsync(
+            [root],
+            new PackageDependencyTraversalCandidateAdapter(
+                new DesktopPackageDependencyCandidateSource(
+                    composition,
+                    sourceOptions)),
+            new DesktopPackageDependencyTraversalManifestSource(composition));
+
+        PackageDependencyTraversalProjection desktopProjection = FindProjection(
+            desktopOutcome,
+            PackageSourceCoordinate.Create("dependency", "1.2.3"));
+        AssertManifestFallbackDiagnostics(desktopOutcome, desktopProjection);
+
+        static void AssertManifestFallbackDiagnostics(
+            PackageDependencyTraversalOutcome outcome,
+            PackageDependencyTraversalProjection projection)
+        {
+            PackageAuthorityFailure diagnostic = Assert.Single(
+                projection.Diagnostics);
+            Assert.IsType<InertString>(diagnostic.Authority);
+            Assert.NotNull(diagnostic.SourceFailure);
+            Assert.Empty(outcome.Failures);
+            Assert.True(outcome.IsComplete);
+        }
+    }
+
     // ---- Shared fixtures and helpers ----
 
     private static PackageDependencyTraversalRequest BuildRequest(
@@ -1521,12 +1637,18 @@ public sealed class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome,
         PackageSourceCoordinate coordinate)
     {
+        return FindProjection(outcome, coordinate).Evidence!;
+    }
+
+    private static PackageDependencyTraversalProjection FindProjection(
+        PackageDependencyTraversalOutcome outcome,
+        PackageSourceCoordinate coordinate)
+    {
         int nodeIndex = outcome.Nodes.ToList().FindIndex(
             node => node.Coordinate == coordinate);
-        PackageDependencyTraversalProjection projection = outcome.Projections.Single(
+        return outcome.Projections.Single(
             projection => projection.NodeIndex == nodeIndex
                 && projection.Evidence is not null);
-        return projection.Evidence!;
     }
 
     private static PackageDependencyTraversalRootOccurrence Root(
@@ -1652,6 +1774,24 @@ public sealed class PackageDependencyTraversalQueryTests
         }
     }
 
+    private sealed class CancelingManifestAcquirer(
+        CancellationTokenSource cancellation,
+        PackageSourceManifest manifest) :
+        IPackageDependencyTraversalManifestAcquirer
+    {
+        public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+            PackageAcquisitionCandidate candidate,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+        {
+            cancellation.Cancel();
+            return Task.FromResult<PackageDependencyTraversalManifestResult>(
+                new PackageDependencyTraversalManifestResult.Acquired(
+                    manifest,
+                    []));
+        }
+    }
+
     private sealed class StubManifestAcquirer : IPackageDependencyTraversalManifestAcquirer
     {
         private readonly Dictionary<
@@ -1678,7 +1818,8 @@ public sealed class PackageDependencyTraversalQueryTests
                 candidate.Authorities[0].Authority);
             _byCorrespondence[candidate.Correspondence] = () =>
                 new PackageDependencyTraversalManifestResult.Acquired(
-                    factory.Manifest(manifestCoordinate, bytes));
+                    factory.Manifest(manifestCoordinate, bytes),
+                    []);
         }
 
         public Task<PackageDependencyTraversalManifestResult> AcquireAsync(

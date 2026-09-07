@@ -42,6 +42,7 @@ public sealed record PackageDependencyTraversalProjection(
     PackageDependencyEvidenceRoot? Evidence,
     PackageAcquisitionCandidate? Candidate,
     int? RootOccurrenceIndex,
+    ImmutableArray<PackageAuthorityFailure> Diagnostics,
     ImmutableArray<int> OutgoingEdgeIndexes);
 
 /// <summary>
