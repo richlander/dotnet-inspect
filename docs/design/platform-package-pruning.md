@@ -76,18 +76,26 @@ identity only when it references that framework. A console app references
 `Microsoft.NETCore.App`; a web app also references `Microsoft.AspNetCore.App`
 and subsumes more.
 
-This is not a technicality. Microsoft.Extensions membership is 46 on both
-`net10.0` and `net11.0`, but its supplying family moved:
+This is not a technicality, and the `Microsoft.Extensions.*` prefix shows why.
+Counting the entries under that prefix across both families, `net10.0` and
+`net11.0` each subsume **46** package identities — the total is unchanged.
+What changed between the two releases is which shared framework publishes
+them:
 
 | Target | `Microsoft.NETCore.App` | `Microsoft.AspNetCore.App` | Total |
 | --- | --- | --- | --- |
 | `net10.0` | 0 | 46 | 46 |
 | `net11.0` | 9 | 37 | 46 |
 
-So on `net10.0` a console app has no Microsoft.Extensions package pruned at
-all and `Microsoft.Extensions.DependencyInjection.Abstractions` is an ordinary
-package; the same app on `net11.0` has nine pruned and that package is
-Platform. A web app sees 46 on both.
+A console app references only `Microsoft.NETCore.App`. On `net10.0` that means
+none of those 46 are subsumed for it, and
+`Microsoft.Extensions.DependencyInjection.Abstractions` is an ordinary package;
+on `net11.0` nine are, and that package is Platform. A web app references both
+families and subsumes all 46 either way.
+
+The same identity is Platform or package depending on the target's
+composition, with no change to the identity, the prefix, or any rule the
+product authors.
 
 A target's applicable inventory is therefore the union of the families it
 references. Composition requires agreement on the target framework, since a
