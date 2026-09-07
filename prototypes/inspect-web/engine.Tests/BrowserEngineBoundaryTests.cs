@@ -5496,11 +5496,12 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PlatformHomeDemoRunCore_ProjectsAnchoredCallGraph()
+    public async Task PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings()
     {
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
-        const string version = "11.0.105";
+        const string packageVersion = "11.0.105";
+        const string requestedVersion = "11.0.105.0";
         const string framework = "net11.0-platform-home-demo-graph";
         byte[] nupkg = PlatformPackage(
             ("InspectWeb.Engine.Tests.dll",
@@ -5510,7 +5511,7 @@ public sealed class BrowserEngineBoundaryTests
                 File.ReadAllBytes(typeof(object).Assembly.Location)));
         var handler = new PlatformVersionHandler(
             packageId,
-            version,
+            packageVersion,
             nupkg);
         using var client = new HttpClient(handler);
         var authorization =
@@ -5520,7 +5521,7 @@ public sealed class BrowserEngineBoundaryTests
         await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssembliesAsync(
                 framework,
-                version,
+                requestedVersion,
                 [
                     new(
                         "InspectWeb.Engine.Tests.dll",
@@ -5548,17 +5549,21 @@ public sealed class BrowserEngineBoundaryTests
                     == typeof(BrowserEngineBoundaryTests).FullName);
             member = Assert.Single(
                 type.Api,
-                candidate => candidate.Name == nameof(HomeDemoRunFixture)
-                    && candidate.Parameters.Single().Type == "int");
+                candidate => candidate.Name == nameof(HomeDemoRunLocalFixture));
             var plan = new BrowserHomeDemoRunPlan(
                 [
                     new BrowserHomeDemoRunRequest.Platform(
                         "runtime",
+                        "System.Private.CoreLib",
+                        requestedVersion,
+                        framework),
+                    new BrowserHomeDemoRunRequest.Platform(
+                        "runtime",
                         "InspectWeb.Engine.Tests",
-                        version,
+                        requestedVersion,
                         framework),
                 ],
-                FocusRequestIndex: 0,
+                FocusRequestIndex: 1,
                 type.DefinitionId,
                 ProductDemoSections.CallGraph,
                 new BrowserHomeDemoRunMember(
@@ -5584,6 +5589,7 @@ public sealed class BrowserEngineBoundaryTests
             Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
         Assert.Equal("platform", activation.FocusKind);
         Assert.Equal("runtime", activation.FocusId);
+        Assert.Equal(packageVersion, activation.FocusVersion);
         Assert.Equal(
             "InspectWeb.Engine.Tests",
             activation.FocusAssembly);
@@ -5592,8 +5598,9 @@ public sealed class BrowserEngineBoundaryTests
             InspectWeb.Engine.CatalogFacade.BrowserCallGraph>(
                 result.CallGraph);
         Assert.Equal(0, graph.Scope.Packages);
+        Assert.Equal(2, graph.Scope.Assemblies);
         Assert.Contains(
-            nameof(HomeDemoRunFixture),
+            nameof(HomeDemoRunLocalFixture),
             graph.Mermaid,
             StringComparison.Ordinal);
     }
@@ -5603,6 +5610,9 @@ public sealed class BrowserEngineBoundaryTests
 
     public static string HomeDemoRunFixture(string value) =>
         value.Trim();
+
+    public static int HomeDemoRunLocalFixture(int value) =>
+        value + 1;
 
     [Fact]
     public void CallGraphMermaid_ContainsArtifactLabels()

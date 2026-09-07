@@ -851,7 +851,7 @@ bindings. These properties are gated by
 `HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`,
 `HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`,
 `PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
-`PlatformHomeDemoRunCore_ProjectsAnchoredCallGraph`.
+`PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
 
 This engine capability does not yet change the home buttons. The current
 TypeScript still restores STJ through a share deep link built from the resolved
