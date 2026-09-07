@@ -381,8 +381,8 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     static IPackageSourceClient CatalogSource(HttpMessageHandler handler) =>
-        PackageSourceClientFactory.CreateGallery(
-            PackageSourceAssociation.Create(), handler,
+        BrowserPackageWorkspace.CreateGallerySource(
+            handler,
             new NuGetFetchOptions
             {
                 RequestTimeout = TimeSpan.FromSeconds(5),
