@@ -29,7 +29,7 @@ it does not assert that every live Workspace has a persisted named entry.
 
 **Inspect** selects content for inspection within the current Workspace. In
 the Workspace inventory it selects an admitted package without replacing other
-members or traversal permissions. Prefer it to an ambiguous inspection-only
+members or registrations. Prefer it to an ambiguous inspection-only
 Open label. An actual saved-definition Open still means replacement and
 restoration; this contract does not rename that operation.
 
@@ -52,7 +52,7 @@ Workspace                                                   [Edit]
 
 Edit Workspace
   Packages and planned loading
-  Allowed traversal
+  Registered scope
   Save destination
                                                [Cancel]     [Save]
 ```
