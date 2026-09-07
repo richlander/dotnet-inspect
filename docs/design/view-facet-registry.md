@@ -319,8 +319,10 @@ consumer-paired cutover replaces them.
 Issue [#5509](https://github.com/richlander/dotnet-inspect/issues/5509) adopts
 Navigation's Workspace-rooted subject grammar. The target grammar has
 Workspace, Package, Library, Type, and Member; it has no generic Root subject.
-Artifact Acquisition and Workspace Scope retain their internal Root
-terminology without exporting it as Registry applicability.
+Artifact Acquisition retains Root for its physical realization contract.
+Scope's current `WorkspaceRoot*` names are transitional until #6293 replaces
+them with Package-specific vocabulary. Neither exports Root as Registry
+applicability.
 
 The current Root-prefixed inventory has no users, and no supported URL or
 persisted definition exposes those IDs as its external vocabulary. The cutover

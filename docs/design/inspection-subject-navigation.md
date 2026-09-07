@@ -84,9 +84,10 @@ Non-package inputs remain outside this structural grammar. Platform, project,
 file, embedded, or another future input does not become a generic Root merely
 because it can contain Libraries. A focused design may add a concrete subject
 kind when a named consumer demonstrates its own identity, hierarchy, facets,
-and behavior. Artifact Acquisition and Workspace Scope may continue to use
-Root as internal terminology for their broader physical and membership
-contracts; those internal types do not create a Navigation subject.
+and behavior. Artifact Acquisition continues to use Root for its broader
+physical realization contract. Scope's current `WorkspaceRoot*` names are
+transitional until #6293 replaces them with Package-specific vocabulary;
+neither creates a Navigation subject.
 The pre-adoption decision to keep this grammar package-specific is recorded on
 [PR #6184](https://github.com/richlander/dotnet-inspect/pull/6184#issuecomment-5574458614).
 
