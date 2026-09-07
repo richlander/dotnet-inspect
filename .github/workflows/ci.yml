@@ -361,9 +361,11 @@ jobs:
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
-      - name: Install browser dependencies
+      - name: Build browser frontend
         working-directory: prototypes/inspect-web
-        run: npm ci
+        run: |
+          npm ci
+          npm run build
 
       - name: Check generated inspect-web TypeScript facade for drift
         env:
