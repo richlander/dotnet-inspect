@@ -56,8 +56,11 @@ public sealed record PlatformSupply(
 /// match, `NETStandard.Library` has no library at all, and neither fact is legible from the id.
 /// </para>
 /// <para>
-/// Placement is provisional. The package input abstraction tracked by #6266 separates input,
-/// transport, and policy; this type is expected to move into that policy layer once it exists.
+/// Placement is settled by the input owner rather than provisional.
+/// <c>package-dependency-evidence.md</c> names package-pruning policy as the first consumer of
+/// its shape and states that it "does not move pruning policy into this owner", so this type
+/// stays here and adopts that shape as its input. That adoption is a later step in the input
+/// owner's own plan.
 /// </para>
 /// </remarks>
 public static class PlatformPrunePolicy
