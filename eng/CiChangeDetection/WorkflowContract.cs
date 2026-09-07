@@ -15,6 +15,7 @@ internal static partial class WorkflowContract
         "inspect-web-managed-tests",
         "inspect-web-browser",
         "inspect-web-published",
+        "inspect-web-published-api",
     ];
 
     private static readonly string[] InspectWebDotnetJobs =
@@ -25,6 +26,7 @@ internal static partial class WorkflowContract
         "inspect-web-managed-bridge",
         "inspect-web-managed-tests",
         "inspect-web-published",
+        "inspect-web-published-api",
     ];
 
     internal static WorkflowContractResult Load(
@@ -67,6 +69,7 @@ internal static partial class WorkflowContract
 
         ValidateInspectWebTopology(jobs);
         ValidateInspectWebBrowser(jobs);
+        ValidateInspectWebPublishedApplication(jobs);
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
         ValidateTlaJob(jobs);
@@ -201,6 +204,40 @@ internal static partial class WorkflowContract
             "run",
             "npm run test:browser -- --shard=${{ matrix.shard }}/2",
             "jobs.inspect-web-browser test step");
+    }
+
+    private static void ValidateInspectWebPublishedApplication(
+        YamlMappingNode jobs)
+    {
+        YamlMappingNode published =
+            GetRequiredMapping(jobs, "inspect-web-published", "jobs");
+        YamlSequenceNode steps = GetRequiredSequence(
+            published,
+            "steps",
+            "jobs.inspect-web-published");
+        List<YamlMappingNode> testSteps = [];
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(
+                stepNode,
+                "jobs.inspect-web-published step");
+            if (GetOptionalScalar(step, "name") ==
+                "Test published browser application")
+            {
+                testSteps.Add(step);
+            }
+        }
+
+        if (testSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.inspect-web-published application test step.");
+        }
+        RequireScalarValue(
+            testSteps[0],
+            "run",
+            "eng/test-inspect-web-published-application.sh",
+            "jobs.inspect-web-published application test step");
     }
 
     private static void ValidateInspectWebSdk(YamlMappingNode jobs)

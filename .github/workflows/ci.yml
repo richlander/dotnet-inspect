@@ -571,26 +571,37 @@ jobs:
           npm ci
           npm run build
 
-      - name: Publish browser app
-        run: >
-          dotnet publish
-          prototypes/inspect-web/engine/InspectWeb.Engine.csproj
-          -c Release
-          --output artifacts/inspect-web-publish
+      - name: Publish browser app and install Firefox
+        shell: bash
+        run: |
+          set -uo pipefail
+          dotnet publish \
+            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            -c Release \
+            --output artifacts/inspect-web-publish &
+          publish_pid=$!
+          (
+            cd prototypes/inspect-web
+            npx playwright install --with-deps firefox
+          ) &
+          firefox_pid=$!
 
-      - name: Publish MSDL managed API
-        run: >
-          dotnet publish
-          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
-          -c Release
-          --output artifacts/inspect-web-publish/api
+          failed=0
+          if ! wait "$publish_pid"; then
+            echo "::error::Publishing the browser application failed."
+            failed=1
+          fi
+          if ! wait "$firefox_pid"; then
+            echo "::error::Installing Firefox failed."
+            failed=1
+          fi
+          exit "$failed"
 
       - name: Verify browser site artifact
         shell: bash
         run: |
           set -euo pipefail
           site=artifacts/inspect-web-publish/wwwroot
-          api=artifacts/inspect-web-publish/api
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
@@ -624,11 +635,6 @@ jobs:
               "X-Frame-Options": "DENY",
               "Strict-Transport-Security": "max-age=63072000; includeSubDomains"
             }' "$site/staticwebapp.config.json" >/dev/null
-          test -f "$api/host.json"
-          test -f "$api/functions.metadata"
-          test -f "$api/worker.config.json"
-          test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
-          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
           manifest="$site/manifest.json"
           test -f "$manifest"
           jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
@@ -661,30 +667,40 @@ jobs:
           module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
           test "$import_map_line" -lt "$module_line"
 
-      - name: Smoke published engine facade
-        working-directory: prototypes/inspect-web
+      - name: Test published browser application
+        run: eng/test-inspect-web-published-application.sh
+
+  inspect-web-published-api:
+    name: inspect-web published managed API
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Publish MSDL managed API
         run: >
-          node
-          scripts/verify-published-engine-facades.ts
-          ../../artifacts/inspect-web-publish/wwwroot
-          production
+          dotnet publish
+          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-api
 
-      - name: Install Firefox
-        working-directory: prototypes/inspect-web
-        run: npx playwright install --with-deps firefox
-
-      - name: Test published Worker browser binding
-        working-directory: prototypes/inspect-web
-        run: npm run inspect-web-worker-browser-binding
-
-      - name: Test artifact-backed package scope adoption in Firefox
-        run: eng/test-inspect-web-package-adoption-gate.sh
-
-      - name: Test inspect-web promotion validation
-        run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
-
-      - name: Test authored Source comparison in Firefox
-        run: eng/test-inspect-web-source-comparison-gate.sh
+      - name: Verify MSDL managed API artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          api=artifacts/inspect-web-api
+          test -f "$api/host.json"
+          test -f "$api/functions.metadata"
+          test -f "$api/worker.config.json"
+          test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
+          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
 
   inspect-web:
     name: inspect-web
@@ -698,6 +714,7 @@ jobs:
       - inspect-web-managed-tests
       - inspect-web-browser
       - inspect-web-published
+      - inspect-web-published-api
     if: >-
       always() &&
       fromJSON(needs.changes.outputs.plan).validations.inspectWeb
@@ -710,7 +727,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 8
+            | ($results | length) == 9
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -1747,6 +1764,7 @@ jobs:
       - inspect-web-managed-tests
       - inspect-web-browser
       - inspect-web-published
+      - inspect-web-published-api
       - inspect-web
       - skill-gate
       - repository-guards
