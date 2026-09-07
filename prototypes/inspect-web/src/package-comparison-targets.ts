@@ -66,8 +66,8 @@ export function diffTargetDescription(
   diff: DiffTarget,
   versions: PackageVersionState,
 ): string {
-  if (diff.kind === "exact") return `Compare against ${diff.version}.`;
   if (versions.status === "failed") return versions.message;
+  if (diff.kind === "exact") return `Compare against ${diff.version}.`;
   if (versions.status !== "available") return "Reading available versions...";
   const { previousVersion, previousVersionUnavailableReason } = versions.inventory;
   return previousVersionUnavailableReason

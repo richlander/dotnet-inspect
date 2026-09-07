@@ -122,6 +122,19 @@ test("form renders escaped coordinates, explicit limitations, and a retry action
   assert.match(html, /Workspace \(including self\)/);
 });
 
+test("failed inventory retry stays visible while preserving an exact selection", () => {
+  const current = pkg();
+  const html = renderPackageComparisonTargets({
+    package: current, packages: [current],
+    diff: { kind: "exact", version: "1.0.0" }, clone: { kind: "workspace" },
+    versions: { status: "failed", message: "Network unavailable" },
+  }, escapeHtml);
+  assert.match(html, /Network unavailable/);
+  assert.match(html, /value="exact:1\.0\.0" selected/);
+  assert.doesNotMatch(html, /Compare against 1\.0\.0\./);
+  assert.match(html, /package-comparison-retry/);
+});
+
 test("bindings dispatch exact versions and captured Package objects without eager selection", () => {
   class Control {
     value = "";
