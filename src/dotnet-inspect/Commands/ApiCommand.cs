@@ -1293,6 +1293,17 @@ public class ApiCommand
 
         var filtered = BuildFilteredTypeForSections(type, options);
         var (empty, _) = pipeline.GetEmptySections(filtered, options.Verbosity, options.IncludeSections);
+        if (BodyKindQueryOptions.IsSelected(options.IncludeSections))
+        {
+            var bodyFiltered = BuildFilteredTypeForBodyShapes(type, options);
+            var (emptyBodySections, _) = pipeline.GetEmptySections(
+                bodyFiltered,
+                options.Verbosity,
+                options.IncludeSections);
+            empty.RemoveAll(BodyKindQueryOptions.Sections.Contains);
+            empty.AddRange(emptyBodySections.Where(BodyKindQueryOptions.Sections.Contains));
+        }
+
         if (empty.Count == 0)
             return;
 
@@ -1307,8 +1318,19 @@ public class ApiCommand
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
+        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: true);
+
+    internal static ApiType BuildFilteredTypeForBodyShapes(ApiType type, ApiOptions options)
+        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: false);
+
+    private static ApiType BuildFilteredType(
+        ApiType type,
+        ApiOptions options,
+        bool excludeCompilerGeneratedNames)
     {
-        var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
+        IEnumerable<ApiMember> members = type.Members;
+        if (excludeCompilerGeneratedNames)
+            members = members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
@@ -2728,7 +2750,7 @@ public class ApiCommand
                     typeBodyShapeDllPath,
                     options.PdbPath,
                     ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(
-                        BuildFilteredTypeForSections(type, options)),
+                        BuildFilteredTypeForBodyShapes(type, options)),
                     options,
                     sourceAssembly);
             }
@@ -3676,7 +3698,7 @@ public class ApiCommand
                     typeBodyShapeDllPath,
                     renderOptions.PdbPath,
                     ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(
-                        BuildFilteredTypeForSections(type, renderOptions)),
+                        BuildFilteredTypeForBodyShapes(type, renderOptions)),
                     renderOptions,
                     acquisition?.SourceAssembly);
             }

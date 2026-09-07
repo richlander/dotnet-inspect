@@ -103,6 +103,7 @@ public sealed class BodyShapeSummaryApiTests
             "--columns", "Match;Count", "--rows", window, "--jsonl");
 
         Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("has no data", result.Error);
         var row = Assert.Single(ParseRows(result.Output));
         Assert.Equal(match, row.GetProperty("match").GetString());
         Assert.Equal(count, row.GetProperty("count").ToString());
@@ -141,6 +142,34 @@ public sealed class BodyShapeSummaryApiTests
         var occurrence = Assert.Single(ParseRows(occurrences.Output));
         Assert.Equal("1", group.GetProperty("count").ToString());
         Assert.Equal(group.GetProperty("match").GetString(), occurrence.GetProperty("match").GetString());
+    }
+
+    [Theory]
+    [InlineData(SectionNames.BodyShapeSummary)]
+    [InlineData(SectionNames.BodyShapes)]
+    public async Task TypeViews_PreserveExplicitPrefixedMethodSelection(string section)
+    {
+        var result = await Run(
+            ["type", typeof(BodyShapeFilterFixture).FullName!,
+                "--library", FixturePath,
+                "--member", nameof(BodyShapeFilterFixture.s_Create),
+                "-S", section,
+                "--where", "Kind=ObjectCreationExpression",
+                "--jsonl"]);
+
+        Assert.Equal(0, result.ExitCode);
+        var row = Assert.Single(ParseRows(result.Output));
+        Assert.Equal("new object()", row.GetProperty("match").GetString());
+        if (section == SectionNames.BodyShapeSummary)
+        {
+            Assert.Equal("1", row.GetProperty("count").ToString());
+        }
+        else
+        {
+            Assert.Contains(
+                nameof(BodyShapeFilterFixture.s_Create),
+                row.GetProperty("member").GetString());
+        }
     }
 
     [Theory]
