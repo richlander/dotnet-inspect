@@ -769,7 +769,7 @@ the later RTS migration.
 [#6005](https://github.com/richlander/dotnet-inspect/issues/6005) tracks the
 frozen-reference implementation within the overall decoder-adoption tracker
 [#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
-The compatibility-preserving frozen-reference adoption path has three steps:
+The compatibility-preserving frozen-reference adoption path has four steps:
 
 1. Implement the inventory, selected set, and scoped context API. The immediate
    production host for this test infrastructure is the decompiler harness
@@ -778,7 +778,12 @@ The compatibility-preserving frozen-reference adoption path has three steps:
 2. Add the explicit platform policy in
    [#6120](https://github.com/richlander/dotnet-inspect/issues/6120), with the
    same harness contract suite as its immediate production consumer.
-3. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
+   This step landed in [#6133](https://github.com/richlander/dotnet-inspect/pull/6133).
+3. Expose the Services-owned
+   [candidate inventory](assembly-dependency-candidate-inventory.md) in
+   [#6201](https://github.com/richlander/dotnet-inspect/issues/6201), preserving
+   discovery evidence before consumer selection.
+4. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
    in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
    its simple-name-first-wins reference enumeration and competing compiler
    binding projection on that path.

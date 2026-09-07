@@ -70,8 +70,11 @@ substrates, and inspection producers that will extend that space.
   assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
-  owns an explicit two-endpoint attempt over one resolved member. The project
-  has no Markout, console, or filesystem-path dependency.
+  owns an explicit two-endpoint attempt over one resolved member. The proposed
+  [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
+  package-activity report's request, evidence categories, selection, and
+  coverage, including the six-week default and qualified security overlay.
+  The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -141,7 +144,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing. It owns the accepted package/metadata XML structure
+  and nuspec parsing. `AssemblyDependencyResolver` owns the
+  [assembly dependency candidate inventory](design/assembly-dependency-candidate-inventory.md):
+  explicit undiscarded discovery evidence, target-input association and
+  acquisition outcomes before consumer selection.
+  Services owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
   Its [package metadata persistence](design/package-metadata-persistence.md)

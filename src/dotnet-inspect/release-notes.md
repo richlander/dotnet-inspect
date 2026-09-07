@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
+  grouping identical rendered Kind/Match values with occurrence counts.
+  `Body Shapes` retains individual member/token/rendered-C# locations.
+  Column projection remains presentational; summary row limits select groups
+  without truncating their counts. Type `--member` filters now bound both
+  summary and occurrence evidence before rendering (#6186).
 - Online single-package inspection now selects latest and wildcard versions
   from configured local and HTTP authorities, including `--preview`.
   Selection requires fresh, complete discovery and acquires only from sources
