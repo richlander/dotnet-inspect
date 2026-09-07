@@ -193,6 +193,23 @@ The .NET 12 non-ReadyToRun and ReadyToRun deployments must use one exact,
 coherent SDK and workload cohort. A floating daily or a stable SDK combined
 with separately overridden runtime packages is not comparable evidence.
 
+The non-ReadyToRun CoreCLR deployment pins the runtime-main cohort:
+
+- SDK `12.0.100-alpha.1.26454.116`;
+- runtime and browser workload packs `12.0.0-alpha.1.26454.116`; and
+- workload feed
+  `https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json`.
+
+This cohort's browser workload describes `wasm-tools` for `net11.0`, so the
+Inspect Web project graph retains that target framework while executing on the
+.NET 12 CoreCLR runtime. The workflow sets `PublishReadyToRun=false`
+explicitly. Its artifact carries `dotnet --info`, `dotnet workload list`, and a
+machine-readable receipt that binds the SDK, runtime, workload manifest and
+packs, feeds, target framework, runtime-async lowering, and non-ReadyToRun
+configuration. It also records the pinned CoreCLR pack's native JavaScript and
+Wasm hashes, which must equal the published runtime assets. The same receipt is
+verified before artifact upload and again before deployment.
+
 ReadyToRun publication must additionally record:
 
 - `PublishReadyToRun=true`;

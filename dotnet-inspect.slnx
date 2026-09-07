@@ -27,6 +27,9 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures/ILInspector.Analysis.TopLevelAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures/ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.UnoptimizedAsyncFixtures/ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.CallerBinding.Caller/DotnetInspector.CallerBinding.Caller.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.CallerBinding.Contract/DotnetInspector.CallerBinding.Contract.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.CallerBinding.Facade/DotnetInspector.CallerBinding.Facade.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.AuthoredRebuild/ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" />
@@ -99,6 +102,10 @@
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
   </Folder>
+  <Folder Name="/fixtures/presentation/">
+    <Project Path="fixtures/presentation/LibraryApiDiff.V1/LibraryApiDiff.V1.csproj" />
+    <Project Path="fixtures/presentation/LibraryApiDiff.V2/LibraryApiDiff.V2.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
@@ -113,7 +120,6 @@
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
-    <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
@@ -172,6 +178,7 @@
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />

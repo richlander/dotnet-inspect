@@ -140,7 +140,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             cache,
             "uses",
-            "actions/cache@v4",
+            "actions/cache@v6",
             "jobs.repository-guards cache step");
         RequireExactScalarValues(
             GetRequiredMapping(

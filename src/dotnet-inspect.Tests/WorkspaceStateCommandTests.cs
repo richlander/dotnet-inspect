@@ -65,6 +65,28 @@ public sealed class WorkspaceStateCommandTests
         Assert.Equal(CanonicalVector, encoded.Output.TrimEnd());
     }
 
+    [Theory]
+    [InlineData(CanonicalVector)]
+    [InlineData(UnicodeVector)]
+    public async Task EncodeUrl_PreservesCanonicalPacket(string encoded)
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            encoded,
+            TestContext.Current.CancellationToken);
+        var result = await RunCliAsync(
+            "workspace-state",
+            "encode",
+            WorkspaceSharePacketCodec.SerializeJson(packet),
+            "--url");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            $"https://dotnet-inspect.net/?w={encoded}{Environment.NewLine}",
+            result.Output);
+        Assert.Equal(encoded, new Uri(result.Output.TrimEnd()).Query[3..]);
+    }
+
     [Fact]
     public async Task Encode_AcceptsEquivalentJsonFromFile()
     {
@@ -87,6 +109,19 @@ public sealed class WorkspaceStateCommandTests
             Assert.Equal(0, result.ExitCode);
             Assert.Empty(result.Error);
             Assert.Equal(CanonicalVector, result.Output.TrimEnd());
+
+            var url = await RunCliAsync(
+                "workspace-state",
+                "encode",
+                "--file",
+                path,
+                "--url");
+
+            Assert.Equal(0, url.ExitCode);
+            Assert.Empty(url.Error);
+            Assert.Equal(
+                $"https://dotnet-inspect.net/?w={CanonicalVector}",
+                url.Output.TrimEnd());
         }
         finally
         {
@@ -194,6 +229,25 @@ public sealed class WorkspaceStateCommandTests
     }
 
     [Fact]
+    public async Task EncodeUrl_ReadsBoundedStandardInput()
+    {
+        using var input = Utf8Stream(EquivalentJson + "\r\n");
+        var result = await ConsoleCapture.RunAsync(
+            () => WorkspaceStateCommand.EncodeAsync(
+                "-",
+                file: null,
+                TestContext.Current.CancellationToken,
+                input,
+                url: true));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            $"https://dotnet-inspect.net/?w={CanonicalVector}",
+            result.Output.TrimEnd());
+    }
+
+    [Fact]
     public async Task MaximumPacket_DecodePipeEncode_RoundTrips()
     {
         string json = CreateMaximumJson();
@@ -225,6 +279,14 @@ public sealed class WorkspaceStateCommandTests
         Assert.Equal(0, replayed.ExitCode);
         Assert.Empty(replayed.Error);
         Assert.Equal(packet, replayed.Output.TrimEnd());
+
+        var url = await RunCliAsync(
+            "workspace-state", "encode", json, "--url");
+        Assert.Equal(0, url.ExitCode);
+        Assert.Empty(url.Error);
+        Assert.Equal(
+            $"https://dotnet-inspect.net/?w={packet}",
+            url.Output.TrimEnd());
     }
 
     [Theory]
@@ -364,6 +426,21 @@ public sealed class WorkspaceStateCommandTests
         Assert.Contains(
             "<packet> and --file are alternate input sources",
             conflicting.Error);
+
+        var missingUrl = await RunCliAsync(
+            "workspace-state", "encode", "--url");
+        Assert.Equal(1, missingUrl.ExitCode);
+        Assert.Empty(missingUrl.Output);
+        Assert.Contains("Provide <json>", missingUrl.Error);
+
+        var conflictingUrl = await RunCliAsync(
+            "workspace-state", "encode", EquivalentJson,
+            "--file", "workspace-state.json", "--url");
+        Assert.Equal(1, conflictingUrl.ExitCode);
+        Assert.Empty(conflictingUrl.Output);
+        Assert.Contains(
+            "<json> and --file are alternate input sources",
+            conflictingUrl.Error);
     }
 
     [Fact]
@@ -376,13 +453,27 @@ public sealed class WorkspaceStateCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Usage:", result.Output);
+        Assert.Contains("--url", result.Output);
         Assert.Empty(result.Error);
     }
 
     [Fact]
-    public async Task InvalidAndOversizedInput_FailsWithoutOutput()
+    public async Task Decode_DoesNotAcceptUrlOption()
     {
-        var invalid = await RunCliAsync("workspace-state", "encode", "{}");
+        var result = await RunCliAsync(
+            "workspace-state", "decode", CanonicalVector, "--url");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("--url", result.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InvalidAndOversizedInput_FailsWithoutOutput(bool url)
+    {
+        var invalid = await RunCliAsync(
+            "workspace-state", "encode", "{}", $"--url={url}");
         Assert.Equal(1, invalid.ExitCode);
         Assert.Empty(invalid.Output);
         Assert.Contains("Error: Workspace share state requires", invalid.Error);
@@ -395,7 +486,8 @@ public sealed class WorkspaceStateCommandTests
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
-                oversizedInput));
+                oversizedInput,
+                url: url));
         Assert.Equal(1, oversized.ExitCode);
         Assert.Empty(oversized.Output);
         Assert.Contains(
