@@ -178,7 +178,8 @@ internal static class CliArgumentOwnership
         ref int tokenIndex,
         string value)
     {
-        if (tokenIndex < tokens.Count
+        if (value.Length > 0
+            && tokenIndex < tokens.Count
             && tokens[tokenIndex].Type == TokenType.Argument
             && tokens[tokenIndex].Value.Equals(value, StringComparison.Ordinal))
         {

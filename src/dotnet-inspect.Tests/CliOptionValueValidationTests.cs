@@ -36,6 +36,17 @@ public sealed class CliOptionValueValidationTests
     }
 
     [Theory]
+    [InlineData("--required=", "", "--flag=false")]
+    [InlineData("--required", "", "--flag=false")]
+    public async Task EmptyRequiredValuesDoNotShiftFollowingAttachedFlag(
+        params string[] arguments)
+    {
+        var fixture = new Fixture();
+        AssertRejected(await fixture.Run(arguments), "--flag");
+        Assert.Null(fixture.Executed);
+    }
+
+    [Theory]
     [InlineData("--flag", "one", "--flag", "two")]
     [InlineData("--flag", "one", "-f", "word")]
     [InlineData("--switch", "one", "--flag", "-s", "false")]
@@ -207,6 +218,15 @@ public sealed class CliOptionValueValidationTests
     public async Task PackageExplicitImplicitAndEarlyQueryRejectBeforeOutput(
         string name, string[] arguments) =>
         AssertRejected(await RunPackage(arguments), name);
+
+    [Theory]
+    [InlineData("--out=", "", "--versions=false")]
+    [InlineData("--out", "", "--versions=false")]
+    public async Task PackageEmptyOutputValuesDoNotHideAttachedVersionValues(
+        params string[] arguments) =>
+        AssertRejected(
+            await RunPackage(["package", .. arguments, "-Q", "--json"]),
+            "--versions");
 
     public static TheoryData<string[]> ValidPackageQueries
     {
