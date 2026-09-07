@@ -55,7 +55,12 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             new(
                 "#4805",
                 "prototypes/inspect-web/engine.Core/BrowserPackageWorkspace.cs",
-                ExplicitReferences: 12,
+                ExplicitReferences: 13,
+                ImplicitReferences: 0),
+            new(
+                "#4805",
+                "prototypes/inspect-web/engine.Tests/BrowserEngineBoundaryTests.AcquisitionLifetime.cs",
+                ExplicitReferences: 5,
                 ImplicitReferences: 0),
             new(
                 "#4805",
