@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.CSharp\ILInspector.CSharp.csproj" />
   </ItemGroup>
 
 </Project>

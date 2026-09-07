@@ -109,7 +109,7 @@ producers. Ordinary PDB-first/decompiled-fallback behavior is retained.
 
 ```bash
 dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
-  -class '*AssemblyContextSourceQueryTests'
+  --filter-class '*AssemblyContextSourceQueryTests'
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
   --filter-class '*SelectedSourceDiffTests' --filter-class '*DiffCommandTests'
 ```

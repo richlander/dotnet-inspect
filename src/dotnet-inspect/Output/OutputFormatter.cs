@@ -269,9 +269,16 @@ public static class OutputFormatter
     {
         var items = versionFeeds.ToArray();
 
-        if (options.JsonOutput)
+        if (options.JsonOutput
+            && options.Limit is null)
         {
-            var objects = items.Select(v => new VersionFeedJson(v.Version, v.Feed, v.Listed)).ToList();
+            var objects = items
+                .Select(
+                    v => new VersionFeedJson(
+                        v.Version,
+                        v.Feed,
+                        v.Listed))
+                .ToList();
             output.WriteLine(JsonSerializer.Serialize(objects, JsonContext.Default.ListVersionFeedJson));
             return;
         }
@@ -316,7 +323,24 @@ public static class OutputFormatter
     public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
         InspectionOptions options, TextWriter output)
     {
-        var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
+        var items = versions.ToArray();
+        if (options.JsonOutput
+            && options.Limit is null)
+        {
+            var objects = items
+                .Select(
+                    v => new VersionListingJson(
+                        v.Version,
+                        v.Listed ? "listed" : "unlisted"))
+                .ToList();
+            output.WriteLine(
+                JsonSerializer.Serialize(
+                    objects,
+                    JsonContext.Default.ListVersionListingJson));
+            return;
+        }
+
+        var rows = items.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
         WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
         {
             var markoutWriter = new MarkoutWriter(

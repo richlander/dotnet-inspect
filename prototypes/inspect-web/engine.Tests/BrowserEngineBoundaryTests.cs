@@ -6525,7 +6525,6 @@ public sealed class BrowserEngineBoundaryTests
                 packageId,
                 "1.0.0",
                 client,
-                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
     }
 
@@ -6569,7 +6568,6 @@ public sealed class BrowserEngineBoundaryTests
                 packageId,
                 "1.0.0",
                 client,
-                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
     }
 
@@ -6586,12 +6584,12 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(firstSource.Source.Producer, secondSource.Source.Producer);
 
         BrowserPackage first = await BrowserPackageWorkspace.AcquireAsync(
-            packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
+            packageId, "1.0.0", firstSource,
             TimeSpan.FromSeconds(5));
         IPackageContent second = await QueryContent(secondSource);
         IPackageContent firstAgain = await QueryContent(firstSource);
         BrowserPackage secondAgain = await BrowserPackageWorkspace.AcquireAsync(
-            packageId, "1.0.0", secondSource, PackageSourceIdentity.NuGetOrg,
+            packageId, "1.0.0", secondSource,
             TimeSpan.FromSeconds(5));
 
         Assert.False(second.FromCache);
@@ -6621,7 +6619,7 @@ public sealed class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken);
             return Assert.IsType<PackageQueryContentResult.Available>(
                 await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
-                    package, source, PackageSourceIdentity.NuGetOrg, deadline)).Content;
+                    package, source, deadline)).Content;
         }
     }
 
@@ -6721,7 +6719,7 @@ public sealed class BrowserEngineBoundaryTests
 
         Task<BrowserPackage> Acquire(IPackageSourceClient source) =>
             BrowserPackageWorkspace.AcquireAsync(
-                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                packageId, "1.0.0", source,
                 TimeSpan.FromSeconds(30));
     }
 
@@ -6764,7 +6762,7 @@ public sealed class BrowserEngineBoundaryTests
             BrowserPackageWorkspace.LeaseRetainedPackageScope(
                 packageId, "1.0.0", first.Framework));
         BrowserPackage firstCached = await BrowserPackageWorkspace.AcquireAsync(
-            packageId, "1.0.0", firstSource, PackageSourceIdentity.NuGetOrg,
+            packageId, "1.0.0", firstSource,
             TimeSpan.FromSeconds(5));
         Assert.True(firstCached.Content.FromCache);
         Assert.Same(first.Package.Content.GenerationIdentity, firstCached.Content.GenerationIdentity);
@@ -6801,7 +6799,7 @@ public sealed class BrowserEngineBoundaryTests
 
         Task<BrowserPackageCoordinate> Resolve(IPackageSourceClient source) =>
             BrowserPackageWorkspace.ResolveAsync(
-                packageId, "1.0.0", "net11.0", source, PackageSourceIdentity.NuGetOrg,
+                packageId, "1.0.0", "net11.0", source,
                 TimeSpan.FromSeconds(5));
     }
 
@@ -8471,8 +8469,7 @@ public sealed class BrowserEngineBoundaryTests
          """;
 
     static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
-        PackageSourceClientFactory.CreateGallery(
-            PackageSourceAssociation.Create(),
+        BrowserPackageWorkspace.CreateGallerySource(
             handler,
             new NuGetFetchOptions
             {

@@ -163,7 +163,7 @@ internal sealed class ChangePlan
     /// <summary>
     /// The only schema version this repository produces or consumes.
     /// </summary>
-    internal const int CurrentSchemaVersion = 2;
+    internal const int CurrentSchemaVersion = 3;
 
     /// <summary>
     /// The only status valid in a serialized plan.

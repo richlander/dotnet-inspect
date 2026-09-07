@@ -37,6 +37,7 @@ internal sealed class ValidationSelections
 {
     internal ValidationSelections(
         bool test,
+        bool repositoryGuards,
         bool dependencyPolicy,
         bool cSharpDiffSmoke,
         bool decompilerGates,
@@ -60,6 +61,7 @@ internal sealed class ValidationSelections
         }
 
         Test = test;
+        RepositoryGuards = repositoryGuards;
         DependencyPolicy = dependencyPolicy;
         CSharpDiffSmoke = cSharpDiffSmoke;
         DecompilerGates = decompilerGates;
@@ -77,6 +79,8 @@ internal sealed class ValidationSelections
     }
 
     internal bool Test { get; }
+
+    internal bool RepositoryGuards { get; }
 
     internal bool DependencyPolicy { get; }
 
@@ -118,10 +122,13 @@ internal sealed class ValidationSelections
     internal bool CodeqlJavaScript { get; }
 
     /// <summary>
-    /// Applies the repository's event rules to raw routing selections. A push
-    /// runs the focused dependency-policy composition gate rather than the
-    /// pre-merge test matrix; documentation lint, the Browser/Wasm lane, the
-    /// TLA+ lane, and the CodeQL lanes have no event gate. CodeQL keeps
+    /// Applies the repository's event rules to raw routing selections. Every
+    /// pre-merge candidate runs the focused repository guards because their
+    /// tests scan the repository beyond ordinary path ownership. A push runs
+    /// the focused dependency-policy composition gate rather than the
+    /// pre-merge test matrix or repository guards; documentation lint, the
+    /// Browser/Wasm lane, the TLA+ lane, and the CodeQL lanes have no event
+    /// gate. CodeQL keeps
     /// running on a push because code scanning alerts are reported against
     /// the default branch: gating it on the pre-merge event would leave that
     /// baseline frozen at whatever last ran before the merge.
@@ -136,6 +143,7 @@ internal sealed class ValidationSelections
         bool preMerge = kind != PlanEventKind.Push;
         return new ValidationSelections(
             test: selections.Code && preMerge,
+            repositoryGuards: preMerge,
             dependencyPolicy: kind == PlanEventKind.Push,
             cSharpDiffSmoke: selections.CSharpDiff && preMerge,
             decompilerGates: selections.Decompiler && preMerge,
