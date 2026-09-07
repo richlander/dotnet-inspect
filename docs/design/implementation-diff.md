@@ -1492,12 +1492,18 @@ This boundary does not define:
 
 ## Research authored-source comparison
 
-**Status:** target design for [#5901](https://github.com/richlander/dotnet-inspect/issues/5901),
-Research delivery step 12 of
+**Status:** bounded selected-member contract for
+[#5901](https://github.com/richlander/dotnet-inspect/issues/5901), Research
+delivery step 12 of
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706), advancing
 Slice 4 of [#2673](https://github.com/richlander/dotnet-inspect/issues/2673).
-The independent-population and bounded selected-member behavior below are
-**unimplemented and unverified**.
+The paired query and CLI adopter landed in
+[#5984](https://github.com/richlander/dotnet-inspect/pull/5984), the browser
+facade and view landed in
+[#6096](https://github.com/richlander/dotnet-inspect/pull/6096), and
+[#6250](https://github.com/richlander/dotnet-inspect/issues/6250) owns the
+resulting scoped retirement. Broader independent-population integration
+remains **unimplemented and unverified**.
 `ILInspector.Research` is the single owner.
 
 The claim is:
@@ -1509,12 +1515,13 @@ The claim is:
 
 ### Existing behavior and design basis
 
-The `Source` mechanism and CLI `--pdb-source` already exist. Research's
-`WithPdbSourceComparisons` can retain a Source-only member, but the CLI currently
-acquires source only for `ImplementationDiffResult.Members`: the local
-changed-member projection. No local changes means no Source acquisition.
-That is enrichment of known implementation changes, not independent discovery
-of authored changes across two versions.
+The `Source` mechanism and CLI `--pdb-source` predate this contract. Research's
+`WithPdbSourceComparisons` retains Source evidence for broad assembly-level
+enrichment. Before the paired query landed, CLI acquisition was limited to
+`ImplementationDiffResult.Members`, the local changed-member projection, so no
+local changes meant no Source acquisition. The bounded exact-member CLI and
+browser paths now use the paired query instead; broader CLI selections still
+use the existing enrichment path.
 
 The smallest sufficient change is to compose Source over the requested
 targets rather than that changed-row list. Conventional two-revision text
@@ -1688,8 +1695,13 @@ Preserve supported broader comparisons and typed failures while their
 consumers remain unmigrated; inventory them explicitly rather than claim a
 complete cutover. Scoped cleanup removes replaced dispatch and unused
 Source-specific scaffolding, not ordinary single-version Source or same-member
-PDB-versus-decompiled comparison. `CompareMembersWithPdbSource` and generalized
-Queries/Research retirement remain in #4706 until their actual callers move.
+PDB-versus-decompiled comparison.
+[#6250](https://github.com/richlander/dotnet-inspect/issues/6250) removes the
+uncalled `CompareMembersWithPdbSource` wrapper, its member-only Source flags and
+result fields, and the test dedicated to that wrapper. It retains
+`WithPdbSourceComparisons`, `PdbSourceComparisonInput`, assembly-level
+`ImplementationDiffMember.SourceComparison`, and generalized Queries/Research
+retirement in #4706.
 
 Structured endpoint outcomes, native comparisons, and provenance survive to
 presentation. Host adoptions use the shared Markout lowering for ordinary CLI
@@ -1727,10 +1739,10 @@ The browser's two-version Source selection consumes the same Source evidence,
 not CLI output. In a Source-only request, C# and IL are not requested, not
 reported unchanged.
 
-Planned Release gates below are **unimplemented and unverified**. The existing
-`ResearchDiffTests` Source comparison cases and
-`DiffCommandTests.BuildImplementationDiffView_LabelsPdbSourceAsIndependentLane`
-cover legacy projection only; they do not prove population independence.
+The bounded paired-query, CLI, and browser Release gates below are implemented.
+The existing `ResearchDiffTests` and broad `DiffCommandTests` Source cases cover
+the retained enrichment path; they do not prove broader population
+independence, which remains **unimplemented and unverified**.
 
 | Gate owner | Required observation |
 | --- | --- |
@@ -1878,11 +1890,13 @@ member result keeps the typed C# diff, typed IL diff, joined implementation
 changes, and a single `ResearchSubjectKey`; exact members return an empty
 change list with `IsExact` set.
 
-Use `CompareMembersWithPdbSource` when the caller also has old/new
-`FindingInspection<string>` envelopes from Services. Use
-`WithPdbSourceComparisons` to enrich an assembly comparison. These APIs
-preserve `Complete`, `Absent`, and `Failed` independently and retain the native
-line comparison. Research does not fetch source.
+Use `WithPdbSourceComparisons` to enrich an assembly comparison with old/new
+`FindingInspection<string>` envelopes from Services. It preserves `Complete`,
+`Absent`, and `Failed` independently and retains the native line comparison.
+Exact selected-member two-version comparison uses the Queries-owned
+`AssemblyContextMemberSourcePairQuery`, which retains each endpoint's
+resolution, acquisition, provenance, and non-success. Research does not fetch
+source.
 
 Finding acquisition and cross-validation failures use
 `ResearchChangeKind.Failed`; they are operational diagnostics, never semantic

@@ -111,6 +111,22 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
+For an overview, explicitly select `Body Shape Summary` to group identical
+rendered matches with an occurrence count:
+
+```bash
+dnx dotnet-inspect -y -- type StringBuilder --platform System.Private.CoreLib \
+  --where "Kind=ObjectCreationExpression" -S "Body Shape Summary" \
+  --columns "Match;Count"
+```
+
+`Body Shapes` retains individual occurrences. Keep `Member`, `Token`, and the
+start/end line and column fields to locate each match in the method's rendered
+C# body; these coordinates are not IL offsets or original source locations.
+Hiding columns never groups rows. Summary row limits select groups without
+reducing their occurrence counts; `--count` counts the selected view's rows.
+Both views are available on `library`, `type`, and `member`.
+
 Use `--jsonl` for one machine-readable row per match or `--count` for the row
 count. Bodies that cannot be reconstructed at full fidelity are reported on
 stderr rather than mixed into structured output.
@@ -312,6 +328,27 @@ keeps API-search behavior and may acquire package archives:
 dotnet-inspect find JsonSerializer --package-prefix System.Text
 ```
 
+Add `--where "facet=<ID>"` to run the shared Package Query engine instead,
+with one matched package per row and product-authored evidence. Discover the
+executable IDs before constructing a query:
+
+```bash
+dotnet-inspect find -Q Packages
+dotnet-inspect find --package-prefix dotnet-inspect -S Packages \
+  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+dotnet-inspect find --package-prefix dotnet-inspect --package-content \
+  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+```
+
+Repeat `--where` to combine facets; the engine rejects incompatible selections.
+Tool v1 and v2 are compatible alternatives. `--candidates` bounds candidate
+work (default 200), while `--matches` stops after matching packages (default
+100); each has a CLI maximum of 1,000. Content facets require
+`--package-content`, which defaults to and permits at most 20 candidates.
+Reached limits and partial failures are reported explicitly. `--count` counts
+windowed matching package rows within the candidate budget and cannot be
+combined with `--matches`. Query mode uses these bounds, not `-t`.
+
 ### Package Queries over explicit packages
 
 `find --literal TEXT` runs a Package Query: it acquires 1-5 explicitly named
@@ -469,9 +506,15 @@ dotnet-inspect graph integrations \
 dotnet-inspect workspace-state decode "$w"
 dotnet-inspect workspace-state decode "$w" | jq
 dotnet-inspect workspace-state encode --file workspace-state.json
+dotnet-inspect workspace-state encode --file workspace-state.json --url
 dotnet-inspect skill list
 dotnet-inspect demo list
 ```
+
+`workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
+for the existing share-packet JSON shape. Packet-only output remains the default.
+This is not an encoder for `workspace --json` inventory output. The packet's
+existing limits and the browser's supported restoration shapes still apply.
 
 ## Requirements
 

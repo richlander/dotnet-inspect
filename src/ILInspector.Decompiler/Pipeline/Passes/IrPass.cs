@@ -595,9 +595,20 @@ public static class IrPasses
     /// </summary>
     public static Stepper RunWithSteps(
         IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody)
+        => RunWithSteps(function, stepLimit, importMethodBody, typesProvablyDisjoint: null);
+
+    /// <summary>
+    /// Runs the stepped pipeline with optional cross-method import and
+    /// type-disjointness evidence, as in the metadata-backed staged runner.
+    /// A null oracle preserves the existing conservative declines.
+    /// </summary>
+    public static Stepper RunWithSteps(
+        IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
     {
         var stepper = new Stepper(enabled: true) { StepLimit = stepLimit };
-        var context = new PassContext(stepper, importMethodBody: importMethodBody);
+        var context = new PassContext(stepper, importMethodBody: importMethodBody,
+            typesProvablyDisjoint: typesProvablyDisjoint);
         try
         {
             foreach (var pass in Default)

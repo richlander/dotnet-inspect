@@ -608,6 +608,19 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+test("shared HTML escaping covers text and attribute delimiters", () => {
+  const helper = sourceText(functionDeclaration("escapeHtml"));
+  assert.deepEqual(
+    helper.match(/\.replaceAll\([^)]*\)/g),
+    [
+      `.replaceAll("&", "&amp;")`,
+      `.replaceAll("<", "&lt;")`,
+      `.replaceAll(">", "&gt;")`,
+      `.replaceAll('"', "&quot;")`,
+      `.replaceAll("'", "&#39;")`,
+    ]);
+});
+
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
@@ -1512,7 +1525,7 @@ test("typed catalog requests own release and package-version coordination", () =
     ?? "";
   assert.match(
     appSource,
-    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: packageId => inspectPackageVersions\(packageId\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
+    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: pkg => inspectPackageVersions\(pkg\.id, pkg\.version\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
   assert.match(
     appSource,
     /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
@@ -1526,7 +1539,7 @@ test("typed catalog requests own release and package-version coordination", () =
     /state\.dotnetReleasesLoading = true[\s\S]*dependencies\.queryDotnetReleases\(\)[\s\S]*state\.dotnetReleasesLoading = false/);
   assert.match(
     catalogRequestsSource,
-    /state\.packageVersionsLoading\[packageId\] = true[\s\S]*dependencies\.queryPackageVersions\(packageId\)[\s\S]*packageIsResident\(packageId\)/);
+    /inventories\.set\(pkg, pending\)[\s\S]*dependencies\.queryPackageVersions\(pkg\)[\s\S]*if \(isCurrent\(\)\)/);
   assert.doesNotMatch(
     catalogRequestsSource,
     /\bfetch\(|\bdocument\b|inspectPackageVersions/);
@@ -3035,6 +3048,9 @@ test("home demos restore the complete parsed location", () => {
   assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
   assert.match(
     callGraphDemo,
+    /const activation = result\.activation;\s*if \(activation\.focusKind !== "package"\) \{[\s\S]*return;\s*\}\s*const packages = result\.packages\.map\(createNuGetPackageModel\)/);
+  assert.match(
+    callGraphDemo,
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
   assert.match(
     callGraphDemo,
@@ -3284,7 +3300,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*sourceComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3579,7 +3595,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| state\.sourceDiff\.open\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);

@@ -1719,11 +1719,18 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 **Simulate new rules** (`--simulate-new-rules`, with `--dump`): the optimistic memory-safety render selector — another render dial orthogonal to the dump sub-modes, but it changes *which unsafe contexts are emitted* rather than the C# altitude. By default the printer is conservative: it emits explicit `unsafe { }` blocks only for a module that opted into the `updated-memory-safety-rules` feature (a module-level `MemorySafetyRulesAttribute`), so legacy output is byte-identical. With this flag it forces new-rules rendering on for *any* input, wrapping the operations the new rules would require even in a legacy module. It only recovers contexts the binary still records — IL-visible ops (`*p`, `calli`, `stackalloc`+`SkipLocalsInit`), pointer-in-signature calls, and a cross-assembly `[RequiresUnsafe]` callee (the attribute lives in the opted-in callee's assembly, read through the shared `MetadataContext`). A legacy same-assembly pointerless `unsafe` method leaves no trace, so simulate honestly emits no block for it. The conservative vs. optimistic contract and its recoverability limits are [docs/design/memory-safety-modes.md](../../docs/design/memory-safety-modes.md).
 
-The plain stage dump and `--dump --diff` both supply sibling-body import and
-type-disjointness evidence from the open metadata source. Their different
-presentation does not remove those raising capabilities. This does not imply
-capability parity for every diagnostic sub-mode; that broader work is tracked
-in [#5876](https://github.com/richlander/dotnet-inspect/issues/5876).
+The plain stage dump, `--dump --diff`, and `--dump --steps` / `--step-limit`
+supply sibling-body import and type-disjointness evidence from the open metadata
+source. Their different presentation does not remove those raising capabilities.
+Step ordinals belong to the current recording and can change when additional
+raises become available. Replay to the pattern-switch rewrite's ordinal stops
+before that rewrite; advancing one step includes it. The Release gates
+`Harness_DumpSteps_MatchesMetadataBackedStages`,
+`Harness_DumpSteps_ReplaysPatternSwitchBoundary`, and `StepperTests` cover the
+stepped capability wiring and that replay boundary. This does not imply
+capability parity for every diagnostic sub-mode or audit every pass's step
+placement; broader work remains in
+[#5876](https://github.com/richlander/dotnet-inspect/issues/5876).
 
 **Pass impact** (`--pass-impact [pass]`): the corpus-wide *inverse* of `--dump --diff`. `--diff` answers "for this method, what did each pass do"; `--pass-impact` answers "for this pass, which methods does it change" — its blast radius across an assembly. With no pass named it prints a histogram (each pass and the count of methods it altered, the "which passes carry the load" roadmap); with a pass name it lists every method that pass changed. Add `--show-diff` to print each changed method's per-pass hunk beneath it. `--cap N` stops the sweep after `N` methods — a full-CoreLib stage sweep is not free, so cap it for a quick read. A pass that runs more than once in the pipeline (`typed-constants`, `expression-inlining`) counts a method once if any occurrence changed it.
 

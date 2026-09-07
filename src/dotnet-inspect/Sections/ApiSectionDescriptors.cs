@@ -131,6 +131,7 @@ public static class ApiMemberSectionDescriptors
             .Add<TopLeverage>()
             .Add<OptimizationOpportunities>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>()
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>()
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<PdbSource>()
@@ -632,6 +633,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
@@ -709,6 +711,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<CallGraph>()
             .Add<UnsafeOperations>()
             .Add<BodyShapes>()
+            .Add<BodyShapeSummary>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
@@ -937,6 +940,19 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class BodyShapes : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.BodyShapes;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    public sealed class BodyShapeSummary : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.BodyShapeSummary;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

@@ -78,7 +78,12 @@ public class FindOptionsParserTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             ["find", "--literal", "literal", "--package", coordinate, "--tfm", "net10.0"]);
 
-        Assert.NotEmpty(result.Errors);
+        // The planner's product-authored sentence only: the framework appends a parameter-name
+        // line that names an internal parameter and renders as a raw resource key when resources
+        // are trimmed.
+        var error = Assert.Single(result.Errors);
+        Assert.DoesNotContain("packageCoordinates", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Arg_ParamName_Name", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -89,8 +94,10 @@ public class FindOptionsParserTests
              "--package", "Example@1.0.0", "--package", "example@1.0",
              "--tfm", "net10.0"]);
 
-        Assert.Contains(result.Errors,
-            error => error.Message.Contains("duplicate", StringComparison.Ordinal));
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(
+            "An assembly query cannot contain duplicate package coordinates.",
+            error.Message);
     }
 
     [Fact]
@@ -99,7 +106,10 @@ public class FindOptionsParserTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             ["find", "--literal", "literal", "--package", "Example@1.0.0"]);
 
-        Assert.NotEmpty(result.Errors);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(
+            "--literal requires an explicit --tfm (for example --tfm net10.0).",
+            error.Message);
     }
 
     [Fact]
@@ -108,8 +118,10 @@ public class FindOptionsParserTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             ["find", "--literal", "literal", "--tfm", "net10.0"]);
 
-        Assert.Contains(result.Errors,
-            error => error.Message.Contains("explicit ID@VERSION packages", StringComparison.Ordinal));
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(
+            "An assembly query requires between 1 and 5 explicit ID@VERSION packages.",
+            error.Message);
     }
 
     [Fact]

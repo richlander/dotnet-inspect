@@ -70,8 +70,17 @@ substrates, and inspection producers that will extend that space.
   assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
-  owns an explicit two-endpoint attempt over one resolved member. The project
-  has no Markout, console, or filesystem-path dependency.
+  owns an explicit two-endpoint attempt over one resolved member. The proposed
+  [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
+  package-activity report's request, evidence categories, selection, and
+  coverage, including the six-week default and qualified security overlay.
+  The proposed
+  [structural clone search scope](design/structural-clone-search-scope.md)
+  owner defines Library, Type, and Member seed populations plus the shared
+  `Self`, `SelfAndSimilarNames`, and `Everything` candidate focal lengths. It
+  composes exact Workspace revision and Metadata name evidence without
+  redefining Analysis retrieval.
+  The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -144,7 +153,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing. It owns the accepted package/metadata XML structure
+  and nuspec parsing. `AssemblyDependencyResolver` owns the
+  [assembly dependency candidate inventory](design/assembly-dependency-candidate-inventory.md):
+  explicit undiscarded discovery evidence, target-input association and
+  acquisition outcomes before consumer selection.
+  Services owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
   Its [package metadata persistence](design/package-metadata-persistence.md)
@@ -181,16 +194,30 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
-- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
-  operator-approved cross-owner target experience for subjects, traversal
-  permissions, operation demand, Browser defaults, and ecosystem-assisted
-  retrieval. It is not a new runtime owner; component contracts and their
-  focused adoption remain with the participating owners.
+- [Workspace registration and call-graph focal
+  length](design/workspace-registration-and-call-graph-scope.md) is the
+  operator-approved cross-owner target experience for inert registration,
+  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
+  breadth. It retires traversal approval and permission semantics; component
+  contracts and their focused adoption remain with the participating owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
+  session-local Package Diff baseline, inheritance during subject navigation,
+  and target-setting controls. Clone candidate scope has transferred to the
+  shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
+  owner. The Browser owner does not own acquisition authority, comparison
+  execution, or portable Workspace fields.
+- [Library API diff presentation](design/library-api-diff-presentation.md)
+  owns the portable Library-root and changed-Type projection of one complete
+  selected-library API comparison. It preserves Metadata identity,
+  correspondence, and compatibility classification without owning Browser
+  transport or text rendering. Its Browser adopter retires #6076's transient
+  Compare-authored-source interaction with zero compatibility rather than
+  adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
@@ -441,6 +468,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member source diff presentation](design/member-source-diff-presentation.md):
   canonical placement-aligned endpoint text, source-line analysis and statistics,
   Markout mapped-text lowering, and the CLI Source Diff first adoption.
+- [Library API diff presentation](design/library-api-diff-presentation.md):
+  portable Library-root changed-Type composition, complete compatibility
+  changes, and distinct changed-member summaries for shared host adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
@@ -463,11 +493,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, authority composition, source-bound caches, selection, and
   enrichment.
-- [Package dependency evidence](design/package-dependency-evidence.md):
-  normalized declared dependency observations across typed package-manifest
-  and restored-project inputs, additive resolution and owner evidence,
-  cross-input equivalence, completion, and query-result `InertString`
-  containment.
+- [Package input and dependency evidence](design/package-dependency-evidence.md):
+  common package declarations and produced relationships across authored
+  project, package-manifest, restored-project, and runtime-dependency inputs,
+  preserving authorship, requested versus resolved versions, processing
+  evidence, equivalence, independent completion, and query-result
+  `InertString` containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes

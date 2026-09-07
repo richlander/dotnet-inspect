@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
@@ -56,6 +57,19 @@ public class FindCommand
 
                 if (options.IsPackageProfile)
                 {
+                    if (options.PackageQuery is not null)
+                    {
+                        return DiscoverOutput.Execute(
+                            options.Discover,
+                            PackageQuerySections.CreateSchema(),
+                            tree: options.Tree,
+                            json: options.JsonOutput,
+                            tsv: options.Tsv,
+                            jsonl: options.Jsonl,
+                            sectionCostAnnotations: PackageQuerySections.Catalog.Pipeline.GetCostAnnotations(),
+                            sectionCategories: PackageQuerySections.Catalog.SelectionCategoryMap,
+                            projection: options);
+                    }
                     PackageProfileSectionCatalog catalog =
                         PackageProfileSections.CreateCatalog();
                     SectionPipeline<PackageProfileView> pipeline =
@@ -214,8 +228,7 @@ public class FindCommand
 
         if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            CommandError.Write(
-                "--literal requires an explicit --tfm (for example --tfm net10.0).");
+            CommandError.Write(PackageAssemblyQueryDiagnostics.MissingTargetFramework);
             return 1;
         }
 
@@ -230,7 +243,7 @@ public class FindCommand
         }
         catch (ArgumentException ex)
         {
-            CommandError.Write(ex.Message);
+            CommandError.Write(PackageAssemblyQueryDiagnostics.Describe(ex));
             return 1;
         }
 
@@ -408,9 +421,12 @@ public class FindCommand
                 || sourceOptions.ConfigFile is not null))
         {
             CommandError.Write(
-                "Package-prefix manifest profiles currently use the NuGet Gallery source and cannot be combined with source overrides.");
+                "Package-prefix queries currently use the NuGet Gallery source and cannot be combined with source overrides.");
             return 1;
         }
+
+        if (options.PackageQuery is not null)
+            return await PackageQueryCommand.ExecuteAsync(options, context, cancellationToken);
 
         if (!PackageProfileQuery.IsValidPrefix(options.PackagePrefix))
         {
@@ -503,9 +519,16 @@ public class FindCommand
     internal static void WritePackageProfileOutput(
         PackageProfileView view,
         FindOptions options)
+        => WritePackageOutput(
+            view, options, PackageProfileSections.CreateCatalog().Pipeline,
+            PackageProfileSections.CountRows(view));
+
+    internal static void WritePackageOutput<T>(
+        T view,
+        FindOptions options,
+        SectionPipeline<T> pipeline,
+        int rowCount)
     {
-        SectionPipeline<PackageProfileView> pipeline =
-            PackageProfileSections.CreateCatalog().Pipeline;
         HashSet<string> includeSections =
             pipeline.GetCandidateSections(
                 Verbosity.Normal,
@@ -514,7 +537,7 @@ public class FindCommand
         if (options.Count)
         {
             CountOutput.WriteCount(
-                PackageProfileSections.CountRows(view));
+                rowCount);
         }
         else if (options.JsonOutput)
         {

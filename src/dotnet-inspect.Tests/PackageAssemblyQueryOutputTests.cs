@@ -429,6 +429,50 @@ public sealed class PackageAssemblyQueryOutputTests
         Assert.DoesNotContain("Sim", captured.Output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ExecutionPlanViolation_ReportsTheAuthoredSentenceOnly()
+    {
+        // Planning rejects the selection before any acquisition, so this exercises the execution
+        // fallback the parse validator normally shadows.
+        var options = new FindOptions
+        {
+            Literal = "literal",
+            Packages = [$"{PackageId}@{Version}", $"{PackageId}@{Version}"],
+            Tfm = Framework,
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "An assembly query cannot contain duplicate package coordinates.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("packageCoordinates", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Arg_ParamName_Name", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecutionWithoutATargetFramework_ReportsTheCliRequirement()
+    {
+        var options = new FindOptions
+        {
+            Literal = "literal",
+            Packages = [$"{PackageId}@{Version}"],
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "--literal requires an explicit --tfm (for example --tfm net10.0).",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("targetFramework", error, StringComparison.Ordinal);
+    }
+
     static PackageAssemblyQueryPlan Plan(string operand) =>
         PackageAssemblyQuery.Plan(
             PackageAssemblyPatterns.StringLiteralContains,

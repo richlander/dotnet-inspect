@@ -4,6 +4,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 
@@ -35,7 +36,10 @@ public static class FindOptionsParser
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
         Option<bool> MembersOption,
-        Option<string?> LiteralOption);
+        Option<string?> LiteralOption,
+        Option<int?> CandidatesOption,
+        Option<int?> MatchesOption,
+        Option<bool> PackageContentOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -46,6 +50,8 @@ public static class FindOptionsParser
     /// Indicates help with tips should be shown (no pattern provided).
     /// </summary>
     public record ShowHelpWithTips : FindParseResult;
+
+    public record Invalid : FindParseResult;
 
     /// <summary>
     /// Successfully parsed options ready for execution.
@@ -66,6 +72,45 @@ public static class FindOptionsParser
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
+        string[] where = parseResult.GetValue(opts.RowWhere) ?? [];
+        int? candidates = parseResult.GetValue(args.CandidatesOption);
+        int? matches = parseResult.GetValue(args.MatchesOption);
+        bool packageContent = parseResult.GetValue(args.PackageContentOption);
+        bool queryRequested = where.Length > 0
+            || candidates is not null || matches is not null
+            || parseResult.GetResult(args.PackageContentOption) is { Implicit: false };
+        string[]? select = opts.ParseSelect(parseResult);
+        bool selectSpecified = parseResult.GetResult(opts.Select) is { Implicit: false };
+        if ((queryRequested || selectSpecified)
+            && (!string.IsNullOrEmpty(pattern) || !packagePrefixSpecified))
+        {
+            CommandError.Write(
+                "Package Query options and -S data selection require patternless find --package-prefix; use -Q <section> for query discovery.");
+            return new Invalid();
+        }
+        if (select is not null)
+        {
+            SelectResult sectionSelection = SelectResolver.ResolveSelectAsSections(
+                select, [PackageProfileSections.Packages],
+                categories: new Dictionary<string, string[]>());
+            if (SelectOutput.WriteUnresolved(sectionSelection))
+                return new Invalid();
+            if (sectionSelection.Sections?.Contains(PackageProfileSections.Packages) != true)
+            {
+                CommandError.Write("A package-prefix data selection must include Packages.");
+                return new Invalid();
+            }
+        }
+        PackageQueryOptions? packageQuery = null;
+        if (queryRequested && !PackageQueryOptions.TryCreate(
+            packagePrefix ?? "", where, packageContent, candidates, matches,
+            parseResult.GetValue(opts.Count),
+            parseResult.GetValue(args.TypeFilterOption),
+            out packageQuery, out var queryError))
+        {
+            CommandError.Write(queryError);
+            return new Invalid();
+        }
 
         if (string.IsNullOrEmpty(pattern)
             && !packagePrefixSpecified
@@ -140,6 +185,8 @@ public static class FindOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Discover = opts.ParseDiscover(parseResult),
+            Select = select,
+            PackageQuery = packageQuery,
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             PackagePrefixSpecified = packagePrefixSpecified,

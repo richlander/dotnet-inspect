@@ -19,8 +19,10 @@ Slice 1 is this document; slice 2 landed the owned decoder in #5815.
 directly and no production path calls `CustomAttribute.DecodeValue`. The
 paired-walker hazards described under
 [How this design changed](#how-this-design-changed) are gone from the code.
-Slice 3's compiler-produced fixture gate landed in #5148; it does not establish
-real-package certification or a certified producer-SDK range. Slice 4 retires
+Slice 3's compiler-produced fixture gate landed in #5148. The
+[pinned package gate](#pinned-package-fidelity-gate) additionally covers a named
+eight-assembly package snapshot; neither establishes an SDK-wide fidelity
+claim or a continuous certified producer range. Slice 4 retires
 the temporary guard bridge and its validation-only mode. D2 now has focused
 resource-failure propagation evidence (#5397), using deterministic fault
 injection rather than actual memory pressure. D1's generative cost gate
@@ -838,7 +840,7 @@ remain `unverified`.**
 | --- | --- | --- |
 | **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
 | **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. The [resource-failure propagation gate](#resource-failure-propagation-gate) covers raw `OutOfMemoryException` propagation from SRM string materialization. | Focused refusal, callback, width-signal, and injected resource-failure cases are gated; exhaustive D2 coverage remains unverified. |
-| **D3** | #5148's fixtures-first gate compares compiler-produced values with independent SRM results and source-owned cross-assembly enum expectations. `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce this fixture subset. | Partial fixture coverage; real-package certification and its producer range remain unverified. |
+| **D3** | `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce the fixture subset. `CustomAttributeCorpusTests.PinnedPackage_AllAttributeRowsEqualIndependentOracle` covers the named package snapshot and records its producer, oracle, and companion-fixture identities. | Bounded fixture and package coverage; broader producer coverage remains unverified. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated, landed in #5815. |
 
 Until those gates exist, any statement in this document that an invariant
@@ -934,9 +936,10 @@ a redesign.
 ### Compiler-produced fixture gate
 
 The user approved a fixtures-first D3 slice for #5148 before completing stage 1.
-This does not narrow D3's normative target or certify the existing package
+This does not narrow D3's normative target or by itself certify the existing package
 baselines: package versions and TFMs do not establish producer SDK provenance.
-The broader package corpus and certified producer range remain outstanding.
+The package gate below supplies separate evidence for a finite subset; broader
+package and producer coverage remain outstanding.
 
 `CustomAttributeFidelitySamples` declares the current fixture inventory beside
 its tests, compiled by the repository-selected SDK and target framework. Its
@@ -960,6 +963,59 @@ same shared implementation already adopted by CLI and browser/Wasm. The old
 I1 offset seam and generated guard-approval assertions are retired, not carried
 as additional D3 requirements. Exhaustive grammar coverage, D1/D2 enumeration,
 and real-package certification are not established by this fixture gate.
+
+### Pinned package fidelity gate
+
+`CustomAttributeCorpusTests.PinnedPackage_AllAttributeRowsEqualIndependentOracle`
+owns the complete-row D3 gate over the eight named assemblies from
+`dotnet-inspect.any` 0.14.0 in
+[`custom-attribute-d3.json`](../../tests/ILInspector.Metadata.Tests/Corpus/custom-attribute-d3.json).
+The [provenance record](../../tests/ILInspector.Metadata.Tests/Corpus/README.md)
+associates their published bytes with source commit
+`8681f6eac3ff44b231925913c3e2b17c8be0ddd4` and SDK
+`11.0.100-preview.5.26302.115`. The release tag is not that source identity.
+
+The claim is exact value equality and zero refusals for every custom-attribute
+row in each hash-identified image, through the public detailed decoder with
+serialized names preserved. The gate compares complete typed trees without
+normalizing either result. Its independent SRM provider obtains enum widths
+only from the finite source-owned declarations in the record, never from the
+product resolver. Unknown oracle types, empty images, missing dependencies,
+refusals, value differences, and defaulted widths cannot earn a passing result.
+The current package snapshot has no claimed missing-definition carve-out.
+
+The product side uses a frozen `TypeResolutionContext` and
+`TypeResolutionEnumWidth` over the retained package images plus the running
+framework's defining images. Those framework identities and hashes belong in
+each observation. They are deliberate name-bound definition inputs, not a
+claim to reconstruct the package's original runtime; each selected definition's
+underlying type must match the independently source-declared width.
+The bundled Markout image is pinned but is a dependency, not another
+attribute-sweep target.
+
+The package's enum declarations are all `Int32`. The gate therefore also runs
+the existing four retained-image `long`/`byte` producer-truth cases. These
+compiler-produced companions have their **own** recorded SDK identity from the
+test build; they are not attributed to the older package build. Together they
+form an explicitly enumerated evidence set, not a continuous SDK range or a
+claim about all output of either SDK.
+
+The report identifies the decoder, harness, actual oracle SRM/runtime, package
+and assembly hashes, package producer, retained framework definitions,
+companion producer, and per-image row outcomes. Every row must be accounted for;
+only successful equality counts toward the required total. This is a hard
+outcome gate, not a tolerance-based decompiler sensor. A differing package hash
+requires a deliberate corpus-record update, never baseline regeneration during
+the gate.
+
+The metadata harness is the consumer. Its adoption is one test/workflow step;
+the CLI and browser/Wasm continue using the unchanged shared decoder, with no
+new host integration or rendering domain. Existing package acquisition and
+typed value contracts are consumed rather than redefined. The small oracle
+and accounting controls run in PR CI; the `Speed=Slow` corpus case runs in Deep
+Inspect's full metadata suite, which retains the JSON report on each platform.
+This finite gate does not close #5065's broader producer coverage, D1, exhaustive
+D2, or #5304's stage 2.
 
 ### Resource-failure propagation gate
 

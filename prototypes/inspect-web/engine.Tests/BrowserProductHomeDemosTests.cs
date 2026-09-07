@@ -148,9 +148,11 @@ public sealed class BrowserProductHomeDemosTests
                 Select(ProductDemoIds.StjSerializer).Scenario);
 
         Assert.Single(plan.Requests);
-        Assert.Equal("System.Text.Json", plan.Requests[0].PackageId);
-        Assert.Equal("10.0.0", plan.Requests[0].Version);
-        Assert.Equal("net10.0", plan.Requests[0].TargetFramework);
+        BrowserPackageRequest request = Assert.IsType<
+            BrowserHomeDemoRunRequest.Package>(plan.Requests[0]).Request;
+        Assert.Equal("System.Text.Json", request.PackageId);
+        Assert.Equal("10.0.0", request.Version);
+        Assert.Equal("net10.0", request.TargetFramework);
         Assert.Equal(0, plan.FocusRequestIndex);
         Assert.Equal("System.Text.Json.JsonSerializer", plan.TypeId);
         Assert.Equal(ProductDemoSections.Methods, plan.Section);
@@ -165,11 +167,16 @@ public sealed class BrowserProductHomeDemosTests
                 Select(ProductDemoIds.ExtensionsCallGraph).Scenario);
 
         Assert.Equal(3, plan.Requests.Length);
+        BrowserPackageRequest[] requests =
+        [
+            .. plan.Requests.Select(request =>
+                Assert.IsType<BrowserHomeDemoRunRequest.Package>(request).Request),
+        ];
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection.Abstractions",
-            plan.Requests[0].PackageId);
-        Assert.Equal("10.0.0", plan.Requests[0].Version);
-        Assert.Equal("net10.0", plan.Requests[0].TargetFramework);
+            requests[0].PackageId);
+        Assert.Equal("10.0.0", requests[0].Version);
+        Assert.Equal("net10.0", requests[0].TargetFramework);
         Assert.Equal(0, plan.FocusRequestIndex);
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
@@ -189,12 +196,149 @@ public sealed class BrowserProductHomeDemosTests
             ResolveSyntheticScenario(ProductDemoSections.Methods));
 
         Assert.Equal(1, plan.FocusRequestIndex);
+        BrowserPackageRequest focus = Assert.IsType<
+            BrowserHomeDemoRunRequest.Package>(
+                plan.Requests[plan.FocusRequestIndex]).Request;
         Assert.Equal(
             "Demo.Second",
-            plan.Requests[plan.FocusRequestIndex].PackageId);
+            focus.PackageId);
         Assert.Equal("Demo.Second.Target", plan.TypeId);
         Assert.Equal(ProductDemoSections.Methods, plan.Section);
         Assert.Null(plan.Member);
+    }
+
+    [Fact]
+    public void ToRunPlan_PlatformCoordinatePreservesSourceNativeFocus()
+    {
+        BrowserHomeDemoRunPlan plan =
+            BrowserProductHomeDemos.ToRunPlan(
+                ResolveSyntheticPlatformScenario());
+
+        BrowserHomeDemoRunRequest.Platform request = Assert.IsType<
+            BrowserHomeDemoRunRequest.Platform>(Assert.Single(plan.Requests));
+        Assert.Equal("runtime", request.Family);
+        Assert.Equal("System.Text.Json", request.Assembly);
+        Assert.Equal("10.0.0", request.Version);
+        Assert.Equal("net10.0", request.TargetFramework);
+        Assert.Equal(0, plan.FocusRequestIndex);
+        Assert.Equal("System.Text.Json.JsonSerializer", plan.TypeId);
+        Assert.Equal(ProductDemoSections.Methods, plan.Section);
+    }
+
+    [Fact]
+    public void ToRunPlan_RejectsMixedPackageAndPlatformWorkspace()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(includePackage: true)));
+
+        Assert.Contains(
+            "does not support mixed package and Platform workspaces",
+            error.Message);
+    }
+
+    [Fact]
+    public void ToRunPlan_RejectsUnsupportedPlatformFamily()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        family: "unsupported")));
+
+        Assert.Contains(
+            "Platform family 'unsupported' is not supported",
+            error.Message);
+    }
+
+    [Theory]
+    [InlineData("11.0.0", "net10.0")]
+    public void ToRunPlan_RejectsNonUniformPlatformTarget(
+        string secondVersion,
+        string secondFramework)
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        secondPlatform:
+                            ("runtime",
+                                "System.Runtime",
+                                secondVersion,
+                                secondFramework))));
+
+        Assert.Contains(
+            "must use one exact target framework and Platform version",
+            error.Message);
+    }
+
+    [Fact]
+    public void ToRunPlan_RejectsPlatformFrameworkConflictingWithContext()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        contextFramework: "net9.0")));
+
+        Assert.Contains(
+            "framework 'net10.0' conflicts with workspace context framework 'net9.0'",
+            error.Message);
+    }
+
+    [Fact]
+    public void ToRunPlan_RejectsFloatingPlatformVersion()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        version: "latest")));
+
+        Assert.Contains(
+            "must pin an exact version for browser execution",
+            error.Message);
+    }
+
+    [Fact]
+    public void ToRunPlan_PlatformWorkspacePreservesNonFirstFocus()
+    {
+        BrowserHomeDemoRunPlan plan =
+            BrowserProductHomeDemos.ToRunPlan(
+                ResolveSyntheticPlatformScenario(
+                    secondPlatform:
+                        ("runtime",
+                            "System.Runtime",
+                            "10.0.0",
+                            "net10.0"),
+                    focusSecond: true));
+
+        Assert.Equal(2, plan.Requests.Length);
+        Assert.Equal(
+            ["System.Text.Json", "System.Runtime"],
+            plan.Requests.Select(request =>
+                Assert.IsType<BrowserHomeDemoRunRequest.Platform>(request)
+                    .Assembly));
+        Assert.Equal(1, plan.FocusRequestIndex);
+    }
+
+    [Fact]
+    public void ToRunPlan_RejectsCaseInsensitivePlatformDuplicates()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        secondPlatform:
+                            ("runtime",
+                                "system.text.json",
+                                "10.0.0",
+                                "net10.0"))));
+
+        Assert.Contains(
+            "contains duplicate Platform coordinates",
+            error.Message);
     }
 
     [Fact]
@@ -328,6 +472,76 @@ public sealed class BrowserProductHomeDemosTests
             focus: "second"));
         registry.Add(new ScenarioDefinition(
             version,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+        return registry.ResolveScenario("scenario");
+    }
+
+    private static ResolvedScenario ResolveSyntheticPlatformScenario(
+        bool includePackage = false,
+        string family = "runtime",
+        string version = "10.0.0",
+        string framework = "net10.0",
+        string? contextFramework = null,
+        (string Family, string Assembly, string Version, string Framework)?
+            secondPlatform = null,
+        bool focusSecond = false)
+    {
+        const int schemaVersion =
+            InspectionDefinitionJson.CurrentSchemaVersion;
+        var platform = new DefinitionMemberCoordinate.PlatformCoordinate(
+            family,
+            "System.Text.Json",
+            version,
+            framework);
+        DefinitionMemberCoordinate.PlatformCoordinate? second =
+            secondPlatform is { } value
+                ? new DefinitionMemberCoordinate.PlatformCoordinate(
+                    value.Family,
+                    value.Assembly,
+                    value.Version,
+                    value.Framework)
+                : null;
+        List<DefinitionMemberCoordinate> members = [platform];
+        if (second is not null)
+            members.Add(second);
+        if (includePackage)
+        {
+            members.Add(
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    "Demo.Package",
+                    "1.0.0",
+                    framework));
+        }
+        List<NavigationTabDefinition> tabs =
+            [new("platform", coordinate: platform)];
+        if (second is not null)
+            tabs.Add(new NavigationTabDefinition("second", coordinate: second));
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            schemaVersion,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    framework: contextFramework ?? framework,
+                    members: [.. members]),
+            ]));
+        registry.Add(new ViewDefinition(
+            schemaVersion,
+            "view",
+            type: "System.Text.Json.JsonSerializer",
+            section: ProductDemoSections.Methods));
+        registry.Add(new NavigationDefinition(
+            schemaVersion,
+            "navigation",
+            [.. tabs],
+            focus: focusSecond ? "second" : "platform"));
+        registry.Add(new ScenarioDefinition(
+            schemaVersion,
             "scenario",
             workspace: "workspace",
             context: "context",

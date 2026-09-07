@@ -142,6 +142,10 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public string[]? Discover { get; init; }
 
+    public string[]? Select { get; init; }
+
+    public PackageQueryOptions? PackageQuery { get; init; }
+
     /// <summary>
     /// Show discovery as a tree.
     /// </summary>

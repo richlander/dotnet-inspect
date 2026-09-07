@@ -20,7 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
+    <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
 </Project>

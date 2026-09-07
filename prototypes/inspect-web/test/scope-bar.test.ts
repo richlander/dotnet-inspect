@@ -32,9 +32,25 @@ class FakeElement {
   rendered = true;
   tabIndex = 0;
   private readonly listeners = new Map<string, EventListener[]>();
+  private readonly children = new Map<string, FakeElement[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
     this.dataset = dataset;
+  }
+
+  // Registers descendants for a given selector so this element can act as a query root, the
+  // same way FakeRoot does; needed to exercise ScopeBarController.create against a nav element.
+  add(selector: string, ...elements: FakeElement[]) {
+    this.children.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string): FakeElement | null {
+    return this.children.get(selector)?.[0] ?? null;
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    return this.children.get(selector) ?? [];
   }
 
   addEventListener(type: string, listener: EventListener) {
@@ -73,6 +89,10 @@ class FakeRoot {
   add(selector: string, ...elements: FakeElement[]) {
     this.elements.set(selector, elements);
     return elements;
+  }
+
+  querySelector(selector: string): FakeElement | null {
+    return this.elements.get(selector)?.[0] ?? null;
   }
 
   querySelectorAll(selector: string) {
@@ -395,6 +415,32 @@ test("workspace-only availability leaves the separate subject ladder empty", () 
   assert.doesNotMatch(
     html,
     /data-scope="workspace"|data-scope="package"|data-scope="library"|data-scope="type"/);
+  // The subject slide-strip itself must be omitted (not merely emptied) when there is nothing
+  // to switch between; otherwise it renders with an empty anchor that SlideStripDomController
+  // rejects at bind time. See "scope bar binding tolerates an empty subject ladder" below.
+  assert.doesNotMatch(html, /data-slide-strip="subject"/);
+});
+
+test("scope bar binding tolerates an empty subject ladder", () => {
+  // Regression test: the workspace-only catalog page (the "Demos" view) renders a scope bar
+  // with no subject strip and no inspector strip, since there is nothing to switch between.
+  // ScopeBarController.create used to assume a subject strip always exists and threw
+  // "SlideStrip markup requires anchor and continuity key" whenever this page bound its scope
+  // bar -- reproducing the "Startup failed" crash seen navigating home -> demos.
+  const root = new FakeRoot();
+  const navigation = new FakeElement();
+  root.add("[data-scope-bar]", navigation);
+  const state = {
+    subject: { key: "" },
+    inspector: { key: "" },
+    allocationKey: "",
+    allocationOrdinal: 0,
+  };
+
+  assert.doesNotThrow(() => bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions([]),
+    state));
 });
 
 test("type scope marks the type segment and renders the fixed type lenses", () => {
