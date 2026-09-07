@@ -504,6 +504,19 @@ Library choice is independent of Type count, accessibility, UI filters, search
 text, display labels, and arrival order. Type inventory retains its producer
 order for explicit navigation; it does not choose the initial subject.
 
+Initial recommendation does not rank Types. When retained-context derivation or
+level-local Type fallback below requires the highest-ranked trustworthy Type,
+it uses these tiers:
+
+1. Primary Library and default accessibility.
+2. Other Library and default accessibility.
+3. Primary Library and non-default accessibility.
+4. Other Library and non-default accessibility.
+
+Within a tier, Libraries use primary-then-declaration order and Types use the
+inventory producer's deterministic navigation order. UI filters, search text,
+display labels, and arrival order never participate.
+
 A trustworthy candidate from a successful participant may be selected when
 another participant failed; every participant failure remains visible. If no
 producer can vouch for a candidate, Type availability is failed rather than
@@ -1298,7 +1311,7 @@ result identifies Navigation as the failure source.
 | Package coordinate or selection target changes so logical correspondence differs | Membership-changing replacement supplies a new occurrence and Package subject; correspondence and level-local fallback govern retained descendants |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
-| Ordinary package | Highest-ranked trustworthy Type with API lens |
+| Ordinary package | Best available one-Library subject with Library Overview; aggregate only when no one-Library subject is available, then Package |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
 | No lens available and one evaluation failed | Failed lens outcome with all non-success evidence retained |
@@ -1312,7 +1325,7 @@ result identifies Navigation as the failure source.
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
 | Exact non-success while its subject disappears | Result retains the exact request evidence; installed snapshot uses the replacement subject's recommendation basis |
 | Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
-| Multi-library package | Aggregate then primary then declaration-order Library descriptors |
+| Multi-library package | Primary one-Library subject, then first declaration-order one-Library subject; aggregate only when no one-Library subject is available |
 | Libraries with no Types | Library with References; Type is validly unavailable |
 | Tools-v2 pointer package | Package with Package Overview; lower subjects unavailable |
 | Primary Library has no default-accessibility Type | Library remains the recommendation |
