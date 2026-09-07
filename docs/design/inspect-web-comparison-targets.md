@@ -85,10 +85,12 @@ Its Package controls identify that limitation. The immediate successor adds
 the feature facade and Library API Diff inventory/details; Type/Member
 narrowing and Clone execution remain follow-on work in #5083.
 
-The Library API Diff delivery path remains three stages: the selected-library
-query (#6128), these Package settings, and the facade with its immediate
-Library consumer. This browser interaction owner is not a new shared product
-substrate and does not change CLI coordinate selection.
+The Library API Diff delivery path is the selected-library query (#6128),
+these Package settings, the shared
+[Library API diff presentation](library-api-diff-presentation.md) contract and
+adapter, then the facade with its immediate Library consumer. This browser
+interaction owner is not a new shared product substrate and does not change
+CLI coordinate selection.
 
 ## Evidence
 

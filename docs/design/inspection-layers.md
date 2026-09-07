@@ -97,8 +97,11 @@ retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. Its
 [selected-library coordinator](../inspection-space.md#selected-library-api-comparison)
 also projects two explicit context participants under independent bounds and
-withholds comparison when either API surface is incomplete. Browser
-selection and inventory/detail adoption remain separate deliveries.
+withholds comparison when either API surface is incomplete. The
+[Library API diff presentation](library-api-diff-presentation.md) contract
+owns the portable Library-root and changed-Type projection over that complete
+result. Browser selection, transport, and inventory/detail adoption remain
+separate deliveries.
 The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
 companion assembly avoids imposing Research on core query consumers. Core L1
