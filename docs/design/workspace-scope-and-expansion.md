@@ -143,11 +143,15 @@ passed for the clarification preserved at
 Those model outcomes do not substitute for Release implementation or host
 conformance gates.
 
-[Approved lazy traversal](approved-lazy-traversal.md) records the approved
-cross-owner target experience for Browser construction defaults, ecosystem
-knowledge, and demand-driven operations. It does not change this owner's
-empty-registration-set-is-closed invariant or claim the missing registration,
-candidate-discovery, or query-population adoption is implemented.
+[Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md) supersedes the
+unimplemented expansion-permission target in this document. The implemented
+package-only Root membership and mutation contract above remains current. A
+focused Workspace Scope revision must replace proposed `ExpansionScopes`,
+closed/selectively-open permission semantics, and Browser-only defaults with
+inert exact-library/prefix/ecosystem registration and the shared
+fresh-Workspace defaults. Until that revision lands, those later expansion
+sections are historical design context, not an implementation claim.
 
 ## Authority and exact claim
 
