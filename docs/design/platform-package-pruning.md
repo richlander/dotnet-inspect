@@ -136,15 +136,49 @@ Counts computed 2026-09-07 against the `net11.0` catalog target and
 11.0.0-preview.7.26381.103. They are illustrative of scale, not a contract;
 step 3 grew by 36 entries between .NET 10 and .NET 11.
 
+### Read the totals per family
+
+The step-3 total is dominated by two populations that carry little
+information, and a consumer that treats 274 as the size of the interesting
+problem will over-build. Split by supplying family:
+
+| Family | Libraries | Overlapping | Platform-only | Entry, no library |
+| --- | --- | --- | --- | --- |
+| `netcore.app` | 181 | 143 | 38 | 165 |
+| `aspnetcore.app` | 132 | 131 | 1 | 1 |
+
+ASP.NET Core is very nearly one-to-one: every assembly has a matching package
+identity, so its 131 says more about how that framework is packaged than about
+platform/package overlap. Its two exceptions are the whole story —
+`Microsoft.Extensions.FileProviders.Embedded` is its only platform-only
+library, and `Microsoft.AspNetCore.App` is its only entry without one, being
+the meta-package.
+
+Within `netcore.app`, 119 of the 143 overlaps are frozen at netstandard-era
+versions:
+
+| Supplied major | 4.x | 5.x | 6.x | 7.x | 10.x |
+| --- | --- | --- | --- | --- | --- |
+| Entries | 103 | 12 | 2 | 1 | 1 |
+
+These are real entries and pruning classifies them correctly, but
+`System.Runtime@4.3.1` and `System.Buffers@5.0.0` will not be the answer to a
+query anyone asks today.
+
+The working set is therefore the 55 live overlaps, not the 274. Sizing
+caches, tests, or presentation against the larger number mistakes the shape of
+the data. Step 2 has the same distortion: 155 of its 166 entries are
+`runtime.*` RID-specific legacy packages, leaving roughly a dozen real ones.
+
 ### Live and frozen overlaps behave differently
 
 Step 3 divides again along the live/frozen split, and the two behave unlike
 each other in practice:
 
-| | Example | Supplied version | Count |
-| --- | --- | --- | --- |
-| Live overlap | `System.Text.Json` | `11.0.0-preview.7.26381.103` | 55 |
-| Frozen overlap | `System.Runtime` | `4.3.1` | 219 |
+| | Example | Supplied version | Count | `netcore` | `aspnetcore` |
+| --- | --- | --- | --- | --- | --- |
+| Live overlap | `System.Text.Json` | `11.0.0-preview.7.26381.103` | 55 | 24 | 31 |
+| Frozen overlap | `System.Runtime` | `4.3.1` | 219 | 119 | 100 |
 
 For a frozen overlap the package is long dead and the platform absorbed it
 years ago, so any plausible requested version is subsumed and the comparison
