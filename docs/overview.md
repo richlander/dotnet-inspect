@@ -66,8 +66,13 @@ substrates, and inspection producers that will extend that space.
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,
   and exact manifest results into one depth-bounded graph with root-relative
-  reachability. The source query owns a Decompiler fallback over retained
-  assembly content; the
+  reachability. The
+  [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
+  is the target host-neutral composition for resolving one exact `AssemblyRef`
+  through its referencing context, an applicable platform, and owner-issued
+  package dependency routes without mutating a sealed assembly-context group.
+  The source query owns a Decompiler fallback over retained assembly content;
+  the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The proposed
@@ -198,8 +203,11 @@ substrates, and inspection producers that will extend that space.
   length](design/workspace-registration-and-call-graph-scope.md) is the
   operator-approved cross-owner target experience for inert registration,
   shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
-  breadth. It retires traversal approval and permission semantics; component
-  contracts and their focused adoption remain with the participating owners.
+  breadth. It retires traversal approval and permission semantics. Its
+  owner-issued route prerequisite is the
+  [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md);
+  component contracts and their focused adoption remain with the participating
+  owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
   contract. It consumes owner-backed edit-save completion and existing

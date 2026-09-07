@@ -241,11 +241,12 @@ because this mode is broad.
 Focal length selects relevance scope. It does not define call edges, binding,
 resolution, package discovery, or physical acquisition.
 
-The call-graph consumer uses the owner-issued assembly-reference resolution
-ladder tracked by #6228. Exact in-context binding, applicable platform
-resolution, and package-derived resolution retain their own typed outcomes.
-The graph never manufactures a package coordinate from an assembly name,
-namespace, ecosystem hint, or display label.
+The call-graph consumer uses the owner-issued
+[Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
+tracked by #6288. Exact in-context binding, applicable platform resolution,
+and package-derived resolution retain their own typed outcomes. The graph
+never manufactures a package coordinate from an assembly name, namespace,
+ecosystem hint, or display label.
 
 Every request has finite depth, node, candidate, byte, and acquisition-work
 bounds appropriate to its host. Retiring the permission gate makes the
