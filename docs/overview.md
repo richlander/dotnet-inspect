@@ -74,6 +74,12 @@ substrates, and inspection producers that will extend that space.
   [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
   package-activity report's request, evidence categories, selection, and
   coverage, including the six-week default and qualified security overlay.
+  The proposed
+  [structural clone search scope](design/structural-clone-search-scope.md)
+  owner defines Library, Type, and Member seed populations plus the shared
+  `Self`, `SelfAndSimilarNames`, and `Everything` candidate focal lengths. It
+  composes exact Workspace revision and Metadata name evidence without
+  redefining Analysis retrieval.
   The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
@@ -94,6 +100,9 @@ substrates, and inspection producers that will extend that space.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
+  Its decoded string-literal producer uses the `InertText` leaf for
+  construction-time containment of artifact-authored evidence. Semantic
+  matching uses the original decoded text, never its contained display form.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
 - `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
@@ -185,20 +194,23 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
-- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
-  operator-approved cross-owner target experience for subjects, traversal
-  permissions, operation demand, Browser defaults, and ecosystem-assisted
-  retrieval. It is not a new runtime owner; component contracts and their
-  focused adoption remain with the participating owners.
+- [Workspace registration and call-graph focal
+  length](design/workspace-registration-and-call-graph-scope.md) is the
+  operator-approved cross-owner target experience for inert registration,
+  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
+  breadth. It retires traversal approval and permission semantics; component
+  contracts and their focused adoption remain with the participating owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
-- [Browser comparison targets](design/inspect-web-comparison-targets.md) owns
-  session-local Package Diff and Clone target intent, inheritance during
-  subject navigation, and target-setting controls. It does not own acquisition
-  authority, comparison execution, or portable Workspace fields.
+- [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
+  session-local Package Diff baseline, inheritance during subject navigation,
+  and target-setting controls. Clone candidate scope has transferred to the
+  shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
+  owner. The Browser owner does not own acquisition authority, comparison
+  execution, or portable Workspace fields.
 - [Library API diff presentation](design/library-api-diff-presentation.md)
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,
@@ -481,11 +493,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, authority composition, source-bound caches, selection, and
   enrichment.
-- [Package dependency evidence](design/package-dependency-evidence.md):
-  normalized declared dependency observations across typed package-manifest
-  and restored-project inputs, additive resolution and owner evidence,
-  cross-input equivalence, completion, and query-result `InertString`
-  containment.
+- [Package input and dependency evidence](design/package-dependency-evidence.md):
+  common package declarations and produced relationships across authored
+  project, package-manifest, restored-project, and runtime-dependency inputs,
+  preserving authorship, requested versus resolved versions, processing
+  evidence, equivalence, independent completion, and query-result
+  `InertString` containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes

@@ -77,7 +77,6 @@ src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Presentation
-src/DotnetInspector.Queries.Tests
 src/DotnetInspector.Sections
 src/DotnetInspector.Services.Tests
 src/DotnetInspector.SourceDelegation
@@ -105,6 +104,7 @@ tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Presentation.Tests
+tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests
 tests/DotnetInspector.RuntimeFlavorProbe
