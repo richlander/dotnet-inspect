@@ -191,11 +191,12 @@ substrates, and inspection producers that will extend that space.
   Its [ReadyToRun browser projection](design/readytorun-browser-projection.md)
   carries Metadata-owned ReadyToRun facts and root-scoped metadata operations
   through the managed facade into Package Metadata and Metadata Explorer.
-- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
-  operator-approved cross-owner target experience for subjects, traversal
-  permissions, operation demand, Browser defaults, and ecosystem-assisted
-  retrieval. It is not a new runtime owner; component contracts and their
-  focused adoption remain with the participating owners.
+- [Workspace registration and call-graph focal
+  length](design/workspace-registration-and-call-graph-scope.md) is the
+  operator-approved cross-owner target experience for inert registration,
+  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
+  breadth. It retires traversal approval and permission semantics; component
+  contracts and their focused adoption remain with the participating owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
   contract. It consumes owner-backed edit-save completion and existing
@@ -487,11 +488,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, authority composition, source-bound caches, selection, and
   enrichment.
-- [Package dependency evidence](design/package-dependency-evidence.md):
-  normalized declared dependency observations across typed package-manifest
-  and restored-project inputs, additive resolution and owner evidence,
-  cross-input equivalence, completion, and query-result `InertString`
-  containment.
+- [Package input and dependency evidence](design/package-dependency-evidence.md):
+  common package declarations and produced relationships across authored
+  project, package-manifest, restored-project, and runtime-dependency inputs,
+  preserving authorship, requested versus resolved versions, processing
+  evidence, equivalence, independent completion, and query-result
+  `InertString` containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes
