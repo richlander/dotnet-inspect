@@ -4,6 +4,11 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { createCatalogRequests, type DotnetRelease } from "../src/catalog-requests.ts";
+import {
+  createPackageComparisonTargets,
+  type ComparisonPackage,
+} from "../src/package-comparison-targets.ts";
 import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
@@ -75,16 +80,14 @@ assert.ok(acquisitionDeclaration);
 const hostDeclarations = [...hostFunctions, acquisitionDeclaration]
   .map(node => appSource.slice(node.start, node.end)).join("\n");
 
-interface Package {
-  id: string;
-  version: string;
-  activeFramework: string;
+interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
   types: { id: string }[];
 }
 
 const sourcePackage: Package = {
   id: "Source", version: "1.2.3", activeFramework: "net10.0", types: [],
+  source: { kind: "nuget.org" },
 };
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
 const saved = Object.freeze({ name: "My Workspace", packet });
@@ -181,7 +184,7 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
-    packageVersions: {}, packageVersionsLoading: {},
+    dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -195,6 +198,19 @@ function harness() {
     workspaceOccurrenceSignature: "", workspaceOccurrenceLoading: false,
     workspaceOccurrences: null as object | null, workspaceOccurrenceError: "",
   };
+  const catalogRequests = createCatalogRequests({
+    state,
+    queryDotnetReleases: async () => [],
+    queryPackageVersions: async pkg => ({
+      versions: [pkg.version],
+      currentVersionInsertionIndex: 0,
+      previousVersion: null,
+      previousVersionUnavailableReason: null,
+    }),
+    updatePlatformVersionSelect: () => {},
+    updatePackageVersionSelect: () => {},
+  });
+  const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
   const navigationSequence = createNavigationSequence();
   const navigationHistory = createNavigationHistory({
     capture: () => state.package ? {
@@ -283,6 +299,7 @@ function harness() {
   };
   const context = {
     state, location, history, document, workspaceLocation,
+    catalogRequests, packageComparisonTargets,
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
@@ -352,7 +369,10 @@ function harness() {
       acquisitions.push(`${id}@${version}/${framework}`);
       const succeeded = await controls.acquisition(id);
       if (!navigationSequence.isCurrent(options.navigationSeq) || !succeeded) return null;
-      const pkg = { id, version, activeFramework: framework, types: [] };
+      const pkg = {
+        id, version, activeFramework: framework, types: [],
+        source: { kind: "nuget.org" },
+      };
       state.packages.push(pkg);
       return pkg;
     },
@@ -399,6 +419,7 @@ function harness() {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
     queries, retained, recent, invalidations, toasts, picker, previousEntries,
+    catalogRequests, packageComparisonTargets,
     demoResolutions, callGraphRuns,
     capture: (): string => {
       const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
@@ -428,6 +449,7 @@ test("capture uses the original share projection and retains Workspace presentat
   const basis = sharedState();
   h.state.packages = basis.tabs.map(tab => ({
     id: tab.source, version: tab.version!, activeFramework: tab.framework!, types: [],
+    source: { kind: "nuget.org" },
   }));
   h.state.package = h.state.packages[1]!;
   h.state.workspaceShareBasis = basis;
@@ -495,8 +517,10 @@ for (const platform of [false, true]) {
     };
     h.state.packages = [
       { id: platform ? ":Platform" : "Alpha", version: "2.3.4",
-        activeFramework: "net10.0", isRuntimePack: platform, types: [] },
-      { id: "Beta", version: "5.6.7", activeFramework: "net9.0", types: [] },
+        activeFramework: "net10.0", isRuntimePack: platform, types: [],
+        source: { kind: platform ? "platform" : "nuget.org" } },
+      { id: "Beta", version: "5.6.7", activeFramework: "net9.0", types: [],
+        source: { kind: "nuget.org" } },
     ];
     h.state.package = h.state.packages[1]!;
     h.state.workspaceShareBasis = basis;
@@ -600,6 +624,60 @@ for (const failure of ["decode", "decoder-throw", "empty", "acquisition", "view"
     assert.deepEqual(h.focus, [{ kind: "saved-open", name: saved.name, index: 0 }]);
   });
 }
+
+for (const failure of ["acquisition", "selection"] as const) {
+  test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {
+    const h = harness();
+    const other = { ...sourcePackage, id: "Comparison.Target" };
+    h.state.packages.push(other);
+    await h.catalogRequests.ensurePackageVersions(sourcePackage);
+    const inventory = h.catalogRequests.packageVersions(sourcePackage);
+    h.packageComparisonTargets.selectDiff(
+      sourcePackage, { kind: "exact", version: sourcePackage.version }, inventory);
+    h.packageComparisonTargets.selectClone(
+      sourcePackage, { kind: "package", package: other });
+    if (failure === "acquisition")
+      h.controls.acquisition = async id => id !== "Beta";
+    else
+      h.controls.selection = async () => { throw new Error("View unavailable"); };
+
+    h.open();
+    await h.settle();
+
+    const restored = h.state.packages.find(pkg => pkg.id === sourcePackage.id);
+    const restoredTarget = h.state.packages.find(pkg => pkg.id === other.id);
+    assert.ok(restored);
+    assert.ok(restoredTarget);
+    assert.notEqual(restored, sourcePackage);
+    assert.notEqual(restoredTarget, other);
+    assert.equal(h.state.package, restored);
+    assert.deepEqual(h.packageComparisonTargets.get(restored).diff, {
+      kind: "exact", version: sourcePackage.version,
+    });
+    const clone = h.packageComparisonTargets.get(restored).clone;
+    assert.equal(clone.kind, "package");
+    if (clone.kind === "package") assert.equal(clone.package, restoredTarget);
+    assert.deepEqual(h.catalogRequests.packageVersions(restored), inventory);
+    assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
+  });
+}
+
+test("successful saved Open retires comparison settings with the discarded Package models", async () => {
+  const h = harness();
+  await h.catalogRequests.ensurePackageVersions(sourcePackage);
+  h.packageComparisonTargets.selectDiff(sourcePackage, {
+    kind: "exact", version: sourcePackage.version,
+  }, h.catalogRequests.packageVersions(sourcePackage));
+  h.open();
+  await h.settle();
+
+  assert.ok(h.state.package);
+  assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
+    diff: { kind: "previous" }, clone: { kind: "workspace" },
+  });
+  assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
+  assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
+});
 
 test("acquisition retry reopens the retained saved packet through a new transaction", async () => {
   const h = harness();
@@ -856,6 +934,7 @@ function seedInspectionSelection(h: ReturnType<typeof harness>) {
 function fillWorkspace(h: ReturnType<typeof harness>, count = MAX_WORKSPACE_PACKAGES) {
   h.state.packages = [sourcePackage, ...Array.from({ length: count - 1 }, (_, index) => ({
     id: `Resident.${index}`, version: "1.0.0", activeFramework: "net10.0", types: [],
+    source: { kind: "nuget.org" },
   }))];
   for (const pkg of h.state.packages) {
     h.state.workspaceDependencies[workspaceDependencyKey(pkg)] = { resident: pkg.id };
@@ -875,6 +954,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   const h = harness();
   h.state.packages.unshift({
     id: "Earlier", version: "2.0.0", activeFramework: "net9.0", types: [],
+    source: { kind: "nuget.org" },
   });
   seedInspectionSelection(h);
   const previous = [...h.state.packages];
