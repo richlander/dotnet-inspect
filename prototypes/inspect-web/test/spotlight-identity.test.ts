@@ -608,6 +608,19 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+test("shared HTML escaping covers text and attribute delimiters", () => {
+  const helper = sourceText(functionDeclaration("escapeHtml"));
+  assert.deepEqual(
+    helper.match(/\.replaceAll\([^)]*\)/g),
+    [
+      `.replaceAll("&", "&amp;")`,
+      `.replaceAll("<", "&lt;")`,
+      `.replaceAll(">", "&gt;")`,
+      `.replaceAll('"', "&quot;")`,
+      `.replaceAll("'", "&#39;")`,
+    ]);
+});
+
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
