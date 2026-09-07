@@ -157,8 +157,8 @@ default; the consumer decides what an unversioned request means.
 | --- | --- | --- | --- |
 | 1 | Package-only | `Newtonsoft.Json`, `Microsoft.Extensions.AI` | unbounded |
 | 2 | Overlapping, no library of that name | `NETStandard.Library`, `Microsoft.NETCore.Platforms` | 166 |
-| 3 | Overlapping, library present | `System.Text.Json` | 274 |
-| 4 | Platform-only | `System.Private.CoreLib` | 39 |
+| 3 | Overlapping, library present | `System.Text.Json`, `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.AspNetCore.SignalR` | 274 |
+| 4 | Platform-only | `System.Security.Cryptography`, `System.Net.Quic`, `mscorlib`, `System.Private.CoreLib` | 39 |
 
 Steps 3 and 4 partition the catalog: 274 + 39 = 313 libraries. Steps 2 and 3
 partition the inventory: 166 + 274 = 440 entries.
@@ -168,6 +168,16 @@ recognizable remainder is the host and targeting infrastructure —
 `NETStandard.Library`, `Microsoft.NETCore.App`, `Microsoft.NETCore.Platforms`,
 `Microsoft.NETCore.DotNetHost` — packages the framework subsumes without
 shipping an assembly under that name.
+
+Step 4 is not the implementation-detail category a single `System.Private.*`
+example suggests. Only 3 of its 39 entries are `.Private.`. The rest divide
+into compatibility facades with no package twin — `mscorlib`, `netstandard`,
+`System.Core`, `System.Xml`, `System.Data` — and substantial public
+implementations that were simply never shipped as packages, including
+`System.Security.Cryptography`, `System.Net.Quic`, `System.Net.HttpListener`,
+`System.Runtime.InteropServices.JavaScript`, and `Microsoft.VisualBasic.Core`.
+A user searching `System.Security.Cryptography` must reach the platform,
+because nothing else supplies it.
 
 Step 1 has no count because it is the complement: every package identity not
 in the inventory. `Microsoft.Extensions.AI` is worth naming, because it is
