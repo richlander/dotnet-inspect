@@ -72,7 +72,8 @@ the libraries they describe.
 Every .NET and ASP.NET Core shared framework in the catalog publishes an
 inventory, `net6.0` through `net11.0`, both families. A target that publishes
 none subsumes nothing, which is the no-platform case below rather than an
-error.
+error; .NET Standard is currently in that position here, and
+[whether it should be](#open-question-net-standard) is unresolved.
 
 ### A package may target a higher platform version than the workspace
 
@@ -453,6 +454,57 @@ without package twins. Its motivating shape is a local build composed over an
 installed hive, which applies equally to an assembly that does have a package
 twin. The distinction is designated-versus-platform, not twinned-versus-not,
 which is why it stays orthogonal to this owner.
+
+## Correspondence with the NuGet specification
+
+`PrunePackageReference` is specified in three accepted NuGet designs:
+[`accepted/2024/prune-package-reference.md`](https://github.com/NuGet/Home/blob/dev/accepted/2024/prune-package-reference.md)
+(NuGet/Home#13634),
+[`accepted/2025/prune-package-reference-rollout.md`](https://github.com/NuGet/Home/blob/dev/accepted/2025/prune-package-reference-rollout.md)
+(#14066), and
+[`accepted/2025/PrunePackageReference-with-direct-PackageReference.md`](https://github.com/NuGet/Home/blob/dev/accepted/2025/PrunePackageReference-with-direct-PackageReference.md)
+(#14325). They are evidence about the behavior this owner must agree with, not
+authority over inspection.
+
+Four things they confirm:
+
+| This design | The specification |
+| --- | --- |
+| Supplied version is an inclusive ceiling | "The version is consider to the maximum version to be pruned"; NuGet removes "any of the specified packages or lower" |
+| Membership is per target framework | "The feature is framework specific" |
+| The inventory is the `PackageOverrides` data | "The list of packages being removed is the exact same that's part of the build time conflict resolution in the .NET SDK" |
+| Selection is never transformed; resolution is | "Pruning is only possible for transitive packages, if a direct package reference is attempted to be pruned, a warning will be raised" (NU1510) |
+
+The last row matters most. The split this document draws between selection and
+resolution is not an inspection-specific analogy — it is the same line NuGet
+draws between a direct and a transitive reference. A package the user names
+stays; a package reached through the graph is pruned. #14325 proposes softening
+the direct case from a warning to privatizing the reference
+(`PrivateAssets='all'`, `IncludeAssets='none'`), which keeps the package
+present while contributing nothing. That direction moves toward this document's
+position rather than away from it: the named package remains a subject.
+
+### Named divergence: this product has one switch, not two
+
+NuGet exposes `RestoreEnablePackagePruning` to disable the feature. This owner
+deliberately does not, per the [invariants](#invariants): the platform
+registration is the only switch. The justification is that the property exists
+to de-risk a restore behavior change for builds with custom asset handling,
+and none of those hazards apply to inspection, which never restores, copies,
+or executes. Adding a second switch here would buy nothing and would let the
+rules drift from the libraries they describe.
+
+### Open question: .NET Standard
+
+The rollout spec enables pruning "for *all* .NET (Core) and .NET Standard 2.0
+and above". This document's inventories come from reference packs, and the
+catalog carries `netstandard2.0` and `netstandard2.1` as reference-only
+targets with no such pack. The SDK's `PrunePackageDataRoot` in
+11.0.100-preview.7 contains only a `10.0` band with the three .NET shared
+frameworks, so where .NET Standard prune data is sourced is unresolved. Until
+it is, a .NET Standard target subsumes nothing here, which is the
+[no-platform case](#a-workspace-may-have-no-platform-at-all) and safe under
+the never-over-claim contract, but it is not yet known to match the SDK.
 
 ## Contracts
 
