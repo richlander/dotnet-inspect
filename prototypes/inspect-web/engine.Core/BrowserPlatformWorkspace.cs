@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using NuGet.Versioning;
 
 namespace InspectWeb.Engine;
 
@@ -137,8 +138,8 @@ internal sealed record BrowserPlatformAssemblyRequest(
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformWorkspace
 {
-    const string RuntimeFamily = "runtime";
-    const string AspNetCoreFamily = "aspnetcore";
+    internal const string RuntimeFamily = "runtime";
+    internal const string AspNetCoreFamily = "aspnetcore";
     const string RuntimePack = "netcore.app";
     const string AspNetCorePack = "aspnetcore.app";
     const string DefaultRuntimeAssembly = "System.Private.CoreLib";
@@ -347,6 +348,22 @@ internal static class BrowserPlatformWorkspace
             assemblies,
             ProductionHost,
             BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
+        string targetFramework,
+        string? platformVersion,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        OpenAssembliesAsync(
+            targetFramework,
+            platformVersion,
+            assemblies,
+            new Host(client, sourceAuthorization),
+            operationTimeout,
             cancellationToken);
 
     static Task<BrowserPlatformScopeResolution> OpenAsync(
@@ -1237,6 +1254,9 @@ internal static class BrowserPlatformWorkspace
                 $"Platform family '{family}' is not supported."),
         };
 
+    internal static bool IsSupportedFamily(string family) =>
+        family is RuntimeFamily or AspNetCoreFamily;
+
     static string AssemblySimpleName(string assemblyFileName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyFileName);
@@ -1270,7 +1290,16 @@ internal static class BrowserPlatformWorkspace
         string targetFramework,
         string? platformVersion) =>
         $"{targetFramework.ToLowerInvariant()}@"
-        + (platformVersion?.ToLowerInvariant() ?? "latest");
+        + VersionKey(platformVersion);
+
+    static string VersionKey(string? platformVersion) =>
+        platformVersion is null
+            ? "latest"
+            : NuGetVersion.TryParse(
+                platformVersion,
+                out NuGetVersion? parsed)
+                ? parsed.ToNormalizedString().ToLowerInvariant()
+                : platformVersion.ToLowerInvariant();
 
     static string ScopeKey(
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates) =>

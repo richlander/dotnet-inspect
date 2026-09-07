@@ -238,6 +238,7 @@ public sealed class CallerScopeReachabilityPlan
             HashSet<AssemblyAcquisitionRegistration>>();
         var traversedForwarders = new HashSet<
             (AssemblyAcquisitionRegistration Registration,
+            AssemblyBindingLineage Lineage,
             AssemblyResolutionScope Scope)>();
         foreach (AssemblyBindingRequest binding in bindings)
         {
@@ -252,7 +253,7 @@ public sealed class CallerScopeReachabilityPlan
                     resolved.Candidate.Assembly.Registration);
                 AddForwarderEdges(
                     context,
-                    resolved.Candidate,
+                    resolved,
                     binding.Scope,
                     reverse,
                     graphSeeds,
@@ -336,7 +337,7 @@ public sealed class CallerScopeReachabilityPlan
 
     static void AddForwarderEdges(
         TypeResolutionContext context,
-        ResolvedAssemblyCandidate first,
+        AssemblyBindingOutcome.Resolved first,
         AssemblyResolutionScope firstScope,
         Dictionary<
             AssemblyAcquisitionRegistration,
@@ -344,18 +345,23 @@ public sealed class CallerScopeReachabilityPlan
         HashSet<AssemblyAcquisitionRegistration> graphSeeds,
         HashSet<
             (AssemblyAcquisitionRegistration Registration,
+            AssemblyBindingLineage Lineage,
             AssemblyResolutionScope Scope)> visited)
     {
         var pending = new Stack<
-            (ResolvedAssemblyCandidate Candidate,
+            (AssemblyBindingOutcome.Resolved Binding,
             AssemblyResolutionScope Scope)>();
         pending.Push((first, firstScope));
         while (pending.Count > 0)
         {
-            (ResolvedAssemblyCandidate candidate,
+            (AssemblyBindingOutcome.Resolved bound,
                 AssemblyResolutionScope currentScope) = pending.Pop();
+            ResolvedAssemblyCandidate candidate = bound.Candidate;
             ResolvedAssemblyReference source = candidate.Assembly;
-            if (!visited.Add((source.Registration, currentScope)))
+            if (!visited.Add((
+                    source.Registration,
+                    bound.Occurrence.Lineage,
+                    currentScope)))
                 continue;
 
             AssemblyInventorySnapshot inventory =
@@ -370,7 +376,7 @@ public sealed class CallerScopeReachabilityPlan
                             : AssemblyResolutionScope.Any;
                 var binding = new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(target),
-                    AssemblyBindingOrigin.FromAssembly(source),
+                    AssemblyBindingOrigin.FromOccurrence(bound.Occurrence),
                     nextScope);
                 if (context.Bind(binding)
                     is AssemblyBindingOutcome.Resolved resolved)
@@ -379,7 +385,7 @@ public sealed class CallerScopeReachabilityPlan
                         reverse,
                         source.Registration,
                         resolved.Candidate.Assembly.Registration);
-                    pending.Push((resolved.Candidate, nextScope));
+                    pending.Push((resolved, nextScope));
                 }
                 else
                 {
@@ -551,84 +557,93 @@ public sealed class CallerScopeReachabilityPlan
 
     internal sealed class ScopeFirstBindingPolicy : IAssemblyBindingPolicy
     {
-        readonly IAssemblyBindingPolicy _fallback;
-        readonly ResolvedAssemblyReference _target;
-        readonly IReadOnlyList<ResolvedAssemblyReference> _roots;
+        BindingState _state;
 
         internal ScopeFirstBindingPolicy(
             IAssemblyBindingPolicy fallback,
             ResolvedAssemblyReference target,
             IReadOnlyList<ResolvedAssemblyReference> roots)
         {
-            _fallback = fallback;
-            _target = target;
-            _roots = roots;
+            _state = new BindingState(
+                fallback,
+                target,
+                [.. roots],
+                fallback.Version);
         }
 
-        public AssemblyBindingPolicyVersion Version { get; } = new();
+        public AssemblyBindingPolicyVersion Version => CurrentState().Version;
 
         public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            AssemblyBindingSelection selection;
-            if (request.Target
-                is not AssemblyBindingTarget.AssemblyReference reference)
+            ArgumentNullException.ThrowIfNull(request);
+            BindingState state = CurrentState();
+            AssemblyBindingRequest? delegatedRequest = DelegateRequest(state, request);
+            if (delegatedRequest is null)
             {
-                AssemblyBindingSelectionSnapshot? nonReferenceSnapshot =
-                    _fallback.Select(request);
-                selection = AssemblyBindingSelection.ValidateForRequest(
-                    request,
-                    nonReferenceSnapshot?.Selection);
-                return new AssemblyBindingSelectionSnapshot(
-                    Version,
-                    selection);
+                return Complete(
+                    state,
+                    AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.InvalidBindingOrigin)));
             }
 
-            if (_target.Identity.IsEquivalentTo(reference.Identity))
+            var reference = request.Target as AssemblyBindingTarget.AssemblyReference;
+            if (reference is not null)
             {
-                return new AssemblyBindingSelectionSnapshot(
-                    Version,
-                    AssemblyBindingSelection.Found(_target));
+                if (state.Target.Identity.IsEquivalentTo(reference.Identity))
+                {
+                    return Complete(
+                        state,
+                        AssemblyBindingSelection.Found(state.Target));
+                }
+
+                ImmutableArray<ResolvedAssemblyReference> matches = state.Roots
+                    .Where(
+                        root => root.Identity.IsEquivalentTo(
+                            reference.Identity))
+                    .ToImmutableArray();
+                if (matches.Length > 0)
+                {
+                    return Complete(
+                        state,
+                        matches.Length == 1
+                            ? AssemblyBindingSelection.Found(matches[0])
+                            : AssemblyBindingSelection.Multiple(matches));
+                }
             }
 
-            ImmutableArray<ResolvedAssemblyReference> matches = _roots
-                .Where(
-                    root => root.Identity.IsEquivalentTo(
-                        reference.Identity))
-                .ToImmutableArray();
-            if (matches.Length > 0)
+            AssemblyBindingSelectionSnapshot? snapshot =
+                state.Fallback.Select(delegatedRequest);
+            if (snapshot is not null
+                && !ReferenceEquals(snapshot.Version, state.FallbackVersion))
             {
-                selection = matches.Length == 1
-                    ? AssemblyBindingSelection.Found(matches[0])
-                    : AssemblyBindingSelection.Multiple(matches);
-                return new AssemblyBindingSelectionSnapshot(
-                    Version,
-                    selection);
+                Interlocked.CompareExchange(
+                    ref _state,
+                    state.Refresh(state.Fallback.Version),
+                    state);
+                return snapshot;
             }
 
-            AssemblyBindingSelectionSnapshot? referenceSnapshot =
-                _fallback.Select(request);
             AssemblyBindingSelection delegated =
                 AssemblyBindingSelection.ValidateForRequest(
-                    request,
-                    referenceSnapshot?.Selection);
-            if (delegated
-                is not AssemblyBindingSelection.Missing
+                    delegatedRequest,
+                    snapshot?.Selection);
+            if (reference is null
+                || delegated is not AssemblyBindingSelection.Missing
                 {
                     Disposition:
                         AssemblyBindingMissDisposition.NoNameOwner,
                 })
             {
-                return new AssemblyBindingSelectionSnapshot(
-                    Version,
-                    delegated);
+                return Complete(state, delegated);
             }
 
             bool targetOwnsName = string.Equals(
-                _target.Identity.Name,
+                state.Target.Identity.Name,
                 reference.Identity.Name,
                 StringComparison.OrdinalIgnoreCase);
-            ImmutableArray<ResolvedAssemblyReference> nameOwners = _roots
+            ImmutableArray<ResolvedAssemblyReference> nameOwners = state.Roots
                 .Where(
                     root => string.Equals(
                         root.Identity.Name,
@@ -636,12 +651,12 @@ public sealed class CallerScopeReachabilityPlan
                         StringComparison.OrdinalIgnoreCase)
                     && (!targetOwnsName
                         || !root.Identity.IsEquivalentTo(
-                            _target.Identity)))
+                            state.Target.Identity)))
                 .ToImmutableArray();
             if (targetOwnsName)
-                nameOwners = nameOwners.Insert(0, _target);
+                nameOwners = nameOwners.Insert(0, state.Target);
 
-            selection = nameOwners.Length switch
+            AssemblyBindingSelection selection = nameOwners.Length switch
             {
                 0 => delegated,
                 1 => AssemblyBindingSelection.CannotSelect(
@@ -649,9 +664,100 @@ public sealed class CallerScopeReachabilityPlan
                         AssemblyBindingFailureKind.IdentityPolicyRequired)),
                 _ => AssemblyBindingSelection.Multiple(nameOwners),
             };
-            return new AssemblyBindingSelectionSnapshot(
-                Version,
-                selection);
+            return Complete(state, selection);
+        }
+
+        AssemblyBindingSelectionSnapshot Complete(
+            BindingState state,
+            AssemblyBindingSelection selection)
+        {
+            if (selection is AssemblyBindingSelection.Selected selected)
+            {
+                var lineage = new ScopeFirstLineage(this, state, selected.Occurrence);
+                selection = AssemblyBindingSelection.FoundOccurrence(
+                    lineage.Issue(selected.Assembly),
+                    selected.ShadowedAssemblies);
+            }
+
+            return new AssemblyBindingSelectionSnapshot(state.Version, selection);
+        }
+
+        AssemblyBindingRequest? DelegateRequest(
+            BindingState state,
+            AssemblyBindingRequest request)
+        {
+            if (request.Origin
+                    is not AssemblyBindingOrigin.RequestingAssembly requesting
+                || requesting.Lineage is null
+                || requesting.Lineage == AssemblyBindingLineage.Seed)
+            {
+                return request;
+            }
+
+            if (requesting.Lineage is not ScopeFirstLineage lineage
+                || !ReferenceEquals(lineage.Issuer, this)
+                || !ReferenceEquals(lineage.State, state))
+            {
+                return null;
+            }
+
+            return new AssemblyBindingRequest(
+                request.Target,
+                AssemblyBindingOrigin.FromOccurrence(lineage.DelegatedOccurrence),
+                request.Scope);
+        }
+
+        BindingState CurrentState()
+        {
+            while (true)
+            {
+                BindingState state = Volatile.Read(ref _state);
+                AssemblyBindingPolicyVersion version = state.Fallback.Version;
+                if (ReferenceEquals(state.FallbackVersion, version))
+                    return state;
+
+                Interlocked.CompareExchange(
+                    ref _state,
+                    state.Refresh(version),
+                    state);
+            }
+        }
+
+        sealed class BindingState(
+            IAssemblyBindingPolicy fallback,
+            ResolvedAssemblyReference target,
+            ImmutableArray<ResolvedAssemblyReference> roots,
+            AssemblyBindingPolicyVersion fallbackVersion)
+        {
+            internal IAssemblyBindingPolicy Fallback { get; } = fallback;
+            internal ResolvedAssemblyReference Target { get; } = target;
+            internal ImmutableArray<ResolvedAssemblyReference> Roots { get; } = roots;
+            internal AssemblyBindingPolicyVersion FallbackVersion { get; } = fallbackVersion;
+            internal AssemblyBindingPolicyVersion Version { get; } = new();
+
+            internal BindingState Refresh(AssemblyBindingPolicyVersion version) =>
+                new(Fallback, Target, Roots, version);
+        }
+
+        sealed record ScopeFirstLineage : AssemblyBindingLineage
+        {
+            internal ScopeFirstLineage(
+                ScopeFirstBindingPolicy issuer,
+                BindingState state,
+                AssemblyBindingOccurrence delegatedOccurrence)
+                : base(state.Version)
+            {
+                Issuer = issuer;
+                State = state;
+                DelegatedOccurrence = delegatedOccurrence;
+            }
+
+            internal ScopeFirstBindingPolicy Issuer { get; }
+            internal BindingState State { get; }
+            internal AssemblyBindingOccurrence DelegatedOccurrence { get; }
+
+            internal AssemblyBindingOccurrence Issue(
+                ResolvedAssemblyReference assembly) => CreateOccurrence(assembly);
         }
     }
 }

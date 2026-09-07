@@ -608,6 +608,19 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+test("shared HTML escaping covers text and attribute delimiters", () => {
+  const helper = sourceText(functionDeclaration("escapeHtml"));
+  assert.deepEqual(
+    helper.match(/\.replaceAll\([^)]*\)/g),
+    [
+      `.replaceAll("&", "&amp;")`,
+      `.replaceAll("<", "&lt;")`,
+      `.replaceAll(">", "&gt;")`,
+      `.replaceAll('"', "&quot;")`,
+      `.replaceAll("'", "&#39;")`,
+    ]);
+});
+
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
@@ -3001,7 +3014,7 @@ test("foreground package reload resets filters before selecting its first type",
     ?? "";
   assert.match(
     loadPackage,
-    /if \(deep && \(deep\.type \|\| deep\.member\)\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);/);
+    /if \(deep\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);/);
 });
 
 test("home demos restore the complete parsed location", () => {
@@ -3027,12 +3040,15 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
   assert.match(callGraphDemo, /result = await inspectRunHomeDemo\(demoId\)/);
   assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
+  assert.match(
+    callGraphDemo,
+    /const activation = result\.activation;\s*if \(activation\.focusKind !== "package"\) \{[\s\S]*return;\s*\}\s*const packages = result\.packages\.map\(createNuGetPackageModel\)/);
   assert.match(
     callGraphDemo,
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
@@ -6399,7 +6415,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /loadPackage\(state\.package\.id, state\.package\.version, (?:button\.dataset\.frameworkChip|argument)\)/);
   assert.match(
     appSource,
-    /deepLink: deep,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
+    /location: loc,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
   assert.match(
     appSource,
     /clearWorkspacePackages\(\);\s+render\(\);/);
