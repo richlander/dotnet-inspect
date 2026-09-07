@@ -1,223 +1,241 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
 public class CallerBindingPolicyTests
 {
-    [Fact]
-    public void ConcurrentLearnedRoutesAreBothRetained()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SharedDependencyRetainsBothSelectingContexts(bool reverse)
     {
-        ResolvedAssemblyReference defaultOwner =
-            Descriptor("Default.Owner");
-        ResolvedAssemblyReference firstOwner =
-            Descriptor("First.Owner");
-        ResolvedAssemblyReference secondOwner =
-            Descriptor("Second.Owner");
-        ResolvedAssemblyReference firstCandidate =
-            Descriptor("First.Candidate");
-        ResolvedAssemblyReference secondCandidate =
-            Descriptor("Second.Candidate");
-        using var stateCaptureBarrier = new Barrier(2);
-        int stateCaptureCount = 0;
-        int firstCandidateFactoryCalls = 0;
-        int secondCandidateFactoryCalls = 0;
-        var defaultPolicy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.NameNotOwned());
-        var firstPolicy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(firstCandidate));
-        var secondPolicy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(secondCandidate));
-        var firstCandidatePolicy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.NameNotOwned());
-        var secondCandidatePolicy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.NameNotOwned());
-        var candidatePolicies = new Dictionary<
-            AssemblyAcquisitionRegistration,
-            FixedSelectionPolicy>(
-                ReferenceEqualityComparer.Instance);
-        candidatePolicies.Add(
-            firstCandidate.Registration,
-            firstCandidatePolicy);
-        candidatePolicies.Add(
-            secondCandidate.Registration,
-            secondCandidatePolicy);
-        var policy =
-            new ApiMemberAnalysisInspection.CallerBindingPolicy(
-                defaultOwner,
-                [firstOwner, secondOwner],
-                assembly =>
-                {
-                    if (ReferenceEquals(assembly, defaultOwner))
-                        return defaultPolicy;
-                    if (ReferenceEquals(assembly, firstOwner))
-                        return firstPolicy;
-                    if (ReferenceEquals(assembly, secondOwner))
-                        return secondPolicy;
-                    if (candidatePolicies.TryGetValue(
-                            assembly.Registration,
-                            out FixedSelectionPolicy? candidatePolicy))
-                    {
-                        if (ReferenceEquals(assembly, firstCandidate))
-                        {
-                            Interlocked.Increment(
-                                ref firstCandidateFactoryCalls);
-                        }
-                        else if (ReferenceEquals(
-                            assembly,
-                            secondCandidate))
-                        {
-                            Interlocked.Increment(
-                                ref secondCandidateFactoryCalls);
-                        }
-                        return candidatePolicy;
-                    }
-                    throw new InvalidOperationException(
-                        $"Unexpected route for {assembly.Identity.Name}.");
-                },
-                () =>
-                {
-                    int capture = Interlocked.Increment(
-                        ref stateCaptureCount);
-                    if (capture <= 2
-                        && !stateCaptureBarrier.SignalAndWait(
-                            TimeSpan.FromSeconds(30)))
-                    {
-                        throw new TimeoutException(
-                            "Concurrent route publication did not capture the same initial state.");
-                    }
-                });
+        var target = Descriptor("Target");
+        var left = Descriptor("Left");
+        var right = Descriptor("Right");
+        var shared = Descriptor("Shared");
+        var leftDependency = Descriptor("Dependency");
+        var rightDependency = Descriptor("Dependency");
+        var fallback = new SelectionPolicy(_ => AssemblyBindingSelection.NameNotOwned());
+        var leftPolicy = Context(shared, leftDependency);
+        var rightPolicy = Context(shared, rightDependency);
+        int factoryCalls = 0;
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target,
+            [target, left, right],
+            assembly =>
+            {
+                factoryCalls++;
+                return ReferenceEquals(assembly, left) ? leftPolicy
+                    : ReferenceEquals(assembly, right) ? rightPolicy
+                    : fallback;
+            });
         AssemblyBindingPolicyVersion version = policy.Version;
+        Assert.NotSame(fallback.Version, version);
+        Assert.NotSame(leftPolicy.Version, version);
+        Assert.NotSame(rightPolicy.Version, version);
+        var roots = new[] { (left, leftDependency), (right, rightDependency) };
+        if (reverse)
+            Array.Reverse(roots);
 
-        AssemblyBindingSelectionSnapshot? firstSnapshot = null;
-        AssemblyBindingSelectionSnapshot? secondSnapshot = null;
-        Exception? firstFailure = null;
-        Exception? secondFailure = null;
-        var firstThread = new Thread(
-            () =>
-            {
-                try
-                {
-                    firstSnapshot = policy.Select(
-                        Request(firstOwner, firstCandidate.Identity));
-                }
-                catch (Exception ex)
-                {
-                    firstFailure = ex;
-                }
-            })
+        foreach (var (root, dependency) in roots)
         {
-            IsBackground = true,
-        };
-        var secondThread = new Thread(
-            () =>
-            {
-                try
-                {
-                    secondSnapshot = policy.Select(
-                        Request(secondOwner, secondCandidate.Identity));
-                }
-                catch (Exception ex)
-                {
-                    secondFailure = ex;
-                }
-            })
-        {
-            IsBackground = true,
-        };
+            var selected = Selected(policy.Select(Request(root, shared)));
+            var repeated = Selected(policy.Select(Request(root, shared)));
+            var continued = Selected(policy.Select(
+                Request(selected.Occurrence, dependency)));
 
-        firstThread.Start();
-        secondThread.Start();
+            Assert.Same(shared, selected.Assembly);
+            Assert.Equal(selected.Occurrence.Lineage, repeated.Occurrence.Lineage);
+            Assert.Same(version, selected.Occurrence.Lineage.Version);
+            Assert.Same(dependency, continued.Assembly);
+            Assert.Same(version, policy.Version);
+        }
 
-        Assert.True(firstThread.Join(TimeSpan.FromSeconds(30)));
-        Assert.True(secondThread.Join(TimeSpan.FromSeconds(30)));
-        Assert.Null(firstFailure);
-        Assert.Null(secondFailure);
-
-        Assert.Same(
-            firstCandidate,
-            Assert.IsType<AssemblyBindingSelection.Selected>(
-                firstSnapshot!.Selection).Assembly);
-        Assert.Same(
-            secondCandidate,
-            Assert.IsType<AssemblyBindingSelection.Selected>(
-                secondSnapshot!.Selection).Assembly);
-        Assert.Same(version, firstSnapshot.Version);
-        Assert.Same(version, secondSnapshot.Version);
-
-        AssemblyReferenceIdentity probe = Identity("Probe");
         Assert.IsType<AssemblyBindingSelection.Missing>(
-            policy.Select(Request(firstCandidate, probe)).Selection);
-        Assert.IsType<AssemblyBindingSelection.Missing>(
-            policy.Select(Request(secondCandidate, probe)).Selection);
-
-        Assert.IsType<AssemblyBindingSelection.Selected>(
-            policy.Select(
-                Request(firstOwner, firstCandidate.Identity)).Selection);
-        Assert.IsType<AssemblyBindingSelection.Missing>(
-            policy.Select(Request(firstCandidate, probe)).Selection);
-
-        Assert.Same(version, policy.Version);
-        Assert.Equal(0, defaultPolicy.CallCount);
-        Assert.Equal(2, firstPolicy.CallCount);
-        Assert.Equal(1, secondPolicy.CallCount);
-        Assert.Equal(2, firstCandidatePolicy.CallCount);
-        Assert.Equal(1, secondCandidatePolicy.CallCount);
-        Assert.Equal(1, firstCandidateFactoryCalls);
-        Assert.Equal(1, secondCandidateFactoryCalls);
+            policy.Select(Request(shared, leftDependency)).Selection);
+        Assert.Equal(3, factoryCalls);
     }
+
+    [Fact]
+    public void NestedPolicyContinuationIsPreserved()
+    {
+        var target = Descriptor("Target");
+        var owner = Descriptor("Owner");
+        var shared = Descriptor("Shared");
+        var dependency = Descriptor("Dependency");
+        var missing = new SelectionPolicy(_ => AssemblyBindingSelection.NameNotOwned());
+        var inner = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(target, (IAssemblyBindingPolicy)missing), (owner, Context(shared, dependency))]);
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [owner], _ => inner);
+
+        var selected = Selected(policy.Select(Request(owner, shared)));
+        var continued = Selected(policy.Select(Request(selected.Occurrence, dependency)));
+
+        Assert.Same(dependency, continued.Assembly);
+        Assert.NotSame(inner.Version, policy.Version);
+    }
+
+    [Fact]
+    public void SelectedParticipantUsesItsConfiguredContext()
+    {
+        var target = Descriptor("Target");
+        var peer = Descriptor("Peer");
+        var dependency = Descriptor("Dependency");
+        var selecting = new SelectionPolicy(_ => AssemblyBindingSelection.Found(peer));
+        var peerPolicy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(dependency));
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [peer], assembly => ReferenceEquals(assembly, peer)
+                ? peerPolicy : selecting);
+
+        var selected = Selected(policy.Select(Request(target, peer)));
+        var continued = Selected(policy.Select(Request(selected.Occurrence, dependency)));
+
+        Assert.Same(peer, selected.Assembly);
+        Assert.Same(dependency, continued.Assembly);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForeignSnapshotRetiresStateBeforeInterpretingPayload(
+        bool delegateVersionChanges)
+    {
+        var target = Descriptor("Target");
+        var candidate = Descriptor("Candidate");
+        var inner = new SelectionPolicy(_ => AssemblyBindingSelection.Found(candidate));
+        int factoryCalls = 0;
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [], _ => { factoryCalls++; return inner; });
+        var request = Request(target, candidate);
+        var selected = Selected(policy.Select(request));
+        AssemblyBindingPolicyVersion version = policy.Version;
+        var foreign = new AssemblyBindingSelectionSnapshot(
+            new AssemblyBindingPolicyVersion(),
+            AssemblyBindingSelection.Found(candidate));
+        inner.Override = () =>
+        {
+            if (delegateVersionChanges)
+                inner.Version = foreign.Version;
+            return foreign;
+        };
+
+        Assert.Same(foreign, policy.Select(request));
+        Assert.NotSame(version, policy.Version);
+        Assert.Equal(1, factoryCalls);
+        var retired = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            policy.Select(Request(selected.Occurrence, candidate)).Selection);
+        Assert.Equal(AssemblyBindingFailureKind.InvalidBindingOrigin, retired.Failure.Kind);
+
+        inner.Override = null;
+        AssemblyBindingPolicyVersion refreshed = policy.Version;
+        var fresh = policy.Select(request);
+        Assert.Same(refreshed, fresh.Version);
+        Assert.Same(candidate, Selected(fresh).Assembly);
+    }
+
+    [Fact]
+    public void CurrentVersionTracksDelegatedChangesAndRejectsOldOrigins()
+    {
+        var target = Descriptor("Target");
+        var candidate = Descriptor("Candidate");
+        var inner = new SelectionPolicy(_ => AssemblyBindingSelection.Found(candidate));
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [], _ => inner);
+        var selected = Selected(policy.Select(Request(target, candidate)));
+        AssemblyBindingPolicyVersion original = policy.Version;
+
+        inner.Version = new();
+        AssemblyBindingPolicyVersion replacement = policy.Version;
+        Assert.NotSame(original, replacement);
+        var retired = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            policy.Select(Request(selected.Occurrence, candidate)).Selection);
+        Assert.Equal(AssemblyBindingFailureKind.InvalidBindingOrigin, retired.Failure.Kind);
+
+        var foreignPolicy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [], _ => inner);
+        var fresh = Selected(policy.Select(Request(target, candidate)));
+        var foreign = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            foreignPolicy.Select(Request(fresh.Occurrence, candidate)).Selection);
+        Assert.Equal(AssemblyBindingFailureKind.InvalidBindingOrigin, foreign.Failure.Kind);
+    }
+
+    [Fact]
+    public void DelegatedSelectionIsNotReplacedByGroupCandidatePrecedence()
+    {
+        var target = Descriptor("Target");
+        var selected = Descriptor("Target");
+        var delegatePolicy = new SelectionPolicy(_ => AssemblyBindingSelection.Found(selected));
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [], _ => delegatePolicy);
+
+        Assert.Same(selected, Selected(policy.Select(Request(target, target))).Assembly);
+    }
+
+    [Fact]
+    public void NullSnapshotRemainsInvalidPolicyResult()
+    {
+        var target = Descriptor("Target");
+        var inner = new SelectionPolicy(_ => AssemblyBindingSelection.NameNotOwned())
+        {
+            Override = () => null!,
+        };
+        var policy = new ApiMemberAnalysisInspection.CallerBindingPolicy(
+            target, [], _ => inner);
+
+        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            policy.Select(Request(target, target)).Selection);
+
+        Assert.Equal(AssemblyBindingFailureKind.InvalidPolicyResult, rejected.Failure.Kind);
+    }
+
+    static SelectionPolicy Context(
+        ResolvedAssemblyReference shared,
+        ResolvedAssemblyReference dependency) =>
+        new(request => AssemblyBindingSelection.Found(
+            request.Target is AssemblyBindingTarget.AssemblyReference
+                { Identity.Name: "Shared" } ? shared : dependency));
+
+    static AssemblyBindingSelection.Selected Selected(
+        AssemblyBindingSelectionSnapshot snapshot) =>
+        Assert.IsType<AssemblyBindingSelection.Selected>(snapshot.Selection);
 
     static AssemblyBindingRequest Request(
         ResolvedAssemblyReference origin,
-        AssemblyReferenceIdentity target) =>
+        ResolvedAssemblyReference target) =>
         new(
-            AssemblyBindingTarget.Reference(target),
+            AssemblyBindingTarget.Reference(target.Identity),
             AssemblyBindingOrigin.FromAssembly(origin),
             AssemblyResolutionScope.Any);
 
-    static ResolvedAssemblyReference Descriptor(string name)
-    {
-        string path = typeof(CallerBindingPolicyTests)
-            .Assembly.Location;
-        return ResolvedAssemblyReference.Create(
-            Identity(name),
-            path,
-            () => File.OpenRead(path),
-            AssemblyResolutionProvenance.Local(
-                "caller binding route-state test"));
-    }
-
-    static AssemblyReferenceIdentity Identity(string name) =>
+    static AssemblyBindingRequest Request(
+        AssemblyBindingOccurrence origin,
+        ResolvedAssemblyReference target) =>
         new(
-            name,
-            new Version(1, 0, 0, 0),
-            null,
-            null);
+            AssemblyBindingTarget.Reference(target.Identity),
+            AssemblyBindingOrigin.FromOccurrence(origin),
+            AssemblyResolutionScope.Any);
 
-    sealed class FixedSelectionPolicy(
-        AssemblyBindingSelection selection)
+    static ResolvedAssemblyReference Descriptor(string name) =>
+        ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(name, new Version(1, 0, 0, 0), null, null),
+            name + ".dll",
+            static () => throw new InvalidOperationException(
+                "Caller routing must not open descriptor-only fixtures."),
+            AssemblyResolutionProvenance.Local("caller continuation test"));
+
+    sealed class SelectionPolicy(
+        Func<AssemblyBindingRequest, AssemblyBindingSelection> select)
         : IAssemblyBindingPolicy
     {
-        int _callCount;
+        public AssemblyBindingPolicyVersion Version { get; set; } = new();
+        internal Func<AssemblyBindingSelectionSnapshot>? Override { get; set; }
 
-        internal int CallCount => Volatile.Read(ref _callCount);
-
-        public AssemblyBindingPolicyVersion Version { get; } = new();
-
-        public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request)
-        {
-            return new AssemblyBindingSelectionSnapshot(
-                Version,
-                SelectCore());
-
-            AssemblyBindingSelection SelectCore()
-            {
-                Interlocked.Increment(ref _callCount);
-                return selection;
-
-            }
-        }
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request) =>
+            Override is { } callback
+                ? callback()
+                : new(Version, select(request));
     }
-
 }
