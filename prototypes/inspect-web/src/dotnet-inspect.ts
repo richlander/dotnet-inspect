@@ -12441,12 +12441,16 @@ async function runCallGraphDemo(
     );
     return;
   }
-
   try {
-    const packages = result.packages.map(createNuGetPackageModel);
     const activation = result.activation;
+    if (activation.focusKind !== "package") {
+      fail(
+        `Product home demo Platform activation '${activation.focusId}' is not yet wired to Browser navigation.`);
+      return;
+    }
+    const packages = result.packages.map(createNuGetPackageModel);
     const targetPackage = packages.find(item =>
-      item.id === activation.focusPackage
+      item.id === activation.focusId
       && item.version === activation.focusVersion
       && item.activeFramework === activation.focusFramework);
     const type = targetPackage?.types.find(item =>

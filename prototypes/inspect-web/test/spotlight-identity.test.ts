@@ -3035,6 +3035,9 @@ test("home demos restore the complete parsed location", () => {
   assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
   assert.match(
     callGraphDemo,
+    /const activation = result\.activation;\s*if \(activation\.focusKind !== "package"\) \{[\s\S]*return;\s*\}\s*const packages = result\.packages\.map\(createNuGetPackageModel\)/);
+  assert.match(
+    callGraphDemo,
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
   assert.match(
     callGraphDemo,
