@@ -3757,7 +3757,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.StartsWith("System.Text.Json.JsonSerializer\n\n", output);
+        Assert.StartsWith(
+            "System.Text.Json.JsonSerializer\n\n",
+            output.ReplaceLineEndings("\n"));
         AssertLibraryAsset(output, "System.Text.Json");
         Assert.Contains("Source: Platform", output);
         Assert.Contains("Version:", output);
