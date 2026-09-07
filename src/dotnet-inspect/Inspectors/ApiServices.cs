@@ -269,6 +269,14 @@ internal static class ApiServices
     {
         if (string.Equals(
                 apiSource,
+                SourceKind.Library,
+                StringComparison.Ordinal))
+        {
+            return AssemblyResolutionProvenance.Designated("ApiServices");
+        }
+
+        if (string.Equals(
+                apiSource,
                 SourceKind.Platform,
                 StringComparison.Ordinal))
         {
