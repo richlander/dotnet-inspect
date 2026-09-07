@@ -31,9 +31,7 @@ public class PlatformPruneInventoryTests
 
     static PlatformPruneInventory Net11() =>
         PlatformPruneInventory.FromExactFamily(
-            NetCoreApp,
-            "net11.0",
-            Net11Pack,
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
             Net11Overrides);
 
     [Fact]
@@ -156,9 +154,7 @@ public class PlatformPruneInventoryTests
         var source = NuGetVersion.Parse("10.0.0");
         var selected = NuGetVersion.Parse("10.0.1");
         var projected = PlatformPruneInventory.FromProjectedFamily(
-            AspNetCoreApp,
-            "net10.0",
-            selected,
+            new PlatformPruneTarget(AspNetCoreApp, "net10.0", selected),
             source,
             ["Microsoft.Extensions.Caching.Memory|10.0.0"]);
 
@@ -185,9 +181,7 @@ public class PlatformPruneInventoryTests
         string[] lines = [$"{packageId}|10.0.0"];
 
         var crossTarget = PlatformPruneInventory.FromProjectedFamily(
-            AspNetCoreApp,
-            "net10.0",
-            selected,
+            new PlatformPruneTarget(AspNetCoreApp, "net10.0", selected),
             source,
             lines);
         Assert.True(crossTarget.Contains(packageId));
@@ -197,9 +191,7 @@ public class PlatformPruneInventoryTests
 
         // The same projection remains comparable for the exact target it came from.
         var sameTarget = PlatformPruneInventory.FromProjectedFamily(
-            AspNetCoreApp,
-            "net10.0",
-            source,
+            new PlatformPruneTarget(AspNetCoreApp, "net10.0", source),
             source,
             lines);
         Assert.Equal(
@@ -208,9 +200,7 @@ public class PlatformPruneInventoryTests
 
         // Acquiring 10.0.1 makes even the unchanged literal exact for that selected target.
         var exact = PlatformPruneInventory.FromExactFamily(
-            AspNetCoreApp,
-            "net10.0",
-            selected,
+            new PlatformPruneTarget(AspNetCoreApp, "net10.0", selected),
             lines);
         Assert.Equal(
             PlatformSubsumption.Subsumed,
@@ -222,33 +212,23 @@ public class PlatformPruneInventoryTests
     {
         Assert.Throws<FormatException>(() =>
             PlatformPruneInventory.FromExactFamily(
-                NetCoreApp,
-                "net11.0",
-                Net11Pack,
-                ["System.Text.Json"]));
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
+            ["System.Text.Json"]));
         Assert.Throws<FormatException>(() =>
             PlatformPruneInventory.FromExactFamily(
-                NetCoreApp,
-                "net11.0",
-                Net11Pack,
-                ["System.Text.Json|"]));
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
+            ["System.Text.Json|"]));
         Assert.Throws<FormatException>(() =>
             PlatformPruneInventory.FromExactFamily(
-                NetCoreApp,
-                "net11.0",
-                Net11Pack,
-                ["|4.3.1"]));
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
+            ["|4.3.1"]));
         Assert.Throws<FormatException>(() =>
             PlatformPruneInventory.FromExactFamily(
-                NetCoreApp,
-                "net11.0",
-                Net11Pack,
-                ["System.Text.Json|banana"]));
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
+            ["System.Text.Json|banana"]));
 
         var inventory = PlatformPruneInventory.FromExactFamily(
-            NetCoreApp,
-            "net11.0",
-            Net11Pack,
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
             ["System.Runtime|4.3.1", "", "   "]);
         Assert.Single(inventory.Entries);
     }
@@ -258,19 +238,13 @@ public class PlatformPruneInventoryTests
     {
         var net10 = NuGetVersion.Parse("10.0.11");
         var net10Base = PlatformPruneInventory.FromExactFamily(
-            NetCoreApp,
-            "net10.0",
-            net10,
+            new PlatformPruneTarget(NetCoreApp, "net10.0", net10),
             ["System.Text.Json|10.0.11"]);
         var net10Web = PlatformPruneInventory.FromExactFamily(
-            AspNetCoreApp,
-            "net10.0",
-            net10,
+            new PlatformPruneTarget(AspNetCoreApp, "net10.0", net10),
             ["Microsoft.Extensions.DependencyInjection.Abstractions|10.0.0"]);
         var net11Base = PlatformPruneInventory.FromExactFamily(
-            NetCoreApp,
-            "net11.0",
-            Net11Pack,
+            new PlatformPruneTarget(NetCoreApp, "net11.0", Net11Pack),
             ["Microsoft.Extensions.DependencyInjection.Abstractions|11.0.0-preview.7.26381.103"]);
 
         const string di = "Microsoft.Extensions.DependencyInjection.Abstractions";
@@ -292,9 +266,7 @@ public class PlatformPruneInventoryTests
     public void CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion()
     {
         var net10 = PlatformPruneInventory.FromExactFamily(
-            NetCoreApp,
-            "net10.0",
-            NuGetVersion.Parse("10.0.11"),
+            new PlatformPruneTarget(NetCoreApp, "net10.0", NuGetVersion.Parse("10.0.11")),
             ["System.Text.Json|10.0.11"]);
         var net11 = Net11();
 
@@ -302,9 +274,7 @@ public class PlatformPruneInventoryTests
         Assert.Throws<ArgumentException>(() => PlatformPruneInventory.Compose([]));
 
         var low = PlatformPruneInventory.FromExactFamily(
-            AspNetCoreApp,
-            "net11.0",
-            Net11Pack,
+            new PlatformPruneTarget(AspNetCoreApp, "net11.0", Net11Pack),
             ["System.Text.Json|9.0.0"]);
         var composed = PlatformPruneInventory.Compose([Net11(), low]);
 

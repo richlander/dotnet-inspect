@@ -53,6 +53,31 @@ public sealed record PlatformPruneEntry(
     PlatformPrunePrecision Precision);
 
 /// <summary>
+/// The platform target one inventory family describes: which shared framework, for which target
+/// framework, at which pack version.
+/// </summary>
+/// <remarks>
+/// These three travel together in every operation, and the invariant that one target's inventory
+/// cannot be paired with another target's version is only expressible when they do. It mirrors
+/// the Queries-layer `PlatformCoordinate(Family, Assembly, Version, Framework)`, which this layer
+/// cannot reference because Queries sits above it; #6266 is where the two should converge.
+/// </remarks>
+/// <param name="Family">The shared-framework family, such as <c>Microsoft.NETCore.App</c>.</param>
+/// <param name="Framework">The target framework, such as <c>net11.0</c>.</param>
+/// <param name="PackVersion">The pack version the target selects.</param>
+public sealed record PlatformPruneTarget(string Family, string Framework, NuGetVersion PackVersion)
+{
+    /// <summary>Validates the parts a caller supplied.</summary>
+    public PlatformPruneTarget Validated()
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(Family);
+        ArgumentException.ThrowIfNullOrWhiteSpace(Framework);
+        ArgumentNullException.ThrowIfNull(PackVersion);
+        return this;
+    }
+}
+
+/// <summary>
 /// One shared framework in a queried target and the source inventory used to describe it.
 /// </summary>
 /// <param name="Name">The shared-framework family name.</param>
@@ -130,50 +155,35 @@ public sealed class PlatformPruneInventory
     /// Reads the exact <c>data/PackageOverrides.txt</c> from one selected shared-framework pack.
     /// </summary>
     public static PlatformPruneInventory FromExactFamily(
-        string family,
-        string targetFramework,
-        NuGetVersion packVersion,
+        PlatformPruneTarget target,
         IEnumerable<string> lines) =>
-        FromFamily(
-            family,
-            targetFramework,
-            packVersion,
-            packVersion,
-            PlatformPrunePrecision.Exact,
-            lines);
+        FromFamily(target, target.PackVersion, PlatformPrunePrecision.Exact, lines);
 
     /// <summary>
     /// Applies a committed projection to one selected shared-framework pack. When
-    /// <paramref name="targetPackVersion"/> differs from <paramref name="sourcePackVersion"/>,
+    /// the target's pack version differs from <paramref name="sourcePackVersion"/>,
     /// membership remains queryable but a present entry cannot produce <c>Subsumed</c>.
     /// </summary>
     public static PlatformPruneInventory FromProjectedFamily(
-        string family,
-        string targetFramework,
-        NuGetVersion targetPackVersion,
+        PlatformPruneTarget target,
         NuGetVersion sourcePackVersion,
         IEnumerable<string> lines) =>
-        FromFamily(
-            family,
-            targetFramework,
-            targetPackVersion,
-            sourcePackVersion,
-            PlatformPrunePrecision.Projected,
-            lines);
+        FromFamily(target, sourcePackVersion, PlatformPrunePrecision.Projected, lines);
 
     static PlatformPruneInventory FromFamily(
-        string family,
-        string targetFramework,
-        NuGetVersion targetPackVersion,
+        PlatformPruneTarget target,
         NuGetVersion sourcePackVersion,
         PlatformPrunePrecision precision,
         IEnumerable<string> lines)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(family);
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
-        ArgumentNullException.ThrowIfNull(targetPackVersion);
+        ArgumentNullException.ThrowIfNull(target);
+        target.Validated();
         ArgumentNullException.ThrowIfNull(sourcePackVersion);
         ArgumentNullException.ThrowIfNull(lines);
+
+        string family = target.Family;
+        string targetFramework = target.Framework;
+        NuGetVersion targetPackVersion = target.PackVersion;
 
         var builder = ImmutableDictionary.CreateBuilder<string, PlatformPruneEntry>(
             StringComparer.OrdinalIgnoreCase);
