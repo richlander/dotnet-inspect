@@ -2007,7 +2007,14 @@ Definition records and product demos (this slice):
   those commands accept inline input or bounded strict UTF-8 stdin/file input
   and emit BOM-free UTF-8 without acquisition or execution. Stream and file
   input may carry one terminal LF or CRLF outside the declared payload bound.
+  `encode --url` optionally wraps the same canonical packet in
+  `https://dotnet-inspect.net/?w=<packet>` for the existing Browser consumer;
+  packet-only output remains the default. The URL envelope does not change
+  packet limits or expand Browser restoration support, and does not turn
+  `workspace --json` inventory rows into a share scenario.
   `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
+  `EncodeUrl_PreservesCanonicalPacket`,
+  `EncodeUrl_ReadsBoundedStandardInput`,
   `Dash_ReadsBoundedStandardInputInBothDirections`,
   `MaximumPacket_DecodePipeEncode_RoundTrips`,
   `RepeatedTerminalLineEndings_DoNotBypassLimits`,
