@@ -3,8 +3,10 @@
 This document owns the host-neutral package-manifest traversal contract tracked
 by [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
 
-**Status:** design target. The current `DependencyResolutionService` remains a
-lossy tree implementation until the focused delivery slices named here land.
+**Status:** implementation contract. The host-neutral traversal query and its
+desktop and explicit-source adapters implement this contract. The current
+`DependencyResolutionService` remains the CLI's lossy tree implementation until
+the unified `depends` consumer slice lands.
 
 ## Owner and claim
 
@@ -843,15 +845,19 @@ The implementation adds focused Release gates for:
 | Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
 | Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |
+| A shared operation deadline marks only roots with unfinished source work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots` |
 | Candidate resolver incompleteness is preserved without reinterpretation. | `Traversal_CandidateResolverIncompleteOutcomeRemainsVisible` |
 | Owner-classified exact declarations use pinned acquisition. | `Traversal_ExactDeclarationUsesPinnedAcquisition` |
 | Bare minimum-inclusive versions are not misclassified as exact. | `Traversal_BareVersionRequiresCandidateResolution` |
 | No matching version and source failure remain visible. | `Traversal_ResolutionFailureIsNotDependencyFreeLeaf` |
 | Manifest acquisition or projection failure remains visible. | `Traversal_ManifestFailureIsNotDependencyFreeLeaf` |
+| Candidate and manifest coordinates cannot be crossed during projection. | `Traversal_ManifestCandidateMismatchIsIdentityFailure` |
+| Invalid selected declarations remain visible without suppressing valid siblings. | `Traversal_InvalidDeclarationDoesNotSuppressValidSibling` |
 | Work-budget exhaustion retains known declaration edges, the unprocessed frontier, and partial completion. | `Traversal_WorkBudgetRetainsUnprocessedFrontier` |
 | Cancellation after provisional work propagates without publishing an outcome or source failure. | `Traversal_CancellationDoesNotPublishOutcome` |
 | Source completion order cannot change result ordering. | `Traversal_SourceCompletionOrderDoesNotAffectResult` |
 | Untrusted display evidence remains inert. | `Traversal_InertTextRemainsInertThroughGraphResult` |
+| Explicit-source manifest acquisition rejects candidates issued by another source context. | `Traversal_AuthorizedManifestSourceRejectsForeignCandidate` |
 | CLI and Browser/Wasm consume equivalent typed graph identity. | `Traversal_HostAdaptersPreserveEquivalentGraph` |
 
 The source and candidate owners keep their existing authority, range-selection,
