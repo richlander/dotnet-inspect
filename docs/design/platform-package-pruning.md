@@ -53,26 +53,39 @@ It does not own:
 
 These hold for every inventory independent of how a consumer uses it.
 
-### An inventory binds one exact target
+### Discovering a newer platform cannot relabel older data
 
 An inventory is a property of one platform target, not a separately
 configurable ruleset. Its framework, pack version, membership, and supplied
 versions travel together. One target's inventory cannot be relabeled with
 another target's version or composed with a family from another target.
 
-### Composition follows the target's framework families
+A shipped .NET 10.0.0 projection does not become a .NET 10.0.1 inventory when
+discovery finds the newer patch. The product either keeps the 10.0.0 source
+coordinate visible or acquires the 10.0.1 inventory.
+
+### A console app and a web app do not have the same inventory
 
 The upstream file is published per shared framework. A target's inventory is
 the union of the families that target references, and composition requires
 agreement on the target framework. A composition across target frameworks
 describes no real application.
 
-### Absence and uncertainty never become subsumption
+A console app normally contributes `Microsoft.NETCore.App`; a web app also
+contributes `Microsoft.AspNetCore.App`. The same target framework can therefore
+have different applicable entries depending on the framework families the app
+actually references.
+
+### Missing data must not become yes
 
 An absent inventory, an identity absent from an inventory, or a requested
 version that cannot be compared subsumes nothing. An empty inventory expresses
 that state directly. It does not assert that any package is absent or decide
 what a consumer should acquire or traverse.
+
+If a request has no version, the answer is not "probably subsumed." If a
+target's inventory is unavailable, the answer is not an empty success-shaped
+inventory for that target. Both remain visibly unable to produce `Subsumed`.
 
 ## Boundary scenarios
 
@@ -125,7 +138,7 @@ per-exact-target and already acquired by the catalog generator. Every
 reference pack the generator fetches carries the file, both families, net6.0
 through net11.0.
 
-### An inventory is per shared framework
+### Extensions packages move when the app's framework families move
 
 The upstream file is published per shared framework, and a target subsumes an
 identity only when it references that framework. This document names the two
@@ -163,7 +176,7 @@ publish disjoint identities, so a conflict rule is defensive rather than
 load-bearing; when one is needed, the lower supplied version wins, because
 that is the direction that cannot over-claim.
 
-### Projected and exact supplied versions
+### An unchanged package ceiling may span multiple platform patches
 
 Equality with one pack version does not establish that an entry follows future
 patches. For example, `Microsoft.Extensions.Caching.Memory` is `10.0.0` in both
@@ -200,7 +213,7 @@ Comparison uses NuGet semantic version ordering. A requested floating or
 absent version is not a comparison and must not be treated as subsumed by
 default; the consumer decides what an unversioned request means.
 
-### Current inventory/catalog join
+### A platform library may still have a NuGet package
 
 Joining the `net11.0` inventory to the platform library catalog illustrates
 the data shape. These are inventory/catalog relationships, not claims about
@@ -227,7 +240,7 @@ Counts computed 2026-09-07 against the `net11.0` catalog target and
 11.0.0-preview.7.26381.103. They are illustrative of scale, not a contract;
 the entry-and-library row grew by 36 between .NET 10 and .NET 11.
 
-### Read the totals per family
+### ASP.NET Core is nearly one-to-one; .NETCore is not
 
 The inventory-and-library total is dominated by populations that carry
 different information. Split by supplying family:
@@ -247,7 +260,7 @@ whole story: `Microsoft.Extensions.FileProviders.Embedded` is the only catalog
 library without an entry, and `Microsoft.AspNetCore.App` is the only entry
 without a same-named library, being the meta-package.
 
-### Patch-moving and literal ceilings behave differently
+### System.Text.Json and System.Runtime need different freshness
 
 Some supplied versions move with platform patches, such as
 `System.Text.Json`; many legacy ceilings remain literal, such as
@@ -279,7 +292,7 @@ examples as part of this owner's contract. In particular, it does not compare
 assembly versions with package versions, infer package existence from catalog
 or inventory absence, or define an app-authored-reference exemption.
 
-### Worked example: availability is a composed answer
+### A name may exist in both places without being subsumed
 
 The inventory becomes useful when another owner joins it to facts from package
 discovery and the platform catalog. Keeping the columns separate shows why no
@@ -298,7 +311,7 @@ entry package-only would erase the platform library. A search or routing owner
 can still produce a three-way user-facing answer, but only after it joins all
 three facts.
 
-### Worked example: the ceiling matters
+### A newer package must remain newer
 
 For an exact .NET 11 inventory whose `System.Text.Json` entry supplies version
 11, the comparison produces:
@@ -316,7 +329,7 @@ The table stops at the owner boundary. A traversal owner may use
 search owner may use it when ranking two already-known subjects. Neither
 outcome is implied by the comparison itself.
 
-### Worked example: the selected dependency group comes first
+### Fifteen assembly references may produce zero package edges
 
 `System.Text.Json` 10.0.0 illustrates why this fact is not an
 `AssemblyRef` classifier:
@@ -339,7 +352,7 @@ dependency group applies, the package graph decides which package edge exists,
 and an `AssemblyRef` resolver owns assembly binding. This owner enters only
 when a consumer already has a package identity and target to compare.
 
-### Worked example: one package exercises several owners
+### Common and Protocols look alike but enter through different paths
 
 `Microsoft.Azure.SignalR` 1.33.1 contains multiple assemblies and package
 dependencies in the same `net8.0` asset group:
@@ -359,7 +372,7 @@ missing graph fact. Conversely, catalog presence for
 package edge. The surrounding owners establish those facts before this owner
 can answer whether a real package edge is subsumed.
 
-### Worked example: restore correspondence is informative, not policy
+### A project file and an assets file do not ask the same question
 
 NuGet's direct-reference rules explain questions later graph consumers must
 settle without making those answers part of this owner:
@@ -385,6 +398,8 @@ the same owner-issued fact.
 A section owner may expose that data for auditability, but it owns registration,
 selection policy, cost and size axes, Markout lowering, and host adoption. This
 document defines no section or execution policy.
+
+### The same version text may have different precision
 
 For example, the same literal can carry different precision without changing
 its provenance:
@@ -424,13 +439,18 @@ supply, so this owner neither adopts nor diverges from those policies. A
 consumer design that applies the fact to project or package graphs owns any
 corresponding exemption or switch.
 
-### Pruning is package-space
+### System.Text.Json package version 10 is not assembly version 10.0.0.0
 
 Pruning decides package identities. It does not decide assemblies, files,
 types, asset-group selection, or graph policy, and it never compares an
 assembly version with a package version.
 
-### Open question: .NET Standard
+The distinction is observable in `System.Text.Json` 10.0.11: the package
+version is 10.0.11 while the assembly version is 10.0.0.0. Comparing the
+assembly reference to the package ceiling would use the wrong identity and
+version currency even though the leading major happens to match.
+
+### .NET Standard may publish no inventory
 
 The rollout spec enables pruning "for *all* .NET (Core) and .NET Standard 2.0
 and above". This document's inventories come from reference packs, and the
@@ -443,7 +463,7 @@ under the never-over-claim contract but is not yet known to match the SDK.
 
 ## Contracts
 
-### Subsumption never over-claims
+### A false yes is worse than a false no
 
 Reporting a package as subsumed when the platform supplies an older version
 would delegate the user to a stale implementation and hide that a newer
@@ -458,7 +478,7 @@ Projected data from a different exact target cannot produce `Subsumed`;
 it remains `NotComparable` until exact data for the requested target is
 available.
 
-### Supplied versions bind to their committed target
+### Discovering 10.0.1 cannot relabel a 10.0.0 projection
 
 `suppliedVersion` binds to the target the inventory came from, never to a
 version observed later by discovery. Relabeling projected values with a newly
@@ -468,7 +488,7 @@ two coordinates, which
 already forbids. Selecting a discovered version requires acquiring its
 inventory first.
 
-### Membership and supplied version are separate claims
+### A search hint may need membership without a current ceiling
 
 Membership answers "does this target publish a subsumption entry for this
 package identity?" The supplied version answers "is this requested version
@@ -480,6 +500,8 @@ the freshness of the second.
 The shipped artifact is a projection of one committed band-floor inventory:
 package identity, supplying family, and the literal supplied version at that
 target. It records its target and projected precision.
+
+### ASP.NET Core 10.0.0 and 10.0.1 have identical raw data
 
 The projection makes no patch-following inference. `Microsoft.AspNetCore.App`
 10.0.0 and 10.0.1 demonstrate why: their raw override files are byte-identical,
@@ -497,9 +519,17 @@ does not use the projected literal for a version-bound subsumption result.
 | **Regenerate and compare in CI**, as `eng/generate-inspect-web-engine-facade.sh --check` does at `ci.yml:343` | The network-dependent comparison belongs in a nightly lane. It verifies membership stability and reports any upstream change for review. |
 | **Download at runtime** | Not required for the shipped baseline. It would add a startup network dependency for data whose exact values arrive through the normal reference-pack acquisition path; until then, cross-patch version comparison remains `NotComparable`. |
 
+### Opening a platform pack can sharpen an earlier answer
+
 The refinement path already exists: when catalog generation or platform
 realization acquires an exact reference pack, the owner reads its actual
 inventory and replaces the projection for that target.
+
+For example, a workspace can start with projected .NET 10.0.0 membership while
+showing that a .NET 10.0.1 version comparison is unavailable. If opening a
+platform library acquires the 10.0.1 reference pack, the same workspace can
+replace that projected value with the exact 10.0.1 ceiling. No separate prune
+download or background mutation is needed.
 
 The recommendation is therefore to ship the literal projection per major
 version, verify membership in a nightly regenerate-and-compare lane, and treat
@@ -517,6 +547,12 @@ download of prune data is not proposed.
 Anything presented as exact for a target must be fresh. Projected data may be
 stale only while its source target and projected precision remain visible and
 it cannot produce an exact cross-target subsumption result.
+
+A .NET 10.0.1 request over a 10.0.0 projection demonstrates all three columns:
+the selected target is fresh, the projected membership is visibly sourced from
+10.0.0, and the old supplied-version literal cannot answer the 10.0.1
+comparison. After the 10.0.1 pack is acquired, even an unchanged literal is
+exact because its source target now matches.
 
 ## Gates
 
@@ -546,6 +582,13 @@ A pending gate names the slice that lands it. An inventory is its target, so an
 unknown target is not expressible against the comparison API. The uncertainty
 cases that do exist are an identity absent from the inventory and a request
 that cannot be compared.
+
+The gates follow the scenarios above rather than only the implementation
+shape: the newer-package case drives `LeapfroggingPackageIsNotSubsumed`, the
+no-platform case drives `EmptyInventorySubsumesNothing`, the unchanged
+ASP.NET Core pair drives `Pruning_BandFloorEqualityRemainsLiteral`, and the
+same-text/different-target table drives
+`ProjectedInventoryIsNotComparableAcrossTargets`.
 
 ## Non-claims
 
