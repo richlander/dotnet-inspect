@@ -17,6 +17,27 @@ Consumers named by #6228 — Spotlight ranking, CLI bare-name routing, ecosystem
 configuration, and pruned traversal edges — adopt this owner's fact. Each
 remains a separate effort with its own design; none is specified here.
 
+## The problem, concretely
+
+A project targets `net10.0` and something in its graph depends on
+`System.Text.Json` 9.0.0. The SDK removes that dependency, because the platform
+already supplies `System.Text.Json` 10.0.11. The package is never downloaded,
+never appears in the assets file, and nothing binds to it. The application uses
+the platform's copy.
+
+The product needs to reach the same conclusion, for the same reason, without
+running a build. When a user searches `System.Text.Json`, the platform is the
+answer a build would give. When a call graph crosses an edge into it, the
+platform is where that edge goes.
+
+The comparison is what makes this safe rather than a naming rule. On the same
+target, `System.Text.Json` 12.0.0 is *not* removed — it is newer than anything
+the platform has, so it is a real package that supplies something the platform
+cannot. Same name, same target, opposite answer, decided by a version.
+
+Everything below is that idea made exact: where the versions come from, how
+fresh they must be, and which questions belong to somebody else.
+
 ## Authority and exact claim
 
 This owner defines one fact and one comparison:
@@ -52,6 +73,22 @@ It does not own:
 ## Invariants
 
 These hold for every inventory independent of how a consumer uses it.
+
+### The platform registration is the switch
+
+Pruning is on exactly when a platform version is registered, and off exactly
+when none is. There is no second control.
+
+A new workspace registers one by default, under
+[approved lazy traversal](approved-lazy-traversal.md)'s construction defaults,
+so the ordinary case has an inventory without the user choosing anything. The
+[no-platform workspace](#a-workspace-may-have-no-platform-at-all) is the off
+state, and it is a coherent configuration rather than a broken one.
+
+This matters because an inventory is a property of a platform version rather
+than a separate artifact to select. A control of its own is precisely the
+mechanism by which the rules could come to describe libraries the workspace
+does not have.
 
 ### Discovering a newer platform cannot relabel older data
 
@@ -438,6 +475,36 @@ govern restore behavior. They do not change which identities a target can
 supply, so this owner neither adopts nor diverges from those policies. A
 consumer design that applies the fact to project or package graphs owns any
 corresponding exemption or switch.
+
+### The overlay owner answers a different question about the same name
+
+A reader who knows
+[platform composition and overlays](platform-composition-and-overlays.md) will
+wonder whether these two conflict, because both describe choosing between a
+platform copy and something else. They do not overlap:
+
+| | Question | Decided among | Decided at |
+| --- | --- | --- | --- |
+| Pruning | package identity or platform? | a package-graph edge's candidates | package-graph construction |
+| Overlay precedence | which artifact backs this assembly identity? | admitted participants | reference binding |
+
+They compose in the expected direction, and the neighbouring owner already
+says so from its side: its precedence exception "does not weaken identity
+matching or promote package, project, sibling, discovered, or other
+non-designated candidates". A package-backed participant never outranks a
+platform one there either — the same outcome pruning produces earlier, for a
+different reason.
+
+A designated local build of `System.Text.Json.dll` still wins over the
+platform, because pruning says nothing about designated artifacts. It only
+declines to fetch a package.
+
+It is worth naming a wrong guess here, because it is a natural one: the overlay
+work is not confined to low-level assemblies that have no package twin. Its
+motivating shape is a local build composed over an installed hive, which
+applies just as well to an assembly that does have one. The axis there is
+designated-versus-platform, not twinned-versus-not, which is exactly why it
+stays orthogonal to this document.
 
 ### System.Text.Json package version 10 is not assembly version 10.0.0.0
 
