@@ -275,11 +275,11 @@ The same descriptor-state rules apply in both forms:
 
 Each Chooser follows the WAI-ARIA menu-button pattern. Its button identifies
 the owning group, exposes `aria-haspopup="menu"` and `aria-expanded`, and
-controls a bounded menu. Ordinary subject and inspector descriptors use `menuitemradio`; the committed
-item alone is checked, and a group with no committed item has no checked radio
-item. The `Selection required` action uses `menuitem` as defined above.
-Unavailable and failed entries remain discoverable with
-`aria-disabled="true"` and preserve their distinct reason or diagnostic.
+controls a bounded menu. Ordinary subject and inspector descriptors use
+`menuitemradio`; the committed item alone is checked, and a group with no
+committed item has no checked radio item. The `Selection required` action uses
+`menuitem` as defined above. Unavailable and failed entries remain discoverable
+with `aria-disabled="true"` and preserve their distinct reason or diagnostic.
 
 Enter, Space, or pointer activation opens the menu without activating an item.
 Focus enters on the committed item when one exists, otherwise the first
