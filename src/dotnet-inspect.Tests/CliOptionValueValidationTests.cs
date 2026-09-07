@@ -47,6 +47,17 @@ public sealed class CliOptionValueValidationTests
     }
 
     [Theory]
+    [InlineData("-fo=", "--flag=false")]
+    [InlineData("-f", "-o=", "--flag=false")]
+    public async Task CompactEmptyOptionalValuesDoNotShiftFollowingAttachedFlag(
+        params string[] arguments)
+    {
+        var fixture = new Fixture();
+        AssertRejected(await fixture.Run(arguments), "--flag");
+        Assert.Null(fixture.Executed);
+    }
+
+    [Theory]
     [InlineData("--flag", "one", "--flag", "two")]
     [InlineData("--flag", "one", "-f", "word")]
     [InlineData("--switch", "one", "--flag", "-s", "false")]
@@ -228,6 +239,13 @@ public sealed class CliOptionValueValidationTests
             await RunPackage(["package", .. arguments, "-Q", "--json"]),
             "--versions");
 
+    [Theory]
+    [InlineData("-hT=", "--help=false")]
+    [InlineData("-h", "-T=", "--help=false")]
+    public async Task LibraryCompactEmptyValuesDoNotHideAttachedHelpValues(
+        params string[] arguments) =>
+        AssertRejected(await RunCli(["library", .. arguments]), "--help");
+
     public static TheoryData<string[]> ValidPackageQueries
     {
         get
@@ -297,6 +315,9 @@ public sealed class CliOptionValueValidationTests
     }
 
     private static Task<(int ExitCode, string Output, string Error)> RunPackage(string[] arguments) =>
+        RunCli(arguments);
+
+    private static Task<(int ExitCode, string Output, string Error)> RunCli(string[] arguments) =>
         ConsoleCapture.RunAsync(async () =>
         {
             var root = CommandLineBuilder.CreateRootCommand();
@@ -336,7 +357,7 @@ public sealed class CliOptionValueValidationTests
             _root.Options.Add(new Option<bool>("--switch", "-s") { Arity = ArgumentArity.Zero });
             _root.Options.Add(new Option<string?>("--presence") { Arity = ArgumentArity.Zero });
             _root.Options.Add(new Option<string>("--required", "-r") { Arity = ArgumentArity.ExactlyOne });
-            _root.Options.Add(new Option<string?>("--optional") { Arity = ArgumentArity.ZeroOrOne });
+            _root.Options.Add(new Option<string?>("--optional", "-o") { Arity = ArgumentArity.ZeroOrOne });
             _root.Options.Add(new Option<bool>("--optional-bool"));
             _root.Options.Add(new Option<string[]>("--many")
             {

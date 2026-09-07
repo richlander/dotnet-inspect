@@ -137,6 +137,13 @@ internal static class CliArgumentOwnership
                 if (position == argument.Length)
                 {
                     attachedOption = option;
+                    // Compact expansion retains its attached empty argument token.
+                    if (next < tokens.Count
+                        && tokens[next].Type == TokenType.Argument
+                        && tokens[next].Value.Length == 0)
+                    {
+                        next++;
+                    }
                     break;
                 }
             }
