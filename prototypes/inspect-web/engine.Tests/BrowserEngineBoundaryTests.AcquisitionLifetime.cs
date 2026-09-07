@@ -244,6 +244,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 await AcquisitionWithin(successor);
             Assert.False(release.Task.IsCompleted);
             Assert.Single(handler.Requested);
+            Console.WriteLine(
+                "Page cancellation: terminal = Canceled(Superseded), "
+                + "successor entered while HTTP transfer pending = true.");
 
             release.SetResult();
             BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
