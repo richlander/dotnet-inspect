@@ -377,6 +377,7 @@ internal static class ChangePlanTestSuite
             ValidationSelections selections =
                 ValidationSelections.FromRouting(all, kind);
             if (!(selections.Test
+                && selections.RepositoryGuards
                 && !selections.DependencyPolicy
                 && selections.CSharpDiffSmoke
                 && selections.DecompilerGates
@@ -398,6 +399,7 @@ internal static class ChangePlanTestSuite
         ValidationSelections pushed =
             ValidationSelections.FromRouting(all, PlanEventKind.Push);
         if (pushed.Test
+            || pushed.RepositoryGuards
             || !pushed.DependencyPolicy
             || pushed.CSharpDiffSmoke
             || pushed.DecompilerGates
@@ -418,11 +420,12 @@ internal static class ChangePlanTestSuite
         }
 
         // A neighbouring documentation-only candidate selects documentation
-        // validation and no content gate.
+        // validation and the repository-wide guards, but no content gate.
         ValidationSelections docsOnly = ValidationSelections.FromRouting(
             policy.Route(Evidence("docs/design/ci-change-plan.md")),
             PlanEventKind.PullRequestSyntheticCandidate);
         if (!docsOnly.Markdownlint
+            || !docsOnly.RepositoryGuards
             || docsOnly.Test
             || docsOnly.DecompilerGates
             || docsOnly.InspectWeb
@@ -430,6 +433,17 @@ internal static class ChangePlanTestSuite
         {
             throw new InvalidOperationException(
                 "A documentation-only candidate selected a content gate.");
+        }
+
+        ValidationSelections emptyPreMerge =
+            ValidationSelections.FromRouting(
+                policy.Route(ChangeEvidence.Create([])),
+                PlanEventKind.MergeGroup);
+        if (!emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
+        {
+            throw new InvalidOperationException(
+                "An empty pre-merge candidate did not select only the "
+                + "repository-wide guards.");
         }
     }
 
@@ -465,6 +479,7 @@ internal static class ChangePlanTestSuite
             PlanRefusalCategory.PlanSerialization,
             () => new ValidationSelections(
                 test: false,
+                repositoryGuards: false,
                 dependencyPolicy: false,
                 cSharpDiffSmoke: false,
                 decompilerGates: false,
@@ -576,7 +591,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":2,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":3,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -584,6 +599,7 @@ internal static class ChangePlanTestSuite
             + "{\"recordCount\":2,\"sha256\":"
             + "\"e2942177c268e91967eeb66ed6c48b8e8e426158f30a8f3371de8322"
             + "439a2a05\"},\"validations\":{\"test\":false,"
+            + "\"repositoryGuards\":true,"
             + "\"dependencyPolicy\":false,"
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
@@ -686,12 +702,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":2,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":2")),
+                    "{\"schemaVersion\":3,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":3")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":2", "\"schemaVersion\":2e0")),
+                text.Replace("\"schemaVersion\":3", "\"schemaVersion\":3e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -699,13 +715,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":2",
-                    "\"schemaVersion\":2,\"schemaVersion\":2")),
+                    "\"schemaVersion\":3",
+                    "\"schemaVersion\":3,\"schemaVersion\":3")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":2", "\"schemaVersion\":3")),
+                text.Replace("\"schemaVersion\":3", "\"schemaVersion\":4")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
