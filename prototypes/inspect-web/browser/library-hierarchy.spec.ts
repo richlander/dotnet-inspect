@@ -495,7 +495,7 @@ test("Spotlight offers separate NuGet and Platform System.Text.Json destinations
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
   await page.locator('[data-sl-platform-lib="System.Text.Json"]').click();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-scope="platform"]')).toBeVisible();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "false");
 });
 
 test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {
