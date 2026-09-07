@@ -4180,6 +4180,11 @@ public sealed partial class BrowserEngineBoundaryTests
         const string fileName = "Renamed.Library.dll";
         byte[] implementation = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        int implementationTypeCount;
+        using (var reader = new PEReader(new MemoryStream(implementation, writable: false)))
+        {
+            implementationTypeCount = reader.GetMetadataReader().TypeDefinitions.Count;
+        }
         byte[] reference = BuildEmptySurfaceImage(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName());
         _ = await Coordinate(
@@ -4213,11 +4218,9 @@ public sealed partial class BrowserEngineBoundaryTests
             await MetadataExports.QueryPackageMetadataTable(
                 packageId, "1.0.0", "net11.0", surface.Asset.Id,
                 (int)TableIndex.TypeDef, 1, 10));
-        Assert.True(table.RootElement.GetProperty("rowCount").GetInt32() > 1);
-        using JsonDocument heap = JsonDocument.Parse(
-            await MetadataExports.QueryPackageHeapEntries(
-                packageId, "1.0.0", "net11.0", surface.Asset.Id, "String"));
-        Assert.Contains(nameof(BrowserEngineBoundaryTests), heap.RootElement.GetRawText());
+        Assert.Equal(
+            implementationTypeCount,
+            table.RootElement.GetProperty("rowCount").GetInt32());
 
         BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
             JsonSerializer.Deserialize(
