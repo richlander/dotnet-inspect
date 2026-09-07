@@ -108,6 +108,51 @@ Comparison uses NuGet semantic version ordering. A requested floating or
 absent version is not a comparison and must not be treated as subsumed by
 default; the consumer decides what an unversioned request means.
 
+### Current populations
+
+| Step | Category | Example | Count |
+| --- | --- | --- | --- |
+| 1 | Package-only | `Newtonsoft.Json`, `Microsoft.Extensions.AI` | unbounded |
+| 2 | Overlapping, no library of that name | `NETStandard.Library`, `Microsoft.NETCore.Platforms` | 166 |
+| 3 | Overlapping, library present | `System.Text.Json` | 274 |
+| 4 | Platform-only | `System.Private.CoreLib` | 39 |
+
+Steps 3 and 4 partition the catalog: 274 + 39 = 313 libraries. Steps 2 and 3
+partition the inventory: 166 + 274 = 440 entries.
+
+Step 2 is dominated by 155 `runtime.*` RID-specific legacy packages. Its
+recognizable remainder is the host and targeting infrastructure —
+`NETStandard.Library`, `Microsoft.NETCore.App`, `Microsoft.NETCore.Platforms`,
+`Microsoft.NETCore.DotNetHost` — packages the framework subsumes without
+shipping an assembly under that name.
+
+Step 1 has no count because it is the complement: every package identity not
+in the inventory. `Microsoft.Extensions.AI` is worth naming, because it is
+platform-adjacent and ships out of band, so an ecosystem may treat it as a
+core package while pruning correctly classifies it as package-only.
+
+Counts computed 2026-09-07 against the `net11.0` catalog target and
+`Microsoft.NETCore.App.Ref` / `Microsoft.AspNetCore.App.Ref`
+11.0.0-preview.7.26381.103. They are illustrative of scale, not a contract;
+step 3 grew by 36 entries between .NET 10 and .NET 11.
+
+### Live and frozen overlaps behave differently
+
+Step 3 divides again along the live/frozen split, and the two behave unlike
+each other in practice:
+
+| | Example | Supplied version | Count |
+| --- | --- | --- | --- |
+| Live overlap | `System.Text.Json` | `11.0.0-preview.7.26381.103` | 55 |
+| Frozen overlap | `System.Runtime` | `4.3.1` | 219 |
+
+For a frozen overlap the package is long dead and the platform absorbed it
+years ago, so any plausible requested version is subsumed and the comparison
+is a formality. For a live overlap the package still ships in lockstep with
+the runtime, so the comparison is the whole question. A consumer that wants to
+explain *why* a name resolved to the platform will find the distinction more
+useful than the raw verdict.
+
 ## Contracts
 
 ### Subsumption never over-claims
