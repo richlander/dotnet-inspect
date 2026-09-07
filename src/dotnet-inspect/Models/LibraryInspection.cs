@@ -605,11 +605,16 @@ public class LibraryInspection
     public List<BodyShapeSummary>? BodyShapeSummary =>
         BodyShapeSections?.Contains(SectionNames.BodyShapeSummary) == true
             && EffectiveBodyShapeSearchResult is { } result
-                ? Output.BodyShapeSummary.FromMatches(result.Matches)
+                ? [.. RowWindow.Apply(
+                    BodyShapeSummaryRows,
+                    Output.BodyShapeSummary.FromMatches(result.Matches))]
                 : null;
 
     [JsonIgnore]
     public IReadOnlySet<string>? BodyShapeSections { get; set; }
+
+    [JsonIgnore]
+    public RowWindow? BodyShapeSummaryRows { get; set; }
 
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;

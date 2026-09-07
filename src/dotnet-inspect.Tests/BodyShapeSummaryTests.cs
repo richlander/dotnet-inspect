@@ -103,6 +103,16 @@ public sealed class BodyShapeSummaryTests
         var first = groups[0];
         Assert.True(first.GetProperty("count").GetInt32() > 0);
 
+        var windowedDocument = await Library("--rows", "2..2", "--json");
+        Assert.Equal(0, windowedDocument.ExitCode);
+        using var windowed = JsonDocument.Parse(windowedDocument.Output);
+        var selectedGroup = Assert.Single(
+            windowed.RootElement.GetProperty("body_shape_summary").EnumerateArray());
+        Assert.Equal(groups[1].GetProperty("match").GetString(),
+            selectedGroup.GetProperty("match").GetString());
+        Assert.Equal(groups[1].GetProperty("count").GetInt32(),
+            selectedGroup.GetProperty("count").GetInt32());
+
         var projected = await Library("--columns", "Match;Count", "--rows", "1", "--jsonl");
         Assert.Equal(0, projected.ExitCode);
         using var row = JsonDocument.Parse(projected.Output);
