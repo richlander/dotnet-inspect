@@ -27,13 +27,24 @@ public static class UtilityCommandDefinitions
             "Decode canonical base64url workspace state to canonical JSON",
             "packet",
             "Canonical base64url packet, or '-' to read stdin",
-            WorkspaceStateCommand.DecodeAsync);
+            (input, file, _, cancellationToken) =>
+                WorkspaceStateCommand.DecodeAsync(input, file, cancellationToken));
+        var urlOption = new Option<bool>("--url")
+        {
+            Description = "Emit a complete https://dotnet-inspect.net/ share URL instead of the packet",
+        };
         Command encode = CreateConversionCommand(
             "encode",
             "Encode workspace-state JSON as a canonical base64url packet",
             "json",
             "Workspace-state JSON, or '-' to read stdin",
-            WorkspaceStateCommand.EncodeAsync);
+            (input, file, parseResult, cancellationToken) =>
+                WorkspaceStateCommand.EncodeAsync(
+                    input,
+                    file,
+                    cancellationToken,
+                    url: parseResult.GetValue(urlOption)));
+        encode.Options.Add(urlOption);
         command.Subcommands.Add(decode);
         command.Subcommands.Add(encode);
         return command;
@@ -44,7 +55,7 @@ public static class UtilityCommandDefinitions
         string description,
         string argumentName,
         string argumentDescription,
-        Func<string?, string?, CancellationToken, Stream?, Task<int>> action)
+        Func<string?, string?, ParseResult, CancellationToken, Task<int>> action)
     {
         var command = new Command(name, description);
         var inputArgument = new Argument<string?>(argumentName)
@@ -78,8 +89,8 @@ public static class UtilityCommandDefinitions
             return action(
                 input,
                 file,
-                cancellationToken,
-                null);
+                parseResult,
+                cancellationToken);
         });
         return command;
     }
