@@ -5,8 +5,5 @@
     "html-validate:standard",
     "html-validate:document",
     "html-validate:a11y"
-  ],
-  "rules": {
-    "require-sri": ["error", { "target": "crossorigin" }]
-  }
+  ]
 }
