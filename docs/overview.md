@@ -196,7 +196,8 @@ substrates, and inspection producers that will extend that space.
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,
   correspondence, and compatibility classification without owning Browser
-  transport or text rendering.
+  transport or text rendering. Its Browser adopter replaces the existing
+  general Compare result experience rather than adding a parallel inspector.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,

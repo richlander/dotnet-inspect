@@ -82,6 +82,27 @@ important point is that one typed document supports both the flat inventory and
 the selected-Type detail without reparsing messages or requesting an eager
 source diff for every Type.
 
+## Browser replacement requirement
+
+The Inspect Web adopter replaces the existing general **Compare** result
+experience. It does not add a neighboring Diff inspector, preserve the old
+result model as a fallback, or translate this document into the old surface.
+The facade and first Library consumer land with retirement of the old
+inspector/catalog entry, result state, rendering path, and tests.
+
+An obsolete shared link or navigation token for that surface follows the
+navigation owner's unsupported-destination behavior. It does not reopen the
+retired result or silently select a different inspector.
+
+Package **Comparison targets** remain. They are session-local configuration
+for the replacement Diff and later Clone experiences, not the old result
+surface. Contextual **Compare method bodies** and the on-demand source diff are
+also separate operations and are not retired by this replacement.
+
+This document records the downstream replacement requirement but does not own
+its Browser state transitions, route retirement, layout, or wording. Those
+mechanics belong to the focused Browser adoption change.
+
 ## Input admission
 
 The projection accepts one `AssemblyContextApiComparisonResult`. It produces an
@@ -424,7 +445,8 @@ The Library API Diff delivery path is:
 3. this portable Library API diff presentation contract;
 4. the `DotnetInspector.Presentation` adapter implementation; and
 5. a bounded Inspect Web feature facade with its immediate Library
-   inventory/detail consumer.
+   inventory/detail consumer, atomically replacing the existing general
+   Compare result experience.
 
 Type and Member narrowing reuse the same selected targets but remain later
 consumer slices. **Open annotated source** invokes the existing member
