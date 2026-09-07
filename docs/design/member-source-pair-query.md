@@ -86,11 +86,18 @@ is not claimed migrated or removed by this bounded cutover.
 The single delivery ledger is
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706):
 S1 contract alignment (landed), S2 this query, S3 CLI adoption, S4 browser
-facade, S5 browser view/state, S6 scoped retirement. Six milestones total;
+facade, S5 browser view/state, and S6 scoped retirement in
+[#6250](https://github.com/richlander/dotnet-inspect/issues/6250). Six
+milestones total;
 CLI adoption uses S1-S3 and browser adoption S1/S2/S4/S5. S2 and S3 travel
 together in [#5970](https://github.com/richlander/dotnet-inspect/issues/5970)
 rather than leaving another unconsumed substrate. Browser ownership
 remains under [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+
+S6 removes the now-uncalled Research member-plus-PDB wrapper and its
+Source-specific member-result scaffolding. It deliberately retains broad CLI
+assembly enrichment, typed unavailable and failed Source rows, ordinary
+single-version Source, and same-member PDB-versus-decompiled comparison.
 
 CLI rendering consumes the typed pair alongside unchanged native C#/IL
 results and lowers into its existing Markout Implementation Diff rows.

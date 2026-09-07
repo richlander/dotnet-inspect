@@ -186,7 +186,7 @@ this update. These are outcomes, not a promise of eight PRs:
 | 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Complete: #5967 |
 | 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Complete: #5990 |
 | 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | #6044 retires the unconsumed body-signal population profile |
-| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining; retained tool/Source callers still constrain deletion; #5125 identity cleanup landed in #6099 |
+| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining after #6250 removes the uncalled member-plus-PDB wrapper; assembly/generalized callers still constrain deletion; #5125 identity cleanup landed in #6099 |
 
 Each host path contains **5 milestones, all complete**:
 1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
@@ -230,12 +230,14 @@ the public query (#6177), retaining its native outcomes under the tools-owned
 This is internal harness adoption, not new product UX or RTS replacement
 readiness.
 
-Research `CompareMembers` still serves the supported PDB-source composition.
-Native result
-translations still serve CLI or harness presentation. These are retained
-caller obligations, not unused placeholders. The focused Research body-index
-association cleanup #5125 landed in #6099; neither that cleanup nor this
-comparison-tools migration completes broader retirement.
+Research assembly-level `WithPdbSourceComparisons` still serves broad CLI
+PDB-source enrichment. The uncalled `CompareMembersWithPdbSource` wrapper and
+its Source-specific member-result scaffolding are removed by #6250 after the
+paired CLI and browser adopters landed. Native result translations still serve
+CLI or harness presentation. These are retained caller obligations, not unused
+placeholders. The focused Research body-index association cleanup #5125 landed
+in #6099; neither that cleanup nor this Source cleanup completes broader
+retirement.
 
 ### Broader migration snapshot
 
@@ -263,7 +265,7 @@ and deletion commits to the tracker.
 | `ReturnToSender.CompareMemberBodies`, including `AuthoredRebuildFidelity` | Comparison tools step 10, RTS slice implemented in #6177 | Consume the public query and retain its native outcomes, replacing `BuildImplementationDiff` and its nullable legacy-result translation. Preserve the pathless donor, sibling resolution, target selection, compilation, and independent harness oracle. |
 | Browser managed facade and explicit two-member workspace comparison | Browser step 9, coordinated with #5083 | Expose the same public query as observable browser behavior. Inventory actual routes then; this plan does not invent a currently existing legacy browser caller. Remove a replaced route if one exists. |
 | `ImplementationComparisonQuery.Execute`, `DiffCommand`, and `DiffSections` assembly-wide paths | Steps 7-9; Source tail 13-15 | Separate from rank 5. Their public execution and result/output adoption precede final shared-shape retirement. |
-| `ImplementationDiff.CompareMembersWithPdbSource` | Source steps 12-15 and Research retirement step 17 | Its call to `CompareMembers` is an explicit deletion blocker even if its present direct callers are tests. Migrate its supported Source composition or record an explicit owner/user decision to remove that behavior; do not keep a hidden legacy C#/IL route. |
+| `ImplementationDiff.CompareMembersWithPdbSource` | Source steps 12-15 and Research retirement step 17 | Removed by #6250 after the selected CLI and browser Source consumers adopted `AssemblyContextMemberSourcePairQuery`; broad assembly enrichment remains on `WithPdbSourceComparisons`. |
 | `ImplementationDiff.CompareMembers`, dependent legacy member-result shapes, and independent old/new query forms | Queries step 16 and Research step 17 | Delete superseded orchestration and shapes after the refreshed caller inventory, including Source and tests, has a disposition. Preserve only APIs justified by a current owner-local contract. #5125 was reconciled independently by the identity cleanup in #6099. |
 
 Native `CSharpBodyDiff`, `IlAssemblyDiff`, Findings payloads, and useful aligned
