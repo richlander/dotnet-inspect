@@ -5,6 +5,28 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
+    private static readonly string[] InspectWebLeafJobs =
+    [
+        "inspect-web-platform",
+        "inspect-web-frontend",
+        "inspect-web-facades",
+        "inspect-web-multi-facade",
+        "inspect-web-managed-bridge",
+        "inspect-web-managed-tests",
+        "inspect-web-browser",
+        "inspect-web-published",
+    ];
+
+    private static readonly string[] InspectWebDotnetJobs =
+    [
+        "inspect-web-platform",
+        "inspect-web-facades",
+        "inspect-web-multi-facade",
+        "inspect-web-managed-bridge",
+        "inspect-web-managed-tests",
+        "inspect-web-published",
+    ];
+
     internal static WorkflowContractResult Load(
         string repository,
         string workflowText,
@@ -43,6 +65,7 @@ internal static partial class WorkflowContract
         RequireAbsent(changes, "defaults", "jobs.changes");
         RequireAbsent(changes, "env", "jobs.changes");
 
+        ValidateInspectWebTopology(jobs);
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
         ValidateTlaJob(jobs);
@@ -84,53 +107,91 @@ internal static partial class WorkflowContract
             provenancePin);
     }
 
-    private static void ValidateInspectWebSdk(YamlMappingNode jobs)
+    private static void ValidateInspectWebTopology(YamlMappingNode jobs)
     {
-        YamlMappingNode inspectWeb =
-            GetRequiredMapping(jobs, "inspect-web", "jobs");
-        RequireAbsent(
-            inspectWeb,
-            "continue-on-error",
-            "jobs.inspect-web");
-        RequireAbsent(
-            inspectWeb,
-            "defaults",
-            "jobs.inspect-web");
-        YamlSequenceNode inspectWebSteps = GetRequiredSequence(
-            inspectWeb,
-            "steps",
-            "jobs.inspect-web");
-        List<YamlMappingNode> webSdkSteps = [];
-        foreach (YamlNode stepNode in inspectWebSteps.Children)
+        const string Selection =
+            "fromJSON(needs.changes.outputs.plan).validations.inspectWeb";
+        foreach (string jobName in InspectWebLeafJobs)
         {
-            YamlMappingNode step = RequireMapping(
-                stepNode,
-                "jobs.inspect-web step");
-            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
-            {
-                webSdkSteps.Add(step);
-            }
+            YamlMappingNode job = GetRequiredMapping(jobs, jobName, "jobs");
+            RequireScalarValue(job, "needs", "changes", $"jobs.{jobName}");
+            RequireScalarValue(job, "if", Selection, $"jobs.{jobName}");
         }
-        if (webSdkSteps.Count != 1)
+
+        YamlMappingNode aggregate =
+            GetRequiredMapping(jobs, "inspect-web", "jobs");
+        RequireScalarValue(
+            aggregate,
+            "if",
+            $"always() && {Selection}",
+            "jobs.inspect-web");
+        YamlSequenceNode needs = GetRequiredSequence(
+            aggregate,
+            "needs",
+            "jobs.inspect-web");
+        HashSet<string> actual = needs.Children
+            .Select(node => RequireScalar(node, "jobs.inspect-web need"))
+            .ToHashSet(StringComparer.Ordinal);
+        HashSet<string> expected =
+            InspectWebLeafJobs.Append("changes")
+                .ToHashSet(StringComparer.Ordinal);
+        if (!actual.SetEquals(expected))
         {
             throw new InvalidOperationException(
-                $"Expected one inspect-web setup-dotnet step, " +
-                $"found {webSdkSteps.Count}.");
+                "jobs.inspect-web.needs must contain changes and every " +
+                "inspect-web leaf job exactly once.");
         }
-        YamlMappingNode webSdkWith = GetRequiredMapping(
-            webSdkSteps[0],
-            "with",
-            "jobs.inspect-web setup-dotnet");
-        RequireScalarValue(
-            webSdkWith,
-            "dotnet-version",
-            "11.0.x",
-            "jobs.inspect-web setup-dotnet.with");
-        RequireScalarValue(
-            webSdkWith,
-            "dotnet-quality",
-            "preview",
-            "jobs.inspect-web setup-dotnet.with");
+    }
+
+    private static void ValidateInspectWebSdk(YamlMappingNode jobs)
+    {
+        foreach (string jobName in InspectWebDotnetJobs)
+        {
+            YamlMappingNode job = GetRequiredMapping(jobs, jobName, "jobs");
+            RequireAbsent(
+                job,
+                "continue-on-error",
+                $"jobs.{jobName}");
+            RequireAbsent(
+                job,
+                "defaults",
+                $"jobs.{jobName}");
+            YamlSequenceNode steps = GetRequiredSequence(
+                job,
+                "steps",
+                $"jobs.{jobName}");
+            List<YamlMappingNode> webSdkSteps = [];
+            foreach (YamlNode stepNode in steps.Children)
+            {
+                YamlMappingNode step = RequireMapping(
+                    stepNode,
+                    $"jobs.{jobName} step");
+                if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
+                {
+                    webSdkSteps.Add(step);
+                }
+            }
+            if (webSdkSteps.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Expected one {jobName} setup-dotnet step, " +
+                    $"found {webSdkSteps.Count}.");
+            }
+            YamlMappingNode webSdkWith = GetRequiredMapping(
+                webSdkSteps[0],
+                "with",
+                $"jobs.{jobName} setup-dotnet");
+            RequireScalarValue(
+                webSdkWith,
+                "dotnet-version",
+                "11.0.x",
+                $"jobs.{jobName} setup-dotnet.with");
+            RequireScalarValue(
+                webSdkWith,
+                "dotnet-quality",
+                "preview",
+                $"jobs.{jobName} setup-dotnet.with");
+        }
     }
 
     private static void ValidatePackageManifestVerifierBuild(

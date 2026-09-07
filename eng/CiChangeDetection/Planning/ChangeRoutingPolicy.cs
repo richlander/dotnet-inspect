@@ -107,6 +107,7 @@ internal sealed class ChangeRoutingPolicy
             state.Packaging,
             state.Shipped,
             state.Web,
+            state.WebComprehensive,
             state.Skills,
             state.Tla);
     }
@@ -170,11 +171,39 @@ internal sealed class ChangeRoutingPolicy
             state.Tla = true;
         }
 
+        if (SelectsInspectWebComprehensive(path))
+        {
+            state.Web = true;
+            state.WebComprehensive = true;
+        }
+
         RouteDecompiler(path, ref state);
         RouteIlRoundtrip(path, ref state);
         RoutePackaging(path, ref state);
         RouteShipped(path, ref state);
     }
+
+    private static bool SelectsInspectWebComprehensive(
+        ReadOnlySpan<byte> path) =>
+        BytePattern.MatchesAny(
+            path,
+            ".github/workflows/ci.yml",
+            ".github/workflows/deep-inspect.yml",
+            "eng/generate-inspect-web-engine-facade.sh",
+            "eng/generate-inspect-web-multi-facade-canary.sh",
+            "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-ts-jsexport-typescript.sh",
+            "src/ILInspector.JsExportSurface/*",
+            "src/ILInspector.TypeScriptGeneration/*",
+            "src/ts-jsexport/*",
+            "prototypes/inspect-web/multi-facade-canary/*",
+            "prototypes/inspect-web/managed-operation-bridge-canary/*",
+            "prototypes/inspect-web/scripts/verify-multi-facade-canary.ts",
+            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "prototypes/inspect-web/engine/InspectWebJsExportContext.cs",
+            "prototypes/inspect-web/engine.Core/BrowserManaged*");
 
     private static void RouteLanes(
         ReadOnlySpan<byte> path,
@@ -555,6 +584,7 @@ internal sealed class ChangeRoutingPolicy
         internal bool Packaging;
         internal bool Shipped;
         internal bool Web;
+        internal bool WebComprehensive;
         internal bool Skills;
         internal bool Tla;
     }
