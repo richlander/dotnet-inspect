@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -107,23 +108,17 @@ internal static class BrowserPackageWorkspace
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
-    static readonly PackageSourceAssociation GalleryAssociation =
-        PackageSourceAssociation.Create();
     static readonly PackageSourceIdentity GalleryConfiguredIdentity =
         PackageSourceIdentity.NuGetOrg;
-    static readonly IReadOnlyDictionary<
+    static readonly ConcurrentDictionary<
         PackageSourceAssociation,
         PackageSourceIdentity> ConfiguredSourceIdentities =
-        new Dictionary<PackageSourceAssociation, PackageSourceIdentity>(
-            ReferenceEqualityComparer.Instance)
-        {
-            [GalleryAssociation] = GalleryConfiguredIdentity,
-        };
+        new ConcurrentDictionary<PackageSourceAssociation, PackageSourceIdentity>(
+            ReferenceEqualityComparer.Instance);
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
     internal static readonly IPackageSourceClient Gallery =
-        PackageSourceClientFactory.CreateGallery(
-            GalleryAssociation,
+        CreateGallerySource(
             new NuGetFetchOptions
             {
                 RequestTimeout = GalleryOperationTimeout,
@@ -227,6 +222,18 @@ internal static class BrowserPackageWorkspace
                 cancellationToken),
             PackageOperationTimeout,
             cancellationToken);
+
+    internal static Task<BrowserPackage> AcquireAsync(
+        string packageId,
+        string? version,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout) =>
+        AcquireAsync(
+            packageId,
+            version,
+            source,
+            ConfiguredSourceIdentityFor(source),
+            operationTimeout);
 
     internal static Task<BrowserPackage> AcquireAsync(
         string packageId,
@@ -340,6 +347,48 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    /// <summary>
+    /// Creates one NuGet Gallery source client and registers its association
+    /// with the configured Browser source identity it acquires against, so
+    /// acquisition callers pass the client alone.
+    /// </summary>
+    internal static IPackageSourceClient CreateGallerySource(
+        NuGetFetchOptions options)
+    {
+        PackageSourceAssociation association =
+            PackageSourceAssociation.Create();
+        return RegisterGallerySource(
+            association,
+            PackageSourceClientFactory.CreateGallery(association, options));
+    }
+
+    /// <summary>
+    /// Creates one NuGet Gallery source client over a caller-owned,
+    /// credential-free transport and registers its association with the
+    /// configured Browser source identity it acquires against.
+    /// </summary>
+    internal static IPackageSourceClient CreateGallerySource(
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions options)
+    {
+        PackageSourceAssociation association =
+            PackageSourceAssociation.Create();
+        return RegisterGallerySource(
+            association,
+            PackageSourceClientFactory.CreateGallery(
+                association,
+                ownedCredentialFreeTransport,
+                options));
+    }
+
+    static IPackageSourceClient RegisterGallerySource(
+        PackageSourceAssociation association,
+        IPackageSourceClient source)
+    {
+        ConfiguredSourceIdentities[association] = GalleryConfiguredIdentity;
+        return source;
+    }
+
     static PackageSourceIdentity ConfiguredSourceIdentityFor(
         IPackageSourceClient source)
     {
@@ -373,6 +422,20 @@ internal static class BrowserPackageWorkspace
             package,
             package.CreateRootBinding(targetFramework));
     }
+
+    internal static Task<BrowserPackageCoordinate> ResolveAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout) =>
+        ResolveAsync(
+            packageId,
+            version,
+            targetFramework,
+            source,
+            ConfiguredSourceIdentityFor(source),
+            operationTimeout);
 
     internal static async Task<BrowserPackageCoordinate> ResolveAsync(
         string packageId,

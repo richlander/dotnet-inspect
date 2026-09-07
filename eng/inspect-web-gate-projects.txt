@@ -11,6 +11,7 @@ src/DotnetInspector.Queries
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.RowSelection
 src/DotnetInspector.Services
+src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis
 src/ILInspector.CallGraph

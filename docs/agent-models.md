@@ -3,7 +3,8 @@
 This file maps names in current contributor guidance to dispatch model IDs.
 [AGENTS.md](../AGENTS.md#how-many-reviewers-and-from-which-models) owns review
 requirements; [Reviewer roster](round-orchestration.md#reviewer-roster) owns
-seat selection and substitutions. This mapping does not change either policy.
+the single review seat and its substitutions. This mapping does not change
+either policy.
 
 ## Model names and IDs
 
@@ -18,8 +19,10 @@ availability in another session or agent host.
 | MAI-Code | MAI-Code 1.1 Flash | `mai-code-1.1-flash` |
 | Gemini Pro | Resolve an available Pro model | Not pinned; use the runtime-advertised Pro ID. |
 
-GPT-6 Astra replaces GPT-5.6 Sol in current guidance. Historical review
-attributions keep their original model names.
+GPT-6 Astra holds the sole review seat and replaces GPT-5.6 Sol in current
+guidance. Claude Opus and Gemini Pro remain mapped as substitutes when GPT-6
+Astra is unavailable; MAI-Code is the quick-read model, which fills no review
+seat. Historical review attributions keep their original model names.
 
 ## Resolving a dispatch
 
