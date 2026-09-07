@@ -543,61 +543,57 @@ privatizing the reference (`PrivateAssets='all'`, `IncludeAssets='none'`), which
 package present while contributing nothing. That direction is consistent with
 this document's position: the named package remains addressable.
 
-### A project-rooted workspace has a better oracle than this one
+### Pruning is package-space
 
-NuGet's exemption is defined against a project, so it has a literal referent
-only when a project defines the workspace — `--project`, a
-`project.assets.json` context, or a `project` workspace member. A
-package-rooted workspace has no current project, so every reference in it is
-transitive by NuGet's reckoning and the exemption never applies.
+Pruning decides package identities. It does not decide assemblies, files, or
+types, and it never compares against an assembly version. Everything in this
+document lives in that space, which is why the `AssemblyRef` ladder above
+leaves this owner after one step.
 
-For the project case the assets file can be a stronger oracle than this
-owner's inventory, because restore already applied pruning and recorded both
-halves. Measured against SDK 11.0.100-preview.7, a `net10.0` project
-referencing `Azure.Identity` produces an
-`obj/project.assets.json` whose `project.frameworks.net10.0.packagesToPrune`
-holds 272 entries — the same count as `Microsoft.NETCore.App` 10.0
-`PackageOverrides` — and whose `libraries` and `targets` omit
-`System.Text.Json` entirely, despite `Azure.Core` depending on it. The built
-`deps.json` omits it too.
+Given that, and given that the platform registration is the only switch, the
+rule is **safely always enabled whenever the platform is in scope**. There is
+no input for which applying it is unsafe; there are only inputs that carry an
+exemption, below.
 
-**But an assets file is only an oracle when its producer pruned.** It is a
-post-resolution artifact, and whether pruning ran depends on the SDK that
-produced it and on `RestoreEnablePackagePruning`. A file from a pre-.NET 10
-SDK, or one restored with the property disabled, carries an unpruned graph and
-no rules. The presence of `packagesToPrune` is the signal that distinguishes
-the two; its absence means this owner's inventory must do the work rather than
-that nothing was subsumed.
+### Input kinds carry different pruning semantics
 
-The recorded rules also use a different shape from the reference packs. Assets
-files carry NuGet version ranges with an inclusive upper bound —
-`Microsoft.CSharp: "(,4.7.32767]"` — where a pack carries
-`Microsoft.CSharp|4.7.0`. Both express the same inclusive ceiling, and a
-project-rooted reader must parse the range form rather than the pack form.
+What a workspace is rooted by determines whether an app-level exemption
+applies, and how much has already been decided before the product sees it:
 
-Two consequences: a project-rooted workspace should prefer its own recorded
-answer over a recomputed one that could disagree with the build it describes,
-and a disagreement between the two is a signal worth surfacing rather than
-silently resolving.
+| Input | Stage | Treatment |
+| --- | --- | --- |
+| `.csproj` | pre-processed — an input to SDK processing | Prune, with the project's direct references exempt. The app-level exemption is well defined here because the authored references are visible. |
+| `.nuspec` or a bare package | a pure library asset | Prune with no exemption. Nothing in it is an app-authored reference. |
+| `project.assets.json`, `app.deps.json` | post-processed | **Unresolved.** Needs follow-up. |
 
-### Open question: what a direct reference means for edges
+The first two are straightforward and settle the common cases. A package is a
+library, so every reference in it is somebody's dependency and none is an
+app's own choice. A project file is the one place an app-authored reference is
+legible, so it is the one place the exemption has a referent.
 
-NuGet does not prune a direct `PackageReference`, which leaves it in the graph
-as a **resolution target** — edges bind to the package, not the platform. This
-document's selection rule is narrower: a named package stays addressable as a
-subject, while edges from elsewhere still resolve to the platform.
+### Follow-up: post-processed inputs
 
-For a package-rooted workspace the narrower rule is the specified behavior: a
-workspace holding Platform 11.0 and the `System.Text.Json` package routes other
-packages' references into the platform. For a project-rooted workspace the
-answer is less obvious, because the point of a project input is to show what
-that project actually compiles against, and there the un-pruned direct
-reference genuinely wins. Matching the build argues for adopting NuGet's
-semantics in that case; consistency across workspace kinds argues against.
+An assets or deps file has already had SDK semantics applied, and which ones is
+not evident from the artifact. Measurements against SDK 11.0.100-preview.7 show
+a `net10.0` project referencing `Azure.Identity` producing an assets file whose
+`project.frameworks.net10.0.packagesToPrune` holds 272 entries — the same count
+as `Microsoft.NETCore.App` 10.0 `PackageOverrides` — and whose `libraries` and
+`targets` omit `System.Text.Json` despite `Azure.Core` depending on it; the
+built `deps.json` omits it too.
 
-Unresolved. It only bites when a project directly references a package its
-platform would otherwise subsume, which is precisely the case NU1510 exists to
-flag.
+That is an observation, not a contract. Whether pruning ran depends on the
+producing SDK and on `RestoreEnablePackagePruning`, and the artifact does not
+announce which semantics were applied beyond the presence of `packagesToPrune`.
+Reading an unpruned graph as "nothing was subsumed" would be wrong in the
+over-claiming direction's mirror image: it would show packages a build would
+never use.
+
+The recorded rules also use a different shape from the reference packs — assets
+files carry inclusive ranges such as `Microsoft.CSharp: "(,4.7.32767]"` where a
+pack carries `Microsoft.CSharp|4.7.0`. Same ceiling, different encoding.
+
+Establishing correct behavior for these inputs is deferred to the detailed
+design and implementation for this owner, and is not claimed here.
 
 ### Named divergence: this product has one switch, not two
 
