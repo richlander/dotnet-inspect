@@ -81,7 +81,7 @@ Pruning is on exactly when a platform version is registered, and off exactly
 when none is. There is no second control.
 
 A new workspace registers one by default, under
-[approved lazy traversal](approved-lazy-traversal.md)'s construction defaults,
+[workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md#fresh-workspace-defaults),
 so the ordinary case has an inventory without the user choosing anything. The
 [no-platform workspace](#a-workspace-may-have-no-platform-at-all) is the off
 state, and it is a coherent configuration rather than a broken one.
