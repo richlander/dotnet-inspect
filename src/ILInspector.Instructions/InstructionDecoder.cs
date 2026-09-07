@@ -113,28 +113,98 @@ public static class InstructionDecoder
     {
         try
         {
-            return DecodeCore(il);
+            if (!TryDecodeCore(
+                il,
+                int.MaxValue,
+                default,
+                out ImmutableArray<DecodedInstruction> instructions,
+                out _))
+            {
+                throw new InvalidOperationException(
+                    "IL decoding exceeded the maximum addressable instruction count.");
+            }
+            return instructions;
         }
         catch (InvalidProgramException ex)
         {
-            // The runtime-ported ILReader reports a truncated/invalid read (opcode, branch
-            // destination, or switch count) as InvalidProgramException — the JIT/ILVerify
-            // convention. This decoder's documented contract, and every Analysis consumer's
-            // malformed-IL recovery gate, is BadImageFormatException, so normalize at the
-            // substrate boundary. That keeps ILReader a faithful upstream port while presenting
-            // one malformed-IL exception type, so consumers need no per-call-site shim.
-            throw new BadImageFormatException(
-                string.IsNullOrEmpty(ex.Message) ? "Malformed IL" : ex.Message, ex);
+            throw NormalizeMalformedIl(ex);
         }
     }
 
-    static ImmutableArray<DecodedInstruction> DecodeCore(ReadOnlySpan<byte> il)
+    /// <summary>
+    /// Decodes at most <paramref name="maximumInstructions"/> instructions.
+    /// The limit is checked before decoding and retaining each next instruction.
+    /// </summary>
+    /// <remarks>
+    /// A <see langword="false"/> result reports only limit exhaustion. Malformed
+    /// IL reached within the admitted prefix still throws
+    /// <see cref="BadImageFormatException"/>. Partial instructions are never
+    /// returned. <paramref name="decodedInstructionCount"/> reports every
+    /// fully decoded instruction even when a later instruction is malformed.
+    /// </remarks>
+    public static bool TryDecodeBounded(
+        ReadOnlySpan<byte> il,
+        int maximumInstructions,
+        out ImmutableArray<DecodedInstruction> instructions,
+        out int decodedInstructionCount) =>
+        TryDecodeBounded(
+            il,
+            maximumInstructions,
+            default,
+            out instructions,
+            out decodedInstructionCount);
+
+    /// <summary>
+    /// Decodes at most <paramref name="maximumInstructions"/> instructions and
+    /// observes cancellation before each admitted instruction.
+    /// </summary>
+    public static bool TryDecodeBounded(
+        ReadOnlySpan<byte> il,
+        int maximumInstructions,
+        CancellationToken cancellationToken,
+        out ImmutableArray<DecodedInstruction> instructions,
+        out int decodedInstructionCount)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumInstructions);
+
+        try
+        {
+            return TryDecodeCore(
+                il,
+                maximumInstructions,
+                cancellationToken,
+                out instructions,
+                out decodedInstructionCount);
+        }
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
+    }
+
+    static bool TryDecodeCore(
+        ReadOnlySpan<byte> il,
+        int maximumInstructions,
+        CancellationToken cancellationToken,
+        out ImmutableArray<DecodedInstruction> instructions,
+        out int decodedInstructionCount)
+    {
+        instructions = [];
+        decodedInstructionCount = 0;
         var builder = ImmutableArray.CreateBuilder<DecodedInstruction>();
         var reader = new ILReader(il);
 
         while (reader.HasNext)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (builder.Count == maximumInstructions)
+            {
+                decodedInstructionCount = builder.Count;
+                instructions = [];
+                return false;
+            }
+
             int offset = reader.Offset;
             var opcode = reader.ReadILOpcode();
             if (!opcode.IsValid())
@@ -152,7 +222,11 @@ public static class InstructionDecoder
 
             if (opcode == ILOpCode.Switch)
             {
-                operandValue = ReadSwitchTargets(ref reader, offset, out targets);
+                operandValue = ReadSwitchTargets(
+                    ref reader,
+                    offset,
+                    cancellationToken,
+                    out targets);
                 branches = true;
             }
             else if (opcode.IsBranch())
@@ -178,6 +252,7 @@ public static class InstructionDecoder
             builder.Add(new DecodedInstruction(
                 offset, opcode, operandOffset, next, kind, operandValue,
                 targets, branches, unconditional, exits, fallsThrough, leaves));
+            decodedInstructionCount = builder.Count;
         }
 
         // Fail closed on a dangling prefix: a prefix (tail./constrained./no./...) must be
@@ -186,10 +261,29 @@ public static class InstructionDecoder
             throw new BadImageFormatException(
                 $"IL ends with a dangling prefix at IL_{builder[^1].Offset:X4}");
 
-        return builder.ToImmutable();
+        decodedInstructionCount = builder.Count;
+        instructions = builder.ToImmutable();
+        return true;
     }
 
-    static long ReadSwitchTargets(ref ILReader reader, int offset, out ImmutableArray<int> targets)
+    static BadImageFormatException NormalizeMalformedIl(
+        InvalidProgramException exception) =>
+        // The runtime-ported ILReader reports a truncated/invalid read (opcode,
+        // branch destination, or switch count) as InvalidProgramException -
+        // the JIT/ILVerify convention. This decoder's documented contract, and
+        // every Analysis consumer's malformed-IL recovery gate, is
+        // BadImageFormatException.
+        new(
+            string.IsNullOrEmpty(exception.Message)
+                ? "Malformed IL"
+                : exception.Message,
+            exception);
+
+    static long ReadSwitchTargets(
+        ref ILReader reader,
+        int offset,
+        CancellationToken cancellationToken,
+        out ImmutableArray<int> targets)
     {
         uint count = reader.ReadILUInt32();
         long tableEnd = (long)reader.Offset + (long)count * 4;
@@ -198,7 +292,10 @@ public static class InstructionDecoder
         int baseOffset = (int)tableEnd;
         var builder = ImmutableArray.CreateBuilder<int>((int)count);
         for (uint i = 0; i < count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             builder.Add(baseOffset + (int)reader.ReadILUInt32());
+        }
         targets = builder.MoveToImmutable();
         return count;
     }
