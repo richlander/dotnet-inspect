@@ -58,7 +58,7 @@ internal static class BrowserPlatformSurfaceProjection
 
         string framework = BrowserFrameworkText.Require(scope.Framework);
         var surface = new BrowserPackageSurfaceInfo(
-            BrowserPlatformIdentity.SurfaceName(coordinate.Family),
+            BrowserPlatformIdentity.PackageName,
             coordinate.Version,
             [framework],
             framework,

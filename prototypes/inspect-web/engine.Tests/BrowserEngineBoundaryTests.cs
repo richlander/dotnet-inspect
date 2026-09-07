@@ -497,7 +497,7 @@ public sealed class BrowserEngineBoundaryTests
                 BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Equal(
-            BrowserPlatformIdentity.AspNetCorePackageName,
+            BrowserPlatformIdentity.PackageName,
             surface.Package);
         BrowserAssemblySurface selectedAssembly =
             Assert.Single(surface.Assemblies);
