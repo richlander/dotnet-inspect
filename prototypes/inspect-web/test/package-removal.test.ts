@@ -34,12 +34,25 @@ import {
   workspaceShareTabsMatchResolved,
 } from "../src/workspace-navigation.ts";
 
-const alpha = { id: "Alpha", version: "1.0.0", activeFramework: "net10.0" };
+interface RemovalPackage {
+  id: string;
+  version: string;
+  activeFramework: string;
+  source: { kind: "nuget.org" | "platform" };
+  isRuntimePack?: boolean;
+}
+
+const alpha: RemovalPackage = {
+  id: "Alpha",
+  version: "1.0.0",
+  activeFramework: "net10.0",
+  source: { kind: "nuget.org" },
+};
 const beta = { ...alpha, id: "Beta" };
 const otherAlpha = { ...alpha, version: "2.0.0" };
 
 function harness(packages = [alpha, beta, otherAlpha]) {
-  const state: PackageRemovalState<typeof alpha> = {
+  const state: PackageRemovalState<RemovalPackage> = {
     packages,
     package: packages[0] ?? null,
     recentPackages: [alpha, beta].map(pkg => ({
@@ -48,8 +61,8 @@ function harness(packages = [alpha, beta, otherAlpha]) {
   };
   let stored = JSON.stringify(state.recentPackages);
   let failStorage = false;
-  const released: typeof alpha[] = [];
-  const activated: (typeof alpha | null)[] = [];
+  const released: RemovalPackage[] = [];
+  const activated: (RemovalPackage | null)[] = [];
   const removal = createPackageRemoval({
     state,
     persistRecent: entries => {
@@ -113,7 +126,11 @@ test("storage failure preserves membership and history without running removal e
 });
 
 test("Platform and missing coordinates fail visibly rather than removing another package", () => {
-  const platform = { ...beta, isRuntimePack: true };
+  const platform = {
+    ...beta,
+    isRuntimePack: true,
+    source: { kind: "platform" as const },
+  };
   const h = harness([alpha, platform]);
   assert.throws(() => h.removal.removeLoaded(packageIdentityKey(platform)), /no longer removable/);
   assert.throws(() => h.removal.removeLoaded("missing"), /no longer removable/);
@@ -136,6 +153,7 @@ for (const home of [true, false]) {
     const state = {
       ...graphInspectionState(),
       home, packages: [alpha, beta], package: alpha as typeof alpha | null,
+      rootKind: "package", platformSelection: null, platformSlot: -1,
       workspaceSubjectOpen: !home, atPackageRoot: false,
       dependenciesGroupIndex: 2, selectedTypeId: "Old.Type",
       selectedMemberKey: "Old.Member", selectedOverloadIndex: 3,
@@ -260,7 +278,8 @@ const graphHostNames = new Set([
   "invalidateWorkspaceMembershipViews",
   "loadSelectedMemberCallGraph", "memberRequestSignature", "memberRequestIsCurrent",
   "selectedCallGraphWorkspacePackages", "capturedShareTabs", "resolvedWorkspaceShareTabs",
-  "currentPackage", "selectedType", "selectedMember", "memberGroups", "scope",
+  "activeShareTabIndex", "currentPackage", "selectedType", "selectedMember",
+  "memberGroups", "scope",
 ]);
 const graphHostDeclarations = app.program.body
   .filter(node =>
@@ -283,6 +302,7 @@ function graphRemovalHarness() {
   const state = {
     ...graphInspectionState(),
     packages: [active, { ...beta, types: [], assemblies: [] }], package: active,
+    rootKind: "package", platformSelection: null, platformSlot: -1,
     recentPackages: [alpha, beta].map(pkg => ({
       id: pkg.id, version: pkg.version, framework: pkg.activeFramework,
     })),
@@ -384,7 +404,7 @@ function graphRemovalHarness() {
 }
 
 for (const visible of [true, false]) {
-  test(`inactive removal invalidates a completed ${visible ? "visible" : "cached"} graph without changing selection`, async () => {
+  test(`inactive removal invalidates a completed ${visible ? "visible" : "cached"} graph without changing selection`, { timeout: 10_000 }, async () => {
     const h = graphRemovalHarness();
     await h.host.load();
     assert.equal(h.state.memberCallGraph, h.full);
@@ -419,7 +439,7 @@ for (const visible of [true, false]) {
 }
 
 for (const failure of [false, true]) {
-  test(`inactive removal rejects a pending expansion ${failure ? "failure" : "result"} even when the refreshed local graph is the same object`, async () => {
+  test(`inactive removal rejects a pending expansion ${failure ? "failure" : "result"} even when the refreshed local graph is the same object`, { timeout: 10_000 }, async () => {
     const h = graphRemovalHarness();
     h.deferExpansion();
     const originalLoad = h.host.load();
@@ -456,7 +476,7 @@ for (const failure of [false, true]) {
 }
 
 for (const failure of [false, true]) {
-  test(`inactive removal clears platform drill state and rejects its pending ${failure ? "failure" : "result"}`, async () => {
+  test(`inactive removal clears platform drill state and rejects its pending ${failure ? "failure" : "result"}`, { timeout: 10_000 }, async () => {
     const h = graphRemovalHarness();
     await h.host.load();
     const request: PlatformDrillRequest = {

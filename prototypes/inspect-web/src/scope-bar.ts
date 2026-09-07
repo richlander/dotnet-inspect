@@ -546,11 +546,8 @@ export function renderScopeBar<TId extends string>(
     : (emptyStripLabel
         ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
         : "");
-  return `
-    <nav class="lensbar"
-         data-scope-bar
-         data-allocation-key="${escapeHtml(`${scope}:${inspectorIds}`)}"
-         aria-label="Subjects and inspectors">
+  const subjectHtml = subjects.length > 0
+    ? `
       <div class="slide-strip slide-strip-subject scope-switch"
            data-slide-strip="subject"
            data-continuity-key="${escapeHtml(`${scope}:${subjectIds}:v2`)}"
@@ -569,7 +566,14 @@ export function renderScopeBar<TId extends string>(
               escapeHtml)).join("")}
         </div>
         ${edgeIndicators()}
-      </div>
+      </div>`
+    : "";
+  return `
+    <nav class="lensbar"
+         data-scope-bar
+         data-allocation-key="${escapeHtml(`${scope}:${inspectorIds}`)}"
+         aria-label="Subjects and inspectors">
+      ${subjectHtml}
       ${strip.length > 0
         ? `<div class="slide-strip-allocation" data-slide-strip-allocation hidden>
             <button type="button" data-more-subjects aria-label="Show more subjects">‹</button>
@@ -721,15 +725,23 @@ class ScopeBarController implements ScopeBarBinding {
 
   static create(root: ParentNode, state: ScopeBarState): ScopeBarController | null {
     const navigation = root.querySelector<HTMLElement>("[data-scope-bar]");
-    return navigation ? new ScopeBarController(navigation, state) : null;
-  }
-
-  private constructor(navigation: HTMLElement, state: ScopeBarState) {
-    this.navigation = navigation;
-    this.state = state;
+    if (!navigation) return null;
+    // An empty subject ladder (e.g. the workspace-only catalog, which has nothing to switch
+    // between) renders no subject strip at all; there is nothing to allocate in that case.
     const subjectElement = navigation.querySelector<HTMLElement>(
       '[data-slide-strip="subject"]');
-    if (!subjectElement) throw new Error("Scope bar requires a subject strip.");
+    return subjectElement
+      ? new ScopeBarController(navigation, subjectElement, state)
+      : null;
+  }
+
+  private constructor(
+    navigation: HTMLElement,
+    subjectElement: HTMLElement,
+    state: ScopeBarState,
+  ) {
+    this.navigation = navigation;
+    this.state = state;
     const subjectItems = readItems(subjectElement);
     this.subject = new SlideStripDomController(
       subjectElement,

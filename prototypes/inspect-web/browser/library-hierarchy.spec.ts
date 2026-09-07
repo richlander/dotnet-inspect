@@ -194,6 +194,17 @@ async function installFacades(
         if (platformOptions.warmup === "fail-once" && warmupAttempts === 1) throw new Error("Archive offline");
       }
       export async function loadRuntimePackAssembly(tfm, version, file, pack) {
+        if (pack === undefined) {
+          const surface = surfaceFor("Microsoft.NETCore.App");
+          const selected = surface.assemblies.find(item => item.name + ".dll" === file);
+          if (!selected) throw new Error("Unknown platform library: " + file);
+          return JSON.stringify({
+            ...surface,
+            defaultAssemblyId: selected.id,
+            activeFramework: tfm,
+            version: version || surface.version,
+          });
+        }
         document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack]);
         if (platformOptions.libraryPending) await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
         if (platformOptions.libraryFailure) throw new Error("Library offline");
@@ -225,7 +236,13 @@ async function installFacades(
           activeFramework: framework || surface.activeFramework,
         };
       }
-      export async function queryPackageVersions() { return ["1.0.0"]; }
+      export async function queryPackageVersions() {
+        return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
+      }
+      export async function loadRuntimePack(framework, version) {
+        const surface = surfaceFor("Microsoft.NETCore.App");
+        return JSON.stringify({ ...surface, activeFramework: framework, version: version || surface.version });
+      }
       export function searchTypes() { return []; }
       export function clearWorkspacePackageOccurrences() {}
       export async function queryWorkspacePackageOccurrences(json) {
@@ -616,6 +633,28 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await page.locator("[data-workspace-platform]").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+});
+
+test("Package comparison targets survive Library, Type, and Member navigation", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await expect(page.locator("#package-diff-target-status"))
+    .toHaveText("Compare against 0.9.0 (previous version).");
+  await page.locator("#package-diff-target").focus();
+  await page.locator("#package-diff-target").selectOption("exact:1.0.0");
+  await expect(page.locator("#package-diff-target")).toBeFocused();
+  await page.locator("#package-clone-target").selectOption("package:0");
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
+  await page.locator("#type-list [data-type]").click();
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
+  await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await expect(page.locator("#package-diff-target")).toHaveValue("exact:1.0.0");
+  await expect(page.locator("#package-clone-target")).toHaveValue("package:0");
+  await page.locator("#package-diff-target").selectOption("previous");
+  await expect(page.locator("#package-diff-target-status"))
+    .toHaveText("Compare against 0.9.0 (previous version).");
 });
 
 for (const initialWidth of [1440, 390]) {

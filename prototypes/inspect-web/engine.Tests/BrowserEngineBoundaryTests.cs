@@ -399,22 +399,22 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task CancelledWait_ReleasesSharedPackageAcquisition()
+    public async Task CancelledWait_WithoutEpochSettlesBeforeObservedPhysicalFailure()
     {
         var completion =
-            new TaskCompletionSource<int>(
+            new TaskCompletionSource<AcquiredPackageSourcePayload>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+        var acquisition = new BrowserSharedPackageAcquisition(() => completion.Task, epochWork: null);
         using var cancellation = new CancellationTokenSource();
-        Task<int> waiting = BrowserPackageWorkspace.WaitForSharedAcquisitionAsync(
-            completion.Task,
-            cancellation.Token);
-
         cancellation.Cancel();
+        Task<AcquiredPackageSourcePayload> waiting = acquisition.WaitAsync(cancellation.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
         Assert.False(completion.Task.IsCompleted);
-        completion.SetResult(42);
-        Assert.Equal(42, await completion.Task);
+        var lateFailure = new InvalidOperationException("late package failure");
+        completion.SetException(lateFailure);
+        Assert.Same(lateFailure,
+            await Assert.ThrowsAsync<InvalidOperationException>(() => acquisition.Completion));
     }
 
     [Fact]
