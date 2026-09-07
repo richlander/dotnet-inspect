@@ -2,9 +2,9 @@
 
 Inspection Subject Navigation is the product owner for choosing and retaining
 the structural subject inside one exact inspection Workspace. It supplies a
-host-neutral contract for Workspace, Package or non-package Root, Library,
-Type, and Member navigation so that browser, CLI, and future hosts do not
-invent different defaults or recovery rules.
+host-neutral contract for Workspace, Package, Library, Type, and Member
+navigation so that browser, CLI, and future hosts do not invent different
+defaults or recovery rules.
 
 ## Status
 
@@ -75,10 +75,20 @@ adoption for portable Workspace and Package subjects is #5525.
 
 This is shared product substrate; no single-consumer or single-host exception
 applies. The simplest sufficient boundary is one Navigation session bound to
-one exact Workspace, with one Workspace inventory subject and mutually
-exclusive Package or non-package Root subjects for its retained coordinate
-occurrences. It adds no global Root, `All packages` subject, cross-Workspace
-correspondence, or second concurrency protocol.
+one exact Workspace, with one Workspace inventory subject and one Package
+subject for each retained package occurrence. It adds no generic Root, global
+Package, `All packages` subject, cross-Workspace correspondence, or second
+concurrency protocol.
+
+Non-package inputs remain outside this structural grammar. Platform, project,
+file, embedded, or another future input does not become a generic Root merely
+because it can contain Libraries. A focused design may add a concrete subject
+kind when a named consumer demonstrates its own identity, hierarchy, facets,
+and behavior. Artifact Acquisition and Workspace Scope may continue to use
+Root as internal terminology for their broader physical and membership
+contracts; those internal types do not create a Navigation subject.
+The pre-adoption decision to keep this grammar package-specific is recorded on
+[PR #6184](https://github.com/richlander/dotnet-inspect/pull/6184#issuecomment-5574458614).
 
 The exact Workspace and retained-occurrence ancestry is necessary for
 correctness: without it, distinct logical occurrences inside one Workspace can
@@ -132,10 +142,10 @@ descendants reconcile only through typed correspondence.
 
 ## Problem
 
-Workspace lifetime, retained-coordinate selection, and structural subjects are
-different concepts. One Workspace owns an isolated set of retained coordinate
-occurrences. Package or a non-package Root identifies what is inspected at one
-such occurrence; Library, Type, and Member narrow within it.
+Workspace lifetime, retained-package selection, and structural subjects are
+different concepts. One Workspace owns an isolated set of retained package
+occurrences. Package identifies what is inspected at one such occurrence;
+Library, Type, and Member narrow within it.
 
 Today the host owns too much of that distinction:
 
@@ -158,7 +168,7 @@ Inspection Subject Navigation owns:
 - structural subject identity and hierarchy composition;
 - subject applicability, availability, and failure classification;
 - initial subject recommendation and subject-scoped lens recommendation;
-- Workspace, coordinate-root, Library, Type, Member, and lens navigation
+- Workspace, Package, Library, Type, Member, and lens navigation
   descriptors;
 - exact subject and lens activation outcomes;
 - same-occurrence and coordinate-variation reconciliation within one exact
@@ -183,8 +193,8 @@ The owner consumes:
 
 - one exact open Workspace identity and its ordered retained-coordinate
   occurrence descriptors;
-- zero or one active retained-coordinate occurrence and its realized
-  coordinate-root facts;
+- zero or one active retained-package occurrence and its realized Package
+  facts;
 - zero or one scope-result requested active/replacement occurrence plus typed
   effect and correspondence outcomes;
 - owner-issued retained-coordinate activation operations;
@@ -205,7 +215,7 @@ Stateless evaluation may receive an explicit prior snapshot as data.
 The owner returns:
 
 - one Workspace-bound active structural subject;
-- ordered retained-coordinate and coordinate-root descriptors;
+- ordered retained-package and Package descriptors;
 - one Type-inventory Library context;
 - hierarchy and Library descriptors;
 - Type and Member inventory rows wrapped with activation state;
@@ -243,6 +253,11 @@ owner's `ArtifactRootCorrespondence`, plus a point-in-time
 consumes those owner-issued exact values. A portable package coordinate alone
 cannot identify one retained occurrence.
 
+The `Root` names in those adjacent-owner types describe physical or Scope
+membership boundaries. Navigation turns only their Package arm into a
+coordinate-level structural subject. It retains other occurrence descriptors
+in Workspace inventory as unsupported without exposing a Root subject.
+
 [Type, member, and API representation](type-member-api-representation.md) owns
 the Type and Member identity currencies used here.
 
@@ -273,6 +288,8 @@ This owner does not define:
 - coordinate acquisition, authorization, admission, occurrence identity, or
   successor selection;
 - package, platform, project, file, or package-icon construction;
+- structural navigation for platform, project, file, embedded, or other
+  non-package inputs;
 - metadata, Type, Member, API, or view-facet registry internals;
 - Type and Member inventory extraction;
 - lens contents, section execution, or rendering;
@@ -291,31 +308,37 @@ Subjects form one Workspace-rooted grammar:
 | --- | --- |
 | Workspace | One exact open Workspace and its retained-coordinate inventory; Navigation itself does not combine descendant inspection results across occurrences |
 | Package | One exact retained package occurrence in that Workspace |
-| Root | One exact retained non-package coordinate root in that Workspace |
-| Library | All admitted libraries for one Package or Root when aggregate inspection is supported, or one exact Library |
+| Library | All admitted libraries for one Package when aggregate inspection is supported, or one exact Library |
 | Type | One exact type definition in one admitted Library |
 | Member | One exact API member in one Type |
 
 Its shape is:
 
 ```text
-Workspace -> (Package | Root) -> Library -> Type -> Member
+Workspace -> Package -> Library -> Type -> Member
 ```
 
-Workspace is the container and inventory for retained coordinate occurrences. Package and
-Root are mutually exclusive coordinate-root variants, not aggregate and
-single-package forms. `All libraries` is the only structural aggregate below
-Workspace. The hierarchy is a grammar, not a required navigation path; a
-Package, Root, Library, Type, or Member may be activated directly when its
-complete ancestry is supplied.
+Workspace is the container and inventory for retained package occurrences.
+Package is one exact occurrence, not an aggregate over all packages. `All
+libraries` is the only structural aggregate below Workspace. The hierarchy is
+a grammar, not a required navigation path; a Package, Library, Type, or Member
+may be activated directly when its complete ancestry is supplied.
 
 Workspace is always applicable while its owner-issued lifetime remains open.
-Exactly one coordinate-root variant is applicable for each retained
-occurrence. Lower levels remain applicable when that occurrence supports them
-even if their inventories are validly empty. Structurally unsupported levels
-are omitted; applicable but empty levels remain visible as unavailable.
-The variant follows the owner-issued realized-coordinate kind, never coordinate
-text, an icon, a package-shaped display label, or host flags.
+Each Package occurrence admitted to this grammar is owner-issued. Lower levels
+remain applicable when that occurrence supports them even if their inventories
+are validly empty. Structurally unsupported levels are omitted; applicable but
+empty levels remain visible as unavailable. Package classification follows the
+owner-issued typed descriptor, never coordinate text, an icon, a
+package-shaped display label, or host flags.
+
+Workspace inventory still preserves every owner-issued retained occurrence. A
+non-package occurrence is visible there as
+`Unavailable(UnsupportedSubjectKind)` with its exact owner descriptor and no
+Navigation target or activation action. It does not create hierarchy
+descriptors below that occurrence, relabel it Package, or manufacture a generic
+Root. A later concrete non-package subject extends the grammar and its
+complete-inventory behavior together.
 
 ### Identity
 
@@ -325,9 +348,8 @@ The conceptual subject identity family is:
 | --- | --- |
 | Workspace | Artifact-owner `InspectionWorkspaceIdentity` established by #5508 |
 | Package | Complete scope-owner `WorkspaceRootOccurrence` whose separate `WorkspaceRootDescriptor` has the Package arm |
-| Root | Complete scope-owner `WorkspaceRootOccurrence` whose separate `WorkspaceRootDescriptor` has the NonPackage arm |
-| All Libraries | Exact Package or Root plus explicit aggregate Library identity |
-| One Library | Exact Package or Root plus acquired Library identity |
+| All Libraries | Exact Package plus explicit aggregate Library identity |
+| One Library | Exact Package plus acquired Library identity |
 | Type | Exact Library binding plus exact metadata definition |
 | Member | Type identity plus product-owned member anchor |
 
@@ -369,8 +391,8 @@ One navigation snapshot contains:
 | --- | --- |
 | Generation | Scopes action IDs and snapshot-relative commands |
 | Workspace | Binds the session, every subject, descriptor, action, lens, basis, and diagnostic to one exact isolation boundary |
-| Active coordinate occurrence | Names the exact Package or non-package Root ancestry whenever one occurrence is active, including while Workspace is the active subject |
-| Active subject | The one committed Workspace, Package, Root, Library, Type, or Member |
+| Active package occurrence | Names the exact Package ancestry whenever one occurrence is active, including while Workspace is the active subject |
+| Active subject | The one committed Workspace, Package, Library, Type, or Member |
 | Type-inventory Library context | Scopes Type navigation independently of the active subject |
 | Retained-coordinate descriptors | Owner-ordered exact occurrences available from Workspace |
 | Hierarchy descriptors | Ordered Workspace through Member context for the active occurrence |
@@ -437,7 +459,7 @@ second inventory or omit rows because of host filters.
 ### Action IDs
 
 Interactive consumers receive opaque action IDs for non-current available
-Workspace, Package, Root, Library, Type, and Member descriptors. Action IDs
+Workspace, Package, Library, Type, and Member descriptors. Action IDs
 are scoped to one exact Workspace and generation and are distinct from
 structured identities.
 
@@ -463,13 +485,14 @@ Current `Ready` occurrences omit activation.
 Activation status is independent of exact occurrence presence in the complete
 owner-issued inventory. When the current retained occurrence is being
 re-realized without a membership or identity change, `Pending` or `Failed`
-keeps its exact logical occurrence, installed Root subject, descendant subject
-context, and typed owner evidence but carries no current artifact realization
-reference or activation action. Neither status runs root-first correspondence,
-fallback, or truncation, and neither pretends that a retired artifact
-generation remains consumable. Only absence of that exact occurrence from the
-complete inventory enters the replacement-or-Workspace branch; #5584 owns
-protected result consumption for the non-`Ready` occurrence.
+keeps its exact logical occurrence, installed Package subject, descendant
+subject context, and typed owner evidence but carries no current artifact
+realization reference or activation action. Neither status runs
+occurrence-first correspondence, fallback, or truncation, and neither pretends
+that a retired artifact generation remains consumable. Only absence of that
+exact occurrence from the complete inventory enters the
+replacement-or-Workspace branch; #5584 owns protected result consumption for
+the non-`Ready` occurrence.
 
 Admission and Close remain Artifact Acquisition concerns. Root removal,
 replacement, invalidation, and effect disposition are Workspace Scope and
@@ -487,7 +510,7 @@ already active, recommendation order is:
 
 1. Type, when a trustworthy Type exists.
 2. Library, when a Library subject is available.
-3. The occurrence's exact Package or non-package Root.
+3. The occurrence's exact Package.
 
 Member is never implicit.
 
@@ -516,7 +539,7 @@ another participant failed; every participant failure remains visible. If no
 producer can vouch for a candidate, Type availability is failed rather than
 delegated to the consumer.
 
-### Initial Library and coordinate root
+### Initial Library and Package
 
 Library recommendation selects:
 
@@ -527,9 +550,8 @@ Library recommendation selects:
 Unavailable or failed aggregate evidence remains visible when a one-Library
 subject is selected.
 
-When no Library is available, the exact coordinate root is selected: Package
-for a package occurrence and Root for a non-package occurrence. This allows
-root-only package occurrences, including the tools-v2 pointer-package case
+When no Library is available, the exact Package is selected. This allows
+Package-only occurrences, including the tools-v2 pointer-package case
 implemented by #4829.
 
 ### Bounded subject inventory classification
@@ -620,7 +642,6 @@ are:
 | --- | --- |
 | Workspace | Workspace overview |
 | Package | Package overview |
-| Root | Root overview |
 | Type | Type API |
 | Member | Member overview |
 | Library | Library references |
@@ -671,10 +692,10 @@ Type navigation has an explicit Library context:
 | --- | --- |
 | Library | The active Library |
 | Type or Member | The defining Library |
-| Workspace, Package, or Root | Defining Library of the deepest retained Type or Member; otherwise the deepest retained Library; otherwise available aggregate, then the highest-ranked trustworthy Type's Library, then primary or first available Library; none for Workspace without retained occurrence context |
+| Workspace or Package | Defining Library of the deepest retained Type or Member; otherwise the deepest retained Library; otherwise available aggregate, then the highest-ranked trustworthy Type's Library, then primary or first available Library; none for Workspace without retained occurrence context |
 
 If no context can be established, the context is unavailable or failed. The
-context does not activate Library or promote Package, Root, or Workspace.
+context does not activate Library or promote Package or Workspace.
 Ancestor context is derived from the retained path and realized occurrence
 facts; it is not an independently selectable or caller-authored Library.
 
@@ -787,7 +808,7 @@ when the complete snapshot is unchanged.
 Selecting Workspace changes only the committed active subject. It preserves
 the active retained-coordinate occurrence and its descendant context when one
 exists, allowing the Workspace surface to identify that current entry and the
-subject strip to retain Package or Root, Library, Type, and Member context.
+subject strip to retain Package, Library, Type, and Member context.
 It never changes the occurrence implicitly.
 
 Activating an exact retained occurrence is a coordinate request, not
@@ -795,10 +816,10 @@ display-label or tab selection. It restores an explicitly supplied exact
 subject when valid; otherwise it runs initial recommendation only within that
 occurrence.
 
-Selecting Package or Root directly keeps the same exact coordinate occurrence
-and installs that coordinate-root subject. Selecting a Library does not also
-select a Type. Selecting a Type or Member directly returns its complete
-Workspace, coordinate-root, and structural ancestor context.
+Selecting Package directly keeps the same exact occurrence and installs that
+Package subject. Selecting a Library does not also select a Type. Selecting a
+Type or Member directly returns its complete Workspace, Package, and
+structural ancestor context.
 
 Activating a different exact subject without an explicit lens runs lens
 recommendation for that subject. A prior lens is never carried to a different
@@ -815,29 +836,28 @@ resolution, correspondence, or fallback.
 | --- | --- |
 | Workspace | Workspace |
 | Package | Retain while the same exact occurrence remains present in the complete owner-issued inventory; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
-| Root | Retain while the same exact occurrence remains present in the complete owner-issued inventory; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
-| All Libraries | Retain when aggregate remains available; otherwise the exact Package or Root |
-| One Library | Retain when available; otherwise aggregate, then the exact Package or Root |
-| Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package or Root |
+| All Libraries | Retain when aggregate remains available; otherwise the exact Package |
+| One Library | Retain when available; otherwise aggregate, then the exact Package |
+| Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package |
 | Member | Retain when available; otherwise containing Type; if that Type is unavailable, apply the Type rule |
 
-Navigation reconciles one retained context with one root-first algorithm:
+Navigation reconciles one retained context with one occurrence-first
+algorithm:
 
-1. **Establish the retained root.** If the current exact occurrence remains
-   present in the complete owner-issued inventory, keep its Package or Root
-   independent of `Pending` or `Failed` activation status. Otherwise, if the
-   evaluation input supplies an exact replacement occurrence, establish that
-   occurrence's Package or Root. If neither applies, clear retained context and
-   select Workspace. Navigation never infers a replacement from inventory
-   order.
-2. **Resolve the retained path.** Starting at the established root, resolve each
+1. **Establish the retained Package.** If the current exact occurrence remains
+   present in the complete owner-issued inventory, keep its Package independent
+   of `Pending` or `Failed` activation status. Otherwise, if the evaluation
+   input supplies an exact replacement occurrence, establish that occurrence's
+   Package. If neither applies, clear retained context and select Workspace.
+   Navigation never infers a replacement from inventory order.
+2. **Resolve the retained path.** Starting at the established Package, resolve each
    retained Library, Type, and Member in ancestry order. Same-occurrence refresh
    uses exact availability; replacement movement uses typed correspondence. Each
    resolved node must be an exact descendant of the preceding result.
 3. **Apply one fallback.** At the first unresolved path node, apply the table's
-   fallback for that level inside the established root and truncate every lower
+   fallback for that level inside the established Package and truncate every lower
    node. Missing, ambiguous, refused, or failed correspondence follows the same
-   rule with its diagnostic. No fallback crosses the established root or
+   rule with its diagnostic. No fallback crosses the established Package or
    Workspace.
 4. **Derive the active subject.** Workspace remains active independently. A
    non-Workspace active subject uses its resolved path node when present;
@@ -856,7 +876,7 @@ remains active. The active subject no longer controls whether the path receives
 same-occurrence or replacement reconciliation.
 
 No arbitrary Member replaces a missing Member. Inventory refresh never promotes
-an explicitly selected Workspace, Package, Root, or Library to Type. Navigation
+an explicitly selected Workspace, Package, or Library to Type. Navigation
 never chooses a sibling occurrence when the current occurrence is absent. It
 consumes only an exact replacement occurrence supplied by the evaluation input.
 Otherwise Workspace remains active with no active occurrence. This removes the
@@ -881,15 +901,15 @@ new basis and complete evidence.
 
 ### Retained-coordinate variation
 
-Step 2 of the root-first algorithm uses typed owner-issued correspondence when
-the retained root moves between exact occurrences inside one Workspace:
+Step 2 of the occurrence-first algorithm uses typed owner-issued correspondence
+when the retained Package moves between exact occurrences inside one Workspace:
 
 | Resolution | Result |
 | --- | --- |
 | Exact subject resolves and is available | Resolved subject |
 | Member missing, Type resolves | Resolved Type |
 | Type missing, defining Library resolves | Highest-ranked trustworthy Type in that Library, then the Library |
-| Library missing | Available aggregate, then the new occurrence's exact Package or Root |
+| Library missing | Available aggregate, then the new occurrence's exact Package |
 | Correspondence missing, ambiguous, refused, or failed | Apply the unresolved node's level fallback inside the already resolved ancestor, truncate lower nodes, and retain the diagnostic |
 
 Display text, package ID alone, portable coordinate equality, assembly name,
@@ -1028,7 +1048,7 @@ exact active subject and navigation lens requested inside it.
 The retained occurrence context is independent from the active subject. It
 contains:
 
-- the exact retained occurrence and its Package or non-package Root;
+- the exact retained occurrence and its Package;
 - one contiguous optional exact retained Library, Type, and Member path beneath
   that occurrence.
 
@@ -1047,10 +1067,10 @@ Type-inventory Library context from that path and current realized occurrence
 facts through [Type-inventory Library
 context](#type-inventory-library-context); it is not supplied independently by
 the canonical-state owner. When active subject is absent, retained context may
-contain only the exact occurrence and coordinate root; a lower retained
-Library, Type, or Member path is rejected as ambiguous before recommendation.
-Root-only context permits initial recommendation inside that exact occurrence;
-no retained context selects Workspace. The lens identity's exact subject must
+contain only the exact occurrence and Package; a lower retained Library, Type,
+or Member path is rejected as ambiguous before recommendation. Package-only
+context permits initial recommendation inside that exact occurrence; no
+retained context selects Workspace. The lens identity's exact subject must
 equal the requested subject. A path/subject mismatch, subject-less lower path,
 internally inconsistent context, or subject/lens mismatch fails before Registry
 resolution and aborts preparation. Navigation then resolves its subject and
@@ -1063,11 +1083,10 @@ This owner does not install the prepared snapshot or coordinate other
 restoration participants. Complete Workspace restoration composition and
 atomic commit belong to [Workspace Definitions](workspace-definitions.md),
 whose current version-2 shape was established by #4787. That shape cannot yet
-represent an explicitly selected Workspace, distinguish Package from
-non-package Root, or carry an optional retained occurrence and descendant
-context independently from the active subject. #5525 owns that focused
-adoption. Section, body, source-target, and other portable state remain outside
-this owner.
+represent an explicitly selected Workspace or carry an optional retained
+occurrence and descendant context independently from the active subject. #5525
+owns that focused adoption. Section, body, source-target, and other portable
+state remain outside this owner.
 
 ## Consumer contract
 
@@ -1132,7 +1151,8 @@ The eventual subject-navigation implementation must include named gates for:
 - `WorkspaceSubject_PreservesActiveOccurrenceAndDescendantContext`
 - `AncestorTypeInventoryContext_DerivesFromDeepestRetainedNode`
 - `WorkspaceSubject_ExposesCoordinatesWithoutNavigationAggregation`
-- `PackageAndNonPackageRoot_AreMutuallyExclusive`
+- `PackageSubject_RequiresPackageOccurrence`
+- `NonPackageOccurrence_IsVisibleAndUnavailableWithoutRelabeling`
 - `RetainedCoordinateActivation_UsesExactOccurrenceAction`
 - `ForeignWorkspaceSubjectActionAndRestoration_AreRejected`
 - `SnapshotComposition_RejectsForeignWorkspaceEvidence`
@@ -1141,12 +1161,12 @@ The eventual subject-navigation implementation must include named gates for:
 - `RetainedCoordinateDescriptor_PendingHasEvidenceAndNoActivation`
 - `RetainedCoordinatePending_PreservesInstalledContextUntilSettled`
 - `RetainedCoordinateFailure_PreservesInstalledContextWithEvidence`
-- `RetainedCoordinateCorrespondingGenerationRefresh_PreservesRootSubject`
+- `RetainedCoordinateCorrespondingGenerationRefresh_PreservesPackageSubject`
 - `ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence`
-- `RetainedContextReconciliation_ResolvesRootThenPathThenActiveSubject`
+- `RetainedContextReconciliation_ResolvesOccurrenceThenPathThenActiveSubject`
 - `CoordinateVariation_NeverCrossesWorkspaceBoundary`
 - `MemberIdentity_BindsExactDeclaringTypeAndAnchor`
-- `InitialRecommendation_PrefersTypeThenLibraryThenCoordinateRoot`
+- `InitialRecommendation_PrefersTypeThenLibraryThenPackage`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
 - `InitialRecommendation_NeverChoosesMember`
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
@@ -1260,21 +1280,21 @@ result identifies Navigation as the failure source.
 
 | Case | Expected result |
 | --- | --- |
-| Workspace selected with an active occurrence | Exact Workspace subject and ordered retained-coordinate descriptors; the active occurrence and its Package-or-Root, Library, Type, and Member context remain available |
+| Workspace selected with an active occurrence | Exact Workspace subject and ordered retained-coordinate descriptors; the active occurrence and its Package, Library, Type, and Member context remain available |
 | Workspace selected without an active occurrence, with zero, one, or many retained entries | Exact Workspace subject with no invented coordinate or lower context |
 | Package coordinate selected | Exact Workspace-bound Package ancestry; no tab or display identity participates |
-| Non-package coordinate selected | Exact Workspace-bound non-package Root ancestry; it is never labelled Package |
+| Non-package coordinate supplied | Visible in Workspace inventory as `Unavailable(UnsupportedSubjectKind)` with exact owner evidence and no target or action; never relabelled Package or admitted as a generic Root |
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
 | Active coordinate is absent without a supplied replacement | Workspace with no active occurrence |
-| Active coordinate is absent with an exact supplied replacement | Root-first correspondence and level-local fallback only inside that occurrence |
-| Current retained coordinate is Pending during non-invalidating re-realization | Exact logical occurrence, installed Root subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is exposed |
-| Current retained coordinate is Failed while its exact occurrence remains present | Exact logical occurrence, installed Root subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is fabricated |
+| Active coordinate is absent with an exact supplied replacement | Occurrence-first correspondence and level-local fallback only inside that occurrence |
+| Current retained coordinate is Pending during non-invalidating re-realization | Exact logical occurrence, installed Package subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is exposed |
+| Current retained coordinate is Failed while its exact occurrence remains present | Exact logical occurrence, installed Package subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is fabricated |
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
 | Restoration omits active subject but supplies retained Library/Type/Member context | Preparation aborts before initial recommendation |
 | Workspace restoration retains Type in Library L2 | Type-inventory context is derived as L2; no independent Library context is decoded |
-| Package remains active with retained Type in Library L2 | Type-inventory context is derived as L2 before any root-only fallback |
+| Package remains active with retained Type in Library L2 | Type-inventory context is derived as L2 before any Package-only fallback |
 | Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
 | Retained Member disappears while Package is active | Retained context falls back to the containing Type while Package and its lens remain active |
