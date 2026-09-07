@@ -22,6 +22,8 @@ public sealed class CSharpTypePrinter
         options ??= new CSharpTypePrintOptions();
         if (!Enum.IsDefined(options.TypeNamePolicy))
             throw new ArgumentOutOfRangeException(nameof(options), options.TypeNamePolicy, "C# type-name policy must be defined.");
+        if (options.MemorySafetyLanguage is { } language && !Enum.IsDefined(language))
+            throw new ArgumentOutOfRangeException(nameof(options), language, "C# memory-safety language must be defined.");
         var configuredUsings = options.Usings?.ToArray()
             ?? throw new ArgumentException("C# type printer usings cannot be null.", nameof(options));
 
@@ -56,8 +58,12 @@ public sealed class CSharpTypePrinter
         var selfNameFailures = preparedTypes
             .SelectMany(SelfNameFailures)
             .ToImmutableArray();
-        if (selfNameFailures.Length > 0)
-            return new CSharpTypePrintOutcome.NotRendered(selfNameFailures);
+        ImmutableArray<CSharpTypePrintDiagnostic> memorySafetyFailures =
+            options.MemorySafetyLanguage is { } selectedLanguage
+                ? BatchMemorySafetyFailures(preparedTypes, selectedLanguage).ToImmutableArray()
+                : [];
+        if (selfNameFailures.Length > 0 || memorySafetyFailures.Length > 0)
+            return new CSharpTypePrintOutcome.NotRendered(selfNameFailures, memorySafetyFailures);
 
         ValidateDuplicateTypes(preparedTypes, nameof(requests));
 
@@ -468,6 +474,72 @@ public sealed class CSharpTypePrinter
         }
     }
 
+    static IEnumerable<CSharpTypePrintDiagnostic> MemorySafetyFailures(
+        PreparedType prepared,
+        CSharpMemorySafetyLanguage language)
+    {
+        if (CSharpMemorySafetySpelling.TypeFailure(
+            prepared.Type, language, prepared.PrimaryConstructorParameters.Length) is { } typeFailure)
+        {
+            yield return new(prepared.Type.FullName, typeFailure);
+        }
+        else
+        {
+            foreach (var member in prepared.Members)
+            {
+                var decision = CSharpMemorySafetySpelling.Member(
+                    prepared.Type,
+                    member.Member,
+                    language,
+                    isExtern: member.Policy == CSharpBodyPolicy.Extern,
+                    requiresUnsafeContext: member.Body?.RequiresUnsafeModifier == true);
+                if (decision.Failure is { } failure)
+                    yield return new(prepared.Type.FullName, failure);
+            }
+        }
+        foreach (var nested in prepared.NestedTypes)
+        {
+            foreach (var failure in MemorySafetyFailures(nested, language))
+                yield return failure;
+        }
+    }
+
+    static IEnumerable<CSharpTypePrintDiagnostic> BatchMemorySafetyFailures(
+        IReadOnlyList<PreparedType> preparedTypes,
+        CSharpMemorySafetyLanguage language)
+    {
+        foreach (var prepared in preparedTypes)
+        {
+            foreach (var failure in MemorySafetyFailures(prepared, language))
+                yield return failure;
+        }
+
+        MemorySafetyRulesState[] states = preparedTypes
+            .SelectMany(Flatten)
+            .Select(prepared => prepared.Type.MemorySafety?.Rules)
+            .OfType<MemorySafetyRulesResult.Available>()
+            .Select(rules => rules.State)
+            .Where(state => state is MemorySafetyRulesState.Legacy or MemorySafetyRulesState.Updated)
+            .Distinct()
+            .ToArray();
+        if (states.Length > 1)
+        {
+            yield return new CSharpTypePrintDiagnostic(
+                "<batch>",
+                "A single C# source batch cannot preserve both legacy and updated module memory-safety rules.");
+        }
+
+        static IEnumerable<PreparedType> Flatten(PreparedType prepared)
+        {
+            yield return prepared;
+            foreach (var nested in prepared.NestedTypes)
+            {
+                foreach (var descendant in Flatten(nested))
+                    yield return descendant;
+            }
+        }
+    }
+
     static void ValidateDuplicateTypes(
         IReadOnlyList<PreparedType> preparedTypes,
         string parameterName)
@@ -567,7 +639,9 @@ public sealed class CSharpTypePrinter
             prepared.LegacyDeclaredTypeIdentifier);
         var diagnosticPass = DeclarationFormatter(
             prepared.Namespace,
-            options,
+            // This pass collects name diagnostics, not body-policy declarations.
+            // Memory-safety admission above already used each member's actual shape.
+            options with { MemorySafetyLanguage = null },
             contextualUsings,
             inScopeShadowingNames,
             inheritedRootShadowingNames,
@@ -653,7 +727,9 @@ public sealed class CSharpTypePrinter
         string pad = new(' ', indent * 4);
         if (member.Member.Kind == "field")
         {
-            string declaration = formatter.FormatMember(type.Type, member.Member);
+            string declaration = member.Body is not null && formatter.UsesModelAwareMemorySafety
+                ? formatter.FormatMemberWithBody(type.Type, member.Member, member.Body)
+                : formatter.FormatMember(type.Type, member.Member);
             if (member.Body is CSharpFieldInitializer fieldInitializer)
                 return new RenderedFragment($"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};");
             return new RenderedFragment(PadDeclaration(EnsureTerminated(declaration), pad));
@@ -665,12 +741,14 @@ public sealed class CSharpTypePrinter
         if (IsEvent(member.Member))
             return RenderEvent(type, member, formatter, indent);
 
+        if (member.Policy == CSharpBodyPolicy.Extern)
+            formatter = formatter.ForExternDeclaration();
         string memberDeclaration = member.Body is null
             ? formatter.FormatMember(type.Type, member.Member)
             : formatter.FormatMemberWithBody(type.Type, member.Member, member.Body);
         if (type.Type.Kind == "interface"
             || member.Member.IsAbstract
-            || member.Policy == CSharpBodyPolicy.Skeleton)
+            || member.Policy is CSharpBodyPolicy.Skeleton or CSharpBodyPolicy.Extern)
         {
             return new RenderedFragment(PadDeclaration(EnsureTerminated(memberDeclaration), pad));
         }
@@ -864,6 +942,7 @@ public sealed class CSharpTypePrinter
             LegacyDeclaredTypeIdentifier = legacyDeclaredTypeIdentifier,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
+            MemorySafetyLanguage = options.MemorySafetyLanguage,
             OmitPropertyAccessors = omitPropertyAccessors,
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
@@ -923,6 +1002,7 @@ public sealed class CSharpTypePrinter
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            MetadataToken = type.MetadataToken,
             IntroducedTypeParameterCounts =
                 type.IntroducedTypeParameterCounts?.ToList(),
             Accessibility = type.Accessibility,
@@ -952,6 +1032,8 @@ public sealed class CSharpTypePrinter
         {
             Name = member.Name,
             Kind = member.Kind,
+            MetadataToken = member.MetadataToken,
+            DeclarationMetadataToken = member.DeclarationMetadataToken,
             Attributes = attributes?.ToList()!,
             ReturnType = member.ReturnType,
             Signature = member.Signature,
@@ -1115,6 +1197,15 @@ public sealed class CSharpTypePrinter
         int primaryConstructorParameterCount,
         string parameterName)
     {
+        if (policy.BodyPolicy == CSharpBodyPolicy.Extern)
+        {
+            if (policy.Body is not null)
+                throw new ArgumentException($"Extern member '{member.Name}' cannot carry a body.", parameterName);
+            var decision = CSharpMemorySafetySpelling.Member(type, member, language: null, isExtern: true);
+            if (decision.Failure is { } failure)
+                throw new NotSupportedException(failure);
+            return;
+        }
         if (policy.BodyPolicy == CSharpBodyPolicy.Skeleton && policy.Body is not null)
         {
             throw new ArgumentException(

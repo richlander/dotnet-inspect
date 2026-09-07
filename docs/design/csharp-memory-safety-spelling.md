@@ -4,8 +4,12 @@
 
 This is the focused declaration contract for
 [#5257](https://github.com/richlander/dotnet-inspect/issues/5257), owned solely
-by `ILInspector.CSharp`. It is a design prerequisite, not a claim that the
-current printer implements model-aware spelling.
+by `ILInspector.CSharp`. The opt-in method/field implementation is tracked by
+[#6105](https://github.com/richlander/dotnet-inspect/issues/6105) and consumes
+the layout facts delivered by
+[#6144](https://github.com/richlander/dotnet-inspect/issues/6144).
+Compatibility remains the default. The remaining declaration forms and
+production-host adoption remain pending.
 
 **Claim:** a rendered declaration preserves the supplied caller contract
 under the selected C# language semantics, independently of structural pointer
@@ -18,7 +22,9 @@ v1/v2 vocabulary and language distinctions. Metadata owns
 and their unavailable states. Decompiler owns reconstructed bodies and the
 primary-constructor fallback under
 [memory-safety rendering modes](memory-safety-modes.md). This document consumes
-those boundaries; it does not redefine their evidence or reconstruction.
+those boundaries, including
+[API layout facts](type-member-api-representation.md#api-layout-facts); it does
+not redefine their evidence or reconstruction.
 
 ## Purpose and design basis
 
@@ -52,6 +58,12 @@ An unmarked binary does not prove that its source used an older language.
 Replay preserves the recognized binary contract; selecting a language does
 not implicitly opt the output into another module rules model. Migration
 simulation is outside this contract.
+
+A composed C# source artifact has one module rules model at compilation time.
+One batch, including its nested types, therefore cannot preserve a mixture of
+legacy and updated input contracts. Model-aware batch printing refuses that
+mixture atomically rather than produce source whose successful compilation
+silently changes one side's caller obligations.
 
 The observable result is no safety modifier, `safe`, `unsafe`, or an explicit
 unavailable result identifying the declaration and missing or incompatible
@@ -102,9 +114,10 @@ The extern decision needs an affirmative declaration-shape fact. An absent
 managed-body RVA is insufficient: abstract, runtime-provided, reference-assembly,
 and reconstructed stub shapes do not all mean the same emitted declaration.
 CSharp does not infer this fact from a displayed attribute or signature.
-The missing Metadata implementation-fact projection is tracked by
-[#5940](https://github.com/richlander/dotnet-inspect/issues/5940); this design
-does not specify that projection's construction.
+The Metadata implementation-fact projection tracked by
+[#5940](https://github.com/richlander/dotnet-inspect/issues/5940) landed in #5972.
+Those facts retain flags and body-RVA presence, not a C# extern decision; this
+design does not specify their construction.
 
 Backing associations are conventions, not recovered source. Unknown or
 ambiguous association evidence is not proof that a property or event has no
@@ -145,6 +158,72 @@ satisfies it.
 
 ## Rendering and adoption
 
+### Method and field slice
+
+`CSharpFormatOptions.MemorySafetyLanguage` and
+`CSharpTypePrintOptions.MemorySafetyLanguage` explicitly select model-aware
+spelling. Their null default retains the existing compatibility view.
+`Legacy` requires a lexical pointer context; `RelaxedPointerSyntax` removes
+that requirement; `UpdatedCallerContracts` additionally supports the v2
+declaration forms. These are language capabilities, not requests to change
+the inspected module's rules. Compilation must select the corresponding
+language and preserve the recognized module model separately.
+
+The first slice supports methods, ordinary constructors, and fields. An
+explicit `CSharpBodyPolicy.Extern`, or `CSharpFormatOptions.IsExtern` for a
+single declaration, selects the no-body extern form. A skeleton, abstract
+member, or reconstructed stub is not automatically extern. Raw MethodDef
+implementation facts remain available to source-shape producers; this policy
+does not substitute an RVA test for their affirmative choice.
+
+An opt-in whole-type batch returns `CSharpTypePrintOutcome.NotRendered` with
+`MemorySafetyFailures` when necessary evidence or a supported declaration
+form is unavailable. The existing self-name failures remain independent;
+neither failure category exposes partial source. String-returning formatter
+entry points report the same refusal through `NotSupportedException`.
+
+Properties, events, accessors, delegates, enums, and primary-constructor
+syntax remain explicitly unavailable in this opt-in slice. A caller can
+select the supported members or supply the product-selected explicit-field
+and ordinary-constructor shape. The printer does not silently drop an
+unsupported selected member. This slice proves safety-modifier spelling and
+caller-contract preservation, not body reconstruction or general layout
+reconstruction.
+
+`safe` is illegal on an ordinary field when its enclosing layout is not
+emitted (CS9388), so the supported updated-rules explicit-layout path emits a
+`StructLayoutAttribute(LayoutKind.Explicit, ...)` on the type and a
+`FieldOffsetAttribute` on every selected instance field. This includes fields
+whose caller contract spells `unsafe`; static fields do not receive an offset.
+Zero is a valid offset. Positive size and packing observations are emitted as
+named arguments; zero retains the attribute defaults. Packing values that C#
+cannot represent are unavailable rather than emitted as invalid source.
+
+The printer admits that source only when the layout MVID and TypeDef token match
+the declaring type, and each selected instance field's MVID, declaring TypeDef
+token, FieldDef token, and usable offset match its declaration. The type and
+member metadata tokens are therefore retained through the rendering snapshot
+alongside the layout facts. Missing or mismatched evidence refuses the complete
+batch before source publication.
+
+These attributes are required semantic spelling, not optional custom-attribute
+display. Suppressing ordinary custom attributes does not suppress them.
+Collision-proof `global::System.Runtime.InteropServices` names keep their
+binding independent of the inspected source's namespace and type names.
+Individual formatter entry points apply the same type or field decision using
+the supplied declaring-type evidence; the whole-type printer is the supported
+compilation-unit proof.
+
+Extended layout still requires a `safe` field decision under the language
+model, but the current evidence does not establish a corresponding C# layout
+attribute form. Model-aware extended-layout output is therefore visibly
+unavailable. Sequential and automatic layouts do not infer offsets or enter
+this narrow replay path. Legacy binaries also remain outside this layout
+lowering path: selecting a newer output-language capability does not change
+their module rules or authorize updated-rules derived attributes.
+
+### Production adoption
+
 The information remains typed through the shared CSharp declaration boundary.
 CSharp owns source-language lowering; Markout remains the presentation
 substrate for views that embed those declarations. Neither CLI nor browser
@@ -160,8 +239,8 @@ declaration path has **three stages**:
 3. #5257 exercises that producer through CLI and browser/Wasm declaration
    surfaces, including their filtered and selected views.
 
-This design is the contract prerequisite within stage 2, not an additional
-host implementation or a completed adoption stage. Implementation must record
+The method/field slice is part of stage 2, not an additional host implementation
+or a completed adoption stage. Implementation must record
 any missing owner-issued declaration-shape input as a focused prerequisite
 rather than derive it from display text or broaden this owner's design.
 Production source composers must also route their declaration portions through
@@ -177,10 +256,24 @@ as described above. No platform or single-host exception is requested.
 
 ## Evidence required before implementation is supported
 
-The behavior in this document is **unverified** until the implementation gates
-land. Existing `ApiMemorySafetyFactsTests` prove the input facts, not these
-spelling decisions. Existing CSharp tests prove current behavior, not this
-proposed adoption.
+The implemented method/field slice is gated by
+`CSharpMemorySafetySpellingTests`, covering declaration decisions, exact
+evidence association, explicit-layout lowering, mixed-rules batch refusal,
+and atomic type outcomes.
+`CSharpMemorySafetySpellingCompileTests` compiles product-produced artifacts
+unchanged, then re-extracts their caller contracts. Its explicit-layout case
+also re-extracts the size, packing, and zero/nonzero field offsets. The compiler
+gate uses the existing Decompiler test executable and its Roslyn reference
+infrastructure; the decision gate uses the CSharp executable. The Dynamic
+fixture census retains the compiler site explicitly.
+
+Ordinary CI runs the complete CSharp test executable and the existing fast
+Decompiler lane. Neither gate establishes the deferred declaration forms,
+primary-constructor fallback, or production-host adoption; those portions of
+this document remain **unverified**.
+
+Existing `ApiMemorySafetyFactsTests` prove the input facts, not the spelling
+decisions.
 
 Use the existing Release CSharp test executable for declaration and whole-type
 outcomes. Compile product-produced artifacts with the selected language and

@@ -406,7 +406,10 @@ public sealed class CSharpTypePrinterTests
         AssertNotRendered(_outcomePrinter.PrintBatch(refusalThenDuplicate.Reverse()));
 
         Assert.Equal(
-            [nameof(CSharpTypePrintOutcome.NotRendered.SelfNameFailures)],
+            [
+                nameof(CSharpTypePrintOutcome.NotRendered.SelfNameFailures),
+                nameof(CSharpTypePrintOutcome.NotRendered.MemorySafetyFailures)
+            ],
             typeof(CSharpTypePrintOutcome.NotRendered)
                 .GetProperties()
                 .Where(property =>
@@ -4547,6 +4550,7 @@ public sealed class CSharpTypePrinterTests
         {
             Name = "Value",
             Kind = "field",
+            DeclarationMetadataToken = fieldFacts.FieldToken,
             ReturnType = "int",
             FieldLayout = fieldFacts,
         };
@@ -4555,6 +4559,7 @@ public sealed class CSharpTypePrinterTests
             Namespace = "Samples",
             Name = "LayoutCarrier",
             Kind = "struct",
+            MetadataToken = typeFacts.TypeToken,
             Layout = ApiTypeLayout.Explicit,
             LayoutDetails = typeFacts,
             Members = [field],
@@ -4563,7 +4568,11 @@ public sealed class CSharpTypePrinterTests
         ApiType snapshot = CSharpTypePrinter.SnapshotTypeForRendering(type, type.Members);
 
         Assert.Same(typeFacts, snapshot.LayoutDetails);
+        Assert.Equal(typeFacts.TypeToken, snapshot.MetadataToken);
         Assert.Same(fieldFacts, Assert.Single(snapshot.Members).FieldLayout);
+        Assert.Equal(
+            fieldFacts.FieldToken,
+            Assert.Single(snapshot.Members).DeclarationMetadataToken);
         Assert.Equal(
             """
             namespace Samples;
