@@ -83,16 +83,20 @@ continues to consume the shared comparison and presentation owners.
 The initial target-settings slice does not advertise working result inspectors.
 Its Package controls identify that limitation. The immediate successor adds
 the shared presentation adapter, then the feature facade and Library API Diff
-inventory/details. That Browser consumer replaces the existing general Compare
-result experience rather than adding a second inspector. Type/Member narrowing
-and Clone execution remain follow-on work in #5083.
+inventory/details. That Browser consumer retires #6076's **Compare authored
+source** action and Source Diff modal under a zero-compatibility plan rather
+than adding a second Diff experience. Its paired Source evidence may feed the
+new on-demand annotated comparison, but the manual version field and old result
+view do not remain. Type/Member narrowing and Clone execution remain follow-on
+work in #5083.
 
 The Library API Diff delivery path is the selected-library query (#6128),
 these Package settings, the shared
 [Library API diff presentation](library-api-diff-presentation.md) contract and
 adapter, then the facade with its immediate Library consumer. This browser
-interaction owner is not a new shared product substrate, does not preserve the
-retired Compare result model, and does not change CLI coordinate selection.
+interaction owner is not a new shared product substrate. It requires no token
+alias, redirect, state migration, or tombstone for the transient retired
+interaction, and it does not change CLI coordinate selection.
 
 ## Evidence
 

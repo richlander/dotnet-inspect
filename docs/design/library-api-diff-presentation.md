@@ -84,23 +84,33 @@ source diff for every Type.
 
 ## Browser replacement requirement
 
-The Inspect Web adopter replaces the existing general **Compare** result
-experience. It does not add a neighboring Diff inspector, preserve the old
-result model as a fallback, or translate this document into the old surface.
-The facade and first Library consumer land with retirement of the old
-inspector/catalog entry, result state, rendering path, and tests.
+The Inspect Web adopter replaces the
+[authored Source comparison](inspect-web-source-comparison.md) interaction
+delivered by #6076: its contextual **Compare authored source** action, exact
+After-version field, Source Diff modal, feature state, and DOM lowering. It
+does not add a neighboring Diff inspector, preserve that result view as a
+fallback, or translate this document into the old interaction.
 
-An obsolete shared link or navigation token for that surface follows the
-navigation owner's unsupported-destination behavior. It does not reopen the
-retired result or silently select a different inspector.
+This is a zero-compatibility retirement. The old interaction is transient and
+creates no canonical packet or shared link, so its link population is zero.
+The adopter adds no alias, redirect, state migration, parser reservation,
+tombstone, or special obsolete-token diagnostic. Internal action names, DOM
+identifiers, and state discriminants are implementation details and can be
+removed rather than preserved.
+
+The existing paired Source query and managed structured evidence are not UI
+compatibility surface. A later selected-Type or selected-member action may
+reuse them to open the new on-demand annotated comparison under the Package
+Diff target. That consumer does not preserve the old manual version field,
+modal layout, or result-state model.
 
 Package **Comparison targets** remain. They are session-local configuration
 for the replacement Diff and later Clone experiences, not the old result
-surface. Contextual **Compare method bodies** and the on-demand source diff are
-also separate operations and are not retired by this replacement.
+surface. Contextual **Compare method bodies** is also a separate operation and
+is not retired by this replacement.
 
 This document records the downstream replacement requirement but does not own
-its Browser state transitions, route retirement, layout, or wording. Those
+its Browser state transitions, interaction retirement, layout, or wording. Those
 mechanics belong to the focused Browser adoption change.
 
 ## Input admission
@@ -445,8 +455,8 @@ The Library API Diff delivery path is:
 3. this portable Library API diff presentation contract;
 4. the `DotnetInspector.Presentation` adapter implementation; and
 5. a bounded Inspect Web feature facade with its immediate Library
-   inventory/detail consumer, atomically replacing the existing general
-   Compare result experience.
+   inventory/detail consumer, atomically retiring #6076's authored Source
+   comparison interaction under the zero-compatibility plan.
 
 Type and Member narrowing reuse the same selected targets but remain later
 consumer slices. **Open annotated source** invokes the existing member
