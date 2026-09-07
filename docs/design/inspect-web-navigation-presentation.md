@@ -492,18 +492,31 @@ a composite workspace name from display labels.
 ### Lens navigation semantics
 
 The lens strip is derived only from the current navigation snapshot's
-owner-ordered lens descriptors. When that collection is non-empty, every lens
-or member section is a tab with `role="tab"` and `aria-selected`, including
-identically labelled tabs owned by different subjects. An effective lens is
-selected programmatically rather than conveyed by color alone. When no
-effective lens exists, every tab has `aria-selected="false"`. An empty
-descriptor collection omits the tablist and leaves the no-effective-lens status
-region as the content following the subject and inspector groups.
+owner-ordered lens descriptors. A non-empty collection uses the adaptive Tabs
+or Chooser form defined above, including identically labelled items owned by
+different subjects. An effective lens is selected or checked programmatically
+rather than conveyed by color alone. When no effective lens exists, every tab
+has `aria-selected="false"` or every radio item has
+`aria-checked="false"`. An empty descriptor collection omits the inspector
+group and leaves the no-effective-lens status region as the content following
+the subject group.
 
-Each tablist has the accessible name `<Subject> lenses`. The effective tab
-references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
-`aria-labelledby`. Without an effective lens, tabs do not reference a
-nonexistent panel.
+In Tabs form, every lens or Member section uses `role="tab"` and
+`aria-selected`. The tablist has the accessible name `<Subject> lenses`. The
+effective tab references its panel with `aria-controls`; the panel uses
+`role="tabpanel"` and is labelled by that tab. Without an effective lens, tabs
+do not reference a nonexistent panel.
+
+In Chooser form, the effective content container uses `role="region"` and is
+labelled by the persistent closed-or-open Chooser trigger. The trigger's
+menu-control relationship remains reserved for its popup; it does not claim
+the content region through `aria-controls`. A Tabs-to-Chooser replacement
+updates the content role and accessible-name owner to the installed trigger
+before removing the active tab. A Chooser-to-Tabs replacement updates them to
+the installed effective tab before removing the trigger. Menu opening,
+cancellation, and Tab dismissal do not remove or rename the trigger, so the
+content never retains a dangling reference. Without an effective lens, no
+content panel or region exists in either form.
 
 Lens tablists use one tab stop and manual activation:
 
@@ -779,12 +792,13 @@ add and pass these named Inspect Web tests:
   the exact ID only when Title and Summary both collide. This is the
   non-vacuity gate for registry consumption.
 - `navigation-consumer.test.ts`:
-  `no effective lens renders status without a selected tab or panel` covers
-  non-empty and empty descriptor collections for unavailable and failed
-  outcomes.
+  `no effective lens renders status without a selected inspector or panel`
+  covers Tabs, Chooser, non-empty, and empty descriptor collections for
+  unavailable and failed outcomes.
 - `navigation-consumer.test.ts`:
   `unavailable and failed navigation options preserve distinct evidence`
-  covers lens tabs, hierarchy-menu items, and Library-listbox options.
+  covers lens tabs and Chooser items, hierarchy-menu items, and Library-listbox
+  options.
 - `navigation-consumer.test.ts`:
   `subject activation submits only action identity and issuing generation`
   rejects commands reconstructed from row identity or display text.
@@ -819,10 +833,11 @@ add and pass these named Inspect Web tests:
   covers manual activation for both roomy tablists, Tabs-to-Chooser and
   Chooser-to-Tabs focus handoff, an open menu surviving resize, menu
   cancellation and Tab dismissal, the Workspace-active retained-coordinate
-  handoff with no committed subject, current-item and `Selection required`
-  activation, disabled evidence, same-lifetime stable-identity retention with
-  new action rebinding, asynchronous replacement parking, and rejection of an
-  outgoing generation's menu action or DOM target.
+  handoff with no committed subject, panel role and accessible-name continuity
+  across both replacement directions and menu dismissal, current-item and
+  `Selection required` activation, disabled evidence, same-lifetime
+  stable-identity retention with new action rebinding, asynchronous replacement
+  parking, and rejection of an outgoing generation's menu action or DOM target.
 - `library-hierarchy.spec.ts`:
   `subject and inspector navigation stays explicit from wide to 390px`
   exercises the production Browser shell and bindings with deterministic
@@ -915,15 +930,19 @@ are proved by the gates in
    Tabs after focus leaves it.
 6. Focus an inactive roomy tab and narrow until its group becomes a Chooser.
    Confirm that focus transfers to the trigger before the tablist is removed,
-   without opening the menu or committing the focused item. Widen while the
-   closed trigger owns focus and confirm that focus moves to the committed tab.
-   Repeat with a non-empty inspector inventory that has no effective inspector:
-   the trigger reads `Choose inspector`, no item is checked, and widening moves
-   focus to the first owner-ordered tab without selecting it. Repeat while
-   Workspace is active with a retained coordinate: the subject trigger reads
-   `Choose subject`, no subject item is checked or selected, Package remains
-   the first owner-ordered roving tab, and the effective inspector stays
-   independently committed.
+   without opening the menu or committing the focused item. For the inspector
+   group, confirm that its active content atomically becomes a region labelled
+   by the installed trigger before the active tab disappears. Cancel and
+   Tab-dismiss the menu and confirm that the same label relationship remains.
+   Widen while the closed trigger owns focus and confirm that focus moves to the
+   committed tab and the content atomically returns to a tabpanel labelled by
+   that installed tab. Repeat with a non-empty inspector inventory that has no
+   effective inspector: the trigger reads `Choose inspector`, no item is
+   checked, no panel or region exists, and widening moves focus to the first
+   owner-ordered tab without selecting it. Repeat while Workspace is active
+   with a retained coordinate: the subject trigger reads `Choose subject`, no
+   subject item is checked or selected, Package remains the first owner-ordered
+   roving tab, and the effective inspector stays independently committed.
 7. Replace an open menu's inventory while retaining the renderer lifetime.
    Confirm that an exact surviving stable descriptor identity retains focus,
    including across availability or generation changes, while activation
@@ -946,22 +965,25 @@ are proved by the gates in
    same display label, two of which also share a Summary.
 2. Confirm that every descriptor appears once in exact owner order with its
    exact identity, label, status, reason, and diagnostic. Focus the
-   duplicate-title tabs and confirm that each owner-issued Summary is visible
-   and programmatically descriptive; when both summaries collide, confirm that
-   the exact ID distinguishes them without replacing their labels.
-3. Focus every disabled tab and confirm that unavailable and failed evidence is
-   discoverable while activation remains a no-op.
+   duplicate-title items in both Tabs and Chooser form and confirm that each
+   owner-issued Summary is visible and programmatically descriptive; when both
+   summaries collide, confirm that the exact ID distinguishes them without
+   replacing their labels.
+3. Focus every disabled tab and Chooser item and confirm that unavailable and
+   failed evidence is discoverable while activation remains a no-op.
 4. Activate the legacy-absent descriptor and all duplicate-label descriptors.
    Confirm that moving focus did not select them, each activation submits its
    exact opaque subject-scoped identity, and the returned effective lens becomes
-   the one selected tab and panel.
+   the one selected tab and tabpanel in Tabs form or the one checked item and
+   labelled region in Chooser form.
 5. Supply a non-empty descriptor collection with no effective lens and an
-   unavailable outcome. Confirm that no tab is selected, no panel exists, and
-   the `Lens unavailable` status is labelled by the active subject.
+   unavailable outcome. Confirm that no tab or radio item is selected, no panel
+   or region exists, and the `Lens unavailable` status is labelled by the
+   active subject.
 6. Repeat with a failed outcome and confirm `Lens failed` preserves the
    diagnostic rather than presenting valid unavailability.
-7. Supply an empty descriptor collection and confirm that the tablist is
-   omitted without introducing a locally familiar fallback lens.
+7. Supply an empty descriptor collection and confirm that the inspector group
+   is omitted without introducing a locally familiar fallback lens.
 
 ### Workspace composition
 
