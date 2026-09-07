@@ -485,7 +485,7 @@ jobs:
         run: eng/test-ts-jsexport-typescript.sh
 
   inspect-web-managed-tests:
-    name: inspect-web managed tests
+    name: inspect-web engine tests
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
@@ -505,22 +505,6 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
-      - name: Install .NET 10 runtime (inspect-web test target)
-        # The MSDL test host targets stable net10.0 while the selected SDK is
-        # the repository's net11.0 preview.
-        run: |
-          set -e
-          if curl -fsSL --retry 3 https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh -o /tmp/get-dotnetup.sh \
-            && bash /tmp/get-dotnetup.sh --install-dir /tmp/dotnetup \
-            && /tmp/dotnetup/dotnetup runtime install aspnetcore@10.0 --install-path "$DOTNET_ROOT" --untracked --no-progress; then
-            echo "Installed aspnetcore@10.0 via dotnetup."
-          else
-            echo "dotnetup acquisition/install failed; falling back to dotnet-install.sh." >&2
-            curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-            chmod +x /tmp/dotnet-install.sh
-            /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir "$DOTNET_ROOT"
-          fi
-
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
@@ -535,6 +519,34 @@ jobs:
 
       - name: Test browser engine
         run: dotnet run --project prototypes/inspect-web/engine.Tests -c Release
+
+  inspect-web-msdl-tests:
+    name: inspect-web MSDL managed API tests
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install .NET 10 runtime (inspect-web test target)
+        run: |
+          set -e
+          if curl -fsSL --retry 3 https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh -o /tmp/get-dotnetup.sh \
+            && bash /tmp/get-dotnetup.sh --install-dir /tmp/dotnetup \
+            && /tmp/dotnetup/dotnetup runtime install aspnetcore@10.0 --install-path "$DOTNET_ROOT" --untracked --no-progress; then
+            echo "Installed aspnetcore@10.0 via dotnetup."
+          else
+            echo "dotnetup acquisition/install failed; falling back to dotnet-install.sh." >&2
+            curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+            chmod +x /tmp/dotnet-install.sh
+            /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir "$DOTNET_ROOT"
+          fi
 
       - name: Test MSDL managed API
         run: dotnet run --project prototypes/inspect-web/msdl-proxy.Tests -c Release
@@ -741,6 +753,7 @@ jobs:
       - inspect-web-managed-bridge
       - inspect-web-ts-jsexport
       - inspect-web-managed-tests
+      - inspect-web-msdl-tests
       - inspect-web-browser
       - inspect-web-published
       - inspect-web-published-api
@@ -756,7 +769,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 10
+            | ($results | length) == 11
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -1792,6 +1805,7 @@ jobs:
       - inspect-web-managed-bridge
       - inspect-web-ts-jsexport
       - inspect-web-managed-tests
+      - inspect-web-msdl-tests
       - inspect-web-browser
       - inspect-web-published
       - inspect-web-published-api

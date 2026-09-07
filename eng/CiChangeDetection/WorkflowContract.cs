@@ -14,6 +14,7 @@ internal static partial class WorkflowContract
         "inspect-web-managed-bridge",
         "inspect-web-ts-jsexport",
         "inspect-web-managed-tests",
+        "inspect-web-msdl-tests",
         "inspect-web-browser",
         "inspect-web-published",
         "inspect-web-published-api",
@@ -27,6 +28,7 @@ internal static partial class WorkflowContract
         "inspect-web-managed-bridge",
         "inspect-web-ts-jsexport",
         "inspect-web-managed-tests",
+        "inspect-web-msdl-tests",
         "inspect-web-published",
         "inspect-web-published-api",
     ];
