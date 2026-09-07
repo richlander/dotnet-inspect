@@ -138,11 +138,23 @@ internal static class BrowserFrameworkText
 }
 
 /// <summary>
-/// The platform workspace's product-owned package identity. Facades report it verbatim.
+/// Product-owned surface identities for Platform workspace families.
 /// </summary>
+[SupportedOSPlatform("browser")]
 internal static class BrowserPlatformIdentity
 {
     internal const string PackageName = "Microsoft.NETCore.App";
+    internal const string AspNetCorePackageName = "Microsoft.AspNetCore.App";
+
+    internal static string SurfaceName(string family) =>
+        family switch
+        {
+            BrowserPlatformWorkspace.RuntimeFamily => PackageName,
+            BrowserPlatformWorkspace.AspNetCoreFamily =>
+                AspNetCorePackageName,
+            _ => throw new InvalidOperationException(
+                $"Platform family '{family}' is not supported."),
+        };
 
     internal static string AssemblyFileName(string assembly)
     {

@@ -1,8 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.Queries;
-
 using InspectWeb.Engine;
 using InspectWeb.Engine.PackageFacade;
 
@@ -59,58 +57,13 @@ public static partial class PackageExports
         BrowserPlatformScopeResolution resolution)
     {
         ArgumentNullException.ThrowIfNull(resolution);
-        WorkspaceContextMember participant = resolution.Participant;
-        string assembly = participant.Participant.Assembly.Identity.Name;
-        AssemblyContextApiSurfaceResult surfaces =
-            resolution.Scope.UseParticipant(
-                participant,
-                (group, selected) =>
-                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                        group,
-                        ApiSurfaceScope.PublicWithNonPublicTypes,
-                        BrowserApiSurfacePolicy.Limits,
-                        [selected]));
-        BrowserSurfaceProjection.Surface projected =
-            BrowserSurfaceProjection.Project(
-                surfaces,
-                [
-                    new BrowserSurfaceProjection.Participant(
-                        participant.Participant,
-                        assembly,
-                        assembly,
-                        $"{assembly}.dll"),
-                ],
-                qualifyTypeIds: true,
-                platformPack:
-                    BrowserPlatformWorkspace.Pack(
-                        resolution.Coordinate.Family));
-        if (projected.Assemblies.Length == 0
-            && !projected.IsTruncated)
-        {
-            throw new InvalidOperationException(
-                $"Platform assembly '{assembly}' produced no API surface. "
-                + (projected.InspectionError
-                    ?? "The workspace reported no failure."));
-        }
-
-        string framework = BrowserFrameworkText.Require(resolution.Scope.Framework);
+        BrowserPlatformProjectionInfo projection =
+            BrowserPlatformSurfaceProjection.Project(
+                resolution.Scope,
+                resolution.Participant,
+                resolution.Coordinate);
         return JsonSerializer.Serialize(
-            new BrowserPackageSurface(
-                BrowserPlatformIdentity.PackageName,
-                resolution.Coordinate.Version,
-                [framework],
-                framework,
-                Icon: null,
-                assembly,
-                BrowserPackageWireProjection.Project(
-                    BrowserCompileLibraryProjection.Selected(framework)),
-                [.. projected.Assemblies.Select(BrowserPackageWireProjection.Project)],
-                [.. projected.Types.Select(BrowserPackageWireProjection.Project)],
-                [.. projected.Accessibility.Select(BrowserPackageWireProjection.Project)],
-                projected.TotalMembers,
-                Documents: [],
-                InspectionErrors: projected.InspectionErrors,
-                InspectionError: projected.InspectionError),
+            BrowserPackageWireProjection.Project(projection.Surface),
             BrowserPackageJsonContext.Default.BrowserPackageSurface);
     }
 }
