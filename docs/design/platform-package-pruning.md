@@ -23,6 +23,9 @@ This owner defines one fact and one comparison:
 > and whether a requested package version is at or below the version that
 > target supplies.
 
+An inventory is read per shared framework and composed for a target, because
+subsumption is a property of the framework references an app actually has.
+
 It owns:
 
 - the shipped prune inventory and its projection from upstream data;
@@ -65,6 +68,33 @@ how precisely they state the supplied version, and the reference pack is
 per-exact-target and already acquired by the catalog generator. Every
 reference pack the generator fetches carries the file, both families, net6.0
 through net11.0.
+
+### An inventory is per shared framework
+
+The upstream file is published per shared framework, and a target subsumes an
+identity only when it references that framework. A console app references
+`Microsoft.NETCore.App`; a web app also references `Microsoft.AspNetCore.App`
+and subsumes more.
+
+This is not a technicality. Microsoft.Extensions membership is 46 on both
+`net10.0` and `net11.0`, but its supplying family moved:
+
+| Target | `Microsoft.NETCore.App` | `Microsoft.AspNetCore.App` | Total |
+| --- | --- | --- | --- |
+| `net10.0` | 0 | 46 | 46 |
+| `net11.0` | 9 | 37 | 46 |
+
+So on `net10.0` a console app has no Microsoft.Extensions package pruned at
+all and `Microsoft.Extensions.DependencyInjection.Abstractions` is an ordinary
+package; the same app on `net11.0` has nine pruned and that package is
+Platform. A web app sees 46 on both.
+
+A target's applicable inventory is therefore the union of the families it
+references. Composition requires agreement on the target framework, since a
+composition across frameworks describes no real app. The shipped families
+publish disjoint identities, so a conflict rule is defensive rather than
+load-bearing; when one is needed, the lower supplied version wins, because
+that is the direction that cannot over-claim.
 
 ### Live and frozen entries
 
