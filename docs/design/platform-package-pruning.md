@@ -64,7 +64,8 @@ It does not own:
 - whether a package exists, or the final platform/package/both classification
   of a name;
 - ranking, presentation, or which subject a consumer opens;
-- traversal permission, graph edges, or edge outcomes;
+- Workspace registration, call-graph focal length, graph edges, or edge
+  outcomes;
 - package acquisition, source selection, or version discovery;
 - ecosystem identity, package sets, or prefixes; or
 - the platform library catalog, which is a separate inventory with its own

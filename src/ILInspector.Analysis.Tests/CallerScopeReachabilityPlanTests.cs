@@ -11,6 +11,31 @@ public class CallerScopeReachabilityPlanTests
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForwardedDifferentTarget_RulesOutTheCaller(bool issueContinuation)
+    {
+        byte[] targetImage = BuildTarget(new Version(2, 0, 0, 0));
+        var target = Descriptor(targetImage);
+        var different = Descriptor(BuildTarget());
+        var facade = Descriptor(BuildFacade(new Version(1, 0, 0, 0), different.Identity));
+        byte[] callerImage = BuildCaller(facade.Identity);
+        var caller = Descriptor(callerImage);
+        var fallback = new ExactPolicy([facade, different], issueContinuation);
+
+        CallerScopeReachabilityPlan plan = CallerScopeReachabilityPlan.Create(
+            fallback,
+            target,
+            ReadTargetDefinition(targetImage),
+            [caller]);
+
+        Assert.Empty(plan.DirectCandidates);
+        Assert.Empty(plan.GraphCandidates);
+        Assert.IsType<CandidateTypeRelation.DifferentDefinition>(
+            plan.Resolution.GetRelation(caller, ReadCallerReference(callerImage)));
+    }
+
     [Fact]
     public void ExactFacadeIdentity_ResolvesToTargetDefinition()
     {
@@ -166,8 +191,164 @@ public class CallerScopeReachabilityPlanTests
                     target,
                     []);
 
-            Assert.Same(terminal, policy.Select(request).Selection);
+            AssemblyBindingSelection actual = policy.Select(request).Selection;
+            if (terminal is AssemblyBindingSelection.Selected selected)
+            {
+                var transformed = Assert.IsType<AssemblyBindingSelection.Selected>(actual);
+                Assert.Same(selected.Assembly, transformed.Assembly);
+                Assert.Same(policy.Version, transformed.Occurrence.Lineage.Version);
+            }
+            else
+            {
+                Assert.Same(terminal, actual);
+            }
         }
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_PreservesNestedContinuationAndShadows()
+    {
+        var target = Descriptor(BuildTarget());
+        var facade = Descriptor(BuildFacade(new Version(1, 0, 0, 0), target.Identity));
+        var shadow = Descriptor(BuildFacade(new Version(1, 0, 0, 0), target.Identity));
+        var fallback = new FixedPolicy(AssemblyBindingSelection.NotFound());
+        AssemblyBindingOccurrence delegated = new TestLineage(fallback.Version).Issue(facade);
+        fallback.SnapshotFactory = _ => new(
+            fallback.Version,
+            AssemblyBindingSelection.FoundOccurrence(delegated, [shadow]));
+        var policy = new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+            fallback, target, []);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(facade.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        AssemblyBindingSelectionSnapshot first = policy.Select(request);
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(first.Selection);
+        Assert.NotSame(fallback.Version, first.Version);
+        Assert.Same(first.Version, selected.Occurrence.Lineage.Version);
+        Assert.Equal([shadow], selected.ShadowedAssemblies);
+        fallback.SnapshotFactory = continued =>
+        {
+            var origin = Assert.IsType<AssemblyBindingOrigin.RequestingAssembly>(continued.Origin);
+            Assert.Same(delegated, origin.Occurrence);
+            return new(fallback.Version, AssemblyBindingSelection.FoundOccurrence(delegated));
+        };
+        var next = new AssemblyBindingRequest(
+            request.Target,
+            AssemblyBindingOrigin.FromOccurrence(selected.Occurrence),
+            request.Scope);
+
+        AssemblyBindingSelectionSnapshot second = policy.Select(next);
+
+        Assert.Same(first.Version, second.Version);
+        Assert.Equal(
+            selected.Occurrence.Lineage,
+            Assert.IsType<AssemblyBindingSelection.Selected>(second.Selection).Occurrence.Lineage);
+        var other = new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+            fallback, target, []);
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidBindingOrigin,
+            Assert.IsType<AssemblyBindingSelection.Rejected>(other.Select(next).Selection).Failure.Kind);
+        Assert.Equal(2, fallback.CallCount);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ScopeFirstBindingPolicy_ForeignSnapshotRetiresStateBeforeComposition(
+        bool changesAdvertisedVersion,
+        bool intrinsic)
+    {
+        var target = Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        var fallback = new FixedPolicy(AssemblyBindingSelection.NameNotOwned());
+        var policy = new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+            fallback, target, []);
+        var canonical = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(target.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        AssemblyBindingSelectionSnapshot original = policy.Select(canonical);
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(original.Selection);
+        var foreign = new AssemblyBindingSelectionSnapshot(
+            new(), AssemblyBindingSelection.NameNotOwned());
+        fallback.SnapshotFactory = _ =>
+        {
+            if (changesAdvertisedVersion)
+                fallback.Version = foreign.Version;
+            return foreign;
+        };
+        var request = new AssemblyBindingRequest(
+            intrinsic
+                ? AssemblyBindingTarget.CoreLibrary()
+                : AssemblyBindingTarget.Reference(
+                    target.Identity with { Version = new Version(1, 0, 0, 0) }),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        Assert.Same(foreign, policy.Select(request));
+        Assert.NotSame(original.Version, policy.Version);
+        var retired = new AssemblyBindingRequest(
+            canonical.Target,
+            AssemblyBindingOrigin.FromOccurrence(selected.Occurrence),
+            canonical.Scope);
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidBindingOrigin,
+            Assert.IsType<AssemblyBindingSelection.Rejected>(policy.Select(retired).Selection).Failure.Kind);
+        Assert.Equal(1, fallback.CallCount);
+        fallback.SnapshotFactory = null;
+
+        AssemblyBindingSelectionSnapshot refreshed = policy.Select(request);
+
+        Assert.Same(policy.Version, refreshed.Version);
+        Assert.NotSame(original.Version, refreshed.Version);
+        Assert.NotSame(foreign.Version, refreshed.Version);
+        Assert.Same(refreshed.Version, policy.Select(canonical).Version);
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_FallbackDriftRefreshesCanonicalSelections()
+    {
+        var target = Descriptor(BuildTarget());
+        var fallback = new FixedPolicy(AssemblyBindingSelection.NotFound());
+        var policy = new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+            fallback, target, []);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(target.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        AssemblyBindingSelectionSnapshot before = policy.Select(request);
+        fallback.Version = new();
+
+        AssemblyBindingSelectionSnapshot after = policy.Select(request);
+
+        Assert.NotSame(before.Version, after.Version);
+        Assert.NotSame(fallback.Version, after.Version);
+        Assert.Same(policy.Version, after.Version);
+        Assert.Same(target, Assert.IsType<AssemblyBindingSelection.Selected>(after.Selection).Assembly);
+        Assert.Equal(0, fallback.CallCount);
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_NullSnapshotRemainsInvalid()
+    {
+        var target = Descriptor(BuildTarget());
+        var fallback = new FixedPolicy(AssemblyBindingSelection.NotFound())
+        {
+            SnapshotFactory = _ => null!,
+        };
+        var policy = new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+            fallback, target, []);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            Assert.IsType<AssemblyBindingSelection.Rejected>(policy.Select(request).Selection).Failure.Kind);
     }
 
     [Fact]
@@ -550,11 +731,16 @@ public class CallerScopeReachabilityPlanTests
         readonly ImmutableDictionary<
             AssemblyReferenceIdentity,
             ResolvedAssemblyReference> _assemblies;
+        readonly bool _issueContinuation;
 
         internal ExactPolicy(
-            IEnumerable<ResolvedAssemblyReference> assemblies) =>
+            IEnumerable<ResolvedAssemblyReference> assemblies,
+            bool issueContinuation = false)
+        {
             _assemblies = assemblies.ToImmutableDictionary(
                 assembly => assembly.Identity);
+            _issueContinuation = issueContinuation;
+        }
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
@@ -571,9 +757,19 @@ public class CallerScopeReachabilityPlanTests
                 && _assemblies.TryGetValue(
                 reference.Identity,
                 out ResolvedAssemblyReference? assembly)
-                ? AssemblyBindingSelection.Found(assembly)
+                ? _issueContinuation
+                    ? AssemblyBindingSelection.FoundOccurrence(
+                        new TestLineage(Version).Issue(assembly))
+                    : AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
         }
+    }
+
+    sealed record TestLineage(AssemblyBindingPolicyVersion IssuingVersion)
+        : AssemblyBindingLineage(IssuingVersion)
+    {
+        internal AssemblyBindingOccurrence Issue(
+            ResolvedAssemblyReference assembly) => CreateOccurrence(assembly);
     }
 
     sealed class SelectedPolicy(
@@ -599,21 +795,24 @@ public class CallerScopeReachabilityPlanTests
     {
         public int CallCount { get; private set; }
 
-        public AssemblyBindingPolicyVersion Version { get; } = new();
+        public AssemblyBindingPolicyVersion Version { get; set; } = new();
+
+        internal Func<AssemblyBindingRequest, AssemblyBindingSelectionSnapshot>? SnapshotFactory
+        {
+            get;
+            set;
+        }
 
         public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
+            CallCount++;
+            if (SnapshotFactory is not null)
+                return SnapshotFactory(request);
+
             return new AssemblyBindingSelectionSnapshot(
                 Version,
-                SelectCore());
-
-            AssemblyBindingSelection SelectCore()
-            {
-                CallCount++;
-                return selection;
-
-            }
+                selection);
         }
     }
 }

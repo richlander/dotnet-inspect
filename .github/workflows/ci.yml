@@ -163,7 +163,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Run markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v19
+        uses: DavidAnson/markdownlint-cli2-action@v24
         with:
           globs: '**/*.md'
 
@@ -200,7 +200,7 @@ jobs:
 
       - name: Cache tla2tools.jar
         id: cache-tla
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/tlaplus/tla2tools.jar
           # Include the asset digest so a later pin cannot reuse cached bytes
@@ -518,7 +518,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -547,7 +547,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -606,7 +606,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -755,7 +755,7 @@ jobs:
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
       - name: Run inspection query tests
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
 
       - name: Run presentation tests
         run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
@@ -933,7 +933,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -969,7 +969,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -1051,7 +1051,7 @@ jobs:
       # that silently -- the gate would still pass, while comparing a listing
       # and a report from different builds.
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -1134,7 +1134,7 @@ jobs:
 
       - name: Upload gate report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: decompiler-gates-report
           path: |
@@ -1162,7 +1162,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -1263,7 +1263,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
