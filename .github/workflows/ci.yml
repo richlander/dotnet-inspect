@@ -530,10 +530,11 @@ jobs:
           cache: npm
           cache-dependency-path: prototypes/inspect-web/package-lock.json
 
-      - name: Install browser dependencies
+      - name: Build browser frontend and install dependencies
         working-directory: prototypes/inspect-web
         run: |
           npm ci
+          npm run build
           npx playwright install --with-deps firefox
 
       - name: Test browser UI in Firefox

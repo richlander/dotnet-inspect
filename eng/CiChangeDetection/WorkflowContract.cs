@@ -66,6 +66,7 @@ internal static partial class WorkflowContract
         RequireAbsent(changes, "env", "jobs.changes");
 
         ValidateInspectWebTopology(jobs);
+        ValidateInspectWebBrowser(jobs);
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
         ValidateTlaJob(jobs);
@@ -141,6 +142,65 @@ internal static partial class WorkflowContract
                 "jobs.inspect-web.needs must contain changes and every " +
                 "inspect-web leaf job exactly once.");
         }
+    }
+
+    private static void ValidateInspectWebBrowser(YamlMappingNode jobs)
+    {
+        YamlMappingNode browser =
+            GetRequiredMapping(jobs, "inspect-web-browser", "jobs");
+        YamlSequenceNode steps = GetRequiredSequence(
+            browser,
+            "steps",
+            "jobs.inspect-web-browser");
+        List<YamlMappingNode> buildSteps = [];
+        List<YamlMappingNode> testSteps = [];
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(
+                stepNode,
+                "jobs.inspect-web-browser step");
+            switch (GetOptionalScalar(step, "name"))
+            {
+                case "Build browser frontend and install dependencies":
+                    buildSteps.Add(step);
+                    break;
+                case "Test browser UI in Firefox":
+                    testSteps.Add(step);
+                    break;
+            }
+        }
+
+        if (buildSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one self-contained jobs.inspect-web-browser build step.");
+        }
+        RequireScalarValue(
+            buildSteps[0],
+            "working-directory",
+            "prototypes/inspect-web",
+            "jobs.inspect-web-browser build step");
+        RequireScalarValue(
+            buildSteps[0],
+            "run",
+            "npm ci\nnpm run build\nnpx playwright install --with-deps firefox\n",
+            "jobs.inspect-web-browser build step");
+
+        if (testSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.inspect-web-browser test step.");
+        }
+        RequireScalarValue(
+            testSteps[0],
+            "working-directory",
+            "prototypes/inspect-web",
+            "jobs.inspect-web-browser test step");
+        RequireScalarValue(
+            testSteps[0],
+            "run",
+            "npm run test:browser -- --shard=${{ matrix.shard }}/2",
+            "jobs.inspect-web-browser test step");
     }
 
     private static void ValidateInspectWebSdk(YamlMappingNode jobs)
