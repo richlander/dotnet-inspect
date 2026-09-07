@@ -45,6 +45,56 @@ It does not own:
 - the platform library catalog, which is a separate inventory with its own
   owner.
 
+## Invariants
+
+These four hold across every consumer and are the frame for everything below.
+
+### A workspace registers a platform version by default
+
+A new workspace has one, per
+[approved lazy traversal](approved-lazy-traversal.md)'s construction defaults.
+The common case therefore has an inventory without the user choosing one.
+
+### Pruning rules travel with the platform version, one to one
+
+An inventory is a property of a platform version, not a separate artifact to
+select, configure, or enable. Selecting a platform version selects its rules;
+there is no version whose rules can be swapped, and no way to pair one
+version's inventory with another's libraries.
+
+**Pruning is therefore always on.** There is no disable switch, because the
+alternative is to disagree with what the SDK does for the same target. What
+varies is which platform version is registered, not whether its rules apply.
+
+Every .NET and ASP.NET Core shared framework in the catalog publishes an
+inventory, `net6.0` through `net11.0`, both families. A target that publishes
+none subsumes nothing, which is the no-platform case below rather than an
+error.
+
+### A package may target a higher platform version than the workspace
+
+Opening a package whose assets target a newer platform than the registered one
+is allowed and inspects normally. Nothing about the package becomes invalid,
+and the mismatch is not an error at open.
+
+The consequence is confined to traversal: an edge from that package into the
+platform may find an incompatible base, and that is
+[platform composition and overlays](platform-composition-and-overlays.md)'s
+compatibility question — risk at load, outcome at traversal — not this
+owner's. Subsumption already declines to over-claim here, since a version
+above the supplied version is not subsumed.
+
+### A workspace may have no platform at all
+
+Removing the platform is a coherent configuration, not a broken one. It means
+no traversal into the platform and no inventory, so nothing is subsumed and
+every package reference is followed as a package reference. That is the
+correct behavior for that workspace, not a degraded one.
+
+Consumers must model the absence of an inventory rather than assuming one, and
+an empty inventory expresses it directly: every identity classifies as
+package-only and nothing is subsumed.
+
 ## The upstream fact
 
 The SDK ships the decision as `PackageId|Version` pairs, in the reference
@@ -499,6 +549,7 @@ Implemented gates live in
 | A malformed override line fails rather than dropping an identity | `MalformedOverrideLineFails` | implemented |
 | Family composition decides the Platform/Extensions boundary | `FamilyCompositionDecidesThePlatformExtensionsBoundary` | implemented |
 | Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented |
+| A workspace with no platform subsumes nothing and follows every package reference | `NoPlatformInventorySubsumesNothing` | implemented |
 | The derived supplied version matches an acquired reference pack | `Pruning_DerivedVersionMatchesAcquiredReferencePack` | pending — projection slice |
 | The projection is stable across patch releases | `Pruning_ProjectionIsStableAcrossPatchReleases` | pending — projection slice |
 | Selecting a subsumed package opens that package | `Pruning_SelectedPackageIsNotRedirectedToPlatform` | pending — consumer slice |
