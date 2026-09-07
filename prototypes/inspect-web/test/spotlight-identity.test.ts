@@ -1512,7 +1512,7 @@ test("typed catalog requests own release and package-version coordination", () =
     ?? "";
   assert.match(
     appSource,
-    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: packageId => inspectPackageVersions\(packageId\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
+    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: pkg => inspectPackageVersions\(pkg\.id, pkg\.version\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
   assert.match(
     appSource,
     /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
@@ -1526,7 +1526,7 @@ test("typed catalog requests own release and package-version coordination", () =
     /state\.dotnetReleasesLoading = true[\s\S]*dependencies\.queryDotnetReleases\(\)[\s\S]*state\.dotnetReleasesLoading = false/);
   assert.match(
     catalogRequestsSource,
-    /state\.packageVersionsLoading\[packageId\] = true[\s\S]*dependencies\.queryPackageVersions\(packageId\)[\s\S]*packageIsResident\(packageId\)/);
+    /inventories\.set\(pkg, pending\)[\s\S]*dependencies\.queryPackageVersions\(pkg\)[\s\S]*if \(isCurrent\(\)\)/);
   assert.doesNotMatch(
     catalogRequestsSource,
     /\bfetch\(|\bdocument\b|inspectPackageVersions/);
@@ -3226,7 +3226,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
 
   assert.match(
     results,
-    /kind: "package-query",[\s\S]*prefix: validPackageQuerySearchText\(query\) \?\? "",/);
+    /kind: "package-query",[\s\S]*prefix: validPackageQuerySearchText\(query\),/);
   assert.match(
     appSource,
     /case "package-query":\s*openPackageQueryRoute\(result\.prefix\);\s*break;/);
@@ -3278,7 +3278,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*sourceComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3329,11 +3329,18 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
       /\? withScopeQuery\(state\.packageQueryState\.request, validText\)/g)
       ?.length,
     1);
-  assert.equal(
-    appSource.match(
-      /packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run/g)
-      ?.length,
-    3);
+  assert.match(
+    appSource,
+    /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
+  assert.match(
+    appSource,
+    /function runPackageQuery\(text: string\) \{\s*const request = preparePackageQueryRequest\(text, "package"\);\s*submitPackageQueryRequest\(request\)/);
+  assert.match(
+    appSource,
+    /function discoverPackages\(\) \{\s*const request = preparePackageQueryRequest\("", "gallery"\);\s*submitPackageQueryRequest\(request\)/);
+  assert.match(
+    appSource,
+    /state\.packageQueryState\.request\?\.inputKind === "gallery"[\s\S]*return state\.packageQueryState\.request/);
   assert.match(
     appSource,
     /state\.packageQueryCatalogError =\s*`Package-query catalogs are unavailable/);
@@ -3560,7 +3567,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| state\.sourceDiff\.open\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -3730,7 +3737,7 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     /if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
     graphSource,
-    /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
+    /packageIdentityKey\(await uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange \?\? null,\s+JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)\)/);
@@ -5357,7 +5364,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
@@ -5383,7 +5390,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
     ?? "";
   const renderDependencies =
-    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction assemblyReferencesSectionHtml/)?.[0]
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction renderLibraryReferences/)?.[0]
     ?? "";
   assert.match(
     appSource,
@@ -6603,9 +6610,9 @@ test("Mermaid resolves the current theme without inventing missing colors", () =
     "classDef self fill:#abcdef,stroke:var(--accent);");
 });
 
-test("dependency graph rendering contains artifact labels", () => {
+test("dependency graph rendering contains artifact labels", async () => {
   const root = packageAt("1.0.0", "net8.0");
-  const definition = buildDependencyGraphMermaid(
+  const definition = await buildDependencyGraphMermaid(
     {
       package: root,
       packages: [root],

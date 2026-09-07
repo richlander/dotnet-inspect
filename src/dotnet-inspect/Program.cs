@@ -171,17 +171,20 @@ try
 
     var rootCommand = CommandLineBuilder.CreateRootCommand();
 
+    if (CommandLineBuilder.TryGetStaleArgumentError(
+            args,
+            rootCommand,
+            out var staleArgumentError))
+    {
+        CommandError.Write(staleArgumentError!);
+        return 1;
+    }
+
     // Pre-process args for implicit package command (also expands -NN → -n NN)
     var argsBeforePreprocess = args;
     args = CommandLineBuilder.PreprocessArgs(args, rootCommand);
     if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
         RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
-
-    if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
-    {
-        CommandError.Write(staleArgumentError!);
-        return 1;
-    }
 
     var result = rootCommand.Parse(args);
 

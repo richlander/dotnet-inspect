@@ -319,21 +319,6 @@ public class ResearchDiffTests
         Assert.NotEqual(idInt, idLong);
     }
 
-    [Theory]
-    [InlineData(".ctor", false)]
-    [InlineData("op_Addition", false)]
-    [InlineData("Twice", true)]
-    [InlineData("IFoo.Bar", false)]
-    [InlineData("M", false)]
-    public void ResearchMemberIdentity_SelectorForMetadataName_DelegatesToMetadataPolicy(string methodName, bool isExtension)
-    {
-#pragma warning disable CS0618
-        var selector = ResearchMemberIdentity.SelectorForMetadataName(methodName, isExtension);
-#pragma warning restore CS0618
-
-        Assert.Equal(ApiMemberIdentity.GetMemberSelectorName(methodName, isExtension), selector);
-    }
-
     [Fact]
     public void MetadataApiDiff_DefaultScope_IgnoresAttributeOnlyChanges()
     {
@@ -2286,38 +2271,6 @@ public class ResearchDiffTests
             CSharpFindings.LineDescriptor)).IsExact);
         Assert.False(Assert.Single(diff.RetainedComparisons.Get<CanonicalIlOperation>(
             IlFindings.OperationDescriptor)).IsExact);
-    }
-
-    [Fact]
-    public void ImplementationDiff_PdbSourceIsIndependentPeerMechanism()
-    {
-        using var source = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
-        var stable = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "Stable");
-        var oldInspection = new FindingInspection<string>.Complete(
-            [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
-        var newInspection = new FindingInspection<string>.Complete(
-            [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
-        var result = ImplementationDiff.CompareMembersWithPdbSource(
-            source,
-            stable,
-            source,
-            stable,
-            oldInspection,
-            newInspection);
-
-        Assert.True(result.HasSourceChanges);
-        Assert.False(result.HasCSharpChanges);
-        Assert.False(result.HasIlChanges);
-        Assert.NotNull(result.SourceComparison);
-        Assert.Contains(result.Changes, change =>
-            change.Mechanism == ResearchChangeMechanism.Source
-            && ImplementationDiff.UnifiedLines(change).Any(line =>
-                line.Contains("return 2", StringComparison.Ordinal)));
-        Assert.Single(result.RetainedComparisons.Get<string>(TextFindings.LineDescriptor));
-        Assert.Single(result.RetainedComparisons.Get<CSharpCanonicalLine>(
-            CSharpFindings.LineDescriptor));
-        Assert.Single(result.RetainedComparisons.Get<CanonicalIlOperation>(
-            IlFindings.OperationDescriptor));
     }
 
     [Fact]

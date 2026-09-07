@@ -2,11 +2,9 @@ import type {
   BrowserMethodBodyComparison,
   BrowserMethodBodyComparisonRequest,
   BrowserMethodBodyComparisonResult,
-  BrowserMethodBodyResultKind,
   BrowserMethodBodySelection,
   BrowserMethodBodyTargets,
   BrowserMethodBodyTargetsResult,
-  BrowserTypeSourceFailureKind,
 } from "./facades/inspect-web-source.d.ts";
 import type {
   OperationAuthorityPage,
@@ -15,9 +13,9 @@ import type {
   OperationFeatureEvent,
   OperationId,
   OperationProducerAdapter,
-  OperationProducerSink,
   OperationSession,
 } from "./operation-authority.ts";
+import { reportComparisonEnvelope } from "./comparison-envelope.ts";
 
 // The launching Before selection: the physical method or explicitly selected
 // accessor/body the person is inspecting, in its own implementation assembly.
@@ -173,77 +171,6 @@ export interface MethodBodyComparisonCoordinator {
   dispose(): boolean;
 }
 
-type MethodBodyCancelReason =
-  | "user"
-  | "superseded"
-  | "disposed"
-  | "feature-observer-failed"
-  | "timeout"
-  | "worker-restarted";
-
-function cancellationReason(reason: string | null): MethodBodyCancelReason {
-  switch (reason) {
-    case "user":
-    case "superseded":
-    case "disposed":
-    case "feature-observer-failed":
-    case "timeout":
-    case "worker-restarted":
-      return reason;
-    default:
-      throw new Error("Unknown method body comparison cancellation reason.");
-  }
-}
-
-// The managed envelope is transport, not a comparison verdict: a Succeeded envelope still
-// carries whatever Queries and Research concluded, and only a Failed or Canceled envelope
-// is a transport-level non-result.
-function reportEnvelope<TValue>(
-  sink: OperationProducerSink<TValue, unknown, never>,
-  subject: string,
-  version: number,
-  kind: BrowserMethodBodyResultKind,
-  value: TValue | null,
-  failureKind: BrowserTypeSourceFailureKind | null,
-  error: string | null,
-  diagnostic: string | null,
-  reason: string | null,
-): undefined {
-  try {
-    if (version !== 1)
-      throw new Error(`Unsupported ${subject} result version.`);
-    switch (kind) {
-      case "Succeeded":
-        if (value === null || typeof value !== "object")
-          throw new Error(`A ${subject} success carries no value.`);
-        sink.reportTerminal({ kind: "succeeded", value });
-        break;
-      case "Failed": {
-        if (typeof error !== "string" || typeof diagnostic !== "string")
-          throw new Error(`A ${subject} failure has no error or diagnostic.`);
-        const failure = new Error(error);
-        if (failureKind === "Expected")
-          sink.reportTerminal({ kind: "failed", error: failure });
-        else if (failureKind === "Unexpected")
-          sink.reportUnexpectedTerminal(failure, diagnostic);
-        else throw new Error(`Unknown ${subject} failure kind.`);
-        break;
-      }
-      case "Canceled":
-        sink.reportTerminal({
-          kind: "canceled",
-          reason: cancellationReason(reason),
-        });
-        break;
-      default:
-        throw new Error(`Unknown ${subject} result kind.`);
-    }
-  } catch (failure: unknown) {
-    sink.reportUnexpectedTerminal(failure, failure);
-  }
-  return undefined;
-}
-
 export function createMethodBodyComparisonCoordinator(
   dependencies: MethodBodyComparisonDependencies,
 ): MethodBodyComparisonCoordinator {
@@ -391,7 +318,7 @@ export function createMethodBodyComparisonCoordinator(
               return boundaryFailure(error);
             }
             void query.then(result => {
-              reportEnvelope(
+              reportComparisonEnvelope(
                 sink,
                 "method body target",
                 result.version,
@@ -449,7 +376,7 @@ export function createMethodBodyComparisonCoordinator(
               return boundaryFailure(error);
             }
             void query.then(result => {
-              reportEnvelope(
+              reportComparisonEnvelope(
                 sink,
                 "method body comparison",
                 result.version,

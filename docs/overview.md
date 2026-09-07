@@ -70,8 +70,11 @@ substrates, and inspection producers that will extend that space.
   assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
-  owns an explicit two-endpoint attempt over one resolved member. The project
-  has no Markout, console, or filesystem-path dependency.
+  owns an explicit two-endpoint attempt over one resolved member. The proposed
+  [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
+  package-activity report's request, evidence categories, selection, and
+  coverage, including the six-week default and qualified security overlay.
+  The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -141,7 +144,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing. It owns the accepted package/metadata XML structure
+  and nuspec parsing. `AssemblyDependencyResolver` owns the
+  [assembly dependency candidate inventory](design/assembly-dependency-candidate-inventory.md):
+  explicit undiscarded discovery evidence, target-input association and
+  acquisition outcomes before consumer selection.
+  Services owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
   Its [package metadata persistence](design/package-metadata-persistence.md)
@@ -188,6 +195,17 @@ substrates, and inspection producers that will extend that space.
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Browser comparison targets](design/inspect-web-comparison-targets.md) owns
+  session-local Package Diff and Clone target intent, inheritance during
+  subject navigation, and target-setting controls. It does not own acquisition
+  authority, comparison execution, or portable Workspace fields.
+- [Library API diff presentation](design/library-api-diff-presentation.md)
+  owns the portable Library-root and changed-Type projection of one complete
+  selected-library API comparison. It preserves Metadata identity,
+  correspondence, and compatibility classification without owning Browser
+  transport or text rendering. Its Browser adopter retires #6076's transient
+  Compare-authored-source interaction with zero compatibility rather than
+  adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
@@ -438,6 +456,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member source diff presentation](design/member-source-diff-presentation.md):
   canonical placement-aligned endpoint text, source-line analysis and statistics,
   Markout mapped-text lowering, and the CLI Source Diff first adoption.
+- [Library API diff presentation](design/library-api-diff-presentation.md):
+  portable Library-root changed-Type composition, complete compatibility
+  changes, and distinct changed-member summaries for shared host adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
@@ -485,6 +506,15 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   search-selector catalog, typed metadata observations, and Gallery-specific
   row-delegation evidence. Row meaning, generic source contracts, and host
   adoption remain with their focused owners.
+- [Package Query input selection](design/package-query-input-selection.md):
+  shared Query interpretation of exact-ID, explicit-prefix, and explicit
+  Gallery candidate inputs, consuming existing source intent and acquisition
+  contracts without implicit input substitution. Browser adoption is implemented;
+  general CLI query execution remains tracked separately.
+- [Package Query inspection evidence](design/package-query-inspection-evidence.md):
+  shared inspection-produced item counts and bounded previews, separated from
+  query-wide source context; acquisition, matching, and host presentation retain
+  their existing owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

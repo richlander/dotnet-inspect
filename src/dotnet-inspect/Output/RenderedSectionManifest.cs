@@ -57,6 +57,30 @@ internal sealed class RenderedSectionManifest
 
     internal IReadOnlySet<string>? GetFields(string section)
         => _fields.TryGetValue(section, out var fields) ? fields : null;
+
+    internal void ReplaceSectionsFrom(
+        RenderedSectionManifest source,
+        IEnumerable<string> sections)
+    {
+        foreach (var section in sections)
+        {
+            _tableColumns.Remove(section);
+            if (source._tableColumns.TryGetValue(section, out var columns))
+            {
+                _tableColumns[section] = new HashSet<string>(
+                    columns,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+
+            _fields.Remove(section);
+            if (source._fields.TryGetValue(section, out var fields))
+            {
+                _fields[section] = new HashSet<string>(
+                    fields,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+        }
+    }
 }
 
 internal sealed class RenderManifestFormatter :

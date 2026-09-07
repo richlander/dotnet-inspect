@@ -2531,18 +2531,19 @@ public static class ApiOutputFormatter
         string assemblyPath,
         string? pdbPath,
         IReadOnlySet<int> methodTokens,
-        ApiOptions options)
+        ApiOptions options,
+        ResolvedAssemblyReference? sourceAssembly = null)
     {
         string kind = options.BodyKindQuery.Kind
             ?? throw new InvalidOperationException(
                 "The Body Shapes section requires a validated body-kind predicate.");
         options.RenderConfigWarnings?.EmitOnce();
-        using var source = Decompiler.Pipeline.MetadataSource.Open(
+        IAssemblyReferenceResolver referenceResolver = ApiAnalysisInspection.CreateReferenceResolver(
             assemblyPath,
-            pdbPath,
-            ApiAnalysisInspection.CreateReferenceResolver(
-                assemblyPath,
-                options));
+            options);
+        using var source = sourceAssembly is null
+            ? Decompiler.Pipeline.MetadataSource.Open(assemblyPath, pdbPath, referenceResolver)
+            : Decompiler.Pipeline.MetadataSource.Open(sourceAssembly, pdbPath, referenceResolver);
         Decompiler.BodyShapeSearchResult result =
             Decompiler.BodyShapeSearch.Search(
                 source,
@@ -2553,6 +2554,10 @@ public static class ApiOutputFormatter
         view.BodyShapeRows =
         [
             .. result.Matches.Select(ApiBodyShapeRow.FromMatch),
+        ];
+        view.BodyShapeSummaryRows =
+        [
+            .. BodyShapeSummary.FromMatches(result.Matches).Select(ApiBodyShapeSummaryRow.FromSummary),
         ];
 
         if (result.Failures.Count == 0)

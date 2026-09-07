@@ -340,6 +340,7 @@ public sealed class BrowserEngineLayeringTests
         string[] approvedOwners =
         [
             "DotnetInspector.Core.HardenedXml",
+            "DotnetInspector.Packages.AuthorityScopedFileSystemPackageStore",
             "DotnetInspector.Packages.BoundedContentReader",
             "DotnetInspector.Packages.FileSystemPackageStore",
             "DotnetInspector.Packages.FileSystemPdbStore",

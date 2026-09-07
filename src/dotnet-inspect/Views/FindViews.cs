@@ -242,6 +242,8 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(FindMemberRow))]
 [MarkoutContext(typeof(PackageProfileView))]
 [MarkoutContext(typeof(PackageProfileRow))]
+[MarkoutContext(typeof(PackageQueryView))]
+[MarkoutContext(typeof(PackageQueryRow))]
 [MarkoutContext(typeof(ImplementsResultView))]
 [MarkoutContext(typeof(ImplementerRow))]
 [MarkoutContext(typeof(ExtensionsResultView))]
