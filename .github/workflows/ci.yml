@@ -540,6 +540,14 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Run repository line-ending guard
         run: >
           dotnet run --project src/dotnet-inspect.Tests -c Release --

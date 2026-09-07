@@ -77,10 +77,10 @@ internal static partial class WorkflowContract
             job,
             "steps",
             "jobs.repository-guards");
-        if (steps.Children.Count != 4)
+        if (steps.Children.Count != 5)
         {
             throw new InvalidOperationException(
-                "jobs.repository-guards must contain exactly four steps.");
+                "jobs.repository-guards must contain exactly five steps.");
         }
 
         YamlMappingNode checkout = RequireMapping(
@@ -125,15 +125,49 @@ internal static partial class WorkflowContract
             },
             "jobs.repository-guards setup step.with");
 
-        RequireNamedRunStep(
+        YamlMappingNode cache = RequireMapping(
             steps.Children[2],
+            "jobs.repository-guards cache step");
+        RequireExactKeys(
+            cache,
+            ["name", "uses", "with"],
+            "jobs.repository-guards cache step");
+        RequireScalarValue(
+            cache,
+            "name",
+            "Cache NuGet packages",
+            "jobs.repository-guards cache step");
+        RequireScalarValue(
+            cache,
+            "uses",
+            "actions/cache@v4",
+            "jobs.repository-guards cache step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                cache,
+                "with",
+                "jobs.repository-guards cache step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["path"] = "~/.nuget/packages",
+                ["key"] =
+                    "nuget-${{ runner.os }}-${{ runner.arch }}-" +
+                    "${{ hashFiles('**/*.csproj', '**/*.props', " +
+                    "'**/*.targets', '**/*.slnx') }}",
+                ["restore-keys"] =
+                    "nuget-${{ runner.os }}-${{ runner.arch }}-\n",
+            },
+            "jobs.repository-guards cache step.with");
+
+        RequireNamedRunStep(
+            steps.Children[3],
             "Run repository line-ending guard",
             "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
                 "--filter-class \"DotnetInspector.Tests.RepositoryLineEndingTests\" " +
                 "--minimum-expected-tests 2\n",
             "jobs.repository-guards line-ending step");
         RequireNamedRunStep(
-            steps.Children[3],
+            steps.Children[4],
             "Run legacy source-identity guard",
             "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
                 "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
