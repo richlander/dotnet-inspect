@@ -25,9 +25,7 @@ public class PlatformPrunePolicyTests
 
     static PlatformPruneInventory Net11() =>
         PlatformPruneInventory.FromExactFamily(
-            "Microsoft.NETCore.App",
-            "net11.0",
-            Net11Pack,
+            new PlatformPruneTarget("Microsoft.NETCore.App", "net11.0", Net11Pack),
             [
                 "System.Text.Json|11.0.0-preview.7.26381.103",
                 "System.Runtime|4.3.1",
