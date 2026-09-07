@@ -203,9 +203,13 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Select_ForeignSnapshotEscapesBeforePayloadComposition(bool intrinsic)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Select_ForeignSnapshotEscapesBeforePayloadComposition(
+        bool intrinsic,
+        bool routingOnly)
     {
         var owner = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
         var candidate = NamedDescriptor("Candidate");
@@ -213,8 +217,11 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
             new AssemblyBindingPolicyVersion(),
             AssemblyBindingSelection.Found(candidate));
         var policy = new ForeignSnapshotPolicy(foreign);
-        var group = new SourceRelativeAssemblyGroupBindingPolicy(
-            [(owner, (IAssemblyBindingPolicy)policy)]);
+        var participants = new[] { (owner, (IAssemblyBindingPolicy)policy) };
+        var group = routingOnly
+            ? SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(participants)
+            : new SourceRelativeAssemblyGroupBindingPolicy(participants);
+        AssemblyBindingPolicyVersion version = group.Version;
         var request = new AssemblyBindingRequest(
             intrinsic ? AssemblyBindingTarget.CoreLibrary()
                 : AssemblyBindingTarget.Reference(candidate.Identity),
@@ -222,7 +229,31 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
             AssemblyResolutionScope.Any);
 
         Assert.Same(foreign, group.Select(request));
+        Assert.NotSame(version, group.Version);
         Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void Select_RoutingOnlyKeepsTheContinuedCoreLibraryAsItsOwnIntrinsic()
+    {
+        var owner = Descriptor(typeof(SourceRelativeAssemblyGroupBindingPolicyTests).Assembly.Location);
+        var core = Descriptor(typeof(object).Assembly.Location);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(owner.Path!)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+        var group = SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+            [(owner, (IAssemblyBindingPolicy)resolver)]);
+        var selected = Selected(group, Request(core, owner));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromOccurrence(selected.Occurrence),
+            AssemblyResolutionScope.Any);
+
+        Assert.Same(selected.Assembly, Selected(group, request).Assembly);
     }
 
     [Theory]
