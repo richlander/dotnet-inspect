@@ -43,6 +43,13 @@ public sealed record SectionQueryCatalog(
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
+        if (command == "find")
+        {
+            queries.Add(new(
+                PackageProfileSections.Packages,
+                PackageQueryOptions.DiscoverySummary,
+                [PackageQueryOptions.QueryFacet]));
+        }
         if (command is "library" or "type" or "member")
         {
             string[] performanceSections = command == "library"

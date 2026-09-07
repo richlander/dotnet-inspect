@@ -142,7 +142,7 @@ public class QueryDiscoveryTests
 
     [Theory]
     [InlineData("package", "Package Info")]
-    [InlineData("find", "Packages")]
+    [InlineData("find", "Results")]
     [InlineData("library", "Top Leverage")]
     public async Task NonQueryableSection_IsExplicitNotUnknownOrCoreOnlyAdvertisement(string command, string section)
     {
@@ -181,12 +181,17 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
-    public async Task PackageProfileQueryDiscovery_IsInertAndDoesNotAdvertiseUnwiredFacets()
+    public async Task PackageProfileQueryDiscovery_IsInertAndDescribesExecutableFacets()
     {
         var result = await Run("find", "--package-prefix", "Microsoft.", "-Q", "Packages", "--json");
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("no CLI query", result.Output);
-        Assert.DoesNotContain("package.query.", result.Output);
+        Assert.Contains("package.query.", result.Output);
+        using var json = JsonDocument.Parse(result.Output);
+        var facet = Assert.Single(json.RootElement.GetProperty("sections")[0]
+            .GetProperty("facets").EnumerateArray());
+        Assert.Equal("facet", facet.GetProperty("name").GetString());
+        Assert.Equal(PackageQueryOptions.QueryFacet.Values,
+            facet.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
     }
 
     [Fact]
@@ -239,7 +244,7 @@ public class QueryDiscoveryTests
             "--library", "/missing/query-discovery.dll", "--json");
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains("only for query companion sections", result.Error);
+        Assert.Contains("require patternless find --package-prefix", result.Error);
         Assert.DoesNotContain("Library not found", result.Error);
     }
 
