@@ -271,7 +271,7 @@ jobs:
 
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
 
       - name: Run presentation tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

@@ -812,7 +812,7 @@ public class IlToolsActivationTests
             (
                 "queries",
                 "dotnet run --project " +
-                "src/DotnetInspector.Queries.Tests -c Release"),
+                "tests/DotnetInspector.Queries.Tests -c Release"),
             (
                 "cli",
                 "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +

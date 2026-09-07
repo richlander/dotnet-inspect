@@ -74,7 +74,7 @@ jobs:
 
       - name: Run query tests
         if: inputs.suite == 'queries'
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
 
       - name: Run CLI tests
         if: inputs.suite == 'cli'

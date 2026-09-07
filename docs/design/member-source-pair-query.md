@@ -108,7 +108,7 @@ other endpoint is acquired. Source-only execution does not invoke local
 producers. Ordinary PDB-first/decompiled-fallback behavior is retained.
 
 ```bash
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-class '*AssemblyContextSourceQueryTests'
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
   --filter-class '*SelectedSourceDiffTests' --filter-class '*DiffCommandTests'

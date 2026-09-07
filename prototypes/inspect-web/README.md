@@ -1650,7 +1650,7 @@ traversal boundary does not become a global error.
 
 The shared product paths are gated by:
 
-- `AssemblyContextApiSurfaceQueryTests` in `src/DotnetInspector.Queries.Tests`
+- `AssemblyContextApiSurfaceQueryTests` in `tests/DotnetInspector.Queries.Tests`
   gates the surface query: the public and composed scopes, the accessibility
   buckets' ordering, default, and counts, participant rejection in group order,
   snapshot reuse across runs, and preserved `ApiSurface` inspection failures.

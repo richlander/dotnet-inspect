@@ -85,7 +85,7 @@ internal static class ChangePlanTestSuite
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
                 + "shipped,codeqlcsharp"),
-            ("src/DotnetInspector.Queries.Tests/Q.cs",
+            ("tests/DotnetInspector.Queries.Tests/Q.cs",
                 "code,codeqlcsharp"),
             ("fixtures/diff/DiffFixtures.V1/F.cs",
                 "code,csharpdiff,decompiler,ildiff,codeqlcsharp"),
