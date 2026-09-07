@@ -8,8 +8,10 @@ described here is implemented.
 
 The .NET SDK already decides which package references are unnecessary because
 the shared framework supplies them. This document makes that decision a typed
-fact the product can consume, so that "is this name a platform library, a
-package, or both?" stops being a name heuristic.
+fact the product can consume. It does not decide whether a package exists or
+whether a name should be presented as platform-only, package-only, or both;
+those answers compose this fact with package discovery and the platform
+library catalog.
 
 Consumers named by #6228 — Spotlight ranking, CLI bare-name routing, ecosystem
 configuration, and pruned traversal edges — adopt this owner's fact. Each
@@ -29,15 +31,17 @@ subsumption is a property of the framework references an app actually has.
 It owns:
 
 - the shipped prune inventory and its projection from upstream data;
-- the classification of a package identity as platform-only, package-only, or
-  overlapping, for one exact target;
+- whether a package identity has a subsumption entry for one exact target;
 - the subsumption comparison against a requested version;
-- the derivation of a live entry's supplied version, and the invariant binding
-  that derivation to a committed target; and
+- the supplied-version value associated with that exact target, and the
+  invariant that prevents one target's inventory from being paired with
+  another target's version; and
 - the staleness contract for its own data.
 
 It does not own:
 
+- whether a package exists, or the final platform/package/both classification
+  of a name;
 - ranking, presentation, or which subject a consumer opens;
 - traversal permission, graph edges, or edge outcomes;
 - package acquisition, source selection, or version discovery;
@@ -47,57 +51,28 @@ It does not own:
 
 ## Invariants
 
-These four hold across every consumer and are the frame for everything below.
+These hold for every inventory independent of how a consumer uses it.
 
-### A workspace registers a platform version by default
+### An inventory binds one exact target
 
-A new workspace has one, per
-[approved lazy traversal](approved-lazy-traversal.md)'s construction defaults.
-The common case therefore has an inventory without the user choosing one.
+An inventory is a property of one platform target, not a separately
+configurable ruleset. Its framework, pack version, membership, and supplied
+versions travel together. One target's inventory cannot be relabeled with
+another target's version or composed with a family from another target.
 
-### Pruning rules travel with the platform version, one to one
+### Composition follows the target's framework families
 
-An inventory is a property of a platform version, not a separate artifact to
-select, configure, or enable. Selecting a platform version selects its rules;
-there is no version whose rules can be swapped, and no way to pair one
-version's inventory with another's libraries.
+The upstream file is published per shared framework. A target's inventory is
+the union of the families that target references, and composition requires
+agreement on the target framework. A composition across target frameworks
+describes no real application.
 
-**The on/off switch for pruning is the platform itself.** Pruning is on
-exactly when a platform version is registered and off exactly when none is,
-which is the no-platform case below. There is no second switch, because the
-alternative is to disagree with what the SDK does for the same target, and
-because a switch of its own is the thing that would let the rules drift from
-the libraries they describe.
+### Absence and uncertainty never become subsumption
 
-Every .NET and ASP.NET Core shared framework in the catalog publishes an
-inventory, `net6.0` through `net11.0`, both families. A target that publishes
-none subsumes nothing, which is the no-platform case below rather than an
-error; .NET Standard is currently in that position here, and
-[whether it should be](#open-question-net-standard) is unresolved.
-
-### A package may target a higher platform version than the workspace
-
-Opening a package whose assets target a newer platform than the registered one
-is allowed and inspects normally. Nothing about the package becomes invalid,
-and the mismatch is not an error at open.
-
-The consequence is confined to traversal: an edge from that package into the
-platform may find an incompatible base, and that is
-[platform composition and overlays](platform-composition-and-overlays.md)'s
-compatibility question — risk at load, outcome at traversal — not this
-owner's. Subsumption already declines to over-claim here, since a version
-above the supplied version is not subsumed.
-
-### A workspace may have no platform at all
-
-Removing the platform is a coherent configuration, not a broken one. It means
-no traversal into the platform and no inventory, so nothing is subsumed and
-every package reference is followed as a package reference. That is the
-correct behavior for that workspace, not a degraded one.
-
-Consumers must model the absence of an inventory rather than assuming one, and
-an empty inventory expresses it directly: every identity classifies as
-package-only and nothing is subsumed.
+An absent inventory, an identity absent from an inventory, or a requested
+version that cannot be compared subsumes nothing. An empty inventory expresses
+that state directly. It does not assert that any package is absent or decide
+what a consumer should acquire or traverse.
 
 ## The upstream fact
 
@@ -147,12 +122,10 @@ them:
 | `net11.0` | 9 | 37 | 46 |
 
 A console app references only `Microsoft.NETCore.App`. On `net10.0` that means
-none of those 46 are subsumed for it, and
-`Microsoft.Extensions.DependencyInjection.Abstractions` is an ordinary package;
-on `net11.0` nine are, and that package is Platform. A web app references both
-families and subsumes all 46 either way.
+none of those 46 are subsumed for it; on `net11.0` nine are. A web app
+references both families and subsumes all 46 either way.
 
-The same identity is Platform or package depending on the target's
+The same package identity is subsumed or not depending on the target's
 composition, with no change to the identity, the prefix, or any rule the
 product authors.
 
@@ -163,343 +136,132 @@ publish disjoint identities, so a conflict rule is defensive rather than
 load-bearing; when one is needed, the lower supplied version wins, because
 that is the direction that cannot over-claim.
 
-### Live and frozen entries
+### Projected and exact supplied versions
 
-Entries divide into two populations, and the split is derivable rather than
-authored:
+Equality with one pack version does not establish that an entry follows future
+patches. For example, `Microsoft.Extensions.Caching.Memory` is `10.0.0` in both
+`Microsoft.AspNetCore.App.Ref` 10.0.0 and 10.0.1. Treating equality at the band
+floor as a patch-following signal would turn the same unchanged upstream value
+into two different product facts.
 
-| Population | Rule | Behavior |
-| --- | --- | --- |
-| **Live** | supplied version equals the pack's own version | moves with every patch release |
-| **Frozen** | anything else | legacy packages pinned at 4.3.x/5.0.0; never moves |
+The shipped projection therefore stores the literal supplied version observed
+at its committed band-floor target. It does not carry a `live` flag and does
+not derive a later value from a later-discovered pack version. The literal is
+exact only for the projection's committed target. For another patch in the
+same band, projected membership remains a labeled hint and version comparison
+returns `NotComparable` until that target's exact inventory is available.
 
-The live population is 15 entries at `Microsoft.NETCore.App` 10.0, 24 at 11.0, and 0 for
-net6.0 through net8.0. `Microsoft.AspNetCore.App` states every entry at its
-band floor and has no live population at all.
-
-The monthly bump of a live entry is mechanically generated per patch release.
-Its supplied version is therefore not merely predictable but derivable:
-
-```text
-suppliedVersion(id, target) = target.packVersion   if id is live
-                            = the frozen literal   otherwise
-```
+When the exact reference pack for a target is acquired, its actual
+`PackageOverrides.txt` values replace the projected supplied versions for that
+target. Exact data is read, not predicted. Membership and supplied version
+remain separate claims so consumers that need only membership do not depend on
+patch-exact data.
 
 ## The algorithm
 
 Given an exact target and a package identity, optionally with a requested
 version:
 
-1. If the identity has no entry in the target's inventory, it is
-   **package-only**. The platform cannot supply it.
-2. If the identity has an entry but no library of that name exists in the
-   target's catalog, it is **overlapping**: a package the framework subsumes
-   without shipping under that assembly name.
-3. If the identity has an entry and a catalog library, it is **overlapping**.
-4. A catalog library with no entry is **platform-only**. No package supplies
-   it.
-5. With a requested version, compare it against the supplied version derived
-   above. At or below is subsumed; above is not.
+1. If the identity has no entry in the target's inventory, the target makes no
+   subsumption claim for it.
+2. If the identity has an entry, the target supplies that package identity up
+   to the entry's supplied version.
+3. With a requested version, compare it against the supplied version. At or
+   below is subsumed; above is not.
 
 Comparison uses NuGet semantic version ordering. A requested floating or
 absent version is not a comparison and must not be treated as subsumed by
 default; the consumer decides what an unversioned request means.
 
-### Current populations
+### Current inventory/catalog join
 
-| Step | Category | Example | Count |
+Joining the `net11.0` inventory to the platform library catalog illustrates
+the data shape. These are inventory/catalog relationships, not claims about
+whether a NuGet package exists:
+
+| Inventory entry | Same-named catalog library | Example | Count |
 | --- | --- | --- | --- |
-| 1 | Package-only | `Newtonsoft.Json`, `Microsoft.Extensions.AI` | unbounded |
-| 2 | Overlapping, no library of that name | `NETStandard.Library`, `Microsoft.NETCore.Platforms` | 166 |
-| 3 | Overlapping, library present | `System.Text.Json`, `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.AspNetCore.SignalR` | 274 |
-| 4 | Platform-only | `System.Security.Cryptography`, `System.Net.Quic`, `mscorlib`, `System.Private.CoreLib` | 39 |
+| absent | unknown or absent | `Newtonsoft.Json`, `Microsoft.Extensions.AI` | unbounded |
+| present | absent | `NETStandard.Library`, `Microsoft.NETCore.Platforms` | 166 |
+| present | present | `System.Text.Json`, `Microsoft.Extensions.DependencyInjection.Abstractions` | 274 |
+| absent | present | `System.Security.Cryptography`, `System.Private.CoreLib`, `Microsoft.Extensions.FileProviders.Embedded` | 39 |
 
-Steps 3 and 4 partition the catalog: 274 + 39 = 313 libraries. Steps 2 and 3
-partition the inventory: 166 + 274 = 440 entries.
+The last row is deliberately not called platform-only.
+`Microsoft.Extensions.FileProviders.Embedded` has a platform library and a
+published package but no prune entry for the measured target. Package
+existence comes from package discovery; inventory absence cannot establish its
+opposite.
 
-Step 2 is dominated by 155 `runtime.*` RID-specific legacy packages. Its
-recognizable remainder is the host and targeting infrastructure —
-`NETStandard.Library`, `Microsoft.NETCore.App`, `Microsoft.NETCore.Platforms`,
-`Microsoft.NETCore.DotNetHost` — packages the framework subsumes without
-shipping an assembly under that name.
-
-Step 4 is not the implementation-detail category a single `System.Private.*`
-example suggests. Only 3 of its 39 entries are `.Private.`. The rest divide
-into compatibility facades with no package twin — `mscorlib`, `netstandard`,
-`System.Core`, `System.Xml`, `System.Data` — and substantial public
-implementations that were simply never shipped as packages, including
-`System.Security.Cryptography`, `System.Net.Quic`, `System.Net.HttpListener`,
-`System.Runtime.InteropServices.JavaScript`, and `Microsoft.VisualBasic.Core`.
-A user searching `System.Security.Cryptography` must reach the platform,
-because nothing else supplies it.
-
-Step 1 has no count because it is the complement: every package identity not
-in the inventory. `Microsoft.Extensions.AI` is worth naming, because it is
-platform-adjacent and ships out of band, so an ecosystem may treat it as a
-core package while pruning correctly classifies it as package-only.
+The middle two rows partition the inventory: 166 + 274 = 440 entries. The last
+two rows partition the catalog: 274 + 39 = 313 libraries.
 
 Counts computed 2026-09-07 against the `net11.0` catalog target and
 `Microsoft.NETCore.App.Ref` / `Microsoft.AspNetCore.App.Ref`
 11.0.0-preview.7.26381.103. They are illustrative of scale, not a contract;
-step 3 grew by 36 entries between .NET 10 and .NET 11.
+the entry-and-library row grew by 36 between .NET 10 and .NET 11.
 
 ### Read the totals per family
 
-The step-3 total is dominated by two populations that carry little
-information, and a consumer that treats 274 as the size of the interesting
-problem will over-build. Split by supplying family:
+The inventory-and-library total is dominated by populations that carry
+different information. Split by supplying family:
 
 Counts of package identities, except `Catalog libraries`, which counts
 assemblies:
 
-| Supplying framework | Catalog libraries | Overlapping | Platform-only | Entry, no library |
+| Supplying framework | Catalog libraries | Entry and library | Library, no entry | Entry, no library |
 | --- | --- | --- | --- | --- |
 | `Microsoft.NETCore.App` | 181 | 143 | 38 | 165 |
 | `Microsoft.AspNetCore.App` | 132 | 131 | 1 | 1 |
 
 ASP.NET Core is very nearly one-to-one: every assembly has a matching package
-identity, so its 131 says more about how that framework is packaged than about
-platform/package overlap. Its two exceptions are the whole story —
-`Microsoft.Extensions.FileProviders.Embedded` is its only platform-only
-library, and `Microsoft.AspNetCore.App` is its only entry without one, being
-the meta-package.
+identity in the inventory, so its 131 says more about how that framework is
+packaged than about package availability. Its two join exceptions are the
+whole story: `Microsoft.Extensions.FileProviders.Embedded` is the only catalog
+library without an entry, and `Microsoft.AspNetCore.App` is the only entry
+without a same-named library, being the meta-package.
 
-Within `Microsoft.NETCore.App`, 119 of the 143 overlaps are frozen at netstandard-era
-versions:
+### Patch-moving and literal ceilings behave differently
 
-| Supplied major version | 4.x | 5.x | 6.x | 7.x | 10.x |
-| --- | --- | --- | --- | --- | --- |
-| Frozen overlaps | 103 | 12 | 2 | 1 | 1 |
+Some supplied versions move with platform patches, such as
+`System.Text.Json`; many legacy ceilings remain literal, such as
+`System.Runtime|4.3.1`. The distinction matters for freshness but is not
+inferred into the shipped projection. A projected literal is always safe to
+compare, and an acquired exact inventory supplies the current ceiling directly.
 
-These are real entries and pruning classifies them correctly, but
-`System.Runtime@4.3.1` and `System.Buffers@5.0.0` will not be the answer to a
-query anyone asks today.
+## Consumer composition boundary
 
-The working set is therefore the 55 live overlaps, not the 274. Sizing
-caches, tests, or presentation against the larger number mistakes the shape of
-the data. Step 2 has the same distortion: 155 of its 166 entries are
-`runtime.*` RID-specific legacy packages, leaving roughly a dozen real ones.
+This owner returns inventory presence, supplying family, supplied version, and
+a version-comparison result. It does not transform selection or choose a
+navigation, search, traversal, acquisition, or presentation outcome.
 
-### Live and frozen overlaps behave differently
+[#6228](https://github.com/richlander/dotnet-inspect/issues/6228) records
+non-normative scenarios in which later owners may consume the fact:
 
-Step 3 divides again along the live/frozen split, and the two behave unlike
-each other in practice:
+- a search or routing owner may combine inventory membership with package
+  discovery and catalog presence to rank platform and package subjects;
+- a package-graph owner may use a `Subsumed` result when deciding whether an
+  edge needs package acquisition;
+- an `AssemblyRef` resolver may consume the graph outcome together with its own
+  asset-group and platform-binding rules; and
+- a section owner may expose the inventory for auditability.
 
-The last two columns split `Count` by supplying framework:
+Those owners define whether, when, and how the fact changes observable
+behavior. This document neither mandates their outcome nor treats their
+examples as part of this owner's contract. In particular, it does not compare
+assembly versions with package versions, infer package existence from catalog
+or inventory absence, or define an app-authored-reference exemption.
 
-| Kind | Example | Supplied version | Count | `…NETCore.App` | `…AspNetCore.App` |
-| --- | --- | --- | --- | --- | --- |
-| Live overlap | `System.Text.Json` | `11.0.0-preview.7.26381.103` | 55 | 24 | 31 |
-| Frozen overlap | `System.Runtime` | `4.3.1` | 219 | 119 | 100 |
+## The inventory is a queryable fact
 
-For a frozen overlap the package is long dead and the platform absorbed it
-years ago, so any plausible requested version is subsumed and the comparison
-is a formality. For a live overlap the package still ships in lockstep with
-the runtime, so the comparison is the whole question. A consumer that wants to
-explain *why* a name resolved to the platform will find the distinction more
-useful than the raw verdict.
+The inventory is structured data, not only a private comparison input. Its
+stable fields are package identity, supplying family, supplied version, and
+whether that version came from the shipped projection or an acquired exact
+pack. The in-memory comparison API and any future rendered rows must project
+the same owner-issued fact.
 
-## Where the rule applies
-
-Pruning transforms **resolution**, never **selection**. That single line settles
-the cases; the rest of this section is its consequences.
-
-### Selection is never transformed
-
-A user who names a subject gets that subject. `System.Text.Json` on nuget.org
-is a real, official asset, and opening it must stay trivial. Pruning never
-suppresses it, redirects it, or downgrades it to a footnote.
-
-Search advertises a subsumed name as **both**. Platform is the preferred
-default because it is what a build would bind, and the package remains a
-visible, selectable alternative labeled by source. Preferring is ranking, not
-hiding.
-
-### Navigation inside a selected subject stays inside it
-
-Opening the `System.Text.Json` package and walking Library to Type to Member
-never leaves the assembly, so no reference is resolved and pruning never fires.
-The user is inspecting that artifact, and every view answers from it.
-
-Pruning becomes interesting only where an edge leaves an assembly.
-
-### Resolution across an edge delegates to the platform
-
-An edge into a **subsumed** identity resolves to the platform, matching what
-the SDK does at build time, and it does so even when the workspace also
-contains that package. Containment does not decide; the comparison does.
-
-The comparison runs both ways, so holding the package changes nothing on its
-own:
-
-| Platform | Requested `System.Text.Json` | Subsumed? | Traversal target |
-| --- | --- | --- | --- |
-| 11.0 | 11.0 | yes | platform |
-| 11.0 | 10.x | yes | platform |
-| 10.0 | 11.0 | no | the `System.Text.Json` package |
-
-In the first two rows a contained package does not capture the edge. In the
-third the platform cannot answer for the requested version, so the contained
-package is the target — and being in the workspace is what makes it
-resolvable. A single workspace can route two edges to different targets when
-they request different versions, because each edge is compared on its own.
-
-Two edges are involved, and only the first is this owner's:
-
-| Edge | Carries | Pruning's role |
-| --- | --- | --- |
-| Package-graph edge | package identity and version | **Direct.** A subsumed edge delegates rather than acquiring the package. |
-| `AssemblyRef` | assembly name and assembly version | **Indirect.** Nothing to decide, because the competing package-backed participant was never admitted. |
-
-That split matters because the two are not the same currency. Package
-`10.0.11` presents assembly version `10.0.0.0`, so comparing an `AssemblyRef`
-version against a package-version watermark would be a category error. This
-owner decides package-graph edges; assembly binding stays with the resolver.
-
-### Delegation is bounded by the supplied version
-
-The third row above is the whole of it. An edge requesting a version **above**
-the supplied version is not subsumed, and delegating it would show an older
-surface while hiding the newer package — the over-claiming failure this design
-exists to prevent.
-
-For the common case the distinction is invisible, because a workspace's
-platform is usually at least as new as its packages. It becomes visible when a
-package leapfrogs the runtime, which is exactly when it must.
-
-### The selected dependency group is the local oracle
-
-Inside an opened package the author has already answered "package or platform"
-for us, per target framework, in the nuspec dependency group. `System.Text.Json`
-10.0.0 declares:
-
-| Group | Declared dependencies |
-| --- | --- |
-| `net10.0` | **0** |
-| `net9.0`, `net8.0` | 2 |
-| `netstandard2.0` | 7 |
-| `net462` | 8 |
-
-On `net10.0` the group is empty because the platform supplies everything, while
-`lib/net10.0/System.Text.Json.dll` still carries 15 `AssemblyRef`s, all at
-`10.0.0.0`. That is the quantified form of the observation that platform
-references have no package edge to follow: 15 assembly references, zero package
-references.
-
-Down-level the same names are packages again. `lib/netstandard2.0` references
-`System.Memory 4.0.2.0` and `System.Buffers 4.0.2.0`, and the group declares
-both as real dependencies. So the same assembly name is platform or package
-depending only on the selected group, and no oracle in this document is needed
-to know which — the group already says.
-
-An asset outside every dependency group has no such answer. Analyzers are the
-case: they follow analyzer rules and target `netstandard2.0`, so
-`System.Text.Json`'s source generator references
-`System.Collections.Immutable 6.0.0.0`, `System.Memory 4.0.1.2`, and
-`netstandard 2.0.0.0`. Resolving those against the workspace's platform target
-would bind a compiler-host assembly to a surface it was never built against.
-Framework context follows the asset, not the workspace.
-
-### Worked example: a multi-assembly package
-
-`Microsoft.Azure.SignalR` 1.33.1 exercises all three outcomes from one
-`lib/net8.0/Microsoft.Azure.SignalR.dll`, and contains the discriminator case
-that any implementation must get right:
-
-| Reference | Version | Outcome | Decided by |
-| --- | --- | --- | --- |
-| `Microsoft.Azure.SignalR.Common` | 1.33.1.0 | in-package | present in `lib/net8.0/` |
-| `Microsoft.Azure.SignalR.Protocols` | 1.33.1.0 | package edge | declared dependency |
-| `Microsoft.AspNetCore.SignalR` | 8.0.0.0 | platform | `aspnetcore.app` catalog |
-| `System.Memory` | 8.0.0.0 | platform | `netcore.app` catalog |
-| `Azure.Core` | 1.38.0.0 | package edge | transitive, via `Azure.Identity` |
-
-`Common` and `Protocols` share a name prefix, a version, and a public key
-token. Nothing about the references distinguishes them. Only the asset group's
-contents and the dependency group do — which is why the boundary is the asset
-group rather than the package, and why name shape must never stand in for
-either.
-
-`Azure.Core` adds the reminder that a package edge may be transitive rather
-than declared, so the third step consults the resolved graph, not the group's
-literal list.
-
-### Boundary: this owner decides only the package edge
-
-The full ladder for an `AssemblyRef` leaving an assembly is:
-
-1. satisfied inside the referencing asset's own group — follow it;
-2. otherwise a platform library in that asset's framework context, and platform
-   traversal is enabled — follow it;
-3. otherwise a package edge — apply this document, then approved traversal;
-4. otherwise remain visibly unresolved.
-
-Only step 3 belongs to this owner. Step 1 is asset-group composition, step 2 is
-the platform library catalog, and step 4 is the existing rule that failure stays
-visible. They are recorded here because the pruning rule is unreadable without
-them, not because this document specifies them. A focused design for
-`AssemblyRef` resolution across these steps remains to be written.
-
-### Relationship to platform composition and overlays
-
-[Platform composition and overlays](platform-composition-and-overlays.md)
-already governs which *artifact* backs one assembly identity among admitted
-participants, and its precedence rule prefers a designated artifact over a
-platform one. The two do not overlap and do not conflict:
-
-| Owner | Question | Decided among | Decided at |
-| --- | --- | --- | --- |
-| Pruning | package identity or platform? | a package-graph edge's candidates | package-graph construction |
-| Overlay precedence | which artifact for this assembly identity? | admitted participants | reference binding |
-
-They compose in the expected direction. That owner already states its
-exception "does not weaken identity matching or promote package, project,
-sibling, discovered, or other non-designated candidates" — so a package-backed
-participant never outranks a platform one there either, which is the same
-outcome pruning produces earlier and for a different reason. A designated
-local build of `System.Text.Json.dll` still wins over the platform, because
-pruning says nothing about designated artifacts; it only declines to fetch a
-package.
-
-The overlay work is not, as might be assumed, confined to low-level assemblies
-without package twins. Its motivating shape is a local build composed over an
-installed hive, which applies equally to an assembly that does have a package
-twin. The distinction is designated-versus-platform, not twinned-versus-not,
-which is why it stays orthogonal to this owner.
-
-## The inventory is a queryable fact, not only a decision input
-
-Pruning decides edges, but the inventory that decides them is data with more
-than one use. It should be readable directly, as a section, rather than being
-observable only through its effects.
-
-This matters most for agents and for auditability. An agent asking why a
-reference resolved to the platform, or which packages a target subsumes before
-running anything, should read the rule rather than infer it from outcomes. A
-person debugging an unexpected delegation has the same need. Both are badly
-served by a fact that exists only inside a decision.
-
-Treating the inventory as a data source rather than a private input has one
-design consequence, which is why it belongs here: **the projection is part of
-this owner's contract, not an implementation detail.** Package identity, the
-supplying family, the live flag, and the supplied version are the fields a
-consumer may rely on and this owner may not reshape freely. The in-memory
-comparison API and the rendered rows are two projections of the same fact.
-
-Section shape is the section owner's to register, not this document's, but the
-axes follow from the data:
-
-| Axis | Value | Why |
-| --- | --- | --- |
-| `SizeClass` | `Verbose` | 440 entries at `net11.0` across both families |
-| `Cost` | `NetworkFree` from the shipped projection; `Moderated` when a reference pack must be acquired | Matches the [staleness contract](#staleness-contract): shipped data answers immediately, acquisition sharpens it |
-| Execution policy | `ExplicitOnly` | It is not the single high-value section of any command, so it must not enter an automatic verbosity preset |
-
-The rows should distinguish live from frozen entries and name the supplying
-family, since those are the two facts that explain a subsumption result rather
-than merely restating it.
-
-This is design intent for the projection slice; nothing here is implemented.
+A section owner may expose that data for auditability, but it owns registration,
+selection policy, cost and size axes, Markout lowering, and host adoption. This
+document defines no section or execution policy.
 
 ## Correspondence with the NuGet specification
 
@@ -512,108 +274,25 @@ This is design intent for the projection slice; nothing here is implemented.
 (#14325). They are evidence about the behavior this owner must agree with, not
 authority over inspection.
 
-Four things they confirm:
+Three things they confirm:
 
 | This design | The specification |
 | --- | --- |
 | Supplied version is an inclusive ceiling | "The version is consider to the maximum version to be pruned"; NuGet removes "any of the specified packages or lower" |
 | Membership is per target framework | "The feature is framework specific" |
 | The inventory is the `PackageOverrides` data | "The list of packages being removed is the exact same that's part of the build time conflict resolution in the .NET SDK" |
-| Something the human named is exempt from pruning | "Pruning direct PackageReference of current project - Warn and don't prune" (NU1510) |
 
-The last row is a correspondence, not an identity, and the mapping needs
-stating because the two models have different vocabularies.
-
-The spec's exemption is narrow: only the **project being built** keeps its
-direct reference. A referenced project's own direct `PackageReference` is
-pruned, and a package's dependency on another package is transitive from the
-root project and always pruned. So the exempt thing is one app-authored
-reference, and the spec never discusses choosing a subject to inspect, because
-it has no such concept.
-
-This product has no project. The structural match is between NuGet's root
-project and this product's **selected subject**: in both, exactly one thing the
-human named is exempt, and everything reached from it is decided by the rules.
-That is why selection is not transformed here — not because the spec says so
-about inspection, which it does not, but because both models privilege the
-named thing and neither extends that privilege to what it reaches.
-
-NuGet/Home#14325 proposes softening the direct case from a warning to
-privatizing the reference (`PrivateAssets='all'`, `IncludeAssets='none'`), which keeps the
-package present while contributing nothing. That direction is consistent with
-this document's position: the named package remains addressable.
+NuGet's direct-reference exemption and `RestoreEnablePackagePruning` switch
+govern restore behavior. They do not change which identities a target can
+supply, so this owner neither adopts nor diverges from those policies. A
+consumer design that applies the fact to project or package graphs owns any
+corresponding exemption or switch.
 
 ### Pruning is package-space
 
-Pruning decides package identities. It does not decide assemblies, files, or
-types, and it never compares against an assembly version. Everything in this
-document lives in that space, which is why the `AssemblyRef` ladder above
-leaves this owner after one step.
-
-Given that, and given that the platform registration is the only switch, the
-rule is **safely always enabled whenever the platform is in scope**. There is
-no input for which applying it is unsafe; there are only inputs that carry an
-exemption, below.
-
-### Two dimensions decide how an input is treated
-
-An input varies along two independent axes, and each answers a different
-question:
-
-- **Kind** — app or library — decides whether an app-level exemption exists at
-  all. Only an app has references it authored for itself.
-- **Processing** — pre or post — decides whether this owner applies pruning or
-  reads an answer someone else already applied.
-
-| | Pre-processed | Post-processed |
-| --- | --- | --- |
-| **App** | `.csproj` — prune, with the project's own direct references exempt | `project.assets.json`, `app.deps.json` — deferred |
-| **Library** | `.nuspec`, a bare package — prune, no exemption | a library project's assets file — deferred, and no exemption to preserve |
-
-The pre-processed row is settled and covers the common cases. A `.csproj` is an
-input to SDK processing, so its authored references are legible and the
-exemption has a referent. A package is a pure library asset where every
-reference is somebody's dependency and none is an app's own choice, so it
-prunes with nothing exempt.
-
-The post-processed column is deferred to the detailed design, for the reason
-below. Note that kind still applies within it: a library's assets file has no
-app-authored reference to preserve even once its processing semantics are
-understood.
-
-### Follow-up: post-processed inputs
-
-An assets or deps file has already had SDK semantics applied, and which ones is
-not evident from the artifact. Measurements against SDK 11.0.100-preview.7 show
-a `net10.0` project referencing `Azure.Identity` producing an assets file whose
-`project.frameworks.net10.0.packagesToPrune` holds 272 entries — the same count
-as `Microsoft.NETCore.App` 10.0 `PackageOverrides` — and whose `libraries` and
-`targets` omit `System.Text.Json` despite `Azure.Core` depending on it; the
-built `deps.json` omits it too.
-
-That is an observation, not a contract. Whether pruning ran depends on the
-producing SDK and on `RestoreEnablePackagePruning`, and the artifact does not
-announce which semantics were applied beyond the presence of `packagesToPrune`.
-Reading an unpruned graph as "nothing was subsumed" would be wrong in the
-over-claiming direction's mirror image: it would show packages a build would
-never use.
-
-The recorded rules also use a different shape from the reference packs — assets
-files carry inclusive ranges such as `Microsoft.CSharp: "(,4.7.32767]"` where a
-pack carries `Microsoft.CSharp|4.7.0`. Same ceiling, different encoding.
-
-Establishing correct behavior for these inputs is deferred to the detailed
-design and implementation for this owner, and is not claimed here.
-
-### Named divergence: this product has one switch, not two
-
-NuGet exposes `RestoreEnablePackagePruning` to disable the feature. This owner
-deliberately does not, per the [invariants](#invariants): the platform
-registration is the only switch. The justification is that the property exists
-to de-risk a restore behavior change for builds with custom asset handling,
-and none of those hazards apply to inspection, which never restores, copies,
-or executes. Adding a second switch here would buy nothing and would let the
-rules drift from the libraries they describe.
+Pruning decides package identities. It does not decide assemblies, files,
+types, asset-group selection, or graph policy, and it never compares an
+assembly version with a package version.
 
 ### Open question: .NET Standard
 
@@ -623,9 +302,8 @@ catalog carries `netstandard2.0` and `netstandard2.1` as reference-only
 targets with no such pack. The SDK's `PrunePackageDataRoot` in
 11.0.100-preview.7 contains only a `10.0` band with the three .NET shared
 frameworks, so where .NET Standard prune data is sourced is unresolved. Until
-it is, a .NET Standard target subsumes nothing here, which is the
-[no-platform case](#a-workspace-may-have-no-platform-at-all) and safe under
-the never-over-claim contract, but it is not yet known to match the SDK.
+it is, no inventory is published for a .NET Standard target here. That is safe
+under the never-over-claim contract but is not yet known to match the SDK.
 
 ## Contracts
 
@@ -640,112 +318,102 @@ The first is a correctness failure; the second is not. Every uncertainty in
 this owner — stale data, an unknown target, a failed acquisition — must
 resolve toward **not subsumed**.
 
-The supplied version only ever increases, so stale data satisfies this
-contract by construction.
+Projected data from a different exact target cannot produce `Subsumed`;
+it remains `NotComparable` until exact data for the requested target is
+available.
 
-### The derivation binds to its committed target
+### Supplied versions bind to their committed target
 
 `suppliedVersion` binds to the target the inventory came from, never to a
-version observed later by discovery. Deriving from a newly discovered version
-while presenting inventory from a shipped snapshot mixes two coordinates,
-which
+version observed later by discovery. Relabeling projected values with a newly
+discovered version while presenting inventory from a shipped snapshot mixes
+two coordinates, which
 [version resolution](version-resolution.md#browser-platform-catalog-targets)
 already forbids. Selecting a discovered version requires acquiring its
 inventory first.
 
 ### Membership and supplied version are separate claims
 
-Membership answers "does this name overlap the platform?" and is stable within
-a major band. The supplied version answers "is this version subsumed?" and
-moves monthly. A consumer that needs only the first must not be made to depend
-on the freshness of the second.
+Membership answers "does this target publish a subsumption entry for this
+package identity?" The supplied version answers "is this requested version
+subsumed?" A consumer that needs only the first must not be made to depend on
+the freshness of the second.
 
 ## Data acquisition
 
-The shipped artifact is a projection of the upstream file, not a copy: package
-identity, the live flag, and the band-floor supplied version for live entries.
-Frozen entries keep their literal.
+The shipped artifact is a projection of one committed band-floor inventory:
+package identity, supplying family, and the literal supplied version at that
+target. It records its target and projected precision.
 
-**The projection is stable across patch releases.** Projecting the reference
-packs for 10.0.10 and 10.0.11 — whose raw `PackageOverrides.txt` files differ
-in 15 entries — produces byte-identical output. The artifact moves at major
-boundaries and when the live population changes, not monthly.
+The projection makes no patch-following inference. `Microsoft.AspNetCore.App`
+10.0.0 and 10.0.1 demonstrate why: their raw override files are byte-identical,
+including `Microsoft.Extensions.Caching.Memory|10.0.0`. A projection that
+classified band-floor equality as live would change despite unchanged input.
 
-That property decides the open question in #6228, because the objection to a
-regenerate-and-compare gate was that upstream moves on its own schedule and
-would turn CI red on a calendar rather than on a change.
+Membership is expected to be stable within a major band, but that upstream
+behavior is an observed property, not a published contract. The projection
+therefore remains labeled with its source target. A nightly comparison reports
+membership changes rather than silently regenerating them, and another patch
+does not use the projected literal for a version-bound subsumption result.
 
 | Option | Assessment |
 | --- | --- |
-| **Regenerate and compare in CI**, as `eng/generate-inspect-web-engine-facade.sh --check` does at `ci.yml:343` | Viable, because the projection is patch-stable. Unlike that script it needs network access to fetch reference packs, so it belongs in a nightly lane rather than PR CI. |
-| **Download at runtime** | Solves a problem the projection does not have. It would fetch data that changes at most yearly, on a startup path, trading a hermetic asset for a network dependency. |
+| **Regenerate and compare in CI**, as `eng/generate-inspect-web-engine-facade.sh --check` does at `ci.yml:343` | The network-dependent comparison belongs in a nightly lane. It verifies membership stability and reports any upstream change for review. |
+| **Download at runtime** | Not required for the shipped baseline. It would add a startup network dependency for data whose exact values arrive through the normal reference-pack acquisition path; until then, cross-patch version comparison remains `NotComparable`. |
 
-Neither option supplies self-healing on its own, and neither needs to. The
-self-healing path already exists: the derivation above sharpens the shipped
-projection into a patch-exact supplied version whenever a reference pack is
-acquired, which the catalog generator and platform realization do anyway.
+The refinement path already exists: when catalog generation or platform
+realization acquires an exact reference pack, the owner reads its actual
+inventory and replaces the projection for that target.
 
-The recommendation is therefore to ship the projection per major version,
-verify it in a nightly regenerate-and-compare lane, and treat reference-pack
-acquisition as the refinement path. Runtime download of prune data is not
-proposed.
-
-### The derivation is a checked assumption
-
-The mechanical-bump property is not published upstream as a contract. Whenever
-a real reference pack is acquired, the derived supplied version must be
-asserted equal to the pack's actual value, so the assumption is a gate rather
-than a bet.
+The recommendation is therefore to ship the literal projection per major
+version, verify membership in a nightly regenerate-and-compare lane, and treat
+reference-pack acquisition as the exact-value refinement path. Runtime
+download of prune data is not proposed.
 
 ## Staleness contract
 
 | Must be fresh | May be stale |
 | --- | --- |
-| The selected platform patch version | Prune membership |
-| Reference and runtime pack bytes | The live flag |
-| Patch-exact supplied versions | Band-floor supplied versions |
+| The selected platform patch version | Projected prune membership, labeled with its source target |
+| Acquired reference-pack bytes | Projected band-floor supplied versions |
+| Exact supplied versions presented as exact | Projected precision presented as projected |
 
-Anything naming a specific version a user might act on must be fresh; anything
-naming a shape or an identity may be stale.
+Anything presented as exact for a target must be fresh. Projected data may be
+stale only while its source target and projected precision remain visible and
+it cannot produce an exact cross-target subsumption result.
 
 ## Gates
 
-Implemented gates live in
-`DotnetInspector.Services.Tests.PlatformPruneInventoryTests`; run them with
+The first implementation slice is #6239. Its gates live in
+`DotnetInspector.Services.Tests.PlatformPruneInventoryTests` and run with
 `dotnet run --project src/DotnetInspector.Services.Tests -c Release`.
 
 | Property | Gate | State |
 | --- | --- | --- |
-| Membership classification is exact for a known target | `ClassifiesPlatformOnlyPackageOnlyAndOverlapping` | implemented |
-| A live entry derives its supplied version; a frozen entry stores it | `DerivesLiveSuppliedVersionAndStoresFrozenLiterals` | implemented |
-| Subsumption compares by NuGet semantic order, not string order | `SubsumptionUsesSemanticVersionOrder` | implemented |
-| A version above the supplied version is not subsumed | `LeapfroggingPackageIsNotSubsumed` | implemented |
-| Uncertainty resolves away from subsumed | `UncertaintyResolvesAwayFromSubsumed` | implemented |
-| The derivation binds to the committed target | `DerivationDoesNotAdoptDiscoveredVersion` | implemented |
-| A malformed override line fails rather than dropping an identity | `MalformedOverrideLineFails` | implemented |
-| Family composition decides the Platform/Extensions boundary | `FamilyCompositionDecidesThePlatformExtensionsBoundary` | implemented |
-| Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented |
-| A workspace with no platform subsumes nothing and follows every package reference | `NoPlatformInventorySubsumesNothing` | implemented |
-| The derived supplied version matches an acquired reference pack | `Pruning_DerivedVersionMatchesAcquiredReferencePack` | pending — projection slice |
-| The projection is stable across patch releases | `Pruning_ProjectionIsStableAcrossPatchReleases` | pending — projection slice |
-| Selecting a subsumed package opens that package | `Pruning_SelectedPackageIsNotRedirectedToPlatform` | pending — consumer slice |
-| Navigation inside a selected package stays in it | `Pruning_IntraAssemblyNavigationDoesNotDelegate` | pending — consumer slice |
-| A subsumed edge delegates although the workspace holds the package | `Pruning_ContainedPackageDoesNotCaptureSubsumedEdge` | pending — consumer slice |
-| Search advertises a subsumed name as both | `Pruning_SubsumedNameRemainsSelectableAsPackage` | pending — consumer slice |
-| The inventory projects to stable rows carrying family, live flag, and supplied version | `Pruning_InventoryProjectsAuditableRows` | pending — projection slice |
-| A library input prunes with no app-level exemption | `Pruning_LibraryInputHasNoDirectReferenceExemption` | pending — consumer slice |
-| A project input exempts its own authored references | `Pruning_ProjectInputExemptsAuthoredReferences` | pending — consumer slice |
+| Inventory membership is exact for a known family and target | `ReadsInventoryMembershipForExactTarget` | pending — #6239 |
+| Inventory absence does not assert package absence | `InventoryAbsenceDoesNotClassifyPackageAvailability` | pending — #6239 |
+| Literal supplied versions are preserved exactly | `PreservesLiteralSuppliedVersions` | pending — #6239 |
+| Subsumption compares by NuGet semantic order, not string order | `SubsumptionUsesSemanticVersionOrder` | pending — #6239 |
+| A version above the supplied version is not subsumed | `LeapfroggingPackageIsNotSubsumed` | pending — #6239 |
+| Uncertainty resolves away from subsumed | `UncertaintyResolvesAwayFromSubsumed` | pending — #6239 |
+| Supplied versions remain bound to the inventory target | `SuppliedVersionDoesNotAdoptDiscoveredTarget` | pending — #6239 |
+| A projected inventory cannot subsume for another exact target | `ProjectedInventoryIsNotComparableAcrossTargets` | pending — #6239 |
+| A malformed override line fails rather than dropping an identity | `MalformedOverrideLineFails` | pending — #6239 |
+| Family composition decides inventory membership | `FamilyCompositionDecidesInventoryMembership` | pending — #6239 |
+| Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | pending — #6239 |
+| An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | pending — #6239 |
+| An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |
+| Band-floor equality does not infer patch-following behavior | `Pruning_BandFloorEqualityRemainsLiteral` | pending — projection slice |
+| A within-band membership change is reported for review | `Pruning_MembershipChangeIsReported` | pending — projection slice |
 
-A pending gate names the slice that lands it. `Pruning_UnknownTargetIsNotSubsumed`
-was removed rather than left unimplemented: an inventory *is* its target, so an
-unknown target is not expressible against this API. The uncertainty cases that
-do exist — an identity absent from the inventory, and a request that cannot be
-compared — are covered by `UncertaintyResolvesAwayFromSubsumed`, and the
-cross-target case by `CompositionRefusesMismatchedTargets…`.
+A pending gate names the slice that lands it. An inventory is its target, so an
+unknown target is not expressible against the comparison API. The uncertainty
+cases that do exist are an identity absent from the inventory and a request
+that cannot be compared.
 
 ## Non-claims
 
-This document specifies no consumer behavior, no presentation, no acquisition
-policy, and no traversal semantics. It adds no dependency and no platform
-exception. `Microsoft.WindowsDesktop.App` has upstream prune data but no
-catalog target; whether it participates is deferred to #6228.
+This document specifies no consumer behavior, presentation, package
+acquisition, source selection, or traversal semantics. It adds no dependency
+and no platform exception. `Microsoft.WindowsDesktop.App` has upstream prune
+data but no catalog target; whether it participates is deferred to #6228.
