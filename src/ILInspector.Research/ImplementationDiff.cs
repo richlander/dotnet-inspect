@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection;
-using System.Reflection.Metadata;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -59,26 +57,6 @@ public sealed record PdbSourceComparisonInput(
     FindingInspection<string> OldInspection,
     FindingInspection<string> NewInspection);
 
-public sealed record ImplementationMemberDiffResult(
-    ResearchSubjectKey Subject,
-    CSharpBodyDiffResult? CSharpDiff,
-    IlMemberDiffResult? IlDiff,
-    IReadOnlyList<ResearchChange> Changes,
-    RetainedFindingComparisonSet RetainedComparisons)
-{
-    public bool HasCSharpChanges
-        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.CSharp);
-
-    public bool HasIlChanges
-        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.IlBody);
-
-    public bool IsExact
-        => Changes.Count == 0
-           && (CSharpDiff is null || CSharpDiff.IsExact)
-           && (IlDiff is null || IlDiff.Diff.IsExact)
-           && RetainedComparisons.Items.All(comparison => comparison.IsExact);
-}
-
 /// <summary>
 /// Product-owned implementation diff projection that joins C# source-shape and
 /// IL/body changes by Research member identity.
@@ -103,128 +81,6 @@ public static class ImplementationDiff
             ResearchDiffInput.FromAssembly(oldAssemblyPath),
             ResearchDiffInput.FromAssembly(newAssemblyPath),
             options);
-    }
-
-    public static ImplementationMemberDiffResult CompareMembers(
-        MetadataSource oldSource,
-        MethodDefinitionHandle oldMethod,
-        MetadataSource newSource,
-        MethodDefinitionHandle newMethod,
-        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.All,
-        ResearchSubjectKey? subject = null)
-    {
-        ArgumentNullException.ThrowIfNull(oldSource);
-        ArgumentNullException.ThrowIfNull(newSource);
-        if (oldMethod.IsNil)
-            throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
-        if (newMethod.IsNil)
-            throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
-
-        subject ??= SubjectFromMethod(oldSource, oldMethod);
-        CSharpBodyDiffResult? csharpDiff = null;
-        IlMemberDiffResult? ilDiff = null;
-        var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        var retainedComparisons = ImmutableArray.CreateBuilder<RetainedFindingComparison>();
-
-        if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
-        {
-            csharpDiff = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-            var semanticChanges = ToCSharpChanges(csharpDiff, subject);
-            changes.AddRange(semanticChanges);
-            var comparison = CSharpFindings.Compare(
-                oldSource,
-                oldMethod,
-                newSource,
-                newMethod,
-                new FindingSubject(subject.Id, subject.Display));
-            retainedComparisons.Add(new RetainedFindingComparison<CSharpCanonicalLine>(
-                subject,
-                CSharpFindings.LineDescriptor,
-                comparison));
-            if (comparison is FindingComparison<CSharpCanonicalLine>.Failed failed)
-            {
-                if (!semanticChanges.Any(change => change.Kind == ResearchChangeKind.Failed))
-                {
-                    changes.Add(FindingFailureChange(
-                        subject,
-                        ResearchChangeMechanism.CSharp,
-                        ResearchChangeCategory.CSharp,
-                        CSharpFindings.InspectionDescriptor,
-                        failed.Failure));
-                }
-            }
-            else if (FindingDivergenceChange(
-                subject,
-                ResearchChangeMechanism.CSharp,
-                ResearchChangeCategory.CSharp,
-                CSharpFindingDivergenceDescriptor,
-                comparison.IsExact,
-                csharpDiff.IsExact) is { } divergence)
-            {
-                changes.Add(divergence);
-            }
-        }
-
-        if (mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
-        {
-            string label = subject.TypeName is { Length: > 0 } typeName && subject.MemberName is { Length: > 0 } memberName
-                ? $"{typeName}::{memberName}"
-                : subject.Display;
-            ilDiff = IlAssemblyDiff.CompareMembers(
-                oldSource.Pe,
-                oldSource.Reader,
-                oldMethod,
-                newSource.Pe,
-                newSource.Reader,
-                newMethod,
-                oldLabel: label,
-                newLabel: label);
-            var semanticChanges = ToIlChanges(ilDiff, subject);
-            changes.AddRange(semanticChanges);
-            var comparison = IlFindings.Compare(
-                oldSource.Pe,
-                oldSource.Reader,
-                oldMethod,
-                newSource.Pe,
-                newSource.Reader,
-                newMethod,
-                new FindingSubject(subject.Id, subject.Display));
-            retainedComparisons.Add(new RetainedFindingComparison<CanonicalIlOperation>(
-                subject,
-                IlFindings.OperationDescriptor,
-                comparison));
-            if (comparison is FindingComparison<CanonicalIlOperation>.Failed failed)
-            {
-                if (!semanticChanges.Any(change => change.Kind == ResearchChangeKind.Failed))
-                {
-                    changes.Add(FindingFailureChange(
-                        subject,
-                        ResearchChangeMechanism.IlBody,
-                        ResearchChangeCategory.IlBody,
-                        IlFindings.InspectionDescriptor,
-                        failed.Failure));
-                }
-            }
-            else if (MethodHasBody(oldSource, oldMethod)
-                && MethodHasBody(newSource, newMethod)
-                && FindingDivergenceChange(
-                    subject,
-                    ResearchChangeMechanism.IlBody,
-                    ResearchChangeCategory.IlBody,
-                    IlFindingDivergenceDescriptor,
-                    comparison.IsExact,
-                    ilDiff.Diff.IsExact) is { } divergence)
-            {
-                changes.Add(divergence);
-            }
-        }
-
-        return new ImplementationMemberDiffResult(
-            subject,
-            csharpDiff,
-            ilDiff,
-            changes.ToImmutable(),
-            new RetainedFindingComparisonSet(retainedComparisons));
     }
 
     public static ImplementationDiffResult Compare(
@@ -632,82 +488,6 @@ public static class ImplementationDiff
             detail: detail,
             category: ResearchChangeCategory.Source);
 
-    static ImmutableArray<ResearchChange> ToCSharpChanges(
-        CSharpBodyDiffResult diff,
-        ResearchSubjectKey subject)
-    {
-        ArgumentNullException.ThrowIfNull(diff);
-        if (diff.IsExact)
-            return [];
-
-        var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        foreach (var failure in diff.IdentityFailures.IsDefault
-            ? []
-            : diff.IdentityFailures)
-        {
-            string detail = $"{failure.Side} 0x{failure.SubjectToken:X8} "
-                + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
-            changes.Add(new ResearchChange(
-                subject,
-                ResearchChangeMechanism.CSharp,
-                new FindingDescriptor(
-                    "csharp.diff.identity-resolution-failure",
-                    "Identity resolution failure"),
-                ResearchChangeKind.Failed,
-                oldValue: failure.Side == "old" ? detail : null,
-                newValue: failure.Side == "new" ? detail : null,
-                detail: detail,
-                category: ResearchChangeCategory.CSharp));
-        }
-
-        var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
-        var operationalFailureHunks = ResearchDiff.OperationalCSharpFailureHunks(failureRows);
-        foreach (var failure in failureRows)
-        {
-            var kind = ResearchDiff.Direction(failure.Kind);
-            string descriptorId = $"csharp.diff.{ResearchDiff.ToChangeIdPart(failure.Kind.ToString())}";
-            changes.Add(new ResearchChange(
-                subject,
-                ResearchChangeMechanism.CSharp,
-                new FindingDescriptor(descriptorId, failure.Kind.ToString()),
-                kind,
-                oldValue: failure.Side == "old" ? failure.Detail ?? failure.Message : null,
-                newValue: failure.Side == "new" ? failure.Detail ?? failure.Message : null,
-                detail: failure.Detail ?? failure.Message,
-                category: ResearchChangeCategory.CSharp,
-                cSharpDisplayFailureRow: CSharpDiffPrinter.ToDisplayFailureRow(failure)));
-        }
-
-        foreach (var row in diff.Rows.IsDefault ? [] : diff.Rows)
-        {
-            if (operationalFailureHunks.Contains(row.HunkId))
-                continue;
-
-            var kind = row.Kind switch
-            {
-                CSharpDiffKind.Add => ResearchChangeKind.Added,
-                CSharpDiffKind.Remove => ResearchChangeKind.Removed,
-                _ => ResearchChangeKind.Changed,
-            };
-            changes.Add(new ResearchChange(
-                subject,
-                ResearchChangeMechanism.CSharp,
-                new FindingDescriptor(row.ChangeId, row.ChangeId),
-                kind,
-                oldValue: row.OldOperation?.Value
-                    ?? row.OldValue
-                    ?? (kind == ResearchChangeKind.Removed ? row.Text : null),
-                newValue: row.NewOperation?.Value
-                    ?? row.NewValue
-                    ?? (kind == ResearchChangeKind.Added ? row.Text : null),
-                detail: row.Message,
-                category: ResearchChangeCategory.CSharp,
-                cSharpDisplayRows: [CSharpDiffPrinter.ToDisplayRow(row)]));
-        }
-
-        return changes.ToImmutable();
-    }
-
     static ResearchChangeMechanism ToResearchMechanisms(ImplementationDiffMechanism mechanisms)
     {
         var research = ResearchChangeMechanism.None;
@@ -753,25 +533,4 @@ public static class ImplementationDiff
                 descriptor,
                 $"{descriptor.Title} from the semantic projection for '{subject.Display}'.");
 
-    static bool MethodHasBody(MetadataSource source, MethodDefinitionHandle method)
-        => source.Reader.GetMethodDefinition(method).RelativeVirtualAddress != 0;
-
-    static ResearchSubjectKey SubjectFromMethod(MetadataSource source, MethodDefinitionHandle methodHandle)
-    {
-        var reader = source.Reader;
-        var method = reader.GetMethodDefinition(methodHandle);
-        var typeHandle = method.GetDeclaringType();
-        var type = reader.GetTypeDefinition(typeHandle);
-        var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
-        string typeFullName = reader.GetFullTypeName(type);
-        string memberName = reader.GetString(method.Name);
-        return ResearchMemberIdentity.SubjectFromAnchor(anchor, $"{typeFullName}.{memberName}");
-    }
-
-    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition type, MethodDefinition method)
-        => type.Attributes.HasFlag(TypeAttributes.Abstract)
-           && type.Attributes.HasFlag(TypeAttributes.Sealed)
-           && method.Attributes.HasFlag(MethodAttributes.Static)
-           && AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes())
-           && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 }

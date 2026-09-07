@@ -35,9 +35,9 @@ and a presentation-neutral result. The analogous
 [member source comparison query](member-source-comparison-query.md) preserves
 endpoint outcomes without turning failure into empty text. Its one-member,
 PDB-versus-decompilation operation is not this two-method, local C#/IL operation.
-`ImplementationDiff.CompareMembers` is the behavioral baseline for explicit
-pairing; its direct caller-to-Research orchestration is the retirement target,
-not the native C# or IL algorithms.
+`ImplementationDiff.CompareMembers` was the behavioral baseline for explicit
+pairing. After every caller migrated, #6255 retires its direct
+caller-to-Research orchestration, not the native C# or IL algorithms.
 
 The adapter exists to replace repeated caller orchestration with one exact
 association and failure-preserving boundary. It does not need a second
@@ -174,8 +174,8 @@ for unrelated package-role, whole-assembly, body-signal, or Source migrations.
 It does not invoke root-to-terminal forwarding composition. Those scenarios
 remain separate; a physical `ExactAddress` is not retargeted.
 
-The selected route has **8 delivery milestones: 6 complete, 2 remaining** at
-this update. These are outcomes, not a promise of eight PRs:
+The selected route has **8 delivery milestones, all complete** after #6255.
+These are outcomes, not a promise of eight PRs:
 
 | Tracker step | Selected outcome | Status |
 | --- | --- | --- |
@@ -185,16 +185,16 @@ this update. These are outcomes, not a promise of eight PRs:
 | 6 | Implement the physical-pair Queries adapter | Complete: #5967 |
 | 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Complete: #5967 |
 | 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Complete: #5990 |
-| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | #6044 retires the unconsumed body-signal population profile |
-| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining after #6250 removes the uncalled member-plus-PDB wrapper; assembly/generalized callers still constrain deletion; #5125 identity cleanup landed in #6099 |
+| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | Complete: #6047 retires the unconsumed body-signal population profile |
+| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Complete: #6099 removes legacy body-index identity heuristics; #6251 removes uncalled member Source scaffolding; #6255 removes the superseded direct-member wrapper |
 
 Each host path contains **5 milestones, all complete**:
 1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
 not all global retirement in #4706.
 
-Landing the scoped Queries cleanup completes seven of this route's eight
-milestones. It does not complete whole-assembly or body-signal execution
-migration, comparison-tool adoption, or global Queries retirement.
+Completing both scoped cleanups does not complete whole-assembly or body-signal
+execution migration, the remaining comparison-tool work, or global Queries and
+Research retirement.
 
 Keep the first publication and adapter runtime together with the CLI
 adopting change; the bounded first-adopter exception permits that focused
@@ -236,8 +236,10 @@ its Source-specific member-result scaffolding are removed by #6250 after the
 paired CLI and browser adopters landed. Native result translations still serve
 CLI or harness presentation. These are retained caller obligations, not unused
 placeholders. The focused Research body-index association cleanup #5125 landed
-in #6099; neither that cleanup nor this Source cleanup completes broader
-retirement.
+in #6099. After ReturnToSender migrated in #6181, #6255 removes the remaining
+uncalled `ImplementationDiff.CompareMembers` orchestration and
+`ImplementationMemberDiffResult`. These scoped deletions close this bounded
+route; they do not complete broader retirement.
 
 ### Broader migration snapshot
 
@@ -266,7 +268,8 @@ and deletion commits to the tracker.
 | Browser managed facade and explicit two-member workspace comparison | Browser step 9, coordinated with #5083 | Expose the same public query as observable browser behavior. Inventory actual routes then; this plan does not invent a currently existing legacy browser caller. Remove a replaced route if one exists. |
 | `ImplementationComparisonQuery.Execute`, `DiffCommand`, and `DiffSections` assembly-wide paths | Steps 7-9; Source tail 13-15 | Separate from rank 5. Their public execution and result/output adoption precede final shared-shape retirement. |
 | `ImplementationDiff.CompareMembersWithPdbSource` | Source steps 12-15 and Research retirement step 17 | Removed by #6250 after the selected CLI and browser Source consumers adopted `AssemblyContextMemberSourcePairQuery`; broad assembly enrichment remains on `WithPdbSourceComparisons`. |
-| `ImplementationDiff.CompareMembers`, dependent legacy member-result shapes, and independent old/new query forms | Queries step 16 and Research step 17 | Delete superseded orchestration and shapes after the refreshed caller inventory, including Source and tests, has a disposition. Preserve only APIs justified by a current owner-local contract. #5125 was reconciled independently by the identity cleanup in #6099. |
+| `ImplementationDiff.CompareMembers` and its member-result wrapper | Research step 17, scoped route completed by #6255 | Removed after the refreshed inventory confirmed all direct-member hosts and tools consume the public query. |
+| Independent old/new query forms and generalized assembly/body-signal orchestration | Queries step 16 and Research step 17, broader migration | Retain while current CLI and query callers depend on them; remove only after their separate migrations. #5125 was reconciled independently by the identity cleanup in #6099. |
 
 Native `CSharpBodyDiff`, `IlAssemblyDiff`, Findings payloads, and useful aligned
 hunks are not deletion targets merely because they are below Queries.

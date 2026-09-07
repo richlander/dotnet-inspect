@@ -1123,8 +1123,9 @@ mutable-file or local-actor threat model.
 
 ### Designated-pair basis and delivery
 
-The baseline is explicit old/new endpoint comparison, already supported by
-`ImplementationDiff.CompareMembers` and both native endpoint adapters.
+At this design's introduction, explicit old/new endpoint comparison was already
+supported by `ImplementationDiff.CompareMembers` and both native endpoint
+adapters.
 Ordinary Research correspondence is useful analogous evidence precisely
 because it refuses unequal keys: changing that refusal would answer the wrong
 question. An owner-issued pair and a closed alternate work basis are the
@@ -1143,12 +1144,14 @@ The tracker and the
 own those paths and final legacy Queries/Research retirement at steps 16/17.
 The tracker owns subsequent status/count changes.
 
-Adding this substrate does not retire `ImplementationDiff.CompareMembers`,
-its Source-dependent callers, or their projections. Queries population,
-workspace composition, publication, host rendering, and Source adoption remain
-separate work. This section adds no output schema: downstream CLI lowering
-uses the planned shared Markout presentation path, and browser adoption
-consumes typed evidence under its own host contract.
+Adding this substrate did not itself retire `ImplementationDiff.CompareMembers`,
+its Source-dependent callers, or their projections. Those callers subsequently
+migrated, and #6255 removes the wrapper under the current
+[consumer contract](#consumer-contract). Queries population, workspace
+composition, publication, host rendering, and Source adoption were separate
+work. This section adds no output schema: downstream CLI lowering uses the
+shared Markout presentation path, and browser adoption consumes typed evidence
+under its own host contract.
 
 ## Research local producer session and completion
 
@@ -1884,11 +1887,13 @@ the input is a pair of assemblies or `ResearchDiffInput` values. The result is a
 list of changed implementation members. Each member can carry C# changes, IL
 changes, or both; exact members are omitted.
 
-Use `ImplementationDiff.CompareMembers` when the caller already resolved exact
-old/new `MethodDefinitionHandle` values in live `MetadataSource` instances. The
-member result keeps the typed C# diff, typed IL diff, joined implementation
-changes, and a single `ResearchSubjectKey`; exact members return an empty
-change list with `IsExact` set.
+Compare two exact selected methods through the Queries-owned
+`DirectMemberComparisonQuery`. It preserves admitted physical endpoints,
+Research publication, typed non-success, and independent native C# and IL
+outcomes. After every CLI, Browser, RoundTripCompilation, ReturnToSender, and
+authored-rebuild caller migrated, #6255 retires the superseded
+`ImplementationDiff.CompareMembers` orchestration and its member-result wrapper.
+Assembly-wide implementation comparison remains on the APIs above.
 
 Use `WithPdbSourceComparisons` to enrich an assembly comparison with old/new
 `FindingInspection<string>` envelopes from Services. It preserves `Complete`,
