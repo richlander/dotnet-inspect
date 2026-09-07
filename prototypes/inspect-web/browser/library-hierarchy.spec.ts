@@ -822,7 +822,7 @@ for (const width of [1440, 390]) {
   test(`production Integrations uses Platform navigation without a second library picker at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page);
-    await page.locator('[data-platform-library]').filter({ hasText: "System.Text.Json" }).click();
+    await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
     await page.locator('[data-library-lens="overview"]').press("ArrowRight");
     await page.keyboard.press("Enter");
     const frame = page.locator(".library-integrations-surface");
@@ -830,7 +830,7 @@ for (const width of [1440, 390]) {
     await expect(frame.locator(".library-integrations-controls")).toHaveCount(0);
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Text.Json");
     await page.locator('[data-scope="library"]').press("Home");
-    await page.locator('[data-platform-library]').filter({ hasText: "System.Facade" }).click();
+    await page.getByTitle("Inspect System.Facade", { exact: true }).click();
     await page.locator('[data-library-lens="overview"]').press("ArrowRight");
     await page.keyboard.press("Enter");
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
