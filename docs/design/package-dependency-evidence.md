@@ -165,18 +165,23 @@ input's identity and typed facts.
 
 Input kind states the semantic altitude of the admitted evidence:
 
-| Kind | Native examples | Evidence altitude |
+| Kind | Provider-issued evidence | Evidence altitude |
 | --- | --- | --- |
-| Authored project | `.csproj` or an equivalent evaluated project declaration | Before restore or pruning |
-| Package manifest | Direct `.nuspec`, package archive manifest, source manifest | Before application restore or pruning |
-| Restored project | `project.assets.json` | After package restore processing |
-| Runtime dependency manifest | `app.deps.json` | After runtime dependency projection |
+| Authored project | Provider-issued project declarations projected from syntax or evaluation | Before restore or pruning |
+| Package manifest | Validated direct-nuspec, package-archive, or source-manifest facts | Before application restore or pruning |
+| Restored project | Exact `project.assets.json` facts | After package restore processing |
+| Runtime dependency manifest | Exact `app.deps.json` facts | After runtime dependency projection |
 
 Input kind is not acquisition provenance. A direct nuspec and a nuspec read
 from a package archive have the same semantic kind while retaining distinct
-source provenance. A `.csproj` locator that selects existing
-`project.assets.json` bytes produces a restored-project input, not an
-authored-project input.
+source provenance. An authored-project input consists of typed project
+declarations, not a `.csproj` path.
+
+Separately, the current L3 dependency-evidence gesture may accept a project
+path solely to locate existing `project.assets.json`. On that path the project
+file is not interpreted as package input: only the selected assets bytes enter
+L1, and the result is a restored-project input. The project path remains
+locator provenance outside this shape.
 
 Declaration basis states what fidelity the declaration phase can claim:
 
@@ -253,12 +258,13 @@ already-acquired `project.assets.json` selection:
 - independent typed declaration-projection and restored-graph
   availability/completion/failure.
 
-The adapter does not supply a `.csproj` path to L1. Resolving a `.csproj` to its
-existing `project.assets.json`, reading the file, and reporting not-restored or
-not-found states remain upstream responsibilities. The query neither evaluates
-MSBuild nor initiates restore or build. #5314 owns the claim that a `.csproj`
-locator and the exact assets content it selects produce equivalent restored
-facts.
+The adapter never supplies a project path to L1. A host may accept a project
+path solely to locate existing `project.assets.json`, but only the selected
+assets bytes are restored-project input. Locating and reading that file, and
+reporting not-restored or not-found states, remain upstream responsibilities.
+The query neither interprets the project file, evaluates MSBuild, nor initiates
+restore or build. #5314 owns the claim that a project-path locator and a direct
+assets path selecting the same bytes produce equivalent restored facts.
 
 The current mutable, path-taking `ProjectAssetsParser` result does not satisfy
 this query's input obligation. The construction, validation, identity, and
@@ -487,9 +493,10 @@ that composition belongs to the caller.
 Scope comparison names its evidence family:
 
 - **Same-owner parity** compares roots produced by the same declaration-facts
-  owner, including package archive versus direct nuspec and `.csproj` locator
-  versus direct-assets composition. Matching unrecognized opaque identities
-  compare equal; differing unrecognized identities are not comparable.
+  owner, including package archive versus direct nuspec and a project-path
+  assets locator versus direct-assets composition. Matching unrecognized opaque
+  identities compare equal; differing unrecognized identities are not
+  comparable.
 - **Cross-owner declaration comparison** compares package-manifest and
   restored-project facts. Any unrecognized scope makes scoped comparison not
   comparable because the two owners cannot establish shared framework
@@ -648,10 +655,10 @@ unrecognized framework identities remain equal.
 
 Identical restored facts produce the same evidence outcome regardless of
 locator provenance. After #5315 adoption, identical supplied owner observations
-preserve that result. #5314 separately owns and gates `.csproj` locator versus
-direct-assets equivalence. If the project has no existing assets file, its
-adapter supplies a typed upstream failure rather than permission to restore or
-evaluate the project.
+preserve that result. #5314 separately owns and gates project-path assets
+locator versus direct-assets equivalence. If the locator finds no existing
+assets file, its adapter supplies a typed upstream failure rather than
+permission to interpret, restore, or evaluate the project.
 
 ### Package manifest and restored graph
 
@@ -799,9 +806,9 @@ The command spellings below are target mockups. This design does not assign
 them to L3.
 
 One fixture expresses the same declarations as a package manifest and a
-restored project graph. A `.csproj` spelling in this existing command locates
-the same restored assets; it is therefore a restored-project input with
-different locator provenance, not an authored-project syntax input:
+restored project graph. This mockup uses a direct assets path so the L1 input
+is explicit; the current host's separate project-path locator convenience is
+not an authored-project input:
 
 ```console
 $ dotnet-inspect <dependency-evidence> --package Contoso.Root@1.0 --json \
@@ -811,12 +818,6 @@ $ dotnet-inspect <dependency-evidence> --package Contoso.Root@1.0 --json \
         constraint: .declaredConstraint.canonical
       })'
 $ dotnet-inspect <dependency-evidence> --nuspec ./Contoso.Root.nuspec --json \
-    | jq '.dependencies | map({
-        framework: .framework.id,
-        dependency: .package.id,
-        constraint: .declaredConstraint.canonical
-      })'
-$ dotnet-inspect <dependency-evidence> --project ./Contoso.Root.csproj --json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
@@ -846,11 +847,12 @@ $ dotnet-inspect <dependency-evidence> \
 ]
 ```
 
-The four canonical scoped-declaration projections are equal in the composed
+The three canonical scoped-declaration projections are equal in the composed
 target. Original range spellings remain separate `InertString` evidence and
-need not be textually equal. #5314 gates that the project locator and direct
-assets path supply the same restored facts. Their outcomes also carry the same
-produced-relationship evidence in the same snapshot:
+need not be textually equal. #5314 separately gates that a project-path locator
+and a direct assets path selecting the same bytes supply the same restored
+facts. The direct-assets outcome also carries produced-relationship evidence
+in the same snapshot:
 
 ```json
 {
@@ -969,7 +971,7 @@ Implementation must establish:
   whose built package manifest and restored graph express the same declaration
   seed without checking in environment-bound assets;
 - deterministic normalization of identical restored facts and enrichments,
-  while #5314 gates `.csproj` locator and direct-assets equivalence;
+  while #5314 gates project-path assets locator and direct-assets equivalence;
 - dependency equivalence between package-extracted and #5316 direct nuspec
   facts with distinct identity-trust provenance;
 - core and scoped common-projection equivalence between package/nuspec and
