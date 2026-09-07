@@ -1806,6 +1806,246 @@ public class SourceForwarderResolutionTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeWholeTypeDecompilerAcquisition_UsesSelectedSupplier(
+        bool isForwarded)
+    {
+        int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-whole-type-decompiler"),
+            isForwarded,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture),
+            includePdb: true);
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                Context = new CommandContext(verbose: false, client),
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter = [nameof(BodyShapeFixture.ReadableLocal)],
+                        Select = [SectionNames.DecompiledSource],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains("builder", output);
+            Assert.True(
+                opens >= 1,
+                "Whole-type source acquisition must use the selected supplier.");
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeWholeTypeDecompilerAcquisition_ReportsSelectedOpenFailure(
+        bool invalidImage)
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("failed-type-whole-type-decompiler"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                return invalidImage
+                    ? new MemoryStream([1, 2, 3], writable: false)
+                    : throw new IOException("Selected whole-type image could not be opened.");
+            },
+            typeof(BodyShapeFixture),
+            includePdb: true);
+        try
+        {
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter = [nameof(BodyShapeFixture.ReadableLocal)],
+                        Select = [SectionNames.DecompiledSource],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Error:", error);
+            Assert.Contains(
+                invalidImage
+                    ? "metadata root is malformed"
+                    : "Selected whole-type image could not be opened.",
+                error);
+            Assert.Equal(1, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TypeWholeTypeDecompilerAcquisition_CarriesExternalPdb()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string sourcePath = typeof(BodyShapeFixture).Assembly.Location;
+            string assemblyPath = Path.Combine(
+                directory,
+                Path.GetFileName(sourcePath));
+            File.Copy(sourcePath, assemblyPath);
+
+            ApiSurface api = AssemblyReader.ExtractApiSurface(assemblyPath)!;
+            ApiType type = Assert.Single(
+                api.Types,
+                candidate => candidate.FullName == typeof(BodyShapeFixture).FullName);
+            type.Members = type.Members
+                .Where(member => member.Name == nameof(BodyShapeFixture.ReadableLocal))
+                .ToList();
+            var assembly = ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("external-pdb"));
+            var resolver = ApiAnalysisInspection.CreateReferenceResolver(
+                assemblyPath,
+                new TypeOptions());
+            using var metadata =
+                new ILInspector.Decompiler.Pipeline.MetadataContext(resolver);
+
+            var withPdb = ILInspector.Decompiler.MemberBodyProducer.Project(
+                type,
+                assembly,
+                Path.ChangeExtension(sourcePath, ".pdb"),
+                resolver,
+                metadata);
+
+            Assert.Contains("StringBuilder builder =", withPdb.Output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeWholeTypeDecompilerAcquisition_SkipsOrdinaryOutput()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("ordinary-type-output"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                throw new IOException("Whole-type decompilation was not requested.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(nameof(BodyShapeFixture), output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeWholeTypeDecompilerAcquisition_DiscoveryStaysLazy()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-discovery"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                throw new IOException("Discovery must not open whole-type source.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+            };
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        Discover = [],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                $"| {SectionNames.DecompiledSource} | section |",
+                output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, false)]
     [InlineData(true, true, false)]
