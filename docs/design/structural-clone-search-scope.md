@@ -37,8 +37,9 @@ navigation, and rendering remain with each host.
 This document is the normative owner of one claim:
 
 > A structural clone search binds one Library, Type, or Member seed population
-> to one exact Workspace revision and independently chooses candidate breadth
-> through `Self`, `SelfAndRegisteredEcosystems`, or `Everything`, then candidate
+> to an exact starting Workspace revision and one owner-issued effective
+> participant snapshot. It independently chooses candidate breadth through
+> `Self`, `SelfAndRegisteredEcosystems`, or `Everything`, then candidate
 > discovery through `SimilarNames` or `All`. `Everything` plus `SimilarNames`
 > is the default. Similar-name discovery admits a candidate only when both
 > decoded declaring-type and member names meet the product's fixed normalized
@@ -53,7 +54,8 @@ This owner defines:
 - the fixed name-similarity threshold and its role;
 - identical-pair exclusion and duplicate-pair suppression;
 - one global ranking across a multi-seed search;
-- Workspace-revision association; and
+- starting/effective Workspace-revision and participant-snapshot association;
+  and
 - candidate-coverage disclosure.
 
 It does not own Analysis scoring or verification, Workspace membership or
