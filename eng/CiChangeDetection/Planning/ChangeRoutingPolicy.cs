@@ -386,6 +386,7 @@ internal sealed class ChangeRoutingPolicy
             "docs/data/nuget-top-packages.json",
             "eng/restore-iltools.sh",
             "eng/activate-iltools.sh",
+            "eng/test-runtime-flavor.sh",
             "eng/test-ts-jsexport-context-aot.sh"))
         {
             state.Code = true;

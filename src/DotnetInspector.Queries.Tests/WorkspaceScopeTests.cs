@@ -10,7 +10,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class WorkspaceScopeTests
+public sealed partial class WorkspaceScopeTests
 {
     static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddMinutes(5);
 

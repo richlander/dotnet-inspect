@@ -143,7 +143,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             ilDiffTestStep,
             "run",
-            "dotnet run --project src/ILInspector.ILDiff.Tests -c Release",
+            "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release",
             "jobs.test Run IL diff tests");
     }
 

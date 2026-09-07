@@ -48,7 +48,7 @@ path, a `file://` URI, or a mapped source in `NuGet.Config`:
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions --source ./feed
-dnx dotnet-inspect -y -- package MyCompany.Widget --versions 5 --preview \
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 5 --preview \
   --source ./feed --jsonl
 dnx dotnet-inspect -y -- package MyCompany.Widget --latest-version --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --version --source ./feed
