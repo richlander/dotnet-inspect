@@ -102,7 +102,9 @@ for basic discovery, `nuspec` for explicit manifest evaluation, or
 package archive. Package-content requests are accepted only with at most 20
 candidates. The Browser supplies that capability through its existing
 admitted package store and shared operation deadline; acquisition or
-evaluation failures remain visible per-package failures.
+evaluation failures remain visible per-package failures. Each evidence entry
+retains its product-issued package-or-query scope and optional count-plus-preview
+summary from [Package Query inspection evidence](package-query-inspection-evidence.md).
 
 ## Layout
 
@@ -166,8 +168,12 @@ and
   the whole application DOM for every event. Product-issued progress
   checkpoints distinguish source search, manifest evaluation, and explicit
   package-content evaluation, so filtered candidates remain perceptible
-  without becoming result rows. Each row is a compact package summary plus the
-  product-authored evidence for *why* it matched — never a bare name.
+  without becoming result rows. Query-scoped source-selection context from the
+  first row appears once above the current result list. Each card is a compact
+  package summary plus only its package-scoped, product-authored evidence for
+  *why* it matched, including shared count-and-preview explanations for
+  dependencies and embedded skill documents. Metadata-only rows retain their
+  nonempty query context without inventing package inspection facts.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed
   Workspace transition, without inferring a framework, source, or fallback
@@ -439,9 +445,12 @@ and browser-history and focus-return outcomes are proved by
    configuration stays idle without engine acquisition. Run an exact ID or
    terminal-star prefix and confirm later facet changes preserve package mode,
    cancel the prior request, and suppress its late rows and failures.
-3. Confirm that product rows, evidence, partial failures, and finite-response,
-   bounded, failed, cancelled, and zero-row completion states remain distinct
-   per the [States](#states) table.
+3. Confirm that query-scoped selection context renders once above the result
+   list, package-scoped dependency and skill counts/previews remain on their
+   cards, and neighboring metadata-only rows do not invent inspection facts.
+   Confirm that partial failures and finite-response, bounded, failed,
+   cancelled, and zero-row completion states remain distinct per the
+   [States](#states) table.
 4. Cancel after rows arrive and confirm that the rows remain visible, the state
    reads as cancelled, and the Browser source operation stops.
 5. Change the search text, leave the route, and start another run; confirm each
@@ -515,6 +524,10 @@ and browser-history and focus-return outcomes are proved by
    explicit package-ID and prefix selection on the website and makes Gallery
    discovery an explicit source gesture. DOM virtualization and Worker
    placement remain separate follow-ups.
+9. [Package Query inspection evidence](package-query-inspection-evidence.md),
+   tracked by #6071, transports typed package/query scope and count-plus-preview
+   summaries to the website. Query context renders once per result set while
+   package inspection evidence remains on its owning card.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.

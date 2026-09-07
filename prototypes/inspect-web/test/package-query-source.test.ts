@@ -36,6 +36,18 @@ const completionEvent: BrowserPackageQueryEvent = {
   },
 };
 
+function packageEvidence(
+  id: string,
+  text: string,
+  summary: { count: number; preview: string[] } | null = null,
+) {
+  return { id, text, scope: "Package" as const, summary };
+}
+
+function queryEvidence(id: string, text: string) {
+  return { id, text, scope: "Query" as const, summary: null };
+}
+
 async function runCompletion(
   completion: BrowserPackageQueryCompletion,
   inputKind: "package" | "gallery" = "gallery",
@@ -125,10 +137,9 @@ test("Gallery metadata rows preserve unknown downloads and source-authored evide
           tier: "SearchMetadata",
           totalDownloads,
           verified,
-          evidence: [{
-            id: "producer.source-selection",
-            text: "Source order: producer ranking; package type: Producer.Type",
-          }],
+          evidence: [queryEvidence(
+            "producer.source-selection",
+            "Source order: producer ranking; package type: Producer.Type")],
         },
       };
       const rows: QueryResultRow[] = [];
@@ -152,7 +163,12 @@ test("Gallery metadata rows preserve unknown downloads and source-authored evide
         totalDownloads,
         description: null,
         producer: "nuget.org",
-        evidence: ["Source order: producer ranking; package type: Producer.Type"],
+        evidence: [{
+          id: "producer.source-selection",
+          text: "Source order: producer ranking; package type: Producer.Type",
+          scope: "query",
+          summary: null,
+        }],
       }]);
     }
   }
@@ -290,7 +306,28 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     {
       ...toolMatchEvent.row!,
       tier: "SearchMetadata",
-      evidence: [{ id: "producer.source", text: " " }],
+      evidence: [queryEvidence("producer.source", " ")],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        scope: "Unknown",
+      }],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        summary: { count: -1, preview: [] },
+      }],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        summary: { count: 1, preview: "not an array" },
+      }],
     },
   ];
   for (const row of invalidRows) {
@@ -307,7 +344,7 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
       createBrowserPackageQueryDataSource(engine).run(
         createQueryRequest("", "gallery"),
         () => {}, () => {}, () => {}, new AbortController().signal),
-      /Unsupported package-query row tier|not a finite number|not a boolean|not text|no evidence/);
+      /Unsupported package-query row tier|not a finite number|not a non-negative integer|not a boolean|not text|no evidence|Unknown package-query evidence scope|evidence preview was not an array/);
   }
 });
 
@@ -320,10 +357,13 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
     packageId: "Contoso.Tool",
     version: "2.0.0",
     tier: "PackageContent",
-    evidence: [{
-      id: "package.query.dotnet-tool-v2",
-      text: "DotnetToolSettings.xml declares v2.",
-    }],
+    evidence: [packageEvidence(
+      "package.query.dotnet-tool-v2",
+      "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
+      {
+        count: 2,
+        preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
+      })],
     totalDownloads: 12,
     description: null,
     verified: false,
@@ -441,7 +481,7 @@ test("Browser data source maps package-content rows and visible failures", async
       return completionEvent;
     },
   };
-  const rows: { packageId: string; tier: string }[] = [];
+  const rows: QueryResultRow[] = [];
   const failures: string[] = [];
   const request = withFacet(createQueryRequest("Contoso."), {
     key: "package.query.dotnet-tool-v2",
@@ -451,18 +491,23 @@ test("Browser data source maps package-content rows and visible failures", async
 
   await createBrowserPackageQueryDataSource(engine).run(
     request,
-    page => rows.push(...page.map(row => ({
-      packageId: row.packageId,
-      tier: row.tier,
-    }))),
+    page => rows.push(...page),
     failure => failures.push(failure),
     () => {},
     new AbortController().signal);
 
   assert.equal(candidateLimit, 20);
-  assert.deepEqual(rows, [{
-    packageId: "Contoso.Tool",
-    tier: "package-content",
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.packageId, "Contoso.Tool");
+  assert.equal(rows[0]?.tier, "package-content");
+  assert.deepEqual(rows[0]?.evidence, [{
+    id: "package.query.dotnet-tool-v2",
+    text: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
+    scope: "package",
+    summary: {
+      count: 2,
+      preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
+    },
   }]);
   assert.deepEqual(
     failures,
@@ -491,7 +536,9 @@ test("Browser data source streams matches and failures before terminal completio
       packageId: "Microsoft.Extensions.Hosting",
       version: "10.0.0",
       tier: "Nuspec",
-      evidence: [{ id: "package.query.source-verified", text: "Verified source" }],
+      evidence: [packageEvidence(
+        "package.query.source-verified",
+        "Verified source")],
       totalDownloads: 1234,
       description: null,
       verified: true,

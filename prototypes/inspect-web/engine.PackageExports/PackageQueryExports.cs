@@ -266,7 +266,24 @@ namespace InspectWeb.Engine.PackageFacade
                             .. match.Value.Evidence.Select(evidence =>
                                 new BrowserPackageQueryEvidence(
                                     evidence.Id,
-                                    evidence.Value)),
+                                    evidence.Value,
+                                    evidence.Scope switch
+                                    {
+                                        PackageQueryEvidenceScope.Package =>
+                                            BrowserPackageQueryEvidenceScope.Package,
+                                        PackageQueryEvidenceScope.Query =>
+                                            BrowserPackageQueryEvidenceScope.Query,
+                                        _ => throw new InvalidOperationException(
+                                            "Unknown package-query evidence scope."),
+                                    },
+                                    evidence.Summary is { } summary
+                                        ? new BrowserPackageQueryEvidenceSummary(
+                                            summary.Count,
+                                            [
+                                                .. summary.Preview.Select(
+                                                    value => value.ToString()),
+                                            ])
+                                        : null)),
                         ],
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,

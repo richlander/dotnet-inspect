@@ -172,11 +172,25 @@ public sealed class PackageQueryPlan
     internal ImmutableArray<PackageQueryFacetDefinition> Definitions { get; }
 }
 
+/// <summary>Whether evidence describes the query input or an inspected package.</summary>
+public enum PackageQueryEvidenceScope
+{
+    Package,
+    Query,
+}
+
+/// <summary>A complete observed item count and bounded inert display previews.</summary>
+public sealed record PackageQueryEvidenceSummary(
+    int Count,
+    ImmutableArray<InertString> Preview);
+
 /// <summary>One product-authored explanation for a package-query match.</summary>
 public sealed record PackageQueryEvidence(
     string Id,
     InertString Text)
 {
+    public PackageQueryEvidenceScope Scope { get; init; }
+    public PackageQueryEvidenceSummary? Summary { get; init; }
     public string Value => Text.ToString();
 }
 
@@ -300,11 +314,15 @@ public interface IPackageQueryContentProvider
 internal sealed record PackageQueryFacetDefinition(
     PackageQueryFacetDescriptor Descriptor,
     Func<PackageQueryPackage, bool> MatchesManifest,
-    Func<PackageQueryPackage, InertString> Evidence,
+    Func<PackageQueryPackage, PackageContentFacts?, PackageQueryFacetEvidence> Evidence,
     Func<PackageContentFacts, bool>? MatchesPackageContent = null);
 
+internal sealed record PackageQueryFacetEvidence(
+    InertString Text,
+    PackageQueryEvidenceSummary? Summary = null);
+
 internal sealed record PackageContentFacts(
-    bool HasSkillDocument,
+    PackageQueryEvidenceSummary? SkillDocuments,
     string? ToolSettingsVersion);
 
 /// <summary>
@@ -318,6 +336,8 @@ public static partial class PackageQuery
     public const int MaximumPackageContentCandidates = 20;
     public const int MaximumFacetIdLength = 100;
     public const int MaximumToolSettingsBytes = 64 * 1024;
+    public const int MaximumEvidencePreviewItems = 3;
+    public const int MaximumEvidencePreviewCharacters = 160;
 
     public const string PrefixEvidenceId = "package.query.scope.prefix";
     public const string ExactPackageEvidenceId = "package.query.scope.exact-package";
@@ -344,7 +364,7 @@ public static partial class PackageQuery
                 100,
                 PackageQueryFacetTier.Nuspec),
             static match => match.Verified == true,
-            static _ => Evidence(
+            static (_, _) => Describe(
                 "The package source reports this package as verified.")),
         new(
             new PackageQueryFacetDescriptor(
@@ -357,7 +377,7 @@ public static partial class PackageQuery
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.RequiredManifest.IsToolPackage,
-            static _ => Evidence(
+            static (_, _) => Describe(
                 "The package manifest declares a .NET tool package.")),
         new(
             new PackageQueryFacetDescriptor(
@@ -373,7 +393,7 @@ public static partial class PackageQuery
                 CombinesWithinSelectionGroup = true,
             },
             static match => match.RequiredManifest.IsToolPackage,
-            static _ => Evidence(
+            static (_, _) => Describe(
                 "DotnetToolSettings.xml declares the portable .NET tool v1 format."),
             static content => content.ToolSettingsVersion == "1"),
         new(
@@ -390,7 +410,7 @@ public static partial class PackageQuery
                 CombinesWithinSelectionGroup = true,
             },
             static match => match.RequiredManifest.IsToolPackage,
-            static _ => Evidence(
+            static (_, _) => Describe(
                 "DotnetToolSettings.xml declares the RID-specific .NET tool v2 format."),
             static content => content.ToolSettingsVersion == "2"),
         new(
@@ -401,17 +421,8 @@ public static partial class PackageQuery
                 300,
                 PackageQueryFacetTier.Nuspec,
                 DependencySelectionGroupId),
-            static match => DependencyCount(match) > 0,
-            static match =>
-            {
-                int dependencies = DependencyCount(match);
-                int groups = NonEmptyDependencyGroupCount(match);
-                return Evidence(
-                    $"The package manifest declares {dependencies.ToString(CultureInfo.InvariantCulture)} "
-                    + $"{Pluralize(dependencies, "dependency", "dependencies")} across "
-                    + $"{groups.ToString(CultureInfo.InvariantCulture)} target-framework "
-                    + $"{Pluralize(groups, "group", "groups")}.");
-            }),
+            static match => HasDependencies(match),
+            static (match, _) => DescribeDependencies(match)),
         new(
             new PackageQueryFacetDescriptor(
                 NoDependenciesFacetId,
@@ -420,9 +431,8 @@ public static partial class PackageQuery
                 400,
                 PackageQueryFacetTier.Nuspec,
                 DependencySelectionGroupId),
-            static match => DependencyCount(match) == 0,
-            static _ => Evidence(
-                "The package manifest declares no dependencies.")),
+            static match => !HasDependencies(match),
+            static (match, _) => DescribeDependencies(match)),
         new(
             new PackageQueryFacetDescriptor(
                 MillionDownloadsFacetId,
@@ -431,7 +441,7 @@ public static partial class PackageQuery
                 500,
                 PackageQueryFacetTier.Nuspec),
             static match => match.TotalDownloads >= 1_000_000,
-            static match => Evidence(
+            static (match, _) => Describe(
                 $"The package source reports {match.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads.")),
         new(
             new PackageQueryFacetDescriptor(
@@ -442,7 +452,7 @@ public static partial class PackageQuery
                 PackageQueryFacetTier.Nuspec),
             static match => !string.IsNullOrWhiteSpace(
                 match.RequiredManifest.ReadmeFile),
-            static _ => Evidence(
+            static (_, _) => Describe(
                 "The package manifest declares an embedded README file.")),
         new(
             new PackageQueryFacetDescriptor(
@@ -452,9 +462,13 @@ public static partial class PackageQuery
                 700,
                 PackageQueryFacetTier.PackageContent),
             static _ => true,
-            static _ => Evidence(
-                "The package contains a skills/SKILL.md document."),
-            static content => content.HasSkillDocument),
+            static (_, content) => DescribeItems(
+                content?.SkillDocuments
+                    ?? throw new InvalidOperationException(
+                        "Skill-document evidence requires its package-content inventory."),
+                "skill document",
+                "skill documents"),
+            static content => content.SkillDocuments is { Count: > 0 }),
     ];
 
     static readonly IReadOnlyDictionary<string, PackageQueryFacetDefinition>
@@ -944,10 +958,7 @@ public static partial class PackageQuery
                 {
                     continue;
                 }
-                evidence.Add(
-                    new PackageQueryEvidence(
-                        candidate.Descriptor.Id,
-                        candidate.Evidence(match)));
+                evidence.Add(CreateFacetEvidence(candidate, match, null));
             }
         }
 
@@ -995,10 +1006,7 @@ public static partial class PackageQuery
 
             foreach (PackageQueryFacetDefinition candidate in matched)
             {
-                evidence.Add(
-                    new PackageQueryEvidence(
-                        candidate.Descriptor.Id,
-                        candidate.Evidence(match)));
+                evidence.Add(CreateFacetEvidence(candidate, match, content));
             }
         }
 
@@ -1016,14 +1024,16 @@ public static partial class PackageQuery
             definition.Descriptor.Id == EmbeddedSkillFacetId);
         bool needsToolSettings = definitions.Any(definition =>
             definition.Descriptor.Id is ToolV1FacetId or ToolV2FacetId);
-        bool hasSkill = needsSkills && entries.Any(IsSkillDocument);
+        PackageQueryEvidenceSummary? skills = needsSkills
+            ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
+            : null;
         string? toolVersion = needsToolSettings
             ? await ReadToolSettingsVersionAsync(
                 content,
                 entries,
                 cancellationToken).ConfigureAwait(false)
             : null;
-        return new PackageContentFacts(hasSkill, toolVersion);
+        return new PackageContentFacts(skills, toolVersion);
     }
 
     static async ValueTask<string?> ReadToolSettingsVersionAsync(
@@ -1129,13 +1139,66 @@ public static partial class PackageQuery
             failure.Message,
             failure.ManifestFailureReason);
 
-    static int DependencyCount(PackageQueryPackage match) =>
-        match.RequiredManifest.DependencyGroups.Sum(group =>
-            group.Dependencies.Length);
-
-    static int NonEmptyDependencyGroupCount(PackageQueryPackage match) =>
-        match.RequiredManifest.DependencyGroups.Count(group =>
+    static bool HasDependencies(PackageQueryPackage match) =>
+        match.RequiredManifest.DependencyGroups.Any(group =>
             !group.Dependencies.IsEmpty);
+
+    static PackageQueryFacetEvidence DescribeDependencies(PackageQueryPackage match) =>
+        DescribeItems(
+            SummarizeItems(
+                match.RequiredManifest.DependencyGroups
+                    .SelectMany(group => group.Dependencies)
+                    .Select(dependency => dependency.Id),
+                StringComparer.OrdinalIgnoreCase),
+            "dependency",
+            "dependencies");
+
+    static PackageQueryEvidenceSummary SummarizeItems(
+        IEnumerable<string> items,
+        StringComparer comparer)
+    {
+        string[] distinct = [.. items.Distinct(comparer).Order(comparer)];
+        return new PackageQueryEvidenceSummary(
+            distinct.Length,
+            [
+                .. distinct.Take(MaximumEvidencePreviewItems)
+                    .Select(item => new InertString(
+                        TextPolicy.Field, item, MaximumEvidencePreviewCharacters)),
+            ]);
+    }
+
+    static PackageQueryFacetEvidence DescribeItems(
+        PackageQueryEvidenceSummary summary,
+        string singular,
+        string plural)
+    {
+        string heading = $"{summary.Count.ToString(CultureInfo.InvariantCulture)} "
+            + Pluralize(summary.Count, singular, plural);
+        if (summary.Preview.IsEmpty)
+            return new PackageQueryFacetEvidence(Evidence(heading + "."), summary);
+
+        InertString preview = InertString.Join(", ", TextPolicy.Prose, [.. summary.Preview]);
+        int remaining = summary.Count - summary.Preview.Length;
+        InertString text = remaining > 0
+            ? InertString.Format(TextPolicy.Prose,
+                $"{heading}: {preview} (+{remaining.ToString(CultureInfo.InvariantCulture)} more).")
+            : InertString.Format(TextPolicy.Prose, $"{heading}: {preview}.");
+        return new PackageQueryFacetEvidence(text, summary);
+    }
+
+    static PackageQueryFacetEvidence Describe(string text) => new(Evidence(text));
+
+    static PackageQueryEvidence CreateFacetEvidence(
+        PackageQueryFacetDefinition definition,
+        PackageQueryPackage package,
+        PackageContentFacts? content)
+    {
+        PackageQueryFacetEvidence description = definition.Evidence(package, content);
+        return new PackageQueryEvidence(definition.Descriptor.Id, description.Text)
+        {
+            Summary = description.Summary,
+        };
+    }
 
     static string Pluralize(int count, string singular, string plural) =>
         count == 1 ? singular : plural;

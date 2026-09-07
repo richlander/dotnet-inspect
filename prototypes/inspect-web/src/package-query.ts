@@ -166,17 +166,29 @@ export function toggleFacet(
   return withFacet(withFacets(request, compatible), facet);
 }
 
-/** One package's projection plus which predicate terms matched and why. Never
- * a bare pass/fail — the evidence is the point (see package-opportunities.ts
- * for the existing "evidence over checkmark" convention this follows). The
- * non-empty tuple type on `evidence` is what actually enforces that: an
- * empty-array row would silently render a blank evidence section (see
- * package-query-view.ts's renderRow). */
+type QueryEvidenceScope = "package" | "query";
+
+interface QueryEvidenceSummary {
+  count: number;
+  preview: readonly string[];
+}
+
+interface QueryEvidence {
+  id: string;
+  text: string;
+  scope: QueryEvidenceScope;
+  summary: QueryEvidenceSummary | null;
+}
+
+/** One package's projection plus product-authored evidence. Query-scoped
+ * evidence supplies shared selection context; package-scoped evidence
+ * describes inspected facts for this row. The non-empty tuple preserves
+ * meaningful context even for metadata-only rows. */
 export interface QueryResultRow {
   packageId: string;
   version: string;
   tier: "search-metadata" | "nuspec" | "package-content";
-  evidence: readonly [string, ...string[]];
+  evidence: readonly [QueryEvidence, ...QueryEvidence[]];
   totalDownloads: number | null;
   description?: string | null;
   producer?: string;

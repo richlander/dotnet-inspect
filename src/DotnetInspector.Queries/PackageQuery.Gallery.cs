@@ -59,7 +59,7 @@ public static partial class PackageQuery
     {
         if (plan.GalleryRequest is not { } request)
         {
-            evidence.Add(new PackageQueryEvidence(
+            evidence.Add(ScopeEvidence(
                 plan.PackageInput is SourceSelector.Package
                     ? ExactPackageEvidenceId
                     : PrefixEvidenceId,
@@ -67,24 +67,27 @@ public static partial class PackageQuery
             return;
         }
 
-        evidence.Add(new PackageQueryEvidence(GalleryScopeEvidenceId, plan.PrefixEvidence));
-        evidence.Add(new PackageQueryEvidence(
+        evidence.Add(ScopeEvidence(GalleryScopeEvidenceId, plan.PrefixEvidence));
+        evidence.Add(ScopeEvidence(
             GalleryOrderEvidenceId,
             Evidence(request.Order == NuGetGalleryDiscoveryOrder.MostDownloaded
                 ? "Gallery download-ranked response order; not a global top-N."
                 : "Gallery relevance response order.")));
-        evidence.Add(new PackageQueryEvidence(
+        evidence.Add(ScopeEvidence(
             GalleryPrereleaseEvidenceId,
             Evidence(request.IncludePrerelease
                 ? "Gallery source selection permits prerelease versions."
                 : "Gallery source selection permits stable versions only.")));
         if (request.PackageType is { } packageType)
         {
-            evidence.Add(new PackageQueryEvidence(
+            evidence.Add(ScopeEvidence(
                 GalleryPackageTypeEvidenceId,
                 Evidence($"Gallery applied package type \"{packageType.Name}\"; this is index evidence.")));
         }
     }
+
+    static PackageQueryEvidence ScopeEvidence(string id, InertString text) =>
+        new(id, text) { Scope = PackageQueryEvidenceScope.Query };
 
     static async IAsyncEnumerable<PackageQueryInputEvent> AcquireInputAsync(
         IPackageSourceClient source,
