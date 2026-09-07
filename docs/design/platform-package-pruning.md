@@ -72,7 +72,10 @@ through net11.0.
 ### An inventory is per shared framework
 
 The upstream file is published per shared framework, and a target subsumes an
-identity only when it references that framework. A console app references
+identity only when it references that framework. This document names the two
+families as the reference packs do — `Microsoft.NETCore.App` and
+`Microsoft.AspNetCore.App`. The library catalog spells the same families
+`netcore.app` and `aspnetcore.app`. A console app references
 `Microsoft.NETCore.App`; a web app also references `Microsoft.AspNetCore.App`
 and subsumes more.
 
@@ -82,7 +85,9 @@ Counting the entries under that prefix across both families, `net10.0` and
 What changed between the two releases is which shared framework publishes
 them:
 
-| Target | `Microsoft.NETCore.App` | `Microsoft.AspNetCore.App` | Total |
+`Microsoft.Extensions.*` package identities subsumed, by supplying framework:
+
+| Target framework | Supplied by `Microsoft.NETCore.App` | Supplied by `Microsoft.AspNetCore.App` | Total |
 | --- | --- | --- | --- |
 | `net10.0` | 0 | 46 | 46 |
 | `net11.0` | 9 | 37 | 46 |
@@ -114,7 +119,7 @@ authored:
 | **Live** | supplied version equals the pack's own version | moves with every patch release |
 | **Frozen** | anything else | legacy packages pinned at 4.3.x/5.0.0; never moves |
 
-The live population is 15 entries at `netcore.app` 10.0, 24 at 11.0, and 0 for
+The live population is 15 entries at `Microsoft.NETCore.App` 10.0, 24 at 11.0, and 0 for
 net6.0 through net8.0. `Microsoft.AspNetCore.App` states every entry at its
 band floor and has no live population at all.
 
@@ -180,10 +185,13 @@ The step-3 total is dominated by two populations that carry little
 information, and a consumer that treats 274 as the size of the interesting
 problem will over-build. Split by supplying family:
 
-| Family | Libraries | Overlapping | Platform-only | Entry, no library |
+Counts of package identities, except `Catalog libraries`, which counts
+assemblies:
+
+| Supplying framework | Catalog libraries | Overlapping | Platform-only | Entry, no library |
 | --- | --- | --- | --- | --- |
-| `netcore.app` | 181 | 143 | 38 | 165 |
-| `aspnetcore.app` | 132 | 131 | 1 | 1 |
+| `Microsoft.NETCore.App` | 181 | 143 | 38 | 165 |
+| `Microsoft.AspNetCore.App` | 132 | 131 | 1 | 1 |
 
 ASP.NET Core is very nearly one-to-one: every assembly has a matching package
 identity, so its 131 says more about how that framework is packaged than about
@@ -192,12 +200,12 @@ platform/package overlap. Its two exceptions are the whole story —
 library, and `Microsoft.AspNetCore.App` is its only entry without one, being
 the meta-package.
 
-Within `netcore.app`, 119 of the 143 overlaps are frozen at netstandard-era
+Within `Microsoft.NETCore.App`, 119 of the 143 overlaps are frozen at netstandard-era
 versions:
 
-| Supplied major | 4.x | 5.x | 6.x | 7.x | 10.x |
+| Supplied major version | 4.x | 5.x | 6.x | 7.x | 10.x |
 | --- | --- | --- | --- | --- | --- |
-| Entries | 103 | 12 | 2 | 1 | 1 |
+| Frozen overlaps | 103 | 12 | 2 | 1 | 1 |
 
 These are real entries and pruning classifies them correctly, but
 `System.Runtime@4.3.1` and `System.Buffers@5.0.0` will not be the answer to a
@@ -213,7 +221,9 @@ the data. Step 2 has the same distortion: 155 of its 166 entries are
 Step 3 divides again along the live/frozen split, and the two behave unlike
 each other in practice:
 
-| | Example | Supplied version | Count | `netcore` | `aspnetcore` |
+The last two columns split `Count` by supplying framework:
+
+| Kind | Example | Supplied version | Count | `…NETCore.App` | `…AspNetCore.App` |
 | --- | --- | --- | --- | --- | --- |
 | Live overlap | `System.Text.Json` | `11.0.0-preview.7.26381.103` | 55 | 24 | 31 |
 | Frozen overlap | `System.Runtime` | `4.3.1` | 219 | 119 | 100 |
@@ -361,7 +371,7 @@ already governs which *artifact* backs one assembly identity among admitted
 participants, and its precedence rule prefers a designated artifact over a
 platform one. The two do not overlap and do not conflict:
 
-| | Question | Decided among | Decided at |
+| Owner | Question | Decided among | Decided at |
 | --- | --- | --- | --- |
 | Pruning | package identity or platform? | a package-graph edge's candidates | package-graph construction |
 | Overlay precedence | which artifact for this assembly identity? | admitted participants | reference binding |
