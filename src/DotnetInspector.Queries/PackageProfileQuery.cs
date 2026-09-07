@@ -219,12 +219,10 @@ public static class PackageProfileQuery
                 truncationReason));
     }
 
-    private static async Task<PackageProfileEvent> EvaluateCandidateAsync(
+    internal static PackageProfileFailure? ValidateSearchCandidate(
         IPackageSourceClient source,
         string prefix,
-        PackageSearchMatch candidate,
-        CancellationToken cancellationToken,
-        NuGetOperationContext? operationContext)
+        PackageSearchMatch candidate)
     {
         PackageSourceCoordinate expectedCoordinate;
         try
@@ -238,7 +236,7 @@ public static class PackageProfileQuery
             return Failure(
                 candidate,
                 PackageProfileFailureKind.SearchContract,
-                "The package source returned inconsistent search metadata or provenance.");
+                "The package source returned inconsistent search metadata or provenance.").Value;
         }
 
         if (candidate.Candidate.Coordinate != expectedCoordinate
@@ -250,7 +248,7 @@ public static class PackageProfileQuery
             return Failure(
                 candidate,
                 PackageProfileFailureKind.SearchContract,
-                "The package source returned inconsistent search metadata or provenance.");
+                "The package source returned inconsistent search metadata or provenance.").Value;
         }
 
         if (!candidate.Metadata.Id.StartsWith(
@@ -260,8 +258,21 @@ public static class PackageProfileQuery
             return Failure(
                 candidate,
                 PackageProfileFailureKind.SearchContract,
-                "The package source returned an item outside the requested prefix.");
+                "The package source returned an item outside the requested prefix.").Value;
         }
+
+        return null;
+    }
+
+    private static async Task<PackageProfileEvent> EvaluateCandidateAsync(
+        IPackageSourceClient source,
+        string prefix,
+        PackageSearchMatch candidate,
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext)
+    {
+        if (ValidateSearchCandidate(source, prefix, candidate) is { } invalid)
+            return new PackageProfileEvent.Failure(invalid);
 
         var (manifestFacts, manifestFailure) = await AcquireManifestAsync(
             source,

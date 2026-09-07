@@ -62,21 +62,29 @@ namespace InspectWeb.Engine.PackageFacade
             int maximumMatches,
             bool includePrerelease,
             string? packageType = null,
-            string? sourceOrderId = null) =>
-            PackageQuery.PlanGallery(
-                new NuGetGalleryDiscoveryRequest(
-                    PackageSourceDescriptor.NuGetGallery,
-                    maximumCandidates,
+            string? sourceOrderId = null,
+            bool discovery = false) =>
+            discovery
+                ? PackageQuery.PlanGallery(
+                    new NuGetGalleryDiscoveryRequest(
+                        PackageSourceDescriptor.NuGetGallery,
+                        maximumCandidates,
+                        text,
+                        packageType is null
+                            ? null
+                            : NuGetGalleryDiscoveryCatalog.PackageType.Select(packageType),
+                        sourceOrderId is null
+                            ? null
+                            : NuGetGalleryDiscoveryCatalog.GetOrder(sourceOrderId).Order,
+                        includePrerelease),
+                    facetIds,
+                    maximumMatches)
+                : PackageQuery.PlanInput(
                     text,
-                    packageType is null
-                        ? null
-                        : NuGetGalleryDiscoveryCatalog.PackageType.Select(packageType),
-                    sourceOrderId is null
-                        ? null
-                        : NuGetGalleryDiscoveryCatalog.GetOrder(sourceOrderId).Order,
-                    includePrerelease),
-                facetIds,
-                maximumMatches);
+                    facetIds,
+                    maximumCandidates,
+                    maximumMatches,
+                    includePrerelease);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -89,7 +97,8 @@ namespace InspectWeb.Engine.PackageFacade
             CancellationToken cancellationToken,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
             string? packageType = null,
-            string? sourceOrderId = null)
+            string? sourceOrderId = null,
+            bool discovery = false)
             => await ExecuteAsync(
                 prefix,
                 facetIds,
@@ -102,7 +111,8 @@ namespace InspectWeb.Engine.PackageFacade
                 cancellationToken,
                 deadline,
                 packageType,
-                sourceOrderId).ConfigureAwait(false);
+                sourceOrderId,
+                discovery).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -116,7 +126,8 @@ namespace InspectWeb.Engine.PackageFacade
             CancellationToken cancellationToken,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
             string? packageType = null,
-            string? sourceOrderId = null)
+            string? sourceOrderId = null,
+            bool discovery = false)
         {
             ArgumentNullException.ThrowIfNull(facetIds);
             ArgumentNullException.ThrowIfNull(emit);
@@ -128,7 +139,8 @@ namespace InspectWeb.Engine.PackageFacade
                 maximumMatches,
                 includePrerelease,
                 packageType,
-                sourceOrderId);
+                sourceOrderId,
+                discovery);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
@@ -320,6 +332,8 @@ namespace InspectWeb.Engine.PackageFacade
                                 BrowserPackageQueryCompletionKind.Failed,
                             PackageQueryCompletionKind.GalleryResponseComplete =>
                                 BrowserPackageQueryCompletionKind.GalleryResponseComplete,
+                            PackageQueryCompletionKind.ExactPackageComplete =>
+                                BrowserPackageQueryCompletionKind.ExactPackageComplete,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query completion kind."),
                         },
@@ -370,7 +384,8 @@ public static partial class PackageExports
         int initialMatchCredit,
         JSObject eventSink,
         string? packageType,
-        string? sourceOrderId)
+        string? sourceOrderId,
+        bool discovery)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
         string[] facetIds = JsonSerializer.Deserialize(
@@ -400,7 +415,8 @@ public static partial class PackageExports
                     deadline.Token,
                     deadline,
                     packageType,
-                    sourceOrderId);
+                    sourceOrderId,
+                    discovery);
             },
             BrowserPackageWorkspace.PackageOperationTimeout,
             operation.CancellationToken);

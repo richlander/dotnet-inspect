@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
 
@@ -70,6 +71,7 @@ public enum PackageQueryRequestFailureReason
     IncompatibleFacets,
     PackageContentCandidateLimitExceeded,
     InvalidSearchText,
+    InvalidPackageInput,
 }
 
 /// <summary>
@@ -98,6 +100,8 @@ public sealed record PackageQueryRequestFailure
             "The package-query prefix is invalid.",
         PackageQueryRequestFailureReason.InvalidSearchText =>
             "The Gallery search text is invalid.",
+        PackageQueryRequestFailureReason.InvalidPackageInput =>
+            "Enter a package ID or a literal package-ID prefix followed by one '*'.",
         PackageQueryRequestFailureReason.InvalidCandidateLimit =>
             $"The package-query candidate limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
@@ -142,7 +146,8 @@ public sealed class PackageQueryPlan
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
-        NuGetGalleryDiscoveryRequest? galleryRequest = null)
+        NuGetGalleryDiscoveryRequest? galleryRequest = null,
+        SourceSelector? packageInput = null)
     {
         Prefix = prefix;
         PrefixEvidence = prefixEvidence;
@@ -152,6 +157,7 @@ public sealed class PackageQueryPlan
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
         GalleryRequest = galleryRequest;
+        PackageInput = packageInput;
     }
 
     public InertString Prefix { get; }
@@ -160,6 +166,7 @@ public sealed class PackageQueryPlan
     public int MaximumMatches { get; }
     public bool IncludePrerelease { get; }
     public NuGetGalleryDiscoveryRequest? GalleryRequest { get; }
+    public SourceSelector? PackageInput { get; }
 
     internal InertString PrefixEvidence { get; }
     internal ImmutableArray<PackageQueryFacetDefinition> Definitions { get; }
@@ -219,6 +226,7 @@ public enum PackageQueryCompletionKind
     ClientPageLimitReached,
     Failed,
     GalleryResponseComplete,
+    ExactPackageComplete,
 }
 
 /// <summary>Terminal accounting for one package-query stream.</summary>
@@ -312,6 +320,7 @@ public static partial class PackageQuery
     public const int MaximumToolSettingsBytes = 64 * 1024;
 
     public const string PrefixEvidenceId = "package.query.scope.prefix";
+    public const string ExactPackageEvidenceId = "package.query.scope.exact-package";
     public const string VerifiedFacetId = "package.query.source-verified";
     public const string ToolFacetId = "package.query.dotnet-tool";
     public const string ToolV1FacetId = "package.query.dotnet-tool-v1";
@@ -505,7 +514,8 @@ public static partial class PackageQuery
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
-        NuGetGalleryDiscoveryRequest? galleryRequest = null)
+        NuGetGalleryDiscoveryRequest? galleryRequest = null,
+        SourceSelector? packageInput = null)
     {
         if (maximumMatches
             is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
@@ -595,7 +605,8 @@ public static partial class PackageQuery
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease,
-                galleryRequest));
+                galleryRequest,
+                packageInput));
     }
 
     /// <summary>Executes and materializes one validated package query.</summary>
@@ -839,7 +850,9 @@ public static partial class PackageQuery
                             candidates,
                             matches,
                             failures,
-                            sourceCandidates == candidates
+                            plan.PackageInput is SourceSelector.Package
+                                ? PackageQueryCompletionKind.ExactPackageComplete
+                                : sourceCandidates == candidates
                                 ? PackageQueryCompletionKind.GalleryResponseComplete
                                 : PackageQueryCompletionKind.MatchLimitReached,
                             sourceCandidates,

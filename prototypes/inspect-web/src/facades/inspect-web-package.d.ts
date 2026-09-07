@@ -1,7 +1,7 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
-export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | number;
+export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | "ExactPackageComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
@@ -304,5 +304,5 @@ export declare function queryPackageVersions(packageId: string): Promise<Readonl
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(additionalMatchCredit: number): boolean;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
-export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null): Promise<BrowserPackageQueryEvent>;
+export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean): Promise<BrowserPackageQueryEvent>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

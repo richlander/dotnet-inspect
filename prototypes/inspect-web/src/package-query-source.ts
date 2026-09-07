@@ -29,6 +29,7 @@ export interface BrowserPackageQueryEngine {
     eventSink: unknown,
     packageType: string | null,
     sourceOrderId: string | null,
+    discovery: boolean,
   ): Promise<BrowserPackageQueryEvent>;
 }
 
@@ -144,7 +145,8 @@ export function createBrowserPackageQueryDataSource(
           PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
           eventSink,
           request.packageType,
-          request.sourceOrderId);
+          request.sourceOrderId,
+          request.inputKind === "gallery");
         flushEvents();
         if (flushState.failed) throw flushState.error;
         if (abortSignal.aborted) return { kind: "cancelled" };
@@ -385,6 +387,7 @@ function completionKindValue(
     case "SourcePageLimitReached":
     case "ClientPageLimitReached":
     case "GalleryResponseComplete":
+    case "ExactPackageComplete":
     case "Failed":
       return value;
     default:
@@ -556,10 +559,12 @@ function toTerminalCompletion(
         kind: "bounded",
         reason: galleryCompletionReason(completion),
       };
+    case "ExactPackageComplete":
+      return { kind: "exact" };
     case "Failed":
       return {
         kind: "failed",
-        reason: "The package source failed before returning usable package input.",
+        reason: "Package source work failed before the query completed.",
       };
     default:
       throw new TypeError(

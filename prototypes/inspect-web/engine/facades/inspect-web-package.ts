@@ -6,7 +6,7 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
-export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | number;
+export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | "ExactPackageComplete" | number;
 
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
 
@@ -347,7 +347,7 @@ type $ManagedExports = {
     readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
     readonly "RequestPackageQueryMatches.1520975400": (additionalMatchCredit: number) => boolean;
     readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
-    readonly "RunPackageQuery.1009197168": (prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null) => Promise<string>;
+    readonly "RunPackageQuery.2081002310": (prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean) => Promise<string>;
     readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
   };
 };
@@ -533,9 +533,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageQuery.1009197168");
+    value = $ownDataProperty(value, "RunPackageQuery.2081002310");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027PackageExports.RunPackageQuery.1009197168\u0027 is not callable.");
+      throw new Error("Managed export \u0027PackageExports.RunPackageQuery.2081002310\u0027 is not callable.");
     }
   }
   {
@@ -673,8 +673,8 @@ export async function resolvePackageDependencyVersion(packageId: string, declare
   return await $requireManagedExports()["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
 
-export async function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null): Promise<BrowserPackageQueryEvent> {
-  const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.1009197168"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId);
+export async function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean): Promise<BrowserPackageQueryEvent> {
+  const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.2081002310"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId, discovery);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryEvent;
 }

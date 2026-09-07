@@ -43,8 +43,11 @@ export interface QuerySourceCatalog {
   orders: readonly { id: string; label: string; summary: string }[];
 }
 
+export type QueryInputKind = "package" | "gallery";
+
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
+  inputKind: QueryInputKind;
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
   /** Declared cap communicated to the source. The bounded-complete footer
@@ -58,8 +61,10 @@ export interface QueryRequest extends QuerySourceSelection {
 
 export function createQueryRequest(
   scopeQuery: string,
+  inputKind: QueryInputKind = "package",
 ): QueryRequest {
   return {
+    inputKind,
     scopeQuery,
     packageType: null,
     sourceOrderId: null,
@@ -70,6 +75,31 @@ export function createQueryRequest(
   };
 }
 
+export function withInputKind(
+  request: QueryRequest,
+  inputKind: QueryInputKind,
+): QueryRequest {
+  return {
+    ...request,
+    inputKind,
+  };
+}
+
+export function withSourceSelection(
+  request: QueryRequest,
+  selection: Partial<QuerySourceSelection>,
+): QueryRequest {
+  return {
+    ...request,
+    ...selection,
+  };
+}
+
+export function shouldExecuteQuery(request: QueryRequest): boolean {
+  return request.inputKind === "gallery"
+    || request.scopeQuery.trim().length > 0;
+}
+
 export function withScopeQuery(
   request: QueryRequest,
   scopeQuery: string,
@@ -78,6 +108,15 @@ export function withScopeQuery(
     ...request,
     scopeQuery,
   };
+}
+
+export function withEditorDraft(
+  request: QueryRequest,
+  scopeQuery: string,
+): QueryRequest {
+  return request.inputKind === "gallery"
+    ? request
+    : withScopeQuery(request, scopeQuery);
 }
 
 export function withFacet(
@@ -144,19 +183,19 @@ export interface QueryResultRow {
 }
 
 export type QueryCompletion =
+  | { kind: "idle" }
   | { kind: "streaming" }
   | TerminalQueryCompletion;
 
 /** The subset of `QueryCompletion` that represents a source having actually
  * stopped (as opposed to still running). A `PackageQueryDataSource.run()`
  * call settles when the source has stopped producing pages, so it can never
- * legitimately resolve with `"streaming"` — that kind is never a source's
- * own verdict on its own completion (it only ever describes a query the
- * controller considers in-flight, whether or not one has actually been
- * started yet — see `emptyOutcome()`). */
+ * legitimately resolve with `"idle"` or `"streaming"` — those kinds describe
+ * controller state, not a source's verdict on its own completion. */
 export type TerminalQueryCompletion =
   | { kind: "bounded"; reason: string }
   | { kind: "exhausted" }
+  | { kind: "exact" }
   | { kind: "cancelled" }
   | { kind: "failed"; reason: string };
 
@@ -183,6 +222,15 @@ export function emptyOutcome(): QueryOutcome {
     failures: [],
     progress: [],
     completion: { kind: "streaming" },
+  };
+}
+
+function idleOutcome(): QueryOutcome {
+  return {
+    rows: [],
+    failures: [],
+    progress: [],
+    completion: { kind: "idle" },
   };
 }
 
@@ -248,10 +296,11 @@ export interface PackageQueryState {
 }
 
 export function initialQueryState(): PackageQueryState {
-  return { request: null, outcome: emptyOutcome() };
+  return { request: null, outcome: idleOutcome() };
 }
 
 export interface PackageQueryController {
+  configure(request: QueryRequest): void;
   run(request: QueryRequest): Promise<void>;
   cancel(): void;
   requestMore(): void;
@@ -272,6 +321,16 @@ export function createPackageQueryController(
   let grantedMatchCredit = Number.POSITIVE_INFINITY;
 
   return {
+    configure(request: QueryRequest) {
+      abortController.abort();
+      abortController = new AbortController();
+      generation++;
+      state.request = request;
+      state.outcome = idleOutcome();
+      grantedMatchCredit = Number.POSITIVE_INFINITY;
+      onUpdate("reset");
+    },
+
     async run(request: QueryRequest) {
       abortController.abort();
       const runController = new AbortController();

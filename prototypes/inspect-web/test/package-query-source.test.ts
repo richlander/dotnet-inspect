@@ -36,7 +36,10 @@ const completionEvent: BrowserPackageQueryEvent = {
   },
 };
 
-async function runCompletion(completion: BrowserPackageQueryCompletion) {
+async function runCompletion(
+  completion: BrowserPackageQueryCompletion,
+  inputKind: "package" | "gallery" = "gallery",
+) {
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
     requestMatches() { return true; },
@@ -45,18 +48,23 @@ async function runCompletion(completion: BrowserPackageQueryCompletion) {
     },
   };
   return createBrowserPackageQueryDataSource(engine).run(
-    createQueryRequest(""),
+    createQueryRequest("", inputKind),
     () => {},
     () => {},
     () => {},
     new AbortController().signal);
 }
 
-test("Browser source forwards browse and free text with opaque selections and unchanged K", async () => {
-  for (const searchText of ["", "  hosting dependency injection  ", "System.*"]) {
+test("Browser source dispatches package and explicit Gallery input with unchanged K", async () => {
+  for (const [searchText, inputKind, discovery] of [
+    ["Newtonsoft.Json", "package", false],
+    ["Newtonsoft.*", "package", false],
+    [`${"a".repeat(100)}*`, "package", false],
+    ["", "gallery", true],
+  ] as const) {
     for (const matchLimit of [100, 7]) {
       const request = {
-        ...withFacet(createQueryRequest(searchText), {
+        ...withFacet(createQueryRequest(searchText, inputKind), {
           key: "producer.inspection.facet",
           label: "Producer inspection",
           tier: "nuspec",
@@ -75,7 +83,7 @@ test("Browser source forwards browse and free text with opaque selections and un
           ]);
           assert.ok(typeof args[6] === "object" && args[6] !== null);
           assert.deepEqual(args.slice(7), [
-            "Producer.CustomType", "producer.order.custom",
+            "Producer.CustomType", "producer.order.custom", discovery,
           ]);
           return completionEvent;
         },
@@ -86,20 +94,23 @@ test("Browser source forwards browse and free text with opaque selections and un
   }
 });
 
-test("Browser source leaves automatic source order and package type unresolved", async () => {
-  for (const searchText of ["", "hosting"]) {
+test("Browser source leaves automatic source selections unresolved in either mode", async () => {
+  for (const [searchText, inputKind, discovery] of [
+    ["Newtonsoft.Json", "package", false],
+    ["", "gallery", true],
+  ] as const) {
     const engine: BrowserPackageQueryEngine = {
       cancel() {},
       requestMatches() { return true; },
       async run(...args) {
         assert.equal(args[0], searchText);
         assert.equal(args[4], false);
-        assert.deepEqual(args.slice(7), [null, null]);
+        assert.deepEqual(args.slice(7), [null, null, discovery]);
         return completionEvent;
       },
     };
     await createBrowserPackageQueryDataSource(engine).run(
-      createQueryRequest(searchText),
+      createQueryRequest(searchText, inputKind),
       () => {}, () => {}, () => {}, new AbortController().signal);
   }
 });
@@ -131,7 +142,7 @@ test("Gallery metadata rows preserve unknown downloads and source-authored evide
         },
       };
       await createBrowserPackageQueryDataSource(engine).run(
-        createQueryRequest(""),
+        createQueryRequest("", "gallery"),
         page => rows.push(...page),
         () => {}, () => {}, new AbortController().signal);
       assert.deepEqual(rows, [{
@@ -168,7 +179,7 @@ test("Gallery row descriptions are projected unchanged from the producer", async
   };
 
   await createBrowserPackageQueryDataSource(engine).run(
-    createQueryRequest(""),
+    createQueryRequest("", "gallery"),
     page => rows.push(...page),
     () => {}, () => {}, new AbortController().signal);
 
@@ -246,8 +257,24 @@ test("legacy match completion and failed package input retain distinct outcomes"
     kind: "Failed",
   }), {
     kind: "failed",
-    reason: "The package source failed before returning usable package input.",
+    reason: "Package source work failed before the query completed.",
   });
+});
+
+test("exact package completion remains distinct for zero or one source candidate", async () => {
+  for (const sourceCandidates of [0, 1]) {
+    assert.deepEqual(await runCompletion({
+      ...completionEvent.completion!,
+      prefix: "Missing.Package",
+      candidateLimit: 1,
+      candidates: sourceCandidates,
+      matches: sourceCandidates,
+      failures: 0,
+      sourceCandidates,
+      estimatedTotalHits: null,
+      kind: "ExactPackageComplete",
+    }, "package"), { kind: "exact" });
+  }
 });
 
 test("streamed metadata admission rejects unknown tiers, malformed metadata, and empty evidence", async () => {
@@ -278,7 +305,7 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     };
     await assert.rejects(
       createBrowserPackageQueryDataSource(engine).run(
-        createQueryRequest(""),
+        createQueryRequest("", "gallery"),
         () => {}, () => {}, () => {}, new AbortController().signal),
       /Unsupported package-query row tier|not a finite number|not a boolean|not text|no evidence/);
   }
@@ -524,6 +551,7 @@ test("Browser data source streams matches and failures before terminal completio
     false,
     20,
   ]);
+  assert.deepEqual(receivedArguments.slice(7), [null, null, false]);
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
     failures,
