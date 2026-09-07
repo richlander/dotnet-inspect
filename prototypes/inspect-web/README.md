@@ -829,8 +829,13 @@ ambiguity and diagnostic cases gate these host behaviors.
 Package Overview contains session-local **Comparison targets**. Diff defaults
 to the preceding listed stable release, including earlier previews when the
 active version is a preview. An exact version can be selected instead.
-Clone defaults to the current Workspace, including self, or can be narrowed
-to another retained Package.
+
+The current prototype also renders a Package-specific Clone selector. It is a
+temporary target placeholder: the shared
+[Structural Clone Search Scope](../../docs/design/structural-clone-search-scope.md)
+contract replaces it with `Self`, `Self + similar names`, and
+`Everything in scope`, using the middle mode by default. The Browser adoption
+stage will remove the Package-specific state and selector.
 
 Subject navigation preserves these settings. Replacing or removing the Package
 resets its settings; removing an explicit Clone target leaves that choice
@@ -840,7 +845,9 @@ platform inputs.
 
 These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
-[Browser comparison targets](../../docs/design/inspect-web-comparison-targets.md).
+[Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
+Diff baseline and Structural Clone Search Scope for the replacement Clone
+focal length.
 
 ## Method Body Diff
 
@@ -1068,6 +1075,16 @@ diagnostic probe drives the existing managed async-lowering canary through the
 Worker core and operation authority. It does not move current UI features off
 the main thread.
 
+That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
+the Worker-only adoption host. Its facade-grouped `client` provides Promise
+results for build identity, vocabulary, home demos, Package Query facets, and
+Gallery discovery. Concurrent reads share one bootstrap without replacing one
+another, and disposal rejects outstanding reads. Generated JSON-shaped results
+use a bounded transport string (1,048,576 UTF-16 code units per result) and
+generated-typed decoding; failures remain visible. The production application
+still uses its existing page client. Other bindings and the atomic runtime
+cutover remain separate steps under #5987.
+
 Before Worker `Ready`, bootstrap registers the managed epoch-work reporter
 through the generated host facade. Both Worker and receiver use the same
 conservative unbounded managed-producer class. Managed callbacks carry the
@@ -1100,7 +1117,8 @@ The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
 The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
-restart, bootstrap rejection, and input during stalled Wasm initialization.
+all five typed startup reads against their generated facade results, restart,
+bootstrap rejection, and input during stalled Wasm initialization.
 It does not yet prove responsiveness during managed CPU
 work or complete the Worker lifecycle gate; those and source-feature adoption
 remain focused follow-on slices under #5418 and #5420.
@@ -1696,7 +1714,7 @@ traversal boundary does not become a global error.
 
 The shared product paths are gated by:
 
-- `AssemblyContextApiSurfaceQueryTests` in `src/DotnetInspector.Queries.Tests`
+- `AssemblyContextApiSurfaceQueryTests` in `tests/DotnetInspector.Queries.Tests`
   gates the surface query: the public and composed scopes, the accessibility
   buckets' ordering, default, and counts, participant rejection in group order,
   snapshot reuse across runs, and preserved `ApiSurface` inspection failures.
@@ -2245,18 +2263,30 @@ publishing the same commit to the isolated comparison site at
 `https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
 main-only `inspect-web-coreclr-staging` environment, a distinct deployment
 token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
-interpreter-only while the .NET 11 Preview 7 SDK lacks the packaged headers and
-Emscripten cache wiring needed for CoreCLR native relinking. The workflow pins
-the same proven preview SDK as Mono staging, enables `runtime-async=on` across
-this application graph, and applies the `UseMonoRuntime=false`,
+interpreter-only while CoreCLR native relinking remains outside the comparison
+scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
+CoreCLR workflow instead installs the exact runtime-main daily cohort
+`12.0.100-alpha.1.26454.116` SDK and
+`12.0.0-alpha.1.26454.116` runtime/workload packs from the `dotnet12` feed.
+That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
+CoreCLR even though the application graph retains its current target framework.
+The workflow enables `runtime-async=on` across this application graph and
+applies the `UseMonoRuntime=false`, `PublishReadyToRun=false`,
 `WasmBuildNative=false`,
 `WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
-lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
-hook before and after artifact transfer. Before the CoreCLR artifact crosses
-the upload/deploy boundary, the workflow compares its schema-5 runtime receipt
-with the triggering Mono run's schema-5 compiler receipt.
+lowering. The non-ReadyToRun deployment is deliberate; ReadyToRun is a separate
+comparison cohort. The artifact carries the exact `dotnet --info`, installed
+workload list, and a machine-readable SDK/runtime/workload receipt. That receipt
+also identifies the exact CoreCLR browser runtime asset bytes, which must match
+the published native JavaScript and Wasm. The workflow verifies the receipt and
+the CoreCLR-specific `GetDotNetRuntimeHeap` hook before artifact upload and
+again before deployment. Before the CoreCLR artifact crosses the upload
+boundary, the workflow compares its schema-5 runtime receipt with the triggering
+Mono run's schema-5 compiler receipt. This comparison is intentionally
+cross-toolchain: generated facade contracts and async-lowering evidence must
+remain equivalent between the .NET 11 Mono build and .NET 12 CoreCLR build.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property
