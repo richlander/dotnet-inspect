@@ -543,6 +543,47 @@ privatizing the reference (`PrivateAssets='all'`, `IncludeAssets='none'`), which
 package present while contributing nothing. That direction is consistent with
 this document's position: the named package remains addressable.
 
+### A project-rooted workspace has a better oracle than this one
+
+NuGet's exemption is defined against a project, so it has a literal referent
+only when a project defines the workspace — `--project`, a
+`project.assets.json` context, or a `project` workspace member. A
+package-rooted workspace has no current project, so every reference in it is
+transitive by NuGet's reckoning and the exemption never applies.
+
+For the project case the assets file is a stronger oracle than this owner's
+inventory, and it should be preferred where present. Restore already applied
+pruning and recorded both halves: the rules, as `PrunePackageReference` items
+in the `project` section, and the result, since a pruned id "will not appear in
+the assets file libraries or targets section". That is the exact answer for
+that project, at its exact framework and versions, with no derivation. This
+owner's inventory is what answers the same question when no project has
+already answered it.
+
+Two consequences: a project-rooted workspace should read its own answer rather
+than recomputing one that could disagree with the build it is describing, and
+a disagreement between the two is a signal worth surfacing rather than
+silently resolving.
+
+### Open question: what a direct reference means for edges
+
+NuGet does not prune a direct `PackageReference`, which leaves it in the graph
+as a **resolution target** — edges bind to the package, not the platform. This
+document's selection rule is narrower: a named package stays addressable as a
+subject, while edges from elsewhere still resolve to the platform.
+
+For a package-rooted workspace the narrower rule is the specified behavior: a
+workspace holding Platform 11.0 and the `System.Text.Json` package routes other
+packages' references into the platform. For a project-rooted workspace the
+answer is less obvious, because the point of a project input is to show what
+that project actually compiles against, and there the un-pruned direct
+reference genuinely wins. Matching the build argues for adopting NuGet's
+semantics in that case; consistency across workspace kinds argues against.
+
+Unresolved. It only bites when a project directly references a package its
+platform would otherwise subsume, which is precisely the case NU1510 exists to
+flag.
+
 ### Named divergence: this product has one switch, not two
 
 NuGet exposes `RestoreEnablePackagePruning` to disable the feature. This owner
