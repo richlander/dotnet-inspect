@@ -78,8 +78,9 @@ The immediate adopter is CLI `diff --pdb-source` with one explicitly selected
 method represented by an exact MethodDef anchor and one assembly on each side.
 Accessor selections that cannot retain that anchor stay on the existing
 enrichment path rather than being promoted to their owning declaration.
-The shared query remains available to
-the planned browser two-version Source view. Existing broader CLI enrichment
+The shared query also supplies the
+[browser two-version Source view](inspect-web-source-comparison.md).
+Existing broader CLI enrichment
 is not claimed migrated or removed by this bounded cutover.
 
 The single delivery ledger is
@@ -96,8 +97,10 @@ results and lowers into its existing Markout Implementation Diff rows.
 Retained line moves remain visible with their old and new declaration-relative
 line numbers, including when no line content changed or moves coexist with
 content edits. Only an exact pair receives an unchanged Source row. The
-browser will consume the same pair and shared text-diff presentation; no
-browser transport or interaction contract is defined here.
+browser consumes the same pair as structured native line relations before
+its interactive DOM lowering; its feature design owns that deliberate
+host-specific presentation choice. No browser transport or interaction
+contract is defined here.
 
 ## Outcome gates
 
