@@ -555,21 +555,31 @@ rule is **safely always enabled whenever the platform is in scope**. There is
 no input for which applying it is unsafe; there are only inputs that carry an
 exemption, below.
 
-### Input kinds carry different pruning semantics
+### Two dimensions decide how an input is treated
 
-What a workspace is rooted by determines whether an app-level exemption
-applies, and how much has already been decided before the product sees it:
+An input varies along two independent axes, and each answers a different
+question:
 
-| Input | Stage | Treatment |
+- **Kind** — app or library — decides whether an app-level exemption exists at
+  all. Only an app has references it authored for itself.
+- **Processing** — pre or post — decides whether this owner applies pruning or
+  reads an answer someone else already applied.
+
+| | Pre-processed | Post-processed |
 | --- | --- | --- |
-| `.csproj` | pre-processed — an input to SDK processing | Prune, with the project's direct references exempt. The app-level exemption is well defined here because the authored references are visible. |
-| `.nuspec` or a bare package | a pure library asset | Prune with no exemption. Nothing in it is an app-authored reference. |
-| `project.assets.json`, `app.deps.json` | post-processed | **Unresolved.** Needs follow-up. |
+| **App** | `.csproj` — prune, with the project's own direct references exempt | `project.assets.json`, `app.deps.json` — deferred |
+| **Library** | `.nuspec`, a bare package — prune, no exemption | a library project's assets file — deferred, and no exemption to preserve |
 
-The first two are straightforward and settle the common cases. A package is a
-library, so every reference in it is somebody's dependency and none is an
-app's own choice. A project file is the one place an app-authored reference is
-legible, so it is the one place the exemption has a referent.
+The pre-processed row is settled and covers the common cases. A `.csproj` is an
+input to SDK processing, so its authored references are legible and the
+exemption has a referent. A package is a pure library asset where every
+reference is somebody's dependency and none is an app's own choice, so it
+prunes with nothing exempt.
+
+The post-processed column is deferred to the detailed design, for the reason
+below. Note that kind still applies within it: a library's assets file has no
+app-authored reference to preserve even once its processing semantics are
+understood.
 
 ### Follow-up: post-processed inputs
 
@@ -723,6 +733,8 @@ Implemented gates live in
 | A subsumed edge delegates although the workspace holds the package | `Pruning_ContainedPackageDoesNotCaptureSubsumedEdge` | pending — consumer slice |
 | Search advertises a subsumed name as both | `Pruning_SubsumedNameRemainsSelectableAsPackage` | pending — consumer slice |
 | The inventory projects to stable rows carrying family, live flag, and supplied version | `Pruning_InventoryProjectsAuditableRows` | pending — projection slice |
+| A library input prunes with no app-level exemption | `Pruning_LibraryInputHasNoDirectReferenceExemption` | pending — consumer slice |
+| A project input exempts its own authored references | `Pruning_ProjectInputExemptsAuthoredReferences` | pending — consumer slice |
 
 A pending gate names the slice that lands it. `Pruning_UnknownTargetIsNotSubsumed`
 was removed rather than left unimplemented: an inventory *is* its target, so an
