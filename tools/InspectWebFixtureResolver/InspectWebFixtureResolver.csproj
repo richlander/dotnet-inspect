@@ -20,6 +20,8 @@
          fixtures' types, so ReferenceOutputAssembly stays false. -->
     <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.LibB/DiffAsmFixtures.LibB.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="../../fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1/InspectWeb.SourceComparisonFixtures.V1.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="../../fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2/InspectWeb.SourceComparisonFixtures.V2.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
 </Project>
