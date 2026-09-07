@@ -165,7 +165,14 @@ and
   visible without consuming package-row credit. Rows append to source-
   independent state, while Browser publication is frame-batched and patches
   only the live failure, cancellation, and result regions rather than replacing
-  the whole application DOM for every event. Product-issued progress
+  the whole application DOM for every event. The result region retains every
+  admitted row in that state but mounts at most 30 package cards: the estimated
+  visible range plus five rows of overscan on either side, clamped to that
+  ceiling. Top and bottom spacers preserve the full accumulated scroll range.
+  The renderer measures the mounted row extent and preserves the first visible
+  row as an anchor while the window moves, so refinement does not reset the
+  user's scroll position. Scroll and stream updates share the existing
+  animation-frame patch schedule. Product-issued progress
   checkpoints distinguish source search, manifest evaluation, and explicit
   package-content evaluation, so filtered candidates remain perceptible
   without becoming result rows. Query-scoped source-selection context from the
@@ -490,6 +497,11 @@ and browser-history and focus-return outcomes are proved by
    cannot publish an uncredited match.
 13. Confirm that streamed progress and rows produce at most one query-region
    patch per animation frame and do not replace the application root.
+14. Accumulate 100 rows and confirm that all rows remain in query state and
+   final accounting while no more than 30 package cards are mounted. Scroll
+   from the first rows through the middle to the final rows; confirm five-row
+   overscan, spacer-preserved range, stable visible-row anchoring, typed row
+   opening, and near-end demand pressure.
 
 ## Landing sequence
 
@@ -502,7 +514,9 @@ and browser-history and focus-return outcomes are proved by
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
    facet, and the segmented .NET tool format control.
 5. **#5816** adds Browser-advertised match credit, scroll-pressure
-   replenishment, and frame-batched query-region rendering through #5832.
+   replenishment, and frame-batched query-region rendering through #5832. Its
+   Browser-owned DOM follow-up retains the complete outcome in state while
+   mounting a bounded 30-card result window with five-row overscan.
 6. [Package Query assembly-pattern
    evaluation](package-query-assembly-evaluation.md) owns one-candidate
    primary-assembly selection, semantic confirmation, evidence, and resource
@@ -522,8 +536,8 @@ and browser-history and focus-return outcomes are proved by
    by #5816, removes the complete-search barrier in prefix-profile consumers.
    [#6070](https://github.com/richlander/dotnet-inspect/issues/6070) restores
    explicit package-ID and prefix selection on the website and makes Gallery
-   discovery an explicit source gesture. DOM virtualization and Worker
-   placement remain separate follow-ups.
+   discovery an explicit source gesture. Worker placement remains a separate
+   follow-up.
 9. [Package Query inspection evidence](package-query-inspection-evidence.md),
    tracked by #6071, transports typed package/query scope and count-plus-preview
    summaries to the website. Query context renders once per result set while

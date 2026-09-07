@@ -444,13 +444,16 @@ import {
 import {
   bindPackageQueryView,
   capturePackageQueryFocus,
-  capturePackageQueryScroll,
   patchPackageQueryStream,
   renderPackageQueryView,
   restorePackageQueryFocus,
-  restorePackageQueryScroll,
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
+import {
+  capturePackageQueryViewport,
+  restorePackageQueryViewport,
+  type PackageQueryViewportSnapshot,
+} from "./package-query-window.ts";
 import {
   historyEntryId,
   isPackageQueryPath,
@@ -1258,6 +1261,7 @@ const packageQueryController = createPackageQueryController(
   updateKind => {
     if (!state.packageQueryOpen) return;
     if (updateKind === "reset") {
+      packageQueryViewport = null;
       render();
       return;
     }
@@ -9499,6 +9503,7 @@ function resetPackageQueryState() {
   const fresh = initialQueryState();
   state.packageQueryState.request = fresh.request;
   state.packageQueryState.outcome = fresh.outcome;
+  packageQueryViewport = null;
 }
 
 function resetPackageQueryAnnouncements() {
@@ -9705,6 +9710,8 @@ async function openPackageQueryRow(
   packageId: string,
   version: string,
 ) {
+  packageQueryViewport =
+    capturePackageQueryViewport(document) ?? packageQueryViewport;
   packageQueryController.cancel();
   state.packageQueryOpen = false;
   const navigationSeq = navigationSequence.begin();
@@ -9765,6 +9772,7 @@ const packageQueryActions: PackageQueryBindingActions = {
     packageQueryController.configure(configured);
   },
   onResultPressure: () => packageQueryController.requestMore(),
+  onResultViewportChange: schedulePackageQueryStreamRender,
   onRowOpen: (packageId, version) => {
     observeAsync(
       openPackageQueryRow(packageId, version),
@@ -9774,6 +9782,7 @@ const packageQueryActions: PackageQueryBindingActions = {
 };
 
 let packageQueryStreamRenderFrame: number | null = null;
+let packageQueryViewport: PackageQueryViewportSnapshot | null = null;
 
 function cancelPackageQueryStreamRender() {
   if (packageQueryStreamRenderFrame === null) return;
@@ -9791,30 +9800,33 @@ function schedulePackageQueryStreamRender() {
 
 function patchPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
-  const scrollTop = capturePackageQueryScroll(document);
+  const viewport =
+    capturePackageQueryViewport(document) ?? packageQueryViewport;
   const announcement = takePackageQueryAnnouncement();
   const patched = patchPackageQueryStream(
     document,
     {
       state: state.packageQueryState,
       escapeHtml,
+      viewport,
     },
     packageQueryActions);
   if (!patched) {
     render();
     return;
   }
-  const focusRestoration = restorePackageQueryFocus(document, focus);
-  if (focusRestoration !== "fallback") {
-    restorePackageQueryScroll(document, scrollTop);
-  }
+  restorePackageQueryViewport(document, viewport);
+  packageQueryViewport =
+    capturePackageQueryViewport(document) ?? viewport;
+  restorePackageQueryFocus(document, focus);
   packageQueryLiveAnnouncer.enqueue(announcement);
 }
 
 function renderPackageQueryPage() {
   cancelPackageQueryStreamRender();
   const focus = capturePackageQueryFocus(document);
-  const scrollTop = capturePackageQueryScroll(document);
+  const viewport =
+    capturePackageQueryViewport(document) ?? packageQueryViewport;
   const announcement = takePackageQueryAnnouncement();
   document.title = "Package query · dotnet-inspect";
   app.innerHTML = renderPackageQueryView({
@@ -9827,12 +9839,13 @@ function renderPackageQueryPage() {
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
     escapeHtml,
+    viewport,
   });
   bindPackageQueryView(document, packageQueryActions);
-  const focusRestoration = restorePackageQueryFocus(document, focus);
-  if (focusRestoration !== "fallback") {
-    restorePackageQueryScroll(document, scrollTop);
-  }
+  restorePackageQueryViewport(document, viewport);
+  packageQueryViewport =
+    capturePackageQueryViewport(document) ?? viewport;
+  restorePackageQueryFocus(document, focus);
   packageQueryLiveAnnouncer.enqueue(announcement);
 }
 
