@@ -325,12 +325,24 @@ Pruning becomes interesting only where an edge leaves an assembly.
 
 ### Resolution across an edge delegates to the platform
 
-An edge into a subsumed identity resolves to the platform, matching what the
-SDK does at build time — and it does so **even when the workspace also
-contains that package**. Containment is not binding. A workspace holding both
-Platform 11.0 and the `System.Text.Json` package traverses every reference to
-`System.Text.Json`, from the platform or from any other package, into the
-platform.
+An edge into a **subsumed** identity resolves to the platform, matching what
+the SDK does at build time, and it does so even when the workspace also
+contains that package. Containment does not decide; the comparison does.
+
+The comparison runs both ways, so holding the package changes nothing on its
+own:
+
+| Platform | Requested `System.Text.Json` | Subsumed? | Traversal target |
+| --- | --- | --- | --- |
+| 11.0 | 11.0 | yes | platform |
+| 11.0 | 10.x | yes | platform |
+| 10.0 | 11.0 | no | the `System.Text.Json` package |
+
+In the first two rows a contained package does not capture the edge. In the
+third the platform cannot answer for the requested version, so the contained
+package is the target — and being in the workspace is what makes it
+resolvable. A single workspace can route two edges to different targets when
+they request different versions, because each edge is compared on its own.
 
 Two edges are involved, and only the first is this owner's:
 
@@ -346,14 +358,14 @@ owner decides package-graph edges; assembly binding stays with the resolver.
 
 ### Delegation is bounded by the supplied version
 
-Unconditional with respect to workspace containment; still bounded by the
-comparison. An edge requesting a version **above** the supplied version is not
-subsumed, and delegating it would show an older surface while hiding the newer
-package — the over-claiming failure this design exists to prevent.
+The third row above is the whole of it. An edge requesting a version **above**
+the supplied version is not subsumed, and delegating it would show an older
+surface while hiding the newer package — the over-claiming failure this design
+exists to prevent.
 
-For the common case the distinction is invisible: Platform 11.0 against
-`System.Text.Json` 10.x or 11.x subsumes either way. It becomes visible only
-when a package leapfrogs the runtime, which is exactly when it must.
+For the common case the distinction is invisible, because a workspace's
+platform is usually at least as new as its packages. It becomes visible when a
+package leapfrogs the runtime, which is exactly when it must.
 
 ### The selected dependency group is the local oracle
 
