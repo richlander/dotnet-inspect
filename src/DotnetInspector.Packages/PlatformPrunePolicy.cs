@@ -63,52 +63,56 @@ public sealed record PlatformSupply(
 public static class PlatformPrunePolicy
 {
     /// <summary>
-    /// Decides what <paramref name="inventory"/>'s target supplies for <paramref name="packageId"/>
-    /// at <paramref name="requestedVersion"/>.
+    /// Decides what <paramref name="inventory"/>'s target supplies for
+    /// <paramref name="coordinate"/>.
     /// </summary>
     /// <param name="inventory">The composed inventory for one target.</param>
-    /// <param name="packageId">The package identity being asked about.</param>
-    /// <param name="requestedVersion">
-    /// The requested version, or null when the caller has none. A null request is
-    /// <see cref="PlatformSubsumption.NotComparable"/> rather than an assumed match.
+    /// <param name="coordinate">
+    /// The package acquisition coordinate being asked about. Its framework, when present, must
+    /// name the inventory's target: subsumption is a per-framework fact, so answering a
+    /// `net8.0` question from a `net11.0` inventory would be a different question quietly
+    /// answered. Its runtime identifier is ignored, because pruning is RID-independent.
     /// </param>
     /// <param name="platformLibrary">
     /// Optional catalog lookup from package identity to the platform library supplying it.
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// The coordinate names a different target framework than the inventory describes.
+    /// </exception>
     public static PlatformSupply Decide(
         PlatformPruneInventory inventory,
-        string packageId,
-        NuGetVersion? requestedVersion,
+        PackageCoordinate coordinate,
         Func<string, string?>? platformLibrary = null)
     {
         ArgumentNullException.ThrowIfNull(inventory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinate.PackageId);
 
-        if (!inventory.TryGetEntry(packageId, out PlatformPruneEntry entry))
+        if (coordinate.Framework is { Length: > 0 } framework
+            && !string.Equals(framework, inventory.TargetFramework, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"The coordinate targets '{framework}' but the inventory describes "
+                + $"'{inventory.TargetFramework}'.",
+                nameof(coordinate));
+        }
+
+        if (!inventory.TryGetEntry(coordinate.PackageId, out PlatformPruneEntry entry))
         {
             return PlatformSupply.None;
         }
 
+        // An omitted coordinate version floats to the latest acceptable version rather than
+        // meaning "no version", so it is not comparable until something resolves it. Either way
+        // the answer is not Subsumed.
+        PlatformSubsumption subsumption = coordinate.Version is { Length: > 0 } version
+            ? inventory.Subsumes(coordinate.PackageId, version)
+            : PlatformSubsumption.NotComparable;
+
         return new PlatformSupply(
-            inventory.Subsumes(packageId, requestedVersion),
+            subsumption,
             entry.Family,
             entry.SuppliedVersion,
             platformLibrary?.Invoke(entry.PackageId));
     }
-
-    /// <summary>
-    /// Decides using a requested version in text form. An unparsable version is
-    /// <see cref="PlatformSubsumption.NotComparable"/> for a known identity rather than a
-    /// comparison against a guessed value.
-    /// </summary>
-    public static PlatformSupply Decide(
-        PlatformPruneInventory inventory,
-        string packageId,
-        string? requestedVersion,
-        Func<string, string?>? platformLibrary = null) =>
-        Decide(
-            inventory,
-            packageId,
-            NuGetVersion.TryParse(requestedVersion, out NuGetVersion? parsed) ? parsed : null,
-            platformLibrary);
 }
