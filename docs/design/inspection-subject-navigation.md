@@ -246,17 +246,20 @@ Artifact acquisition and package realization own package coordinate,
 `PackageRootBinding`, content-generation, selection, and acquired-descendant
 identity currencies. The current #5656 substrate composes a Workspace-local
 occurrence with `PackageRootBinding`; Workspace Scope and Expansion replaces
-that resource-bearing association with a complete `WorkspaceRootOccurrence`
-containing its own identity, typed `WorkspaceRootDescriptor`, and the adjacent
+that resource-bearing association with a complete
+`WorkspacePackageOccurrence` containing its own identity, typed
+`WorkspacePackageDescriptor`, and the adjacent
 owner's `ArtifactRootCorrespondence`, plus a point-in-time
 `ArtifactRootScopeProjection` in the occurrence descriptor. Navigation
 consumes those owner-issued exact values. A portable package coordinate alone
 cannot identify one retained occurrence.
 
-The `Root` names in those adjacent-owner types describe physical or Scope
-membership boundaries. Navigation turns only their Package arm into a
-coordinate-level structural subject. It retains other occurrence descriptors
-in Workspace inventory as unsupported without exposing a Root subject.
+The `ArtifactRoot*` names in the adjacent Artifact owner describe one physical
+realization and publication unit and remain correct. Scope's current
+`WorkspaceRoot*` names are pre-issuance implementation vocabulary; its target
+contract exposes only Package occurrences and renames those types in place.
+Navigation consumes that Package-specific contract and never exposes a Root
+subject.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
 the Type and Member identity currencies used here.
@@ -332,13 +335,11 @@ empty levels remain visible as unavailable. Package classification follows the
 owner-issued typed descriptor, never coordinate text, an icon, a
 package-shaped display label, or host flags.
 
-Workspace inventory still preserves every owner-issued retained occurrence. A
-non-package occurrence is visible there as
-`Unavailable(UnsupportedSubjectKind)` with its exact owner descriptor and no
-Navigation target or activation action. It does not create hierarchy
-descriptors below that occurrence, relabel it Package, or manufacture a generic
-Root. A later concrete non-package subject extends the grammar and its
-complete-inventory behavior together.
+Workspace inventory preserves every owner-issued Package occurrence. Current
+Browser platform rows remain host-local behavior outside shared Scope and
+Navigation; this design neither suppresses nor relabels them. A later concrete
+subject such as Platform extends Scope, this grammar, and its inventory
+behavior together through its own named consumer.
 
 ### Identity
 
@@ -347,7 +348,7 @@ The conceptual subject identity family is:
 | Kind | Identity components |
 | --- | --- |
 | Workspace | Artifact-owner `InspectionWorkspaceIdentity` established by #5508 |
-| Package | Complete scope-owner `WorkspaceRootOccurrence` whose separate `WorkspaceRootDescriptor` has the Package arm |
+| Package | Complete scope-owner `WorkspacePackageOccurrence` and its separate `WorkspacePackageDescriptor` |
 | All Libraries | Exact Package plus explicit aggregate Library identity |
 | One Library | Exact Package plus acquired Library identity |
 | Type | Exact Library binding plus exact metadata definition |
@@ -469,7 +470,7 @@ identities through typed seams; browser display text never becomes a command
 currency.
 
 Retained-coordinate descriptors separately carry an owner-issued exact
-`WorkspaceRootOccurrence`, including its typed Root descriptor, and owner order
+`WorkspacePackageOccurrence`, including its typed Package descriptor, and owner order
 from
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md), current
 realization status from
@@ -1152,7 +1153,6 @@ The eventual subject-navigation implementation must include named gates for:
 - `AncestorTypeInventoryContext_DerivesFromDeepestRetainedNode`
 - `WorkspaceSubject_ExposesCoordinatesWithoutNavigationAggregation`
 - `PackageSubject_RequiresPackageOccurrence`
-- `NonPackageOccurrence_IsVisibleAndUnavailableWithoutRelabeling`
 - `RetainedCoordinateActivation_UsesExactOccurrenceAction`
 - `ForeignWorkspaceSubjectActionAndRestoration_AreRejected`
 - `SnapshotComposition_RejectsForeignWorkspaceEvidence`
@@ -1283,7 +1283,6 @@ result identifies Navigation as the failure source.
 | Workspace selected with an active occurrence | Exact Workspace subject and ordered retained-coordinate descriptors; the active occurrence and its Package, Library, Type, and Member context remain available |
 | Workspace selected without an active occurrence, with zero, one, or many retained entries | Exact Workspace subject with no invented coordinate or lower context |
 | Package coordinate selected | Exact Workspace-bound Package ancestry; no tab or display identity participates |
-| Non-package coordinate supplied | Visible in Workspace inventory as `Unavailable(UnsupportedSubjectKind)` with exact owner evidence and no target or action; never relabelled Package or admitted as a generic Root |
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
 | Active coordinate is absent without a supplied replacement | Workspace with no active occurrence |
 | Active coordinate is absent with an exact supplied replacement | Occurrence-first correspondence and level-local fallback only inside that occurrence |
