@@ -44,6 +44,26 @@ independent implementation rather than referencing `DotnetInspector.Packages`,
 so the externally facing function does not acquire the product library's wider
 surface.
 
+### Response security
+
+Responses produced by the symbol and health functions carry these headers,
+including validation failures, missing symbols, oversized declarations, and
+handled upstream failures:
+
+| Header | Value |
+| --- | --- |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `X-Frame-Options` | `DENY` |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` |
+
+This function-owned policy covers public symbol bytes returned from our origin.
+The values match the static site's baseline, but Azure Static Web Apps does not
+apply `globalHeaders` to managed API responses. `MsdlProxyFunctionTests` executes
+the MVC results and checks the headers, status codes, and successful bodies in
+Release. Responses generated outside these functions, such as platform routing
+errors or unhandled host failures, are outside this gate.
+
 ## Development
 
 Run the executable xUnit project:

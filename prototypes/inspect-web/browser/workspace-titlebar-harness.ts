@@ -46,7 +46,7 @@ import { renderMemberFacts } from "../src/member-facts.ts";
 import { renderOverviewSurface } from "../src/overview-surface.ts";
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
-import { allocationFactsFixture, callFactsFixture, memberFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -115,6 +115,7 @@ const memberFactsMode = params.get("member-facts");
 const allocationFactsMode = params.get("allocation-facts");
 const callFactsMode = params.get("call-facts");
 const safetyFactsMode = params.get("safety-facts");
+const exceptionRegionsMode = params.get("exception-regions");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -247,7 +248,7 @@ let activeTypeLens: TypeLens = sourceMode
     : "api";
 let activeMemberSection: MemberSection = sourceMode
   ? "source"
-  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode ? "facts" : "overview";
+  : memberFactsMode || allocationFactsMode || callFactsMode || safetyFactsMode || exceptionRegionsMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -498,7 +499,9 @@ function detailHtml() {
           ? callFactsFixture(callFactsMode === "long" ? "long" : "populated")
           : safetyFactsMode
             ? safetyFactsFixture(safetyFactsMode === "long" ? "long" : "populated")
-            : memberFactsFixture(mode);
+            : exceptionRegionsMode
+              ? exceptionRegionsFixture(exceptionRegionsMode === "long" ? "long" : "populated")
+              : memberFactsFixture(mode);
       return `<section class="member-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">DeserializeSync</h1>

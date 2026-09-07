@@ -4537,6 +4537,46 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void SnapshotTypeForRendering_CarriesLayoutFactsWithoutEmittingLayoutSyntax()
+    {
+        Guid moduleVersionId = Guid.NewGuid();
+        var typeFacts = new ApiTypeLayoutFacts(moduleVersionId, 0x02000001, 32, 2);
+        var fieldFacts = new ApiFieldLayoutFacts(
+            moduleVersionId, typeFacts.TypeToken, 0x04000001, 0);
+        var field = new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            ReturnType = "int",
+            FieldLayout = fieldFacts,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "LayoutCarrier",
+            Kind = "struct",
+            Layout = ApiTypeLayout.Explicit,
+            LayoutDetails = typeFacts,
+            Members = [field],
+        };
+
+        ApiType snapshot = CSharpTypePrinter.SnapshotTypeForRendering(type, type.Members);
+
+        Assert.Same(typeFacts, snapshot.LayoutDetails);
+        Assert.Same(fieldFacts, Assert.Single(snapshot.Members).FieldLayout);
+        Assert.Equal(
+            """
+            namespace Samples;
+
+            public struct LayoutCarrier
+            {
+                public int Value;
+            }
+            """,
+            Assert.Single(_printer.Print(new CSharpTypePrintRequest(snapshot)).Units).Source);
+    }
+
+    [Fact]
     public void SnapshotTypeForRendering_CarriesSegmentParameterOwnership()
     {
         var type = new ApiType
