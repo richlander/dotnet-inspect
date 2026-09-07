@@ -35,6 +35,12 @@ facade_pid=$!
 ) &
 worker_pid=$!
 
+(
+  cd "$frontend"
+  npm run inspect-web-worker-cpu-isolation
+) &
+cpu_pid=$!
+
 "$repo_root/eng/test-inspect-web-package-adoption-gate.sh" &
 package_pid=$!
 
@@ -48,6 +54,7 @@ failed=0
 for gate in \
   "published facade:$facade_pid" \
   "Worker browser binding:$worker_pid" \
+  "managed CPU isolation:$cpu_pid" \
   "package adoption:$package_pid" \
   "Authored Source comparison:$source_pid" \
   "promotion validation:$promotion_pid"; do
