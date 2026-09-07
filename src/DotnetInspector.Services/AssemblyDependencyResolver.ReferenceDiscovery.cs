@@ -24,6 +24,20 @@ public sealed partial class AssemblyDependencyResolver
         string? targetFramework = null,
         NuGetSourceOptions? sourceOptions = null,
         bool useSourcePolicy = false)
+        => PackageDependencyReferencePathsCore(
+            targetPath, packageRoots, preferImplementationAssemblies,
+            rootPackageDirectory, targetFramework, sourceOptions, useSourcePolicy,
+            strict: false);
+
+    static IReadOnlyList<string> PackageDependencyReferencePathsCore(
+        string targetPath,
+        IReadOnlyList<string>? packageRoots,
+        bool preferImplementationAssemblies,
+        string? rootPackageDirectory,
+        string? targetFramework,
+        NuGetSourceOptions? sourceOptions,
+        bool useSourcePolicy,
+        bool strict)
     {
         NuGetReferenceContext? context =
             rootPackageDirectory is not null
@@ -57,9 +71,10 @@ public sealed partial class AssemblyDependencyResolver
                 packageDirectories,
                 selectedDirectories,
                 dependencyGraph,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                strict);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        catch (Exception ex) when (!strict && ex is (IOException or UnauthorizedAccessException or System.Xml.XmlException))
         {
             return [];
         }
@@ -77,7 +92,8 @@ public sealed partial class AssemblyDependencyResolver
             foreach (var path in ProbeNuGetPackageVersionDlls(
                 packageDirectories[id][selectedVersions[id]],
                 context.TargetFramework,
-                preferImplementationAssemblies))
+                preferImplementationAssemblies,
+                strict))
                 references.Add(path);
         return references;
 
@@ -101,13 +117,16 @@ public sealed partial class AssemblyDependencyResolver
         Dictionary<string, Dictionary<string, string>> packageDirectories,
         Dictionary<string, string?> selectedDirectories,
         Dictionary<string, List<PackageDependency>> dependencyGraph,
-        HashSet<string> visiting)
+        HashSet<string> visiting,
+        bool strict)
     {
         var nuspec = Directory.EnumerateFiles(packageDirectory, "*.nuspec").FirstOrDefault();
         if (nuspec is null)
             return [];
 
         var document = XDocument.Load(nuspec);
+        if (strict && (document.Root is null || !NuspecParser.IsPackageRoot(document.Root)))
+            throw new System.Xml.XmlException("The dependency manifest has an invalid package root.");
         var dependencies = new List<PackageDependency>();
         foreach (var dependency in SelectNuGetDependencies(document, targetFramework))
         {
@@ -144,7 +163,7 @@ public sealed partial class AssemblyDependencyResolver
                             root,
                             id.ToLowerInvariant(),
                             version.ToLowerInvariant());
-                        if (Directory.Exists(candidate))
+                        if (DiscoveryDirectoryExists(candidate, strict))
                         {
                             dependencyDirectory = candidate;
                             break;
@@ -179,7 +198,8 @@ public sealed partial class AssemblyDependencyResolver
                     packageDirectories,
                     selectedDirectories,
                     dependencyGraph,
-                    visiting);
+                    visiting,
+                    strict);
                 visiting.Remove(visitKey);
             }
         }
@@ -394,9 +414,10 @@ public sealed partial class AssemblyDependencyResolver
         return version.AsSpan().ContainsAny(s_versionRangeDelimiters) ? null : version;
     }
 
-    static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm, bool preferImplementationAssemblies)
+    static IEnumerable<string> ProbeNuGetPackageVersionDlls(
+        string packageDir, string? tfm, bool preferImplementationAssemblies, bool strict)
     {
-        if (!Directory.Exists(packageDir))
+        if (!DiscoveryDirectoryExists(packageDir, strict))
             yield break;
 
         var assetKinds = preferImplementationAssemblies
@@ -405,7 +426,7 @@ public sealed partial class AssemblyDependencyResolver
 
         foreach (string assetKind in assetKinds)
         {
-            if (tfm is not null && AssetDirectory(packageDir, assetKind, tfm) is { } exactAssetDir)
+            if (tfm is not null && AssetDirectory(packageDir, assetKind, tfm, strict) is { } exactAssetDir)
             {
                 foreach (var path in Directory.EnumerateFiles(exactAssetDir, "*.dll"))
                     yield return path;
@@ -415,7 +436,7 @@ public sealed partial class AssemblyDependencyResolver
 
         foreach (string assetKind in assetKinds)
         {
-            if (tfm is not null && CompatibleAssetDirectory(packageDir, assetKind, tfm) is { } compatibleAssetDir)
+            if (tfm is not null && CompatibleAssetDirectory(packageDir, assetKind, tfm, strict) is { } compatibleAssetDir)
             {
                 foreach (var path in Directory.EnumerateFiles(compatibleAssetDir, "*.dll"))
                     yield return path;
@@ -424,16 +445,16 @@ public sealed partial class AssemblyDependencyResolver
         }
     }
 
-    static string? AssetDirectory(string packageDir, string assetKind, string tfm)
+    static string? AssetDirectory(string packageDir, string assetKind, string tfm, bool strict)
     {
         string assetDir = Path.Combine(packageDir, assetKind, tfm);
-        return Directory.Exists(assetDir) ? assetDir : null;
+        return DiscoveryDirectoryExists(assetDir, strict) ? assetDir : null;
     }
 
-    static string? CompatibleAssetDirectory(string packageDir, string assetKind, string targetTfm)
+    static string? CompatibleAssetDirectory(string packageDir, string assetKind, string targetTfm, bool strict)
     {
         string assetRoot = Path.Combine(packageDir, assetKind);
-        if (!Directory.Exists(assetRoot))
+        if (!DiscoveryDirectoryExists(assetRoot, strict))
             return null;
 
         string? normalizedTarget = NormalizeNuGetFramework(targetTfm);
@@ -452,7 +473,7 @@ public sealed partial class AssemblyDependencyResolver
             .FirstOrDefault();
     }
 
-    static void AddSharedFrameworkReferences(string frameworkName, Action<string> add)
+    static void AddSharedFrameworkReferences(string frameworkName, Action<string> add, bool strict)
     {
         string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory()
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -468,10 +489,10 @@ public sealed partial class AssemblyDependencyResolver
             return;
 
         string frameworkRoot = Path.Combine(sharedRoot, frameworkName);
-        if (!Directory.Exists(frameworkRoot))
+        if (!DiscoveryDirectoryExists(frameworkRoot, strict))
             return;
 
-        string? selected = SelectSharedFrameworkDirectory(frameworkRoot, runtimeVersion);
+        string? selected = SelectSharedFrameworkDirectoryCore(frameworkRoot, runtimeVersion, strict);
         if (selected is null)
             return;
 
@@ -480,9 +501,12 @@ public sealed partial class AssemblyDependencyResolver
     }
 
     public static string? SelectSharedFrameworkDirectory(string frameworkRoot, string runtimeVersion)
+        => SelectSharedFrameworkDirectoryCore(frameworkRoot, runtimeVersion, strict: false);
+
+    static string? SelectSharedFrameworkDirectoryCore(string frameworkRoot, string runtimeVersion, bool strict)
     {
         string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
-        if (Directory.Exists(exactDirectory))
+        if (DiscoveryDirectoryExists(exactDirectory, strict))
             return exactDirectory;
         if (!System.Version.TryParse(
             VersionCore(runtimeVersion),
@@ -509,25 +533,38 @@ public sealed partial class AssemblyDependencyResolver
 
     static string VersionCore(string version) => version.Split('-', 2)[0];
 
-    static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
+    static void AddDepsJsonReferences(
+        string targetDirectory, string targetName, Action<string> addReference, bool strict)
     {
         var depsPath = Path.Combine(targetDirectory, $"{targetName}.deps.json");
-        if (!File.Exists(depsPath))
+        if (!DiscoveryFileExists(depsPath, strict))
             return;
 
         try
         {
             using var doc = HardenedJson.Parse(File.ReadAllText(depsPath));
             var root = doc.RootElement;
+            if (strict && root.ValueKind != JsonValueKind.Object)
+                throw new JsonException("The dependency document must be an object.");
             if (!root.TryGetProperty("targets", out var targets) ||
                 targets.ValueKind != JsonValueKind.Object ||
                 !root.TryGetProperty("libraries", out var libraries) ||
                 libraries.ValueKind != JsonValueKind.Object)
+            {
+                if (strict)
+                    throw new JsonException("The dependency document requires targets and libraries objects.");
                 return;
+            }
 
             var libraryPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var library in libraries.EnumerateObject())
             {
+                if (strict && library.Value.ValueKind != JsonValueKind.Object)
+                    throw new JsonException("A dependency library entry must be an object.");
+                if (strict && library.Value.TryGetProperty("path", out var declaredPath)
+                    && (declaredPath.ValueKind != JsonValueKind.String
+                        || string.IsNullOrEmpty(declaredPath.GetString())))
+                    throw new JsonException("A declared dependency package path must be a nonempty string.");
                 if (library.Value.ValueKind == JsonValueKind.Object &&
                     library.Value.TryGetProperty("path", out var pathElement) &&
                     pathElement.ValueKind == JsonValueKind.String &&
@@ -538,18 +575,24 @@ public sealed partial class AssemblyDependencyResolver
             foreach (var target in targets.EnumerateObject())
             {
                 if (target.Value.ValueKind != JsonValueKind.Object)
+                {
+                    if (strict)
+                        throw new JsonException("A dependency target must be an object.");
                     continue;
+                }
 
                 foreach (var library in target.Value.EnumerateObject())
                 {
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference);
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference);
+                    if (strict && library.Value.ValueKind != JsonValueKind.Object)
+                        throw new JsonException("A dependency entry must be an object.");
+                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference, strict);
+                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference, strict);
                 }
             }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
-        catch (JsonException) { }
+        catch (IOException) when (!strict) { }
+        catch (UnauthorizedAccessException) when (!strict) { }
+        catch (JsonException) when (!strict) { }
     }
 
     static void AddAssetGroup(
@@ -557,41 +600,49 @@ public sealed partial class AssemblyDependencyResolver
         IReadOnlyDictionary<string, string> libraryPaths,
         JsonProperty library,
         string groupName,
-        Action<string> addReference)
+        Action<string> addReference,
+        bool strict)
     {
         if (!library.Value.TryGetProperty(groupName, out var assets))
             return;
         if (assets.ValueKind != JsonValueKind.Object)
+        {
+            if (strict)
+                throw new JsonException("A dependency asset group must be an object.");
             return;
+        }
 
         foreach (var asset in assets.EnumerateObject())
         {
             if (asset.Name == "_._")
                 continue;
 
-            if (asset.Value.ValueKind == JsonValueKind.Object &&
-                asset.Value.TryGetProperty("localPath", out var localPathElement) &&
-                localPathElement.ValueKind == JsonValueKind.String &&
-                localPathElement.GetString() is { Length: > 0 } localPath &&
-                StorePath.TryResolveUnderRoot(
-                    targetDirectory,
-                    localPath,
-                    out string? resolvedLocalPath))
+            if (strict && asset.Value.ValueKind != JsonValueKind.Object)
+                throw new JsonException("A dependency asset entry must be an object.");
+            if (asset.Value.ValueKind == JsonValueKind.Object
+                && asset.Value.TryGetProperty("localPath", out var localPathElement))
             {
-                addReference(resolvedLocalPath);
+                if (localPathElement.ValueKind == JsonValueKind.String
+                    && localPathElement.GetString() is { Length: > 0 } localPath
+                    && StorePath.TryResolveUnderRoot(targetDirectory, localPath, out string? resolvedLocalPath))
+                    addReference(resolvedLocalPath);
+                else if (strict)
+                    throw new JsonException("A declared dependency local asset path was rejected.");
             }
 
-            if (libraryPaths.TryGetValue(library.Name, out var packagePath)
-                && StorePath.TryResolveUnderRoot(
+            if (libraryPaths.TryGetValue(library.Name, out var packagePath))
+            {
+                if (StorePath.TryResolveUnderRoot(
                     GlobalPackagesRoot(),
                     packagePath,
                     out string? packageDirectory)
-                && StorePath.TryResolveUnderRoot(
+                    && StorePath.TryResolveUnderRoot(
                     packageDirectory,
                     asset.Name,
                     out string? resolvedAssetPath))
-            {
-                addReference(resolvedAssetPath);
+                    addReference(resolvedAssetPath);
+                else if (strict)
+                    throw new JsonException("A declared dependency package asset path was rejected.");
             }
         }
     }

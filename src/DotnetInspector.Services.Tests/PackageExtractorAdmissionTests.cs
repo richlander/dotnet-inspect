@@ -288,25 +288,10 @@ public sealed class PackageExtractorAdmissionTests
     {
         try
         {
-            using var archive = ZipFile.OpenRead(nupkgPath);
-            foreach (ZipArchiveEntry entry in archive.Entries)
-            {
-                string relative = entry.FullName.Replace('\\', '/');
-                if (string.IsNullOrEmpty(relative) || relative.EndsWith('/'))
-                    continue;
-                if (relative.Contains("..", StringComparison.Ordinal)
-                    || Path.IsPathRooted(relative))
-                {
-                    return false;
-                }
-
-                string target = Path.Combine(
-                    destination,
-                    relative.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                entry.ExtractToFile(target, overwrite: true);
-            }
-
+            ZipFile.ExtractToDirectory(
+                nupkgPath,
+                destination,
+                overwriteFiles: true);
             return true;
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException)
