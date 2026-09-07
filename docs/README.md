@@ -97,7 +97,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
 | [Integration Scanner Binding](design/integration-scanner-binding.md) | Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution; catalog and host adoption remain staged. |
 | [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
-| [Approved Lazy Traversal](design/approved-lazy-traversal.md) | Proposed, operator-approved cross-owner experience: distinct subjects and traversal permissions, prefix/ecosystem knowledge, lazy demand, Browser defaults, and bounded prefix-only operations. |
+| [Workspace Registration and Call-Graph Focal Length](design/workspace-registration-and-call-graph-scope.md) | Proposed, operator-approved replacement: inert exact-library/prefix/ecosystem registration, shared Platform/ASP.NET Core/Extensions defaults, and consumer-selected call-graph focal lengths with a broad default. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |

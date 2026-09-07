@@ -185,11 +185,12 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
-- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
-  operator-approved cross-owner target experience for subjects, traversal
-  permissions, operation demand, Browser defaults, and ecosystem-assisted
-  retrieval. It is not a new runtime owner; component contracts and their
-  focused adoption remain with the participating owners.
+- [Workspace registration and call-graph focal
+  length](design/workspace-registration-and-call-graph-scope.md) is the
+  operator-approved cross-owner target experience for inert registration,
+  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
+  breadth. It retires traversal approval and permission semantics; component
+  contracts and their focused adoption remain with the participating owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
   contract. It consumes owner-backed edit-save completion and existing
