@@ -1,19 +1,11 @@
-name: CodeQL scheduled
+name: CodeQL nightly
 
-# The per-language CodeQL lanes in ci.yml are gated on the CI change plan, so
-# they analyze what a candidate changed. This workflow keeps the other half of
-# what default setup provided: a periodic full analysis that re-runs current
-# queries against code nobody touched, so a newly published query reaches this
-# repository without waiting for someone to edit a matching file.
-#
-# It is separate from ci.yml rather than another trigger on it because the
-# change planner accepts only the pull_request, merge_group, and push events;
-# a schedule event has no base commit to plan against and would fail the
-# `changes` job, taking the whole aggregate red.
+# CodeQL is intentionally outside pull-request CI. A daily full analysis
+# re-runs current queries against every supported language without making this
+# rarely-changing signal part of the merge gate.
 on:
   schedule:
-    # Weekly, matching the cadence the CodeQL default setup used here.
-    - cron: '38 4 * * 1'
+    - cron: '38 4 * * *'
   workflow_dispatch:
 
 permissions:

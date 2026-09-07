@@ -106,7 +106,6 @@ export function resolvePackageQueryWorkspaceSuccessor(
   }
 }
 
-export function validPackageQuerySearchText(value: string): string | null {
-  if (value.length > 100 || /\p{Cc}/u.test(value)) return null;
+export function validPackageQuerySearchText(value: string): string {
   return value.trim().length === 0 ? "" : value;
 }

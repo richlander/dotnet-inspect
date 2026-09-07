@@ -1,5 +1,5 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Reflection.Metadata;
 
 namespace DotnetInspector;
 
@@ -20,10 +20,9 @@ public static class VersionInfo
     /// <summary>
     /// Gets the runtime flavor: "NativeAOT" or "CoreCLR".
     /// </summary>
-    [UnconditionalSuppressMessage("SingleFile", "IL3000",
-        Justification = "Assembly.Location is intentionally used to detect NativeAOT (returns empty).")]
-    public static string Flavor =>
-        string.IsNullOrEmpty(typeof(object).Assembly.Location) ? "NativeAOT" : "CoreCLR";
+    // CoreCLR retains CoreLib metadata even in single-file builds; NativeAOT does not.
+    public static unsafe string Flavor =>
+        typeof(object).Assembly.TryGetRawMetadata(out _, out _) ? "CoreCLR" : "NativeAOT";
 
     /// <summary>
     /// Gets the runtime flavor and .NET version (e.g., "CoreCLR; .NET 10.0").

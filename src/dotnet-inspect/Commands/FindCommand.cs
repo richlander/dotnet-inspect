@@ -149,7 +149,8 @@ public class FindCommand
         CommandContext context,
         CancellationToken cancellationToken)
     {
-        if (options.Packages.Length > 0
+        if (options.HasPackageProfileGroupScope
+            || options.Packages.Length > 0
             || options.Assemblies.Length > 0
             || options.PlatformAssemblies.Length > 0
             || options.PlatformFrameworks.Length > 0

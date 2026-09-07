@@ -1,0 +1,134 @@
+name: Inspect Web runtime performance
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Samples per deployed runtime
+        required: true
+        type: number
+        default: 5
+      member_count:
+        description: Distinct member-facts operations per sample
+        required: true
+        type: number
+        default: 10
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inspect-web-runtime-performance
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Compare deployed runtimes
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    env:
+      BENCHMARK_SAMPLES: ${{ inputs.samples || '5' }}
+      BENCHMARK_MEMBER_COUNT: ${{ inputs.member_count || '10' }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
+      - name: Install Inspect Web dependencies
+        working-directory: prototypes/inspect-web
+        run: npm ci
+
+      - name: Install Firefox
+        working-directory: prototypes/inspect-web
+        run: npx playwright install --with-deps firefox
+
+      - name: Benchmark deployed runtimes
+        id: benchmark
+        working-directory: prototypes/inspect-web
+        shell: bash
+        run: |
+          set -o pipefail
+          artifact_dir="$RUNNER_TEMP/inspect-web-runtime-performance"
+          mkdir -p "$artifact_dir"
+          set +e
+          npm run benchmark:published -- \
+            --site mono=https://dotnet-inspect.ca \
+            --site coreclr=https://coreclr.dotnet-inspect.ca \
+            --samples "$BENCHMARK_SAMPLES" \
+            --member-count "$BENCHMARK_MEMBER_COUNT" \
+            --output "$artifact_dir/report.json" \
+            --trend-output "$artifact_dir/trend-point.json" \
+            2>&1 | tee "$artifact_dir/benchmark.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Publish run summary
+        if: always()
+        shell: bash
+        run: |
+          report="$RUNNER_TEMP/inspect-web-runtime-performance/report.json"
+          {
+            echo "## Inspect Web runtime performance"
+            echo
+            if [[ ! -f "$report" ]]; then
+              echo "The benchmark exited before producing a report."
+              exit 0
+            fi
+            jq -r '
+              ([.comparison.commitsBySite[][]] | unique) as $commits |
+              "**Comparable:** `\(.comparison.comparable)`  \n" +
+              "**Product commit:** `" +
+                (if ($commits | length) == 0 then "unavailable"
+                 else ($commits | join(", "))
+                 end) + "`  \n" +
+              "**Host load per logical processor:** `" +
+                (.environment.hostLoad.before.normalizedPerLogicalProcessor.oneMinute |
+                  tostring) + "` before, `" +
+                (.environment.hostLoad.after.normalizedPerLogicalProcessor.oneMinute |
+                  tostring) + "` after\n\n" +
+              "| Site | Succeeded | Failed | Startup median (ms) | " +
+                "Warm package median (ms) | Member ops/s median | " +
+                "Warm comparison median (ms) |\n" +
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n" +
+              ([.summaries[] |
+                "| \(.site) | \(.successfulSamples) | \(.failedSamples) | " +
+                "\(.startupMilliseconds.median // "n/a") | " +
+                "\(.warmPackageMilliseconds.median // "n/a") | " +
+                "\(.memberOperationsPerSecond.median // "n/a") | " +
+                "\(.warmMethodComparisonMilliseconds.median // "n/a") |"
+              ] | join("\n")) +
+              (if (.comparison.reasons | length) == 0 then ""
+               else "\n\n**Rejection reasons:**\n" +
+                 ([.comparison.reasons[] | "- " + .] | join("\n"))
+               end)
+            ' "$report"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: inspect-web-runtime-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/inspect-web-runtime-performance
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Require accepted comparison
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.benchmark.outputs.exit_code }}" = "0"
+          report="$RUNNER_TEMP/inspect-web-runtime-performance/report.json"
+          trend="$RUNNER_TEMP/inspect-web-runtime-performance/trend-point.json"
+          test -f "$report"
+          jq -e '.comparison.comparable == true' "$report" >/dev/null
+          test -f "$trend"

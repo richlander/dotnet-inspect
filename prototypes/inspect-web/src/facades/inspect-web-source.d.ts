@@ -1,6 +1,7 @@
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -92,6 +93,23 @@ export interface BrowserIlBodyRow {
     readonly operation: BrowserIlBodyOperation;
     readonly message: string;
 }
+export interface BrowserMemberFindingCensus {
+    readonly factCensusReceipt: string;
+    readonly facts: ReadonlyArray<BrowserMemberFindingFact>;
+    readonly annotatedSource: BrowserAnnotatedSource;
+    readonly sourceFactInstances: ReadonlyArray<BrowserSourceFactInstance>;
+}
+export interface BrowserMemberFindingFact {
+    readonly member: string;
+    readonly ilOffset: number | null;
+    readonly cSharpLine: number | null;
+    readonly anchor: string;
+    readonly category: string;
+    readonly id: string;
+    readonly detail: string | null;
+    readonly conditionality: string;
+    readonly instanceKey: number | null;
+}
 export interface BrowserMethodBodyComparison {
     readonly request: BrowserMethodBodyComparisonRequest;
     readonly stage: string;
@@ -176,6 +194,64 @@ export interface BrowserSource {
     readonly pdbSourceLimitation: string | null;
     readonly text: string;
 }
+export interface BrowserSourceComparison {
+    readonly request: BrowserSourceComparisonRequest;
+    readonly status: string;
+    readonly isExact: boolean;
+    readonly before: BrowserSourceComparisonEndpoint;
+    readonly after: BrowserSourceComparisonEndpoint;
+    readonly lines: ReadonlyArray<BrowserSourceComparisonLine>;
+    readonly failure: string | null;
+}
+export interface BrowserSourceComparisonEndpoint {
+    readonly packageId: string;
+    readonly version: string;
+    readonly framework: string;
+    readonly assembly: string;
+    readonly assetPath: string;
+    readonly moduleVersionId: string | null;
+    readonly assemblyIdentity: string;
+    readonly memberIdentity: string | null;
+    readonly metadataToken: number | null;
+    readonly state: string;
+    readonly detail: string | null;
+    readonly text: string | null;
+    readonly sourceUrl: string | null;
+    readonly repositoryUrl: string | null;
+    readonly revision: string | null;
+}
+export interface BrowserSourceComparisonLine {
+    readonly kind: string;
+    readonly difference: string;
+    readonly beforeLine: number | null;
+    readonly beforeText: string | null;
+    readonly afterLine: number | null;
+    readonly afterText: string | null;
+}
+export interface BrowserSourceComparisonRequest {
+    readonly packageId: string;
+    readonly beforeVersion: string;
+    readonly afterVersion: string;
+    readonly framework: string;
+    readonly assembly: string;
+    readonly typeIdentity: string;
+    readonly memberName: string;
+    readonly selectorKey: string;
+    readonly metadataToken: number;
+}
+export interface BrowserSourceComparisonResult {
+    readonly version: number;
+    readonly kind: BrowserSourceComparisonResultKind;
+    readonly value: BrowserSourceComparison | null;
+    readonly failureKind: BrowserTypeSourceFailureKind | null;
+    readonly error: string | null;
+    readonly diagnostic: string | null;
+    readonly reason: string | null;
+}
+export interface BrowserSourceFactInstance {
+    readonly factId: number;
+    readonly instanceKey: number;
+}
 export interface BrowserTypeSourceCancellation {
     readonly kind: BrowserTypeSourceCancellationKind;
     readonly reason: string | null;
@@ -196,11 +272,14 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function cancelMemberSourceComparison(operationId: string, reason: string): BrowserTypeSourceCancellation;
 export declare function cancelMethodBodyComparison(operationId: string, reason: string): BrowserTypeSourceCancellation;
 export declare function cancelSourceQuery(): void;
 export declare function cancelTypeSourceQuery(operationId: string, reason: string): BrowserTypeSourceCancellation;
 export declare function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource>;
+export declare function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberFindingCensus>;
 export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
+export declare function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult>;
 export declare function queryMethodBodyComparison(operationId: string, requestJson: string): Promise<BrowserMethodBodyComparisonResult>;
 export declare function queryMethodBodyComparisonTargets(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMethodBodyTargetsResult>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -107,29 +108,25 @@ internal static class BrowserPackageWorkspace
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
-    static readonly PackageSourceAssociation GalleryAssociation =
-        PackageSourceAssociation.Create();
     static readonly PackageSourceIdentity GalleryConfiguredIdentity =
         PackageSourceIdentity.NuGetOrg;
-    static readonly IReadOnlyDictionary<
+    static readonly ConcurrentDictionary<
         PackageSourceAssociation,
         PackageSourceIdentity> ConfiguredSourceIdentities =
-        new Dictionary<PackageSourceAssociation, PackageSourceIdentity>(
-            ReferenceEqualityComparer.Instance)
-        {
-            [GalleryAssociation] = GalleryConfiguredIdentity,
-        };
+        new ConcurrentDictionary<PackageSourceAssociation, PackageSourceIdentity>(
+            ReferenceEqualityComparer.Instance);
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
     internal static readonly IPackageSourceClient Gallery =
-        PackageSourceClientFactory.CreateGallery(
-            GalleryAssociation,
+        CreateGallerySource(
             new NuGetFetchOptions
             {
                 RequestTimeout = GalleryOperationTimeout,
                 OperationTimeout = GalleryOperationTimeout,
             });
-    static readonly BrowserSessionPackageStore Store = new();
+    static readonly ConditionalWeakTable<IPackageSourceClient, BrowserSessionPackageStore>
+        SourceStores = new();
+    static readonly BrowserSessionPackageStore Store = StoreFor(Gallery);
     static readonly PackagePayloadLimits PayloadLimits = new()
     {
         MaxArchiveBytes = MaxCachedPackageBytes,
@@ -164,6 +161,9 @@ internal static class BrowserPackageWorkspace
     internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
         Store;
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
+
+    static BrowserSessionPackageStore StoreFor(IPackageSourceClient source) =>
+        SourceStores.GetValue(source, static _ => new BrowserSessionPackageStore());
 
     sealed record CacheEntry
     {
@@ -227,6 +227,18 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version,
         IPackageSourceClient source,
+        TimeSpan operationTimeout) =>
+        AcquireAsync(
+            packageId,
+            version,
+            source,
+            ConfiguredSourceIdentityFor(source),
+            operationTimeout);
+
+    internal static Task<BrowserPackage> AcquireAsync(
+        string packageId,
+        string? version,
+        IPackageSourceClient source,
         PackageSourceIdentity configuredSourceIdentity,
         TimeSpan operationTimeout) =>
         RunPackageOperationAsync(
@@ -264,8 +276,11 @@ internal static class BrowserPackageWorkspace
             source,
             resolutionCancellation.Token).ConfigureAwait(false);
 
-        string key = PackageKey(coordinate.PackageId, coordinate.Version);
-        var pendingKey = new PendingAcquisitionKey(key, source);
+        BrowserSessionPackageStore store = StoreFor(source);
+        string key = store.PackageKey(coordinate.PackageId, coordinate.Version);
+        var pendingKey = new PendingAcquisitionKey(
+            CoordinateKey(coordinate.PackageId, coordinate.Version),
+            source);
         if (!PendingAcquisitions.TryGetValue(
                 pendingKey,
                 out Task<AcquiredPackageSourcePayload>? pending))
@@ -303,7 +318,8 @@ internal static class BrowserPackageWorkspace
         return new BrowserPackage(
             packageId,
             payload,
-            cached.Bytes);
+            cached.Bytes,
+            store);
     }
 
     static async Task<PackageSourceCoordinate> ResolveCoordinateAsync(
@@ -329,6 +345,48 @@ internal static class BrowserPackageWorkspace
             _ => throw new InvalidOperationException(
                 "Package coordinate resolution returned an unknown outcome."),
         };
+    }
+
+    /// <summary>
+    /// Creates one NuGet Gallery source client and registers its association
+    /// with the configured Browser source identity it acquires against, so
+    /// acquisition callers pass the client alone.
+    /// </summary>
+    internal static IPackageSourceClient CreateGallerySource(
+        NuGetFetchOptions options)
+    {
+        PackageSourceAssociation association =
+            PackageSourceAssociation.Create();
+        return RegisterGallerySource(
+            association,
+            PackageSourceClientFactory.CreateGallery(association, options));
+    }
+
+    /// <summary>
+    /// Creates one NuGet Gallery source client over a caller-owned,
+    /// credential-free transport and registers its association with the
+    /// configured Browser source identity it acquires against.
+    /// </summary>
+    internal static IPackageSourceClient CreateGallerySource(
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions options)
+    {
+        PackageSourceAssociation association =
+            PackageSourceAssociation.Create();
+        return RegisterGallerySource(
+            association,
+            PackageSourceClientFactory.CreateGallery(
+                association,
+                ownedCredentialFreeTransport,
+                options));
+    }
+
+    static IPackageSourceClient RegisterGallerySource(
+        PackageSourceAssociation association,
+        IPackageSourceClient source)
+    {
+        ConfiguredSourceIdentities[association] = GalleryConfiguredIdentity;
+        return source;
     }
 
     static PackageSourceIdentity ConfiguredSourceIdentityFor(
@@ -364,6 +422,20 @@ internal static class BrowserPackageWorkspace
             package,
             package.CreateRootBinding(targetFramework));
     }
+
+    internal static Task<BrowserPackageCoordinate> ResolveAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout) =>
+        ResolveAsync(
+            packageId,
+            version,
+            targetFramework,
+            source,
+            ConfiguredSourceIdentityFor(source),
+            operationTimeout);
 
     internal static async Task<BrowserPackageCoordinate> ResolveAsync(
         string packageId,
@@ -894,8 +966,9 @@ internal static class BrowserPackageWorkspace
         string version,
         string framework)
     {
-        string key = CompositeKey("packages", CompositeKey(
-            packageId.ToLowerInvariant(), version.ToLowerInvariant(), framework.ToLowerInvariant()));
+        string key = CompositeKey(
+            "packages",
+            PackageScopeCoordinateKey(PackageKey(packageId, version), framework));
         var demand = new KeyedScopeDemand(key);
         ScopeEntry[] candidates = Scopes.Where(demand.Joins).ToArray();
         if (candidates is not [{ Scope: BrowserInspectionScope scope }])
@@ -1029,13 +1102,24 @@ internal static class BrowserPackageWorkspace
                 request.Version,
                 cancellationToken)
             .ConfigureAwait(false);
+        return await OpenScopeAsync(package, request.TargetFramework, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        BrowserPackage package,
+        string? targetFramework,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        cancellationToken.ThrowIfCancellationRequested();
         string packageKey = PackageKey(package);
         using var acquired = new PackageLeaseSet();
         acquired.Lease(packageKey);
 
         var demand = new UnboundScopeDemand(
             packageKey,
-            SelectionRequestToken(request.TargetFramework),
+            SelectionRequestToken(targetFramework),
             package.Content.ProducerKey,
             package.Content.GenerationIdentity);
         ScopeAdmission admission = await ReserveScopeEntryAsync(
@@ -1055,7 +1139,7 @@ internal static class BrowserPackageWorkspace
         {
             coordinate = new BrowserPackageCoordinate(
                 package,
-                package.CreateRootBinding(request.TargetFramework));
+                package.CreateRootBinding(targetFramework));
             RetainCoordinatePackages([coordinate]);
         }
         catch
@@ -1132,6 +1216,7 @@ internal static class BrowserPackageWorkspace
         PackageSourceCoordinate coordinate,
         IPackageSourceClient source,
         PackageSourceIdentity configuredSourceIdentity,
+        BrowserSessionPackageStore store,
         CancellationToken cancellationToken,
         IPackagePayloadTransferPolicy transferPolicy)
     {
@@ -1140,7 +1225,7 @@ internal static class BrowserPackageWorkspace
             source,
             configuredSourceIdentity,
             coordinate,
-            Store,
+            store,
             limits: PayloadLimits,
             cancellationToken: cancellationToken,
             transferPolicy: transferPolicy).ConfigureAwait(false);
@@ -1181,6 +1266,7 @@ internal static class BrowserPackageWorkspace
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
             package.PackageId,
             package.Version);
+        BrowserSessionPackageStore store = StoreFor(source);
 
         PackageSourcePayloadResult result;
         try
@@ -1189,12 +1275,12 @@ internal static class BrowserPackageWorkspace
                     source,
                     configuredSourceIdentity,
                     coordinate,
-                    Store,
+                    store,
                     limits: PayloadLimits,
                     cancellationToken: deadline.Token,
                     transferPolicy: new BrowserPackageQueryTransferPolicy(
                         new BrowserPackageOperationTransferPolicy(
-                            Store,
+                            store,
                             deadline)))
                 .ConfigureAwait(false);
         }
@@ -1285,22 +1371,46 @@ internal static class BrowserPackageWorkspace
         PackageSourceCoordinate coordinate,
         IPackageSourceClient source,
         PackageSourceIdentity configuredSourceIdentity,
-        TimeSpan timeout) =>
-        RunPackageOperationAsync(
+        TimeSpan timeout)
+    {
+        BrowserSessionPackageStore store = StoreFor(source);
+        return RunPackageOperationAsync(
             deadline => AcquirePayloadAsync(
                 coordinate,
                 source,
                 configuredSourceIdentity,
+                store,
                 deadline.Token,
                 new BrowserPackageOperationTransferPolicy(
-                    Store,
+                    store,
                     deadline)),
             timeout);
+    }
 
     internal static Task<string[]> GetVersionsAsync(string packageId) =>
         GetVersionsAsync(
             packageId,
             Gallery,
+            PackageOperationTimeout);
+
+    internal static Task<BrowserPackageVersionInventory> GetVersionInventoryAsync(
+        string packageId,
+        string currentVersion) =>
+        RunPackageOperationAsync(
+            async deadline =>
+            {
+                if (PackageCoordinateResolver.Validate(
+                        new PackageCoordinate(packageId, currentVersion)) is { } invalid)
+                {
+                    throw new InvalidOperationException(invalid.Message);
+                }
+
+                PackageVersionResult result = await GetVersionResultAsync(
+                    Gallery,
+                    packageId,
+                    deadline.Token).ConfigureAwait(false);
+                return BrowserPackageVersionInventory.Create(result, currentVersion);
+            },
             PackageOperationTimeout);
 
     internal static Task<string[]> GetVersionsAsync(
@@ -2041,7 +2151,7 @@ internal static class BrowserPackageWorkspace
         BrowserPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
-        string key = PackageKey(package.PackageId, package.Version);
+        string key = PackageKey(package);
         Cache.Remove(key);
         while (!HasCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1))
         {
@@ -2072,13 +2182,19 @@ internal static class BrowserPackageWorkspace
     }
 
     static string PackageKey(BrowserPackageCoordinate coordinate) =>
-        PackageKey(coordinate.PackageId, coordinate.Version);
+        PackageKey(coordinate.Package);
 
     static string PackageKey(BrowserPackage package) =>
-        PackageKey(package.PackageId, package.Version);
+        package.CacheKey;
 
     internal static string PackageKey(string packageId, string version) =>
+        Store.PackageKey(packageId, version);
+
+    static string CoordinateKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
+
+    internal static string PackageScopeCoordinateKey(string packageKey, string framework) =>
+        CompositeKey(packageKey, framework.ToLowerInvariant());
 
     internal static string PackageScopeKey(
         IReadOnlyList<BrowserPackageCoordinate> coordinates) =>
@@ -2113,9 +2229,16 @@ internal static class BrowserPackageWorkspace
         }
     }
 
-    sealed class BrowserSessionPackageStore
+    internal sealed class BrowserSessionPackageStore
         : IPackageStore, IPackagePayloadTransferPolicy
     {
+        // This namespace represents one exact runtime client, not its producer or endpoint.
+        // Only the adapter is per-client; all retained state and budgets remain session-wide.
+        readonly string _cacheNamespace = Guid.NewGuid().ToString("N");
+
+        internal string PackageKey(string packageId, string version) =>
+            CompositeKey(_cacheNamespace, CoordinateKey(packageId, version));
+
         public IPackageContent? TryGetCached(
             string packageName,
             string version,
@@ -2530,6 +2653,7 @@ internal sealed class BrowserPackage
         BrowserPackageWorkspace.ValidateArchive(retainedBytes);
         PackageId = packageId;
         Version = version;
+        CacheKey = BrowserPackageWorkspace.PackageKey(packageId, version);
         RetainedBytes = retainedBytes;
         Content = InMemoryPackageContent.CreateOwned(
             retainedBytes,
@@ -2541,11 +2665,13 @@ internal sealed class BrowserPackage
     internal BrowserPackage(
         string requestedPackageId,
         AcquiredPackageSourcePayload acquiredPayload,
-        byte[] retainedBytes)
+        byte[] retainedBytes,
+        BrowserPackageWorkspace.BrowserSessionPackageStore store)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedPackageId);
         ArgumentNullException.ThrowIfNull(acquiredPayload);
         ArgumentNullException.ThrowIfNull(retainedBytes);
+        ArgumentNullException.ThrowIfNull(store);
         if (!requestedPackageId.Equals(
                 acquiredPayload.Coordinate.PackageId,
                 StringComparison.OrdinalIgnoreCase))
@@ -2564,6 +2690,7 @@ internal sealed class BrowserPackage
         BrowserPackageWorkspace.ValidateArchive(retainedBytes);
         PackageId = requestedPackageId;
         Version = acquiredPayload.Coordinate.Version;
+        CacheKey = store.PackageKey(PackageId, Version);
         RetainedBytes = retainedBytes;
         Content = content;
         _acquiredPayload = acquiredPayload;
@@ -2577,6 +2704,8 @@ internal sealed class BrowserPackage
     public InMemoryPackageContent Content { get; }
 
     internal byte[] RetainedBytes { get; }
+
+    internal string CacheKey { get; }
 
     public BrowserPackageIconPayload? Icon => _icon.Value;
 
@@ -2809,14 +2938,13 @@ internal sealed class BrowserPackageCoordinate
         ?? "";
 
     /// <summary>
-    /// The exact coordinate this workspace answers for. Each component is length-prefixed so
-    /// caller-controlled framework text cannot alter coordinate or workspace key boundaries.
+    /// The source-associated coordinate this workspace answers for. Each component is
+    /// length-prefixed so caller-controlled framework text cannot alter key boundaries.
     /// </summary>
     public string Key =>
-        BrowserPackageWorkspace.CompositeKey(
-            PackageId.ToLowerInvariant(),
-            Version.ToLowerInvariant(),
-            Framework.ToLowerInvariant());
+        BrowserPackageWorkspace.PackageScopeCoordinateKey(
+            Package.CacheKey,
+            Framework);
 
     public bool HasExactContentAs(BrowserPackageCoordinate other)
     {

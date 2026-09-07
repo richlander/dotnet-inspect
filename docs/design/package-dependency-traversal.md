@@ -34,8 +34,9 @@ It does not own the facts or effects it composes:
 - [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
   declarations, selected dependency groups, declaration identity, source
   spellings, completion, and `InertString` containment.
-- The exact dependency-candidate adapter tracked by
-  [#5765](https://github.com/richlander/dotnet-inspect/issues/5765) owns the
+- [Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
+  tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
+  owns the
   composition from one declaration through package-source authorization and
   NuGet version-range resolution to an owner-issued exact acquisition
   candidate.
@@ -68,7 +69,8 @@ it does not port this algorithm to TypeScript.
 
 The focused delivery sequence is:
 
-1. #5765 supplies the shared declaration-to-exact-candidate handoff. Its first
+1. [#5765](package-dependency-candidate-resolution.md) supplies the shared
+   declaration-to-exact-candidate handoff. Its first
    Workspace consumer and this traversal consumer use one source-authorized
    version-resolution contract.
 2. #5996 implements this query and its focused Release tests.

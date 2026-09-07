@@ -1,3 +1,4 @@
+import { WorkerProducerClassRegistry } from "./worker-runtime-core.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
 export const engineWorkerPolicy = {
@@ -7,6 +8,18 @@ export const engineWorkerPolicy = {
   controlResponseGraceMilliseconds: 5_000,
   drainBudgetMilliseconds: 2_000,
 } as const;
+
+export const engineWorkerManagedProducerClass = "managed-shared-producer";
+export const engineWorkerManagedProducerAllowance = Object.freeze({ kind: "unbounded" } as const);
+
+export function createEngineWorkerProducerClasses(): WorkerProducerClassRegistry {
+  const registry = new WorkerProducerClassRegistry(
+    engineWorkerPolicy.idleHeartbeatIntervalMilliseconds
+      + engineWorkerPolicy.schedulingToleranceMilliseconds,
+  );
+  registry.register(engineWorkerManagedProducerClass, engineWorkerManagedProducerAllowance, null);
+  return registry;
+}
 
 export const engineWorkerText: BoundedPayloadDecoder<string> = {
   decode(value) {

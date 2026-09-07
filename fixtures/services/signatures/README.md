@@ -54,7 +54,7 @@ they do not make a repository-wide claim about network use.
 
 ```sh
 dotnet run --project src/DotnetInspector.Services.Tests -c Release -- \
-  -class '*SignatureVerifierTests'
+  --filter-class '*SignatureVerifierTests'
 ```
 
 After building, `--no-build --no-restore` permits running the same cases when

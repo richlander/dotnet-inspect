@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import type { MemberFacts } from "../src/member-detail-inspection.ts";
-import { allocationFactsFixture, callFactsFixture, memberFactsFixture } from "./member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "./member-facts-fixture.ts";
 
 function render(facts: MemberFacts = memberFactsFixture()) {
   return renderMemberFacts({
@@ -72,6 +72,12 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   assert.match(html, /0 occurrences/);
   assert.match(html, /No allocation occurrences were found in this method\./);
   assert.doesNotMatch(html, /<ol class="allocation-rows">/);
+  assert.match(html, /<h2 id="safety-facts-title">Safety facts<\/h2><span>0 facts<\/span>/);
+  assert.match(html, /No unsafe operations or declaration evidence were found\./);
+  assert.doesNotMatch(html, /<ol class="safety-rows">/);
+  assert.match(html, /<h2 id="exception-regions-title">Exception regions<\/h2><span>0 regions<\/span>/);
+  assert.match(html, /No exception regions were found in this method\./);
+  assert.doesNotMatch(html, /<ol class="exception-rows">/);
 
   const loading = renderMemberFacts({
     memberFacts: memberFactsFixture(),
@@ -79,7 +85,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFactsError: "",
   });
   assert.match(loading, /Analyzing method/);
-  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts/);
+  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts|exception-regions/);
 
   const failure = renderMemberFacts({
     memberFacts: null,
@@ -88,7 +94,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
-  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts/);
+  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts|exception-regions/);
   assert.match(renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
@@ -109,7 +115,7 @@ test("member Facts escapes summary evidence and all relocated detail sections", 
       kind: "<allocation-kind>", multiplicity: "<multiplicity>",
       path: "<path>", escape: "<escape>",
     }],
-    safety: [{ kind: "<kind>", offset: null, operation: "<operation>", requirement: "<requirement>", evidence: "<evidence>" }],
+    safety: [{ kind: "<kind>", offset: "<safety-offset>", operation: "<operation>", requirement: "<requirement>", evidence: "<evidence>" }],
     exceptionRegions: [{ region: 1, clause: "<clause>", tryRange: "<try>", handlerRange: "<handler>", filterRange: "<filter>", caughtType: "<caught>" }],
     performanceOpportunities: [{ shape: "<shape>", evidence: "<evidence>", fix: "<fix>", confidence: "<confidence>", offset: "<offset>", inLoop: false, caveat: "<caveat>", finding: "<finding>", provenance: "<provenance>" }],
     diagnostics: ["<diagnostic>"],
@@ -119,7 +125,7 @@ test("member Facts escapes summary evidence and all relocated detail sections", 
     "clause", "try", "handler", "filter", "caught", "shape", "fix",
     "confidence", "caveat", "finding", "provenance", "diagnostic",
     "allocation-offset", "allocation-kind", "multiplicity", "path", "escape",
-    "opcode", "call-multiplicity",
+    "opcode", "call-multiplicity", "safety-offset",
   ]) {
     assert.ok(html.includes(`&lt;${value}&gt;`));
     assert.ok(!html.includes(`<${value}>`));
@@ -199,5 +205,90 @@ test("call facts retain the returned order instead of sorting by offset", () => 
     [...html.matchAll(/class="call-location"><code>([^<]+)<\/code>/g)]
       .map(match => match[1]),
     calls.map(call => call.offset),
+  );
+});
+
+test("safety facts preserve all five fields and distinguish facts from IL sites", () => {
+  const facts = safetyFactsFixture();
+  const html = render(facts);
+  assert.match(html, /<h2 id="safety-facts-title">Safety facts<\/h2><span>5 facts<\/span>/);
+  const rows = [...html.matchAll(/<li class="safety-row">([\s\S]*?)<\/li>/g)]
+    .map(match => match[1]!);
+  assert.equal(rows.length, 5);
+  for (const [index, fact] of facts.safety.entries()) {
+    const row = rows[index]!;
+    if (fact.offset == null) {
+      assert.match(row, /<span class="safety-no-offset">No IL offset<\/span>/);
+    } else {
+      assert.ok(row.includes(`<code>${fact.offset}</code>`));
+    }
+    assert.ok(row.includes(`<span class="safety-kind">${fact.kind}</span>`));
+    assert.ok(summaryRow(row, "Requirement").includes(`>${fact.requirement}</code>`));
+    assert.ok(summaryRow(row, "Evidence").includes(`>${fact.evidence}</code>`));
+  }
+  assert.match(rows[0]!, /<code>V_0: System.Byte\*<\/code>/);
+  assert.match(rows[1]!, /<code>System.Byte\*<\/code>/);
+  assert.match(rows[2]!, /<code>byte\*<\/code>/);
+  assert.match(rows[3]!, /<code>byte<\/code>/);
+  assert.match(rows[4]!, /Unsafe.AsPointer&lt;System.Byte&gt;\(System.Byte&amp;\)/);
+  assert.equal((html.match(/class="safety-no-offset"/g) ?? []).length, 2);
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render({ ...facts, safety: [facts.safety[0]!] }), /<span>1 fact<\/span>/);
+});
+
+test("safety facts preserve returned order and repeated records", () => {
+  const facts = safetyFactsFixture();
+  const safety = [facts.safety[4]!, ...facts.safety.slice(0, 4), facts.safety[4]!];
+  const html = render({ ...facts, safety });
+  assert.match(html, /<span>6 facts<\/span>/);
+  assert.deepEqual(
+    [...html.matchAll(/class="safety-location">(?:<code>([^<]*)<\/code>|<span class="safety-no-offset">([^<]+)<\/span>)/g)]
+      .map(match => match[1] ?? match[2]),
+    safety.map(fact => fact.offset ?? "No IL offset"),
+  );
+});
+
+test("exception regions preserve all six fields and distinguish entries from shared try ranges", () => {
+  const facts = exceptionRegionsFixture();
+  const html = render(facts);
+  assert.match(html, /<h2 id="exception-regions-title">Exception regions<\/h2><span>4 regions<\/span>/);
+  const rows = [...html.matchAll(/<li class="exception-row">([\s\S]*?)<\/li>/g)]
+    .map(match => match[1]!);
+  assert.equal(rows.length, 4);
+  for (const [index, region] of facts.exceptionRegions.entries()) {
+    const row = rows[index]!;
+    assert.ok(row.includes(`<span>Region <code>${region.region}</code></span>`));
+    assert.ok(row.includes(`<code class="exception-clause">${region.clause}</code>`));
+    for (const [label, value] of [
+      ["Caught type", region.caughtType],
+      ["Try", region.tryRange],
+      ["Handler", region.handlerRange],
+      ["Filter", region.filterRange],
+    ] as const) {
+      assert.ok(summaryRow(row, label).includes(`>${value ?? "not supplied"}</`));
+    }
+  }
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render({ ...facts, exceptionRegions: [facts.exceptionRegions[0]!] }),
+    /<span>1 region<\/span>/);
+});
+
+test("exception regions preserve supplied numbers, returned order, repeats, and null caught types", () => {
+  const facts = exceptionRegionsFixture();
+  const exceptionRegions = [
+    facts.exceptionRegions[1]!,
+    { ...facts.exceptionRegions[0]!, region: 17, caughtType: null },
+    facts.exceptionRegions[1]!,
+  ];
+  const html = render({ ...facts, exceptionRegions });
+  assert.match(html, /<span>3 regions<\/span>/);
+  assert.deepEqual(
+    [...html.matchAll(/class="exception-identity"><span>Region <code>([^<]+)<\/code>/g)]
+      .map(match => Number(match[1])),
+    [2, 17, 2],
+  );
+  assert.equal(
+    (html.match(/<dt>Caught type<\/dt><dd><span class="exception-unavailable">not supplied<\/span>/g) ?? []).length,
+    3,
   );
 });

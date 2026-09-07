@@ -34,6 +34,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "CancelMemberSourceComparison.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.CancelMemberSourceComparison.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
         value = $ownDataProperty(value, "CancelMethodBodyComparison.271973316");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027SourceExports.CancelMethodBodyComparison.271973316\u0027 is not callable.");
@@ -66,9 +74,25 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "QueryMemberFindingCensus.1135530322");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.QueryMemberFindingCensus.1135530322\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
         value = $ownDataProperty(value, "QueryMemberSource.641907440");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027SourceExports.QueryMemberSource.641907440\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "QueryMemberSourceComparison.451505237");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.QueryMemberSourceComparison.451505237\u0027 is not callable.");
         }
     }
     {
@@ -128,6 +152,11 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+export function cancelMemberSourceComparison(operationId, reason) {
+    const $result = $requireManagedExports()["SourceExports"]["CancelMemberSourceComparison.271973316"](operationId, reason);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export function cancelMethodBodyComparison(operationId, reason) {
     const $result = $requireManagedExports()["SourceExports"]["CancelMethodBodyComparison.271973316"](operationId, reason);
     const $parsed = JSON.parse($result);
@@ -146,8 +175,18 @@ export async function queryMemberAnnotatedSource(packageId, version, targetFrame
     const $parsed = JSON.parse($result);
     return $parsed;
 }
+export async function queryMemberFindingCensus(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
+    const $result = await $requireManagedExports()["SourceExports"]["QueryMemberFindingCensus.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export async function queryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
     const $result = await $requireManagedExports()["SourceExports"]["QueryMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryMemberSourceComparison(operationId, requestJson) {
+    const $result = await $requireManagedExports()["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, requestJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

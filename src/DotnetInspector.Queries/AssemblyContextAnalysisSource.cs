@@ -9,10 +9,16 @@ internal static class AssemblyContextAnalysisSource
     internal static string Name(AssemblyContextSubject subject) =>
         subject.Identity.Name;
 
-    internal static IAssemblyReferenceResolver Resolver(
+    internal static BindingPolicyResolver Resolver(
         AssemblyContextGroup group,
-        AssemblyContextSubject subject) =>
-        new BindingPolicyResolver(group, Participant(group, subject));
+        AssemblyContextSubject subject)
+    {
+        var resolver = new BindingPolicyResolver(
+            group,
+            Participant(group, subject));
+        resolver.ValidateForPublication();
+        return resolver;
+    }
 
     static AssemblyContextParticipant Participant(
         AssemblyContextGroup group,
@@ -22,51 +28,64 @@ internal static class AssemblyContextAnalysisSource
                 candidate.Assembly.Registration,
                 subject.Registration));
 
-    sealed class BindingPolicyResolver(
+    internal sealed class BindingPolicyResolver(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant)
-        : IAssemblyReferenceResolver,
-          IAssemblyBindingPolicy
+        : AssemblyBindingPolicyFacade(participant.BindingPolicy),
+          IAssemblyReferenceResolver
     {
-        public AssemblyBindingPolicyVersion Version =>
-            participant.BindingPolicy.Version;
+        int _foreignSnapshotObserved;
+
+        internal void ValidateForPublication()
+        {
+            if (Volatile.Read(ref _foreignSnapshotObserved) != 0
+                || !ReferenceEquals(
+                    participant.BindingPolicy.Version,
+                    group.BindingPolicyVersion))
+            {
+                throw new InvalidOperationException(
+                    "The binding-policy snapshot changed during analysis.");
+            }
+        }
+
+        protected override void ObserveForeignSnapshot() =>
+            Interlocked.Exchange(ref _foreignSnapshotObserved, 1);
 
         public ResolvedAssemblyReference? Resolve(
             AssemblyReferenceIdentity identity,
             AssemblyResolutionScope scope)
         {
             ArgumentNullException.ThrowIfNull(identity);
-            return Select(
-                    new AssemblyBindingRequest(
-                        AssemblyBindingTarget.Reference(identity),
-                        AssemblyBindingOrigin.FromAssembly(
-                            participant.Assembly),
-                        scope))
-                ?.Selection
+            AssemblyBindingPolicyVersion version = Version;
+            AssemblyBindingSelectionSnapshot? snapshot = Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingOrigin.FromAssembly(participant.Assembly),
+                    scope));
+            if (snapshot is not null
+                && (!ReferenceEquals(snapshot.Version, version)
+                    || !ReferenceEquals(Version, version)))
+            {
+                throw new InvalidOperationException(
+                    "The binding-policy snapshot changed during analysis.");
+            }
+
+            return snapshot?.Selection
                 is AssemblyBindingSelection.Selected selected
-                    ? selected.Assembly
-                    : null;
+                ? selected.Assembly
+                : null;
         }
 
-        public AssemblyBindingSelectionSnapshot Select(
+        protected override AssemblyBindingRequest SeedRequest(
             AssemblyBindingRequest request)
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            var participantRequest = new AssemblyBindingRequest(
+            => new(
                 request.Target,
-                AssemblyBindingOrigin.FromAssembly(
-                    participant.Assembly),
+                AssemblyBindingOrigin.FromAssembly(participant.Assembly),
                 request.Scope);
-            AssemblyBindingSelectionSnapshot? snapshot =
-                participant.BindingPolicy.Select(
-                    participantRequest);
-            if (snapshot is null)
-                return null!;
-            AssemblyBindingSelection selection =
-                AssemblyBindingSelection.ValidateForRequest(
-                    participantRequest,
-                    snapshot.Selection);
-            selection = selection switch
+
+        protected override AssemblyBindingSelection TransformSelection(
+            AssemblyBindingSelection selection)
+            => selection switch
             {
                 AssemblyBindingSelection.Selected selected =>
                     RetainSelected(selected),
@@ -74,10 +93,6 @@ internal static class AssemblyContextAnalysisSource
                     RetainAmbiguous(ambiguous),
                 _ => selection,
             };
-            return new AssemblyBindingSelectionSnapshot(
-                snapshot.Version,
-                selection);
-        }
 
         AssemblyBindingSelection RetainSelected(
             AssemblyBindingSelection.Selected selected)

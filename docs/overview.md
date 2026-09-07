@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  Its [ReadyToRun CLI projection](design/readytorun-cli-projection.md) owns the
+  explicit ReadyToRun section lens and metadata-root subject selection while
+  retaining PE and metadata interpretation in `ILInspector.Metadata`.
   The target
   [dependency inspection command](design/dependency-inspection-command.md)
   owns asset admission, traversal intent, evidence disclosure, graph row
@@ -122,7 +125,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
-  query results. Its proposed, design-locked but not yet implemented
+  query results. Its
+  [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md)
+  query composes normalized declarations with package-owned source
+  authorization and candidate evidence while leaving traversal and Workspace
+  policy to their owners. Its proposed, design-locked but not yet implemented
   [Package Query assembly-pattern
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
@@ -167,6 +174,10 @@ substrates, and inspection producers that will extend that space.
   navigation-result consumer, shell interaction, and page-level composition
   across six focused owners while individual components retain rendering,
   binding, and state-transition responsibilities.
+  [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md)
+  owns the managed Source-facade envelope that carries one Research-issued
+  receipt and its Facts/document instance-key mappings without reconstructing
+  identity in the host.
 - [Approved lazy traversal](design/approved-lazy-traversal.md) is the
   operator-approved cross-owner target experience for subjects, traversal
   permissions, operation demand, Browser defaults, and ecosystem-assisted
@@ -177,6 +188,17 @@ substrates, and inspection producers that will extend that space.
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Browser comparison targets](design/inspect-web-comparison-targets.md) owns
+  session-local Package Diff and Clone target intent, inheritance during
+  subject navigation, and target-setting controls. It does not own acquisition
+  authority, comparison execution, or portable Workspace fields.
+- [Library API diff presentation](design/library-api-diff-presentation.md)
+  owns the portable Library-root and changed-Type projection of one complete
+  selected-library API comparison. It preserves Metadata identity,
+  correspondence, and compatibility classification without owning Browser
+  transport or text rendering. Its Browser adopter retires #6076's transient
+  Compare-authored-source interaction with zero compatibility rather than
+  adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
@@ -416,6 +438,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Research Finding census projection](design/research-finding-census-projection.md):
   Research preservation of one body-fact census through Facts and Annotated
   Source.
+- [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md):
+  Source-facade wire projection of one Research-issued receipt and its
+  Facts/document instance-key mappings.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.
@@ -424,6 +449,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member source diff presentation](design/member-source-diff-presentation.md):
   canonical placement-aligned endpoint text, source-line analysis and statistics,
   Markout mapped-text lowering, and the CLI Source Diff first adoption.
+- [Library API diff presentation](design/library-api-diff-presentation.md):
+  portable Library-root changed-Type composition, complete compatibility
+  changes, and distinct changed-member summaries for shared host adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
@@ -471,6 +499,15 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   search-selector catalog, typed metadata observations, and Gallery-specific
   row-delegation evidence. Row meaning, generic source contracts, and host
   adoption remain with their focused owners.
+- [Package Query input selection](design/package-query-input-selection.md):
+  shared Query interpretation of exact-ID, explicit-prefix, and explicit
+  Gallery candidate inputs, consuming existing source intent and acquisition
+  contracts without implicit input substitution. Browser adoption is implemented;
+  general CLI query execution remains tracked separately.
+- [Package Query inspection evidence](design/package-query-inspection-evidence.md):
+  shared inspection-produced item counts and bounded previews, separated from
+  query-wide source context; acquisition, matching, and host presentation retain
+  their existing owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

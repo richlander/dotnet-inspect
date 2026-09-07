@@ -200,9 +200,13 @@ MakeSnapshot(rev, occ, policy, epoch, scopeBase, generation, coverage, closure, 
      policy |-> policy, epoch |-> epoch, base |-> scopeBase,
      projections |-> [j \in DOMAIN occ |->
         [occurrence |-> occ[j].id, root |-> occ[j].root,
-         epoch |-> epoch, generation |-> generation, status |-> "Ready"]],
+         epoch |-> epoch,
+         generation |-> IF occ[j].root = "a" /\ generation.status # "Ready"
+                       THEN "None" ELSE generation.identity,
+         status |-> IF occ[j].root = "a" THEN generation.status ELSE "Ready"]],
      coverage |-> coverage, closure |-> closure, preparing |-> preparing]
-InitialSnapshot == MakeSnapshot(0, <<>>, FALSE, 0, 0, 0, {}, "Closed", 0)
+InitialRealization == [identity |-> 0, status |-> "Ready"]
+InitialSnapshot == MakeSnapshot(0, <<>>, FALSE, 0, 0, InitialRealization, {}, "Closed", 0)
 PlanFor(i) ==
     LET occ == CandidateOccurrences(i)
         policy == IF Kind(i) = "Clear" THEN FALSE ELSE scenario = "Refresh"
@@ -228,7 +232,7 @@ Init ==
     /\ tokens = [i \in Ops |-> InitialSnapshot]
     /\ stopReason = [i \in Ops |-> "None"]
     /\ superseder = 0 /\ progress = {}
-    /\ realization = 0 /\ refreshed = FALSE
+    /\ realization = InitialRealization /\ refreshed = FALSE
     /\ seen = {} /\ validationOK = TRUE /\ readOK = TRUE
 
 AdmissionEnabled(i) ==
@@ -261,6 +265,7 @@ Admit(i) ==
         progress, realization, refreshed, validationOK, readOK>>
 PrepareBatch(i) ==
     /\ active = i /\ outcomes[i] = "Pending" /\ stopReason[i] = "None"
+    /\ Kind(i) # "Refresh"
     /\ Activate(i)
     /\ UNCHANGED scopeVars
 Seal(i) ==
@@ -297,8 +302,7 @@ PrepareToken(i) ==
             ScopeCandidate(i), realization,
             IF plans[i].kind = "Closure"
             THEN {<<o.id, realization>> : o \in SetOf(plans[i].occurrences)}
-            ELSE IF Fault = "Refresh" /\ plans[i].kind = "Refresh"
-                 THEN snapshot.coverage ELSE {},
+            ELSE {},
             IF plans[i].kind = "Closure" THEN "Complete"
             ELSE IF plans[i].policy THEN "NotEvaluated" ELSE "Closed", 0)]
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
@@ -394,11 +398,33 @@ PhysicalChange ==
     /\ IF scenario = "Refresh" THEN outcomes[3] = "Committed"
        ELSE active = 2 /\ 2 \in sealed /\ outcomes[1] = "Committed"
     /\ First!RefreshPhysical(4) /\ UNCHANGED <<local2, local3>>
-    /\ realization' = 1 /\ refreshed' = TRUE
+    /\ realization' \in {[identity |-> 1, status |-> state] :
+                             state \in {"Ready", "Pending", "Failed"}}
+    /\ refreshed' = TRUE
     /\ seen' = seen \union {"PhysicalChanged"}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, snapshot, tokens, stopReason, superseder, progress,
         validationOK, readOK>>
+RefreshScope(i) ==
+    /\ active = i /\ Kind(i) = "Refresh" /\ outcomes[i] = "Pending"
+    /\ runtime = "Open" /\ GateFree
+    /\ ScopeAdvance
+    /\ snapshot' = MakeSnapshot(snapshot.revision, snapshot.occurrences,
+        snapshot.policy, physical, base', realization,
+        IF Fault = "Refresh" THEN snapshot.coverage ELSE {},
+        IF snapshot.policy THEN "NotEvaluated" ELSE "Closed", 0)
+    /\ outcomes' = [j \in Ops |->
+        IF j = i THEN "Committed"
+        ELSE IF outcomes[j] = "AwaitRefresh"
+             THEN IF stopReason[j] # "None" THEN stopReason[j] ELSE "Failed"
+             ELSE outcomes[j]]
+    /\ snapshots' = [j \in Ops |->
+        IF j = i \/ outcomes[j] = "AwaitRefresh" THEN snapshot' ELSE snapshots[j]]
+    /\ active' = 0
+    /\ seen' = seen \union {"RefreshCommitted", "RefreshedSnapshot",
+        "Refreshed" \o realization.status}
+    /\ UNCHANGED <<scenario, secondKind, plans, sealed, admitted, tokens,
+        stopReason, superseder, progress, realization, refreshed, validationOK, readOK>>
 Observe ==
     /\ runtime = "Open" /\ GateFree
     /\ "ReadCurrent" \notin seen /\ snapshot.epoch = physical
@@ -520,6 +546,7 @@ Next ==
             \/ StagePublication(i) \/ PrepareToken(i) \/ Commit(i)
             \/ (\E reason \in {"Cancellation", "Deadline"} : Signal(i, reason))
             \/ Fail(i) \/ RejectCompletion(i) \/ ReleaseStopped(i) \/ Finish(i)
+            \/ RefreshScope(i)
             \/ Replay(i) \/ LateCancel(i) \/ FinishClosed(i)
        \/ Supersede \/ PhysicalChange \/ Observe
        \/ \E error \in {"RevisionMismatch", "ForeignWorkspace", "InvalidReplace",
@@ -568,7 +595,14 @@ CompleteSnapshot ==
         /\ snapshot.projections[j].epoch = snapshot.epoch
     /\ (snapshot.epoch = physical =>
         /\ snapshot.base = base
-        /\ Correspondences(snapshot.occurrences) = physicalRoots)
+        /\ Correspondences(snapshot.occurrences) = physicalRoots
+        /\ \A j \in DOMAIN snapshot.projections :
+            /\ snapshot.projections[j].status =
+                IF snapshot.projections[j].root = "a"
+                THEN realization.status ELSE "Ready"
+            /\ snapshot.projections[j].generation =
+                IF snapshot.projections[j].status = "Ready"
+                THEN realization.identity ELSE "None")
 ExactOccurrenceRetention ==
     \A o \in SetOf(snapshot.occurrences) :
         o.id[1] = "workspace" /\ o.id[3] = o.root
@@ -645,6 +679,7 @@ Fairness ==
         /\ WF_vars(Framed(StagePublication(i)))
         /\ WF_vars(Framed(PrepareToken(i)))
         /\ WF_vars(Framed(Commit(i)))
+        /\ WF_vars(Framed(RefreshScope(i)))
         /\ WF_vars(Framed(Signal(i, "Deadline")))
         /\ WF_vars(Framed(RejectCompletion(i)))
         /\ WF_vars(Framed(RejectForeignCompletion))

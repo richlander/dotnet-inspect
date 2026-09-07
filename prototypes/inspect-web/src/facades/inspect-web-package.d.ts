@@ -1,8 +1,9 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
-export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | number;
+export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "GalleryResponseComplete" | "ExactPackageComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
+export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | number;
@@ -171,6 +172,12 @@ export interface BrowserPackageQueryEvent {
 export interface BrowserPackageQueryEvidence {
     readonly id: string;
     readonly text: string;
+    readonly scope: BrowserPackageQueryEvidenceScope;
+    readonly summary: BrowserPackageQueryEvidenceSummary | null;
+}
+export interface BrowserPackageQueryEvidenceSummary {
+    readonly count: number;
+    readonly preview: ReadonlyArray<string>;
 }
 export interface BrowserPackageQueryFacetCatalog {
     readonly facets: ReadonlyArray<BrowserPackageQueryFacetDescriptor>;
@@ -223,6 +230,12 @@ export interface BrowserPackageSurface {
     readonly documents: ReadonlyArray<BrowserPackageDocument>;
     readonly inspectionErrors: ReadonlyArray<string>;
     readonly inspectionError: string | null;
+}
+export interface BrowserPackageVersions {
+    readonly versions: ReadonlyArray<string>;
+    readonly currentVersionInsertionIndex: number;
+    readonly previousVersion: string | null;
+    readonly previousVersionUnavailableReason: string | null;
 }
 export interface BrowserParameterSurface {
     readonly name: string;
@@ -300,9 +313,9 @@ export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
-export declare function queryPackageVersions(packageId: string): Promise<ReadonlyArray<string>>;
+export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(additionalMatchCredit: number): boolean;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
-export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null): Promise<BrowserPackageQueryEvent>;
+export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown, packageType: string | null, sourceOrderId: string | null, discovery: boolean): Promise<BrowserPackageQueryEvent>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

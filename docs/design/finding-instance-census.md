@@ -239,7 +239,7 @@ Two conventions deliberately do not transfer:
 ## Evidence
 
 The Release executable gates in
-`src/ILInspector.ILDiff.Tests/FindingCensusTests.cs` verify:
+`tests/ILInspector.ILDiff.Tests/FindingCensusTests.cs` verify:
 
 - `Seal_PreservesOrderMultiplicityAndExactInstances` proves independent equal
   seals, distinct receipts and keys, exact references, and reordered

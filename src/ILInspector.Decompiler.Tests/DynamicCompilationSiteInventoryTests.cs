@@ -65,6 +65,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Cross-assembly reference seam.
             ["CompileReferenceSetTests.cs"] = (3, "Compiler-reference semantic-model seam: binds consumer syntax against selected cataloged images to verify aliases, source exclusion, and retained snapshot identity; emits no inspected fixture."),
+            ["CompileReferencePlatformPolicyTests.cs"] = (1, "Platform-reference semantic-model seam: binds consumer syntax to owner-authorized retained platform images; emits no inspected fixture."),
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
             ["AuthoredRebuildFidelityTests.cs"] = (2, "Cross-assembly snapshot + portable-PDB seams: replaces a same-identity dependency after RTS acquisition, and emits checksum-bearing PDB fixtures for live source-acquisition outcomes."),
             ["ReferenceEqualityMetadataFactsTests.cs"] = (1, "Cross-assembly version-pair seam: builds same-name hierarchy assemblies with distinct versions to gate exact visited identity."),
@@ -79,7 +80,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["UnsafeEmitterTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case unsafe source with varying parse options."),
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
             ["ReturnToSenderPrototypeTests.cs"] = (2, "Runtime construction: builds a shell input assembly asserting 30+ facts; plus a fault-isolation oracle site compiling composed decompiled source for span attribution."),
-            ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
+            ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation and cross-assembly seams: builds temporary RTS catalog inputs and pathless donors that require sibling metadata."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
             ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
             ["ValidDifferentFaultIsolationTests.cs"] = (1, "Round-trip oracle seam: compiles runtime-varying authored and rejected bodies to gate successful IL-diff attribution."),
@@ -142,9 +143,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #6005 adds CompileReferenceSetTests.cs (3 sites): binds consumer syntax
     //     against frozen cataloged images for alias, source-exclusion, and
     //     retained-snapshot reference contracts.
-    //   Combined: 45 files, 59 sites.
-    const int ExpectedDynamicFiles = 45;
-    const int ExpectedDynamicSites = 59;
+    //   #6120 adds CompileReferencePlatformPolicyTests.cs (1 site): binds against
+    //     the same retained platform images that Metadata resolves.
+    //   Combined: 46 files, 60 sites.
+    const int ExpectedDynamicFiles = 46;
+    const int ExpectedDynamicSites = 60;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

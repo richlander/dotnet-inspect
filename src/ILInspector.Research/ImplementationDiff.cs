@@ -18,9 +18,7 @@ public enum ImplementationDiffMechanism
     None = 0,
     CSharp = 1,
     IlBody = 2,
-    Source = 4,
     All = CSharp | IlBody,
-    AllAvailable = All | Source,
 }
 
 public sealed record ImplementationDiffOptions(
@@ -68,23 +66,17 @@ public sealed record ImplementationMemberDiffResult(
     IReadOnlyList<ResearchChange> Changes,
     RetainedFindingComparisonSet RetainedComparisons)
 {
-    public FindingComparison<string>? SourceComparison { get; init; }
-
     public bool HasCSharpChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.CSharp);
 
     public bool HasIlChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.IlBody);
 
-    public bool HasSourceChanges
-        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.Source);
-
     public bool IsExact
         => Changes.Count == 0
            && (CSharpDiff is null || CSharpDiff.IsExact)
            && (IlDiff is null || IlDiff.Diff.IsExact)
-           && RetainedComparisons.Items.All(comparison => comparison.IsExact)
-           && (SourceComparison is null || SourceComparison.IsExact);
+           && RetainedComparisons.Items.All(comparison => comparison.IsExact);
 }
 
 /// <summary>
@@ -233,45 +225,6 @@ public static class ImplementationDiff
             ilDiff,
             changes.ToImmutable(),
             new RetainedFindingComparisonSet(retainedComparisons));
-    }
-
-    public static ImplementationMemberDiffResult CompareMembersWithPdbSource(
-        MetadataSource oldSource,
-        MethodDefinitionHandle oldMethod,
-        MetadataSource newSource,
-        MethodDefinitionHandle newMethod,
-        FindingInspection<string> oldPdbSource,
-        FindingInspection<string> newPdbSource,
-        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.AllAvailable,
-        ResearchSubjectKey? subject = null)
-    {
-        ArgumentNullException.ThrowIfNull(oldPdbSource);
-        ArgumentNullException.ThrowIfNull(newPdbSource);
-
-        var result = CompareMembers(
-            oldSource,
-            oldMethod,
-            newSource,
-            newMethod,
-            mechanisms & ~ImplementationDiffMechanism.Source,
-            subject);
-        if (!mechanisms.HasFlag(ImplementationDiffMechanism.Source))
-            return result;
-
-        var comparison = FindingComparison.Compare(
-            oldPdbSource,
-            newPdbSource);
-        var retained = result.RetainedComparisons.Items.ToBuilder();
-        retained.Add(new RetainedFindingComparison<string>(
-            result.Subject,
-            TextFindings.LineDescriptor,
-            comparison));
-        return result with
-        {
-            Changes = [.. result.Changes, .. ToSourceChanges(comparison, result.Subject)],
-            RetainedComparisons = new RetainedFindingComparisonSet(retained),
-            SourceComparison = comparison,
-        };
     }
 
     public static ImplementationDiffResult Compare(

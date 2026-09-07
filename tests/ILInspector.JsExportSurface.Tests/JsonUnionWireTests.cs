@@ -179,14 +179,125 @@ public sealed class JsonUnionWireTests
     }
 
     [Fact]
-    public void Emit_ReachedUnionFailsUntilTypeScriptLoweringIsImplemented()
+    public void Emit_RetainsScalarUnionAliasAndRawFacadeReturn()
     {
         var surface = Build(nameof(UnionExports.GetScalar));
+        string declaration = DtsEmitter.Emit(surface);
+        Assert.Contains("export type ScalarUnion = number | string | null;", declaration, StringComparison.Ordinal);
+        Assert.Contains("getScalar(choice: number): ScalarUnion", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("interface ScalarUnion", declaration, StringComparison.Ordinal);
+        string facade = TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js");
+        Assert.Contains("export type ScalarUnion = number | string | null;", facade, StringComparison.Ordinal);
+        Assert.Contains("getScalar(choice: number): ScalarUnion", facade, StringComparison.Ordinal);
+        Assert.Contains("=> string;", facade, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(nameof(UnionExports.GetDto), "export type DtoUnion = PackageSummary | string | null;")]
+    [InlineData(nameof(UnionExports.GetNullable), "export type NullableUnion = number | string | null;")]
+    [InlineData(nameof(UnionExports.GetGeneric), "export type GenericUnion<T0> = T0 | string | null;")]
+    [InlineData(nameof(UnionExports.GetNested), "export type NestedUnion = ScalarUnion | boolean | null;")]
+    [InlineData(nameof(UnionExports.GetObjects), "export type ObjectUnion = PackageSummary | PackageProblem | null;")]
+    [InlineData(nameof(UnionExports.GetNumbers), "export type NumberUnion = number | null;")]
+    [InlineData(nameof(UnionExports.GetEnvelope), "readonly items: ReadonlyArray<ScalarUnion>;")]
+    public void Emit_PreservesRepresentedCaseKinds(string method, string expected)
+    {
+        var surface = Build(method);
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        Assert.Contains(expected, DtsEmitter.Emit(surface, diagnostics), StringComparison.Ordinal);
+        Assert.False(diagnostics.HasUnmappedTypes);
+        Assert.Contains(expected, TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"), StringComparison.Ordinal);
+        if (method == nameof(UnionExports.GetGeneric))
+            Assert.Contains("getGeneric(): GenericUnion<number>", DtsEmitter.Emit(surface), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(nameof(UnionExports.ReadScalar), "deserialization")]
+    [InlineData(nameof(UnionExports.ReadObjects), "deserialization")]
+    [InlineData(nameof(UnionExports.GetCustom), "unsupported wire-shaping attributes")]
+    public void Emit_UnsupportedUnionsStillFailBeforePublication(string method, string reason)
+    {
+        var surface = Build(method);
         var exception = Assert.Throws<UnsupportedWireContractException>(
             () => DtsEmitter.Emit(surface));
-        Assert.Contains("union TypeScript lowering", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(reason, exception.Message, StringComparison.Ordinal);
         Assert.Throws<UnsupportedWireContractException>(
             () => TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"));
+    }
+
+    [Fact]
+    public void Emit_UsesClosedJsonArgumentsRatherThanRawClrRepresentations()
+    {
+        string bytes = DtsEmitter.Emit(Build(nameof(UnionExports.GetGenericBytes)));
+        Assert.Contains("getGenericBytes(): GenericUnion<string>", bytes, StringComparison.Ordinal);
+        Assert.Equal("\"AQID\"", UnionExports.GetGenericBytes());
+        string dictionary = DtsEmitter.Emit(Build(nameof(UnionExports.GetGenericDictionary)));
+        Assert.Contains("GenericUnion<Readonly<Record<string, number | null>>>", dictionary, StringComparison.Ordinal);
+        Assert.Equal("{\"value\":42,\"empty\":null}", UnionExports.GetGenericDictionary());
+    }
+
+    [Fact]
+    public void Emit_DoesNotSubstituteWireParametersIntoClrArrayCases()
+    {
+        Assert.Equal("\"AQID\"", UnionExports.GetGenericArrayBytes());
+        Assert.Equal("[1,2,3]", UnionExports.GetGenericArrayNumbers());
+        foreach (string method in new[]
+        {
+            nameof(UnionExports.GetGenericArrayBytes),
+            nameof(UnionExports.GetGenericArrayNumbers),
+        })
+        {
+            var surface = Build(method);
+            var exception = Assert.Throws<UnsupportedWireContractException>(() => DtsEmitter.Emit(surface));
+            Assert.Contains("generic parameters embedded", exception.Message, StringComparison.Ordinal);
+            Assert.Throws<UnsupportedWireContractException>(() => TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"));
+        }
+    }
+
+    [Fact]
+    public void Emit_GenericParametersDoNotShadowCaseDeclarations()
+    {
+        string output = DtsEmitter.Emit(Build(nameof(UnionExports.GetParameterNameUnion)));
+        Assert.Contains("export type ParameterNameUnion<T0_> = T0_ | T0 | null;", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_UnionNamesParticipateInFacadeAllocation()
+    {
+        string output = TypeScriptFacadeEmitter.Emit(Build(nameof(UnionExports.GetReservedUnionName)), "./dotnet.js");
+        string alias = output.Split('\n').Single(line => line.StartsWith("export type type_", StringComparison.Ordinal))
+            .Split(' ')[2];
+        Assert.Contains($"getReservedUnionName(): {alias}", output, StringComparison.Ordinal);
+        Assert.Contains("export function initializeRuntime(", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_UnmappedCaseDoesNotBecomeAnUnknownAlternative()
+    {
+        var surface = Build(nameof(UnionExports.GetUnsupportedCase));
+        Assert.Throws<UnsupportedWireContractException>(() => DtsEmitter.Emit(surface));
+        Assert.Throws<UnsupportedWireContractException>(() => TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"));
+    }
+
+    [Fact]
+    public void Emit_RecursiveUnionAliasesFailBeforeTypeScriptPublication()
+    {
+        Assert.Equal("null", UnionExports.GetRecursiveUnion());
+        var surface = Build(nameof(UnionExports.GetRecursiveUnion));
+        var exception = Assert.Throws<UnsupportedWireContractException>(() => DtsEmitter.Emit(surface));
+        Assert.Contains("recursive union case aliases", exception.Message, StringComparison.Ordinal);
+        Assert.Throws<UnsupportedWireContractException>(() => TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"));
+    }
+
+    [Fact]
+    public void Emit_ReferenceCollectionEntriesRetainPossibleNulls()
+    {
+        Assert.Equal("[\"value\",null]", UnionExports.GetReferenceArrayUnion());
+        Assert.Equal("[\"value\",null]", UnionExports.GetGenericReferenceArray());
+        string direct = DtsEmitter.Emit(Build(nameof(UnionExports.GetReferenceArrayUnion)));
+        Assert.Contains("ReadonlyArray<string | null> | number | null", direct, StringComparison.Ordinal);
+        string generic = DtsEmitter.Emit(Build(nameof(UnionExports.GetGenericReferenceArray)));
+        Assert.Contains("GenericUnion<ReadonlyArray<string | null>>", generic, StringComparison.Ordinal);
     }
 
     static JsExportUnion Find(JsExportSurface surface, string name) =>

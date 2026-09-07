@@ -1,6 +1,8 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
+using DotnetInspector.SourceSelection;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -93,10 +95,13 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
 
+    internal SearchSourceSelection? SourceSelection { get; init; }
+
     /// <summary>
-    /// Returns true if any search scope is specified.
+    /// Returns true if a scope has been selected, including a normalized empty contribution.
     /// </summary>
     public bool HasAnyScope =>
+        SourceSelection is not null ||
         Packages.Length > 0 ||
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||

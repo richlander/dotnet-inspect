@@ -53,6 +53,8 @@
     <Project Path="fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
+    <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1/InspectWeb.SourceComparisonFixtures.V1.csproj" />
+    <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2/InspectWeb.SourceComparisonFixtures.V2.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />
@@ -102,7 +104,6 @@
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
-    <Project Path="src/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
@@ -126,15 +127,12 @@
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <Project Path="src/ILInspector.CallGraph/ILInspector.CallGraph.csproj" />
-    <Project Path="src/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
-    <Project Path="src/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
     <Project Path="src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <Project Path="src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
-    <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <Project Path="src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <Project Path="src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
@@ -158,8 +156,12 @@
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
+    <Project Path="tests/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
+    <Project Path="tests/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
+    <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />

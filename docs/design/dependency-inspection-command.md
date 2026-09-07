@@ -42,8 +42,9 @@ It consumes owner-issued facts and does not redefine their construction:
   resolution facts.
 - [Package Source Model](package-source-model.md) owns source authorization,
   authority identity, transport, and source-result association.
-- The exact dependency-candidate adapter tracked by
-  [#5765](https://github.com/richlander/dotnet-inspect/issues/5765) owns
+- [Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
+  tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
+  owns
   source-authorized package version-range resolution and exact acquisition
   candidates.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns
@@ -114,7 +115,7 @@ The delivery plan has seven steps:
 
 1. Lock this command contract in #5993.
 2. Supply the shared declaration-to-exact-candidate handoff under
-   [#5765](https://github.com/richlander/dotnet-inspect/issues/5765).
+   [#5765](package-dependency-candidate-resolution.md).
 3. Define typed package dependency traversal under
    [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
 4. Define typed restored-project root and project-reference traversal under

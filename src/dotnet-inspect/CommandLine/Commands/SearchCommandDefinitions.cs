@@ -221,34 +221,22 @@ public static class SearchCommandDefinitions
 
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
-            var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-                parseResult.GetValue(packageOption) ?? [],
-                packagePrefix,
-                parseResult.GetValue(opts.Verbose),
-                sourceOptions);
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
-            var projects = parseResult.GetValue(projectOption) ?? [];
-
-            var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
-                parseResult,
-                platformOption,
-                platformLibraryOption);
-
-            var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: allPlatformFrameworks,
-                Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
-                hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
+            var intent = SearchSourceAdapter.Declare(
+                parseResult, packageOption, assemblyOption, projectOption, platformOption,
+                platformLibraryOption, extensionsOption, aspnetcoreOption,
+                prefixOption: packagePrefixOption);
+            var (selection, sources) = await SearchSourceAdapter.BindAsync(
+                intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
 
             var options = new ImplementsOptions
             {
+                SourceSelection = selection,
                 TargetType = targetType,
-                Packages = scope.Packages,
-                Assemblies = assemblies,
-                PlatformAssemblies = platformAssemblies,
-                PlatformFrameworks = scope.Frameworks,
-                Projects = projects,
+                Packages = [.. sources.Packages],
+                Assemblies = [.. sources.Assemblies],
+                PlatformAssemblies = [.. sources.PlatformAssemblies],
+                PlatformFrameworks = [.. sources.PlatformFrameworks],
+                Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
@@ -372,34 +360,22 @@ public static class SearchCommandDefinitions
 
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
-            var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-                parseResult.GetValue(packageOption) ?? [],
-                packagePrefix,
-                parseResult.GetValue(opts.Verbose),
-                sourceOptions);
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
-            var projects = parseResult.GetValue(projectOption) ?? [];
-
-            var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
-                parseResult,
-                platformOption,
-                platformLibraryOption);
-
-            var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: allPlatformFrameworks,
-                Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
-                hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
+            var intent = SearchSourceAdapter.Declare(
+                parseResult, packageOption, assemblyOption, projectOption, platformOption,
+                platformLibraryOption, extensionsOption, aspnetcoreOption,
+                prefixOption: packagePrefixOption);
+            var (selection, sources) = await SearchSourceAdapter.BindAsync(
+                intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
 
             var options = new ExtensionsOptions
             {
+                SourceSelection = selection,
                 TargetType = targetType,
-                Packages = scope.Packages,
-                Assemblies = assemblies,
-                PlatformAssemblies = platformAssemblies,
-                PlatformFrameworks = scope.Frameworks,
-                Projects = projects,
+                Packages = [.. sources.Packages],
+                Assemblies = [.. sources.Assemblies],
+                PlatformAssemblies = [.. sources.PlatformAssemblies],
+                PlatformFrameworks = [.. sources.PlatformFrameworks],
+                Projects = [.. sources.Projects],
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
@@ -520,33 +496,22 @@ public static class SearchCommandDefinitions
                     "depends --package System.Text.Json          # NuGet dependencies");
             }
 
-            var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
-                parseResult,
-                platformOption,
-                platformLibraryOption);
-
-            var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: allPlatformFrameworks,
-                Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption));
-            bool hasExplicitSearchSource = scopeFlags.Platform ||
-                scopeFlags.Extensions ||
-                scopeFlags.AspNetCore ||
-                packages.Length > 0 ||
-                assemblies.Length > 0 ||
-                projects.Length > 0 ||
-                platformAssemblies.Length > 0;
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies,
-                hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
+            var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+            var intent = SearchSourceAdapter.Declare(
+                parseResult, packageOption, assemblyOption, projectOption, platformOption,
+                platformLibraryOption, extensionsOption, aspnetcoreOption);
+            var (selection, sources) = await SearchSourceAdapter.BindAsync(
+                intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
 
             var options = new DependsOptions
             {
+                SourceSelection = selection,
                 TargetType = targetType,
-                Packages = scope.Packages,
-                Assemblies = assemblies,
-                PlatformAssemblies = platformAssemblies,
-                PlatformFrameworks = scope.Frameworks,
-                Projects = projects,
+                Packages = [.. sources.Packages],
+                Assemblies = [.. sources.Assemblies],
+                PlatformAssemblies = [.. sources.PlatformAssemblies],
+                PlatformFrameworks = [.. sources.PlatformFrameworks],
+                Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
@@ -555,7 +520,7 @@ public static class SearchCommandDefinitions
                 Rows = opts.ParseRows(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                SourceOptions = sourceOptions
             };
 
             var outcome = await DependsCommand.ExecuteTypeDependsAsync(options);
@@ -564,7 +529,7 @@ public static class SearchCommandDefinitions
             // library. A source option makes the positional argument
             // unambiguously a type, so no fallback applies.
             if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode &&
-                !hasExplicitSearchSource &&
+                selection.UsesImplicitPlatform &&
                 !targetType!.Contains('<'))
             {
                 var libOptions = new DependsOptions
