@@ -91,7 +91,7 @@ const representativeOperations: Readonly<Record<string, RepresentativeOperation>
   },
   "inspect-web-package": {
     name: "queryPackageVersions",
-    args: ["Example.Package"],
+    args: ["Example.Package", "1.0.0"],
     key: "QueryPackageVersions",
   },
   "inspect-web-metadata": {

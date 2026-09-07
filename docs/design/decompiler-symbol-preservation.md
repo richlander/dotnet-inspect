@@ -838,7 +838,7 @@ type generic `arg0` does not force a rename, so the ordinary fallback remains
 ### P26: metadata identities without a C# spelling
 
 ```bash
-dotnet run --project src/ILInspector.CSharp.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.CSharp.Tests -c Release --no-build -- \
   -method '*HostileMetadataSelfNameIsNotRendered*'
 
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \

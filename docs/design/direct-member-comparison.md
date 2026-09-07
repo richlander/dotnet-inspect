@@ -224,12 +224,18 @@ retained native outcomes (#6134). Their tools-owned
 [consumer envelope](csharp-member-recompilation.md#comparison-query-consumption)
 preserves correspondence, hashes, context checks, and independent verdicts.
 
-Research `CompareMembers` still serves `ReturnToSender` and the supported
-PDB-source composition. Native result
+`ReturnToSender.CompareMemberBodies` and `AuthoredRebuildFidelity` also consume
+the public query (#6177), retaining its native outcomes under the tools-owned
+[RTS consumer contract](fact-planned-compile-back-harness.md#member-comparison-query-consumption).
+This is internal harness adoption, not new product UX or RTS replacement
+readiness.
+
+Research `CompareMembers` still serves the supported PDB-source composition.
+Native result
 translations still serve CLI or harness presentation. These are retained
 caller obligations, not unused placeholders. The focused Research body-index
 association cleanup #5125 landed in #6099; neither that cleanup nor this
-two-helper migration completes broader retirement.
+comparison-tools migration completes broader retirement.
 
 ### Broader migration snapshot
 
@@ -254,7 +260,7 @@ and deletion commits to the tracker.
 | --- | --- | --- |
 | `MatchCommand.BuildImplementationDiffView` | CLI step 8 after adapter step 6 | Consume the public direct-member query; remove its direct `ImplementationDiff.CompareMembers` call and type-satisfying synthetic `ResearchComparison` wrapper when the presentation consumer moves. Preserve the separate structural-match verdict. |
 | `RoundTripComparison.Compare` and `RoundTripScopeComparison.Compare` | Comparison tools step 10, two-helper slice implemented in #6134 | Consume the public query and retained native outcomes; remove direct Research dispatch and redundant `CSharpFindings.Inspect` calls. Preserve product-issued original/donor correspondence, hashes, and independent harness verdicts. |
-| `ReturnToSender.BuildImplementationDiff`, including `AuthoredRebuildFidelity` | Comparison tools step 10 | Migrate every helper caller and its result consumption; remove replaced dispatch and obsolete nullable-result translation. Do not alter compilation, repair generated C#, or replace the harness oracle. |
+| `ReturnToSender.CompareMemberBodies`, including `AuthoredRebuildFidelity` | Comparison tools step 10, RTS slice implemented in #6177 | Consume the public query and retain its native outcomes, replacing `BuildImplementationDiff` and its nullable legacy-result translation. Preserve the pathless donor, sibling resolution, target selection, compilation, and independent harness oracle. |
 | Browser managed facade and explicit two-member workspace comparison | Browser step 9, coordinated with #5083 | Expose the same public query as observable browser behavior. Inventory actual routes then; this plan does not invent a currently existing legacy browser caller. Remove a replaced route if one exists. |
 | `ImplementationComparisonQuery.Execute`, `DiffCommand`, and `DiffSections` assembly-wide paths | Steps 7-9; Source tail 13-15 | Separate from rank 5. Their public execution and result/output adoption precede final shared-shape retirement. |
 | `ImplementationDiff.CompareMembersWithPdbSource` | Source steps 12-15 and Research retirement step 17 | Its call to `CompareMembers` is an explicit deletion blocker even if its present direct callers are tests. Migrate its supported Source composition or record an explicit owner/user decision to remove that behavior; do not keep a hidden legacy C#/IL route. |
