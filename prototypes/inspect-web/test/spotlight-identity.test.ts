@@ -1820,7 +1820,7 @@ test("typed scope bar owns its rendered control bindings", () => {
     ]);
   assert.match(
     scopeBarSource,
-    /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
+    /function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions\)/);
   for (const selector of [
     "[data-scope]",
     "[data-package-lens]",
@@ -5201,7 +5201,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /for \(const group of visibleMemberGroups\(type\)\)[\s\S]*?const graphGroup = selectedGraphMemberGroup\(type\);[\s\S]*?entries\.push\(\{ kind: "member", group: graphGroup }\)/);
 
   const pane =
-    appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\n\/\/ The scope switcher/)?.[0]
+    appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
     ?? "";
   assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
 });

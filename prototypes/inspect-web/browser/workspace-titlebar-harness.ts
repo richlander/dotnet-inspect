@@ -5,7 +5,6 @@ import {
   renderApplicationScopeBar,
   renderScopeBar,
   restoreScopeBarFocus,
-  scopeBarShortLabel,
   type ScopeBarBinding,
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
@@ -271,36 +270,36 @@ const source = {
 }`,
 };
 const packageStrip: readonly (
-  readonly [PackageLens, string, string, string]
+  readonly [PackageLens, string]
 )[] = [
-  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
-  ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
+  ["overview", "Overview"],
+  ["dependencies", "Dependencies"],
 ];
 const libraryStrip: readonly (
-  readonly [LibraryLens, string, string, string]
+  readonly [LibraryLens, string]
 )[] = [
-  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
-  ["references", "References", scopeBarShortLabel("References"), "⇄"],
-  ["integrations", "Integrations", scopeBarShortLabel("Integrations"), "◇"],
-  ["opportunities", "Opportunities", scopeBarShortLabel("Opportunities"), "△"],
-  ["analysis", "Analysis", scopeBarShortLabel("Analysis"), "⌁"],
-  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+  ["overview", "Overview"],
+  ["references", "References"],
+  ["integrations", "Integrations"],
+  ["opportunities", "Opportunities"],
+  ["analysis", "Analysis"],
+  ["metadata", "Metadata"],
 ];
 const typeStrip: readonly (
-  readonly [TypeLens, string, string, string]
+  readonly [TypeLens, string]
 )[] = [
-  ["api", "API", scopeBarShortLabel("API"), "⌘"],
-  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
-  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
+  ["api", "API"],
+  ["metadata", "Metadata"],
+  ["source", "Source"],
 ];
 const memberStrip: readonly (
-  readonly [MemberSection, string, string, string]
+  readonly [MemberSection, string]
 )[] = [
-  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
-  ["call-graph", "Call graph", scopeBarShortLabel("Call graph"), "⑂"],
-  ["facts", "Facts", scopeBarShortLabel("Facts"), "·"],
-  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
-  ["annotated", "Annotated source", scopeBarShortLabel("Annotated source"), "✎"],
+  ["overview", "Overview"],
+  ["call-graph", "Call graph"],
+  ["facts", "Facts"],
+  ["source", "Source"],
+  ["annotated", "Annotated source"],
 ];
 
 function scopeBarHtml() {
@@ -793,7 +792,9 @@ app.innerHTML = `
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace${workspaceMode ? "" : " content-frame"}"
       ${workspaceMode ? "" : `data-content-pane="${contentFramePane}"`}
-      role="tabpanel" aria-labelledby="${workspaceMode ? "application-scope-workspace" : "active-subject-tab"}">
+      ${workspaceMode
+        ? 'role="tabpanel" aria-labelledby="application-scope-workspace"'
+        : ""}>
       ${navigationHtml}
       <section class="detail-pane${workspaceMode
         ? ""
@@ -805,7 +806,7 @@ app.innerHTML = `
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}">
           ${detailHtml()}
         </article>
       </section>

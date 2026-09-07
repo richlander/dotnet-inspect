@@ -8,16 +8,6 @@ async function box(page: Page, selector: string) {
   return value!;
 }
 
-async function slideAfter(page: Page, selector: string) {
-  await page.locator(selector).evaluate(element => {
-    element.dispatchEvent(new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      deltaY: 100,
-    }));
-  });
-}
-
 async function renderSpotlightFooter(
   page: Page,
   spotlightScope: "all" | "commands",
@@ -99,10 +89,10 @@ test("the top shell row separates application scopes from inspection subjects", 
     .not.toHaveAttribute("aria-current", "page");
   await expect(page.locator("[data-application-scope='workspace']"))
     .not.toHaveAttribute("aria-current", "page");
-  await expect(page.locator(".scope-switch [data-scope]")).toHaveCount(3);
-  await expect(page.locator("[data-scope='package']"))
+  await expect(page.locator(".scope-switch [data-subject-tab]")).toHaveCount(3);
+  await expect(page.locator("[data-subject-tab][data-scope='package']"))
     .toHaveAttribute("aria-label", "Package");
-  await expect(page.locator("[data-scope='type']"))
+  await expect(page.locator("[data-subject-tab][data-scope='type']"))
     .toHaveAttribute("aria-label", "Type");
   await expect(page.locator("[data-scope='workspace']")).toHaveCount(0);
   await expect(page.locator(".titlebar #application-menu-button")).toBeVisible();
@@ -1325,7 +1315,7 @@ test("the inspected target occupies the second row and package selectors stay in
     456);
 });
 
-test("keyboard tab activation preserves focus across shell replacement", async ({
+test("keyboard tab activation preserves adaptive focus across shell replacement", async ({
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html");
@@ -1352,11 +1342,17 @@ test("keyboard tab activation preserves focus across shell replacement", async (
   await type.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(librarySubject).toBeFocused();
+  await expect(librarySubject).toHaveAttribute("aria-selected", "false");
+  await expect(type).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
   await expect(librarySubject).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("ArrowLeft");
-  await expect(packageSubject).toBeFocused();
-  await expect(packageSubject).toHaveAttribute("aria-selected", "true");
-  await expect(packageSubject).toBeFocused();
+  if (await librarySubject.isVisible()) {
+    await expect(librarySubject).toBeFocused();
+  } else {
+    await expect(page.locator("[data-navigation-trigger='subject']"))
+      .toBeFocused();
+  }
+  await expect(packageSubject).toHaveAttribute("aria-selected", "false");
 });
 
 test("removed focused tabs fall back to the persistent shell control", async ({
@@ -1369,21 +1365,9 @@ test("removed focused tabs fall back to the persistent shell control", async ({
   await page.evaluate(() => window.renderPackageScopeProbe());
 
   await expect(page.locator(".brand")).toBeFocused();
-  await expect(page.locator(".slide-strip-inspector")).toHaveAttribute(
-    "data-initial-anchor",
-    "overview");
-});
-
-test("replaced allocation controls park focus on the persistent shell", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 680, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  await page.locator("[data-more-subjects]").focus();
-  await page.evaluate(() => window.rerenderScopeBarProbe());
-
-  await expect(page.locator(".brand")).toBeFocused();
+  await expect(
+    page.locator("[data-inspector-tab][data-package-lens='overview']"),
+  ).toHaveAttribute("tabindex", "0");
 });
 
 test("packages without an embedded icon use NuGet's package fallback", async ({
@@ -1395,187 +1379,6 @@ test("packages without an embedded icon use NuGet's package fallback", async ({
     "src",
     "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
   await expect(page.locator(".subject-icon")).not.toContainText("⬡");
-});
-
-test("row-one controls yield in order before Subject and Inspector navigation", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-  await expect(page.locator(".title-search-label-full"))
-    .toHaveText("Search types, members, packages");
-  await expect(page.locator(".title-search-label-full")).toBeVisible();
-  await expect(page.locator(".title-search-label-compact")).toBeHidden();
-  const subjectTabs = page.locator(".scope-switch [data-subject-tab]");
-  const inspectorStrip = page.locator(".slide-strip-inspector");
-  await expect(subjectTabs).toHaveCount(4);
-  await expect(
-    inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
-  ).toHaveCount(5);
-
-  await page.setViewportSize({ width: 1200, height: 900 });
-  await expect(page.locator(".title-search-label-full")).toBeHidden();
-  await expect(page.locator(".title-search-label-compact")).toBeVisible();
-  const preferredSubjectWidth = (await box(
-    page,
-    ".subject-inspector-region",
-  )).width;
-  await expect(subjectTabs).toHaveCount(4);
-  await expect(
-    inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
-  ).toHaveCount(5);
-
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1&long=1");
-  await expect(page.locator(".title-search-label-full")).toBeVisible();
-  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-
-  await page.setViewportSize({ width: 1200, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const titlebar = await box(page, ".titlebar");
-  const targetbar = await box(page, ".targetbar");
-
-  await expect(page.locator("#package-version")).toHaveCount(0);
-  await expect(page.locator("#framework")).toHaveCount(0);
-  await expect(page.locator("#open-search")).toBeVisible();
-  await expect(page.locator(".title-search-label-full")).toBeHidden();
-  await expect(page.locator(".title-search-label-compact"))
-    .toHaveText("Search");
-  await expect(page.locator(".title-search-label-compact")).toBeVisible();
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeVisible();
-  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-  await expect(inspectorStrip).toHaveAttribute("data-mode", "label");
-  await expect(
-    inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
-  ).toHaveCount(5);
-  const callGraph = page.getByRole("tab", { name: "Call graph" });
-  await expect(callGraph).toBeVisible();
-  await expect(callGraph).toHaveAttribute("aria-selected", "false");
-  const overview = page.getByRole("tab", { name: "Overview" });
-  await expect(overview).toHaveAttribute("aria-selected", "true");
-  await expect(overview).toHaveAttribute("aria-controls", "inspector-panel");
-  await expect(page.locator("#inspector-panel")).toHaveAttribute(
-    "aria-labelledby",
-    "active-inspector-tab");
-  await expect(subjectTabs).toHaveCount(4);
-  expect(await subjectTabs.evaluateAll(tabs =>
-    tabs.every(tab => tab.getAttribute("aria-controls") === "subject-panel")))
-    .toBe(true);
-  await expect(page.locator("#subject-panel")).toHaveAttribute(
-    "aria-labelledby",
-    "active-subject-tab");
-  await expect(page.locator(".scope-switch [tabindex='0']")).toHaveCount(1);
-  const memberSubject = page.locator('[data-scope="member"]');
-  await expect(memberSubject).toHaveAttribute("aria-selected", "true");
-  await memberSubject.focus();
-  await page.keyboard.press("ArrowLeft");
-  const typeSubject = page.locator('[data-scope="type"]');
-  await expect(typeSubject).toBeFocused();
-  await expect(typeSubject).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("ArrowRight");
-  await expect(memberSubject).toBeFocused();
-  await expect(memberSubject).toHaveAttribute("aria-selected", "true");
-  await overview.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(callGraph).toBeFocused();
-  await expect(callGraph).toHaveAttribute("aria-selected", "false");
-  await expect(overview).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#go-home")).toHaveCount(0);
-  await expect(page.locator(".subject-path-segment")).toHaveText([
-    "System.Text.Json",
-    "System.Text.Json",
-    "System.Text.Json.JsonSerializer",
-    "DeserializeSync",
-  ]);
-  await expect(page.locator(".targetbar .subject-path")).toBeVisible();
-  await expect(page.locator(".titlebar .subject-path")).toHaveCount(0);
-  await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
-  await expect(page.locator(".titlebar #application-menu-button"))
-    .toBeVisible();
-  await expect(page.locator("#copy-name")).toHaveCount(0);
-  await expect(page.locator("#taste-btn")).toHaveCount(0);
-  expect(titlebar.y).toBeLessThan(targetbar.y);
-  expect(targetbar.x).toBe(0);
-  expect(targetbar.x + targetbar.width).toBeCloseTo(1200, 0);
-
-  await page.setViewportSize({ width: 1165, height: 900 });
-  await expect(page.locator("#open-search")).toBeHidden();
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeVisible();
-  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-
-  await page.setViewportSize({ width: 1160, height: 900 });
-  await expect(page.locator("#open-search")).toBeHidden();
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeHidden();
-  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-
-  await page.setViewportSize({ width: 1100, height: 900 });
-  await expect(page.locator("#open-search")).toBeHidden();
-  expect(await page.evaluate(() => window.focusWorkbenchSearchProbe()))
-    .toBe(false);
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeHidden();
-  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-  await expect(subjectTabs).toHaveCount(4);
-  await expect(
-    inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
-  ).toHaveCount(5);
-  const yieldedSubjectWidth = (await box(
-    page,
-    ".subject-inspector-region",
-  )).width;
-  expect(yieldedSubjectWidth).toBeGreaterThan(preferredSubjectWidth);
-  await expect(page.locator("#application-menu-button")).toBeVisible();
-
-  await page.setViewportSize({ width: 1000, height: 900 });
-  await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
-  await expect(subjectTabs).toHaveCount(4);
-  await expect(
-    inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
-  ).toHaveCount(5);
-  expect(Math.abs(
-    (await box(page, ".subject-inspector-region")).width
-    - yieldedSubjectWidth,
-  )).toBeLessThanOrEqual(1);
-  await expect(page.locator("#application-menu-button")).toBeVisible();
-
-  await page.setViewportSize({ width: 900, height: 900 });
-  await expect(page.locator("#open-search")).toBeHidden();
-  await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
-  await expect(memberSubject).toBeVisible();
-  const visibleSubjectCount = await page.locator(
-    ".scope-switch [data-subject-tab]:not([hidden])",
-  ).count();
-  expect(visibleSubjectCount).toBeGreaterThan(0);
-  expect(visibleSubjectCount).toBeLessThan(await subjectTabs.count());
-
-  await page.setViewportSize({ width: 480, height: 900 });
-  await expect(page.locator("#application-menu-button")).toBeVisible();
-  await expect(inspectorStrip).toHaveAttribute("data-mode", "label");
-  await expect(
-    inspectorStrip.locator(
-      '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).not.toHaveCount(0);
-  expect(await inspectorStrip.locator(
-    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="short-label"]',
-  ).evaluateAll(labels =>
-    labels.every(label => getComputedStyle(label).display === "none")))
-    .toBe(true);
-
-  await page.setViewportSize({ width: 300, height: 900 });
-  await expect(page.locator("#application-menu-button")).toBeVisible();
-  const horizontalOverflow = await page.evaluate(() =>
-    document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(horizontalOverflow).toBeLessThanOrEqual(0);
-  await page.getByRole("button", { name: "Members" }).click();
-  const narrowNamespacePicker = await box(page, ".namespace-picker");
-  const narrowTypeList = await box(page, ".type-list");
-  expect(narrowNamespacePicker.y + narrowNamespacePicker.height)
-    .toBeLessThanOrEqual(narrowTypeList.y);
 });
 
 test("Spotlight keeps its Search shortcut guidance visible when narrow", async ({
@@ -1598,49 +1401,6 @@ test("Spotlight keeps its Search shortcut guidance visible when narrow", async (
         .toBeLessThanOrEqual(modal.x + modal.width);
     }
   }
-});
-
-test("SlideStrip slides one uniform window without stealing external focus", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 460, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const inspector = page.locator(".slide-strip-inspector");
-  await expect(inspector).toHaveAttribute("data-mode", "label");
-  await expect(
-    inspector.locator(
-      '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Overview", "Call graph"]);
-  await expect(inspector.locator("[data-slide-strip-before]")).toBeHidden();
-  await expect(inspector.locator("[data-slide-strip-after]")).toBeVisible();
-
-  const applicationMenu = page.locator("#application-menu-button");
-  await applicationMenu.focus();
-  await slideAfter(page, ".slide-strip-inspector");
-  await expect(applicationMenu).toBeFocused();
-  await expect(
-    inspector.locator(
-      '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Call graph", "Facts"]);
-  await expect(inspector.locator("[data-slide-strip-before]")).toBeVisible();
-  await expect(inspector.locator("[data-slide-strip-after]")).toBeVisible();
-
-  const callGraph = page.getByRole("tab", { name: "Call graph" });
-  await callGraph.focus();
-  await page.keyboard.press("ArrowRight");
-  const facts = page.getByRole("tab", { name: "Facts" });
-  await expect(facts).toBeFocused();
-  await expect(facts).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator('[data-member-section="overview"]'))
-    .toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("End");
-  const annotated = page.getByRole("tab", { name: "Annotated source" });
-  await expect(annotated).toBeFocused();
-  await expect(annotated).toBeVisible();
-  await expect(inspector).toHaveAttribute("data-fallback", "false");
 });
 
 async function windowContinuityProbe(
@@ -1832,373 +1592,6 @@ test("anchor-following window continuity retains only explicit slides", async ({
   });
 });
 
-test("allocation controls move between adjacent stable result pairs", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 650, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const subject = page.locator(".slide-strip-subject");
-  const inspector = page.locator(".slide-strip-inspector");
-  const moreSubjects = page.locator("[data-more-subjects]");
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "false");
-  const visibleSubjectLabels = subject.locator(
-    '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-  );
-  const visibleInspectorLabels = inspector.locator(
-    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-  );
-  const subjects = ["Package", "Library", "Type", "Member"];
-  const inspectors = ["Overview", "Call graph", "Facts", "Source", "Annotated source"];
-  const initialSubjectCount = await visibleSubjectLabels.count();
-  const initialInspectorCount = await visibleInspectorLabels.count();
-  expect(initialSubjectCount).toBeGreaterThan(0);
-  expect(initialSubjectCount).toBeLessThan(subjects.length);
-  expect(initialInspectorCount).toBeGreaterThan(2);
-  await expect(visibleSubjectLabels).toHaveText(subjects.slice(-initialSubjectCount));
-  await expect(visibleInspectorLabels).toHaveText(inspectors.slice(0, initialInspectorCount));
-
-  await moreSubjects.click();
-  await expect(moreSubjects).toBeFocused();
-  await expect.poll(() => visibleSubjectLabels.count()).toBeGreaterThan(initialSubjectCount);
-  const adjustedSubjectCount = await visibleSubjectLabels.count();
-  await expect(visibleSubjectLabels).toHaveText(subjects.slice(-adjustedSubjectCount));
-  await expect(visibleInspectorLabels.first()).toHaveText("Overview");
-  await expect(visibleInspectorLabels.nth(1)).toHaveText("Call graph");
-  expect(await visibleInspectorLabels.count()).toBeLessThan(initialInspectorCount);
-});
-
-test("allocation preserves a manually slid inspector window", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 560, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const applicationMenu = page.locator("#application-menu-button");
-  await applicationMenu.focus();
-  await slideAfter(page, ".slide-strip-inspector");
-  await expect(applicationMenu).toBeFocused();
-  expect(await page.locator(
-      ".slide-strip-inspector [data-inspector-tab]:not([hidden])",
-    ).evaluateAll(items => items.map(item => item.dataset.slideStripId)),
-  ).toEqual(["facts", "source", "annotated"]);
-
-  await page.locator("[data-more-subjects]").click();
-  await expect(
-    page.locator(
-      ".slide-strip-inspector [data-inspector-tab]:not([hidden])",
-    ).first(),
-  ).toHaveAttribute("data-slide-strip-id", "facts");
-});
-
-test("focus navigation refreshes allocation action candidates", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 560, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const moreSubjects = page.locator("[data-more-subjects]");
-  await moreSubjects.click();
-  await page.locator('[data-member-section="overview"]').focus();
-  await page.keyboard.press("ArrowLeft");
-
-  await expect(page.locator('[data-member-section="annotated"]')).toBeFocused();
-  const visibleInspectors = await page.locator(
-      ".slide-strip-inspector [data-inspector-tab]:not([hidden])",
-    ).evaluateAll(items => items.map(item => item.dataset.slideStripId));
-  expect(visibleInspectors).toContain("source");
-  expect(visibleInspectors.at(-1)).toBe("annotated");
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "false");
-  const priorSubjectCount = await page.locator(
-    ".slide-strip-subject [data-subject-tab]:not([hidden])",
-  ).count();
-  await moreSubjects.click();
-  await expect.poll(() => page.locator(
-    ".slide-strip-subject [data-subject-tab]:not([hidden])",
-  ).count()).toBeGreaterThan(priorSubjectCount);
-  await expect(page.locator('[data-member-section="annotated"]')).toBeVisible();
-});
-
-test("every allocation level strictly trades subject for inspector richness", async ({
-  page,
-}) => {
-  const modeOrder = ["label", "short-label", "icon", "index"];
-  for (const width of [600, 680]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto("/browser/workspace-titlebar.html?member=1");
-    await page.getByRole("tab", { name: "Overview" }).click();
-
-    const subject = page.locator(".slide-strip-subject");
-    const inspector = page.locator(".slide-strip-inspector");
-    const moreSubjects = page.locator("[data-more-subjects]");
-    const levels: {
-      subjectCount: number;
-      inspectorMode: number;
-      inspectorCount: number;
-    }[] = [];
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const mode = await inspector.getAttribute("data-mode");
-      levels.push({
-        subjectCount: await subject.locator(
-          "[data-subject-tab]:not([hidden])",
-        ).count(),
-        inspectorMode: modeOrder.indexOf(mode ?? ""),
-        inspectorCount: await inspector.locator(
-          "[data-inspector-tab]:not([hidden])",
-        ).count(),
-      });
-      if (await moreSubjects.getAttribute("aria-disabled") === "true") break;
-      await moreSubjects.click();
-    }
-
-    await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
-    expect(levels.length).toBeGreaterThan(1);
-    for (let index = 1; index < levels.length; index++) {
-      const previous = levels[index - 1];
-      const current = levels[index];
-      if (!previous || !current) {
-        throw new Error("Allocation ladder snapshot is incomplete.");
-      }
-      expect(current.subjectCount).toBeGreaterThan(previous.subjectCount);
-      expect(
-        current.inspectorMode > previous.inspectorMode
-        || (current.inspectorMode === previous.inspectorMode
-          && current.inspectorCount < previous.inspectorCount),
-      ).toBe(true);
-    }
-  }
-});
-
-test("temporary pressure does not discard the retained allocation", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 680, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const moreSubjects = page.locator("[data-more-subjects]");
-  for (let attempt = 0; attempt < 10; attempt++) {
-    if (await moreSubjects.getAttribute("aria-disabled") === "true") break;
-    await moreSubjects.click();
-  }
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
-
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.setViewportSize({ width: 680, height: 900 });
-
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
-});
-
-test("manual windows survive resize and reset with inspector inventory", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 460, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const inspector = page.locator(".slide-strip-inspector");
-  const visibleLabels = () => inspector.locator(
-    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-  );
-  const applicationMenu = page.locator("#application-menu-button");
-  await applicationMenu.focus();
-  await slideAfter(page, ".slide-strip-inspector");
-  await expect(visibleLabels()).toHaveText(["Call graph", "Facts"]);
-  await expect(applicationMenu).toBeFocused();
-  await expect(page.locator('[data-member-section="call-graph"]'))
-    .toHaveAttribute("tabindex", "0");
-  await expect(page.locator('[data-member-section="overview"]'))
-    .toHaveAttribute("tabindex", "-1");
-
-  await page.setViewportSize({ width: 900, height: 900 });
-  await expect(visibleLabels()).toHaveCount(5);
-  await page.setViewportSize({ width: 460, height: 900 });
-  const narrowedInspectors = await inspector.locator(
-    "[data-inspector-tab]:not([hidden])",
-  ).evaluateAll(items => items.map(item => item.getAttribute(
-    "data-member-section",
-  )));
-  expect(narrowedInspectors).toContain("facts");
-  expect(narrowedInspectors).not.toContain("overview");
-  const narrowedTabStop = inspector.locator(
-    "[data-inspector-tab]:not([hidden])[tabindex='0']",
-  );
-  await expect(narrowedTabStop).toHaveCount(1);
-  const narrowedTabStopId = await narrowedTabStop.getAttribute(
-    "data-member-section",
-  );
-  expect(narrowedTabStopId).not.toBeNull();
-  expect(narrowedInspectors).toContain(narrowedTabStopId);
-  await expect(applicationMenu).toBeFocused();
-
-  const memberSubject = page.locator('[data-scope="member"]');
-  await memberSubject.focus();
-  await page.keyboard.press("ArrowLeft");
-  const typeSubject = page.locator('[data-scope="type"]');
-  await expect(typeSubject).toBeFocused();
-  await expect(typeSubject).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".slide-strip-inspector")).toHaveAttribute(
-    "data-mode",
-    "label");
-  await expect(
-    page.locator(
-      '.slide-strip-inspector [data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["API", "Metadata", "Source"]);
-});
-
-test("removing a focused allocation control transfers focus before removal", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 680, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const moreSubjects = page.locator("[data-more-subjects]");
-  await moreSubjects.focus();
-  await expect(moreSubjects).toBeFocused();
-  await page.setViewportSize({ width: 220, height: 900 });
-
-  await expect(page.locator("[data-slide-strip-allocation]")).toBeHidden();
-  await expect(page.locator('[data-scope="member"]')).toBeFocused();
-  await expect(page.locator(".slide-strip-subject [tabindex='0']"))
-    .toHaveCount(1);
-
-  await page.setViewportSize({ width: 680, height: 900 });
-  await moreSubjects.focus();
-  await page.setViewportSize({ width: 1440, height: 900 });
-
-  await expect(page.locator("[data-slide-strip-allocation]")).toBeHidden();
-  await expect(page.locator('[data-scope="member"]')).toBeFocused();
-  await expect(page.locator(".slide-strip-subject [tabindex='0']"))
-    .toHaveCount(1);
-});
-
-test("allocation focus transfer participates in pressure selection", async ({
-  page,
-}) => {
-  await page.goto("/browser/workspace-titlebar.html");
-
-  const state = await page.evaluate(async () => {
-    const scopeBar = await import("../src/scope-bar.ts");
-    document.head.insertAdjacentHTML(
-      "beforeend",
-      `<style>
-        .focus-pressure-probe .lensbar {
-          width: 400px;
-          flex: none;
-        }
-        .focus-pressure-probe
-          [data-slide-strip="subject"] .slide-strip-item {
-          width: 40px;
-          padding: 0;
-        }
-        .focus-pressure-probe
-          [data-slide-strip="inspector"] .slide-strip-item {
-          width: 30px;
-          padding: 0;
-        }
-        .focus-pressure-probe
-          [data-slide-strip="inspector"]
-          [data-slide-strip-id="a"] {
-          width: 220px;
-        }
-      </style>`);
-    document.body.innerHTML = `
-      <div class="focus-pressure-probe">
-        ${scopeBar.renderScopeBar({
-          scope: "member",
-          strip: [
-            ["a", "Alpha", "A", "x"],
-            ["b", "Beta", "B", "x"],
-            ["c", "Charlie", "C", "x"],
-            ["d", "Delta", "D", "x"],
-            ["e", "Echo", "E", "x"],
-          ],
-          activeStripId: "a",
-          stripAttribute: "data-member-section",
-          showMemberScope: true,
-          escapeHtml: String,
-        })}
-      </div>`;
-    const binding = scopeBar.bindScopeBar(
-      document,
-      {
-        onApplicationScopeSelect() {},
-        onLibraryLensSelect() {},
-        onMemberSectionSelect() {},
-        onPackageLensSelect() {},
-        onScopeSelect() {},
-        onTypeLensSelect() {},
-      },
-      scopeBar.createScopeBarState());
-    await new Promise(resolve => {
-      requestAnimationFrame(() => requestAnimationFrame(resolve));
-    });
-
-    const navigation = document.querySelector<HTMLElement>(".lensbar")!;
-    const inspector = document.querySelector<HTMLElement>(
-      '[data-slide-strip="inspector"]')!;
-    const allocation = document.querySelector<HTMLElement>(
-      "[data-slide-strip-allocation]")!;
-    const moreInspectors = document.querySelector<HTMLElement>(
-      "[data-more-inspectors]")!;
-    inspector.dispatchEvent(new WheelEvent("wheel", {
-      deltaY: 100,
-      bubbles: true,
-      cancelable: true,
-    }));
-    moreInspectors.focus();
-    navigation.style.width = "150px";
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const result = {
-      pressure: navigation.dataset.pressure,
-      inspectorFallback: inspector.dataset.fallback,
-      focused: document.activeElement instanceof HTMLElement
-        ? document.activeElement.dataset.slideStripId
-        : undefined,
-      controlsHidden: allocation.hidden,
-    };
-    binding.disconnect();
-    return result;
-  });
-
-  expect(state.pressure).toBe("terminal");
-  expect(state.controlsHidden).toBe(true);
-  expect(state.focused).toBe("a");
-  expect(state.inspectorFallback).toBe("true");
-});
-
-test("edge indicators do not replace an item hit target", async ({ page }) => {
-  await page.setViewportSize({ width: 460, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const target = await page.locator(".slide-strip-inspector").evaluate(
-    element => {
-      const bounds = element.getBoundingClientRect();
-      const hit = document.elementFromPoint(
-        bounds.right - 2,
-        bounds.top + bounds.height / 2);
-      return hit?.closest("[data-inspector-tab]")
-        ?.getAttribute("data-member-section") ?? null;
-    });
-
-  expect(target).toBe("call-graph");
-  const indicators = await page.locator(".slide-strip-inspector").evaluate(
-    element => {
-      const before = getComputedStyle(
-        element.querySelector<HTMLElement>("[data-slide-strip-before]")!);
-      const after = getComputedStyle(
-        element.querySelector<HTMLElement>("[data-slide-strip-after]")!);
-      return {
-        before: before.borderLeftWidth,
-        after: after.borderRightWidth,
-        width: after.width,
-      };
-    });
-  expect(indicators.before).toBe("2px");
-  expect(indicators.after).toBe("2px");
-  expect(indicators.width).toBe("8px");
-});
-
 test("a mounted empty SlideStrip applies its empty state", async ({ page }) => {
   await page.goto("/browser/workspace-titlebar.html");
 
@@ -2263,104 +1656,6 @@ test("a mounted empty SlideStrip applies its empty state", async ({ page }) => {
   });
 });
 
-test("representation-specific gaps participate in measured capacity", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 480, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-  await page.addStyleTag({
-    content: `
-      .slide-strip-inspector[data-mode="short-label"] .slide-strip-items {
-        gap: 60px;
-      }`,
-  });
-  await page.evaluate(() => window.rerenderScopeBarProbe());
-
-  const layout = await page.locator(".slide-strip-inspector").evaluate(
-    element => {
-      const items = element.querySelector<HTMLElement>(".slide-strip-items");
-      if (!items) throw new Error("Inspector items are unavailable.");
-      return {
-        fallback: element.dataset.fallback,
-        mode: element.dataset.mode,
-        stripWidth: element.getBoundingClientRect().width,
-        itemsWidth: items.getBoundingClientRect().width,
-      };
-    });
-  expect(layout.fallback).toBe("false");
-  expect(layout.mode).not.toBe("short-label");
-  expect(layout.itemsWidth).toBeLessThanOrEqual(layout.stripWidth + 0.5);
-});
-
-test("item margins participate in measured capacity", async ({ page }) => {
-  await page.setViewportSize({ width: 480, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-  await page.addStyleTag({
-    content: `
-      .slide-strip-inspector[data-mode="short-label"] .slide-strip-item {
-        margin-right: 12px;
-      }`,
-  });
-  await page.evaluate(() => window.rerenderScopeBarProbe());
-
-  const layout = await page.locator(".slide-strip-inspector").evaluate(
-    element => {
-      const items = element.querySelector<HTMLElement>(".slide-strip-items");
-      if (!items) throw new Error("Inspector items are unavailable.");
-      return {
-        fallback: element.dataset.fallback,
-        stripWidth: element.getBoundingClientRect().width,
-        itemsWidth: items.getBoundingClientRect().width,
-      };
-    });
-  expect(layout.fallback).toBe("false");
-  expect(layout.itemsWidth).toBeLessThanOrEqual(layout.stripWidth + 0.5);
-});
-
-test("oversized end alignment exposes the item's ending edge", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 560, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const edges = await page.locator(".slide-strip-inspector").evaluate(
-    element => {
-      element.style.width = "100px";
-      element.dataset.fallback = "true";
-      element.dataset.oversizedAlignment = "end";
-      const items = element.querySelector<HTMLElement>(".slide-strip-items");
-      if (!items) throw new Error("Inspector strip items are unavailable.");
-      items.style.width = "200px";
-      return {
-        strip: element.getBoundingClientRect().right,
-        items: items.getBoundingClientRect().right,
-      };
-    });
-
-  expect(edges.items).toBeCloseTo(edges.strip, 0);
-});
-
-test("terminal pressure preserves both strips without page overflow", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 220, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  await expect(page.locator(".lensbar")).toHaveAttribute(
-    "data-pressure",
-    "terminal");
-  await expect(page.locator("[data-slide-strip-allocation]")).toBeHidden();
-  await expect(
-    page.locator(".slide-strip-subject [data-subject-tab]:not([hidden])"),
-  ).toHaveCount(1);
-  await expect(
-    page.locator(".slide-strip-inspector [data-inspector-tab]:not([hidden])"),
-  ).not.toHaveCount(0);
-  expect(await page.evaluate(() =>
-    document.documentElement.scrollWidth - document.documentElement.clientWidth))
-    .toBeLessThanOrEqual(0);
-});
-
 test("subject-only layout reserves the empty-strip context label", async ({
   page,
 }) => {
@@ -2379,37 +1674,6 @@ test("subject-only layout reserves the empty-strip context label", async ({
   expect(bounds.contextRight).toBeLessThanOrEqual(bounds.barRight);
   await expect(page.locator(".lens-context")).toHaveText(
     "Filtered member list");
-});
-
-test("reduced motion preserves the same SlideStrip result", async ({ page }) => {
-  await page.setViewportSize({ width: 370, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-  const snapshot = () => page.locator(".lensbar").evaluate(element => ({
-    pressure: element.dataset.pressure,
-    strips: [...element.querySelectorAll<HTMLElement>("[data-slide-strip]")]
-      .map(strip => ({
-        kind: strip.dataset.slideStrip,
-        mode: strip.dataset.mode,
-        visible: [...strip.querySelectorAll<HTMLElement>(
-          "[data-slide-strip-id]:not([hidden])",
-        )].map(item => item.dataset.slideStripId),
-      })),
-  }));
-  const ordinary = await snapshot();
-  expect(ordinary.strips.find(strip => strip.kind === "inspector")?.mode)
-    .toBe("short-label");
-  const ordinaryLabels = await page.locator(
-    '.slide-strip-inspector [data-inspector-tab]:not([hidden]) [data-slide-strip-representation="short-label"]',
-  ).allTextContents();
-  expect(ordinaryLabels.length).toBeGreaterThanOrEqual(2);
-  expect(ordinaryLabels.slice(0, 2)).toEqual(["O", "CG"]);
-
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.reload();
-  await expect(page.locator(".lensbar")).toHaveAttribute(
-    "data-pressure",
-    ordinary.pressure ?? "");
-  expect(await snapshot()).toEqual(ordinary);
 });
 
 test("Annotated Source keeps its complete action group under shell pressure", async ({
@@ -2603,14 +1867,16 @@ test("Workspace keeps the singular Workspace visible and menu fixed", async ({
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
   await expect(page.locator("[data-application-scope='workspace']"))
     .toHaveAttribute("aria-current", "page");
-  await expect(page.locator("[data-scope='package']"))
+  await expect(page.locator("[data-application-scope='workspace']"))
+    .toBeVisible();
+  await expect(page.locator("[data-subject-tab][data-scope='package']"))
     .toHaveAttribute("aria-selected", "false");
 });
 
 test("application scopes yield before inspection identity without dropping focus", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const query = page.locator("[data-application-scope='query']");
@@ -2620,17 +1886,17 @@ test("application scopes yield before inspection identity without dropping focus
   await expect(page.locator(".titlebar > .application-scope-region"))
     .toBeHidden();
   await expect(
-    page.locator(".slide-strip-subject [data-subject-tab]:not([hidden])"),
+    page.locator("[data-subject-tab]"),
   ).toHaveCount(4);
   await expect(
-    page.locator(".slide-strip-inspector [data-inspector-tab]:not([hidden])"),
+    page.locator("[data-inspector-tab]"),
   ).toHaveCount(5);
 });
 
 test("a trailing application scope transfers focus before terminal clipping", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const workspace = page.locator("[data-application-scope='workspace']");
@@ -2645,7 +1911,7 @@ test("a trailing application scope transfers focus before terminal clipping", as
 test("application scope rerenders preserve focus until responsive yielding", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const query = page.locator("[data-application-scope='query']");

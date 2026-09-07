@@ -298,7 +298,6 @@ import {
   renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
-  scopeBarShortLabel,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -3602,9 +3601,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
-  const inspectorPanelSemantics = hasEffectiveInspector()
-    ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
-    : "";
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
@@ -3701,7 +3697,9 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
       <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
         ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
-        role="tabpanel" aria-labelledby="${activeScope === "workspace" ? "application-scope-workspace" : "active-subject-tab"}">
+        ${activeScope === "workspace"
+          ? 'role="tabpanel" aria-labelledby="application-scope-workspace"'
+          : ""}>
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane${contentFrameEnabled
@@ -3712,7 +3710,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${renderLens(current)}
           </article>
         </section>
@@ -4086,89 +4084,6 @@ function renderMemberNavPane(type: AppTypeSurface) {
   });
 }
 
-// The scope switcher + lens strip follows Package → Library → Type → Member.
-// Member is available as soon as the selected type has members. Each segment is selectable
-// and swaps the strip beside it:
-//   package → package lenses   type → type lenses   member → member sections
-// Keeping all three families of buttons on one strip means the member modes (Overview,
-// Call graph, …) live here too instead of inside the detail pane.
-function hasEffectiveInspector(): boolean {
-  const sc = scope();
-  if (sc === "workspace") return false;
-  if (sc === "package") {
-    return packageLensesFor(state.package)
-      .some(([id]) => id === state.packageLens);
-  }
-  if (sc === "library") {
-    return libraryLensesFor(state.package)
-      .some(([id]) => id === state.libraryLens);
-  }
-  if (sc === "member") {
-    const selected = selectedType();
-    const member = selected && selectedMember(selected);
-    return Boolean(member && memberSectionsFor(member)
-      .some(([id]) => id === state.memberSection));
-  }
-  return typeLensesFor(state.package).some(([id]) => id === state.lens);
-}
-
-function packageLensPresentation(
-  id: PackageLens,
-): string {
-  switch (id) {
-    case "overview": return "◫";
-    case "dependencies": return "⇄";
-    default: return assertNever(id, "package lens presentation");
-  }
-}
-
-function libraryLensPresentation(
-  id: LibraryLens,
-): string {
-  switch (id) {
-    case "overview": return "◫";
-    case "references": return "⇄";
-    case "integrations": return "⌁";
-    case "opportunities": return "◇";
-    case "analysis": return "∿";
-    case "metadata": return "≡";
-    default: return assertNever(id, "library lens presentation");
-  }
-}
-
-function typeLensPresentation(
-  id: TypeLens,
-): string {
-  switch (id) {
-    case "api": return "⌘";
-    case "metadata": return "≡";
-    case "source": return "⌑";
-    default: return assertNever(id, "type lens presentation");
-  }
-}
-
-function memberSectionPresentation(
-  id: MemberSection,
-): string {
-  switch (id) {
-    case "overview": return "◫";
-    case "call-graph": return "⑂";
-    case "facts": return "·";
-    case "source": return "⌑";
-    case "annotated": return "✎";
-    default: return assertNever(id, "member section presentation");
-  }
-}
-
-function scopeBarInspectorDefinitions<TId extends string>(
-  definitions: readonly (readonly [TId, string])[],
-  presentation: (id: TId) => string,
-): readonly (readonly [TId, string, string, string])[] {
-  return definitions.map(([id, label]) => {
-    return [id, label, scopeBarShortLabel(label), presentation(id)];
-  });
-}
-
 function renderScopeBar(
   availableScopes?: readonly WorkspaceScope[],
 ) {
@@ -4199,9 +4114,7 @@ function renderScopeBar(
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
-      strip: scopeBarInspectorDefinitions(
-        packageLensesFor(state.package),
-        packageLensPresentation),
+      strip: packageLensesFor(state.package),
       activeStripId: state.packageLens,
       availableScopes,
       stripAttribute: "data-package-lens",
@@ -4213,9 +4126,7 @@ function renderScopeBar(
   if (sc === "library") {
     return renderScopeBarPure({
       scope: sc,
-      strip: scopeBarInspectorDefinitions(
-        libraryLensesFor(state.package),
-        libraryLensPresentation),
+      strip: libraryLensesFor(state.package),
       activeStripId: state.libraryLens,
       availableScopes,
       stripAttribute: "data-library-lens",
@@ -4228,9 +4139,7 @@ function renderScopeBar(
     const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: scopeBarInspectorDefinitions(
-        member ? memberSectionsFor(member) : [],
-        memberSectionPresentation),
+      strip: member ? memberSectionsFor(member) : [],
       activeStripId: state.memberSection,
       availableScopes,
       stripAttribute: "data-member-section",
@@ -4245,9 +4154,7 @@ function renderScopeBar(
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: scopeBarInspectorDefinitions(
-        typeLensesFor(state.package),
-        typeLensPresentation),
+      strip: typeLensesFor(state.package),
       activeStripId: state.lens,
       availableScopes,
       stripAttribute: "data-lens",

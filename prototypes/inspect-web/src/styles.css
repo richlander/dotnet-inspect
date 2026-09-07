@@ -234,6 +234,12 @@ body {
   height: 100%;
   overflow: hidden;
 }
+.application-scope-region[data-application-scope-yield="true"] {
+  --application-scope-yield: 1;
+}
+.application-scope-region[data-application-scope-yield="true"]:not(:focus-within) {
+  display: none;
+}
 .application-scope-strip {
   display: flex;
   align-items: center;
@@ -275,14 +281,115 @@ body {
   height: 100%;
   flex: 1 1 auto;
   padding: 0 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  overflow: hidden;
   background: var(--chrome);
   border-right: 0;
+  gap: 6px;
+}
+.adaptive-navigation-group {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  height: 100%;
+}
+.adaptive-navigation-tabs {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  height: 100%;
   gap: 2px;
 }
-.lensbar::-webkit-scrollbar { height: 0; }
+.adaptive-navigation-tabs[hidden],
+.adaptive-navigation-trigger[hidden] {
+  display: none;
+}
+.adaptive-navigation-tabs[data-navigation-measuring],
+.adaptive-navigation-trigger[data-navigation-measuring] {
+  position: absolute;
+  visibility: hidden;
+  width: max-content;
+}
+.adaptive-navigation-tab,
+.adaptive-navigation-trigger {
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.adaptive-navigation-tab {
+  padding: 0 10px;
+  border-bottom: 2px solid transparent;
+}
+.adaptive-navigation-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.adaptive-navigation-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adaptive-navigation-tab:hover,
+.adaptive-navigation-trigger:hover {
+  color: var(--text);
+  background: rgba(255,255,255,.015);
+}
+.adaptive-navigation-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--shell-accent);
+}
+.adaptive-navigation-trigger:focus-visible,
+.adaptive-navigation-tab:focus-visible,
+.adaptive-navigation-menu-item:focus-visible {
+  outline: 1px solid var(--shell-accent);
+  outline-offset: -1px;
+}
+.adaptive-navigation-menu {
+  position: fixed;
+  inset: auto;
+  z-index: 40;
+  flex-direction: column;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0,0,0,.35);
+}
+.adaptive-navigation-menu:not(:popover-open) { display: none; }
+.adaptive-navigation-menu:popover-open { display: flex; }
+.adaptive-navigation-menu-item {
+  flex: none;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  white-space: nowrap;
+}
+.adaptive-navigation-menu-item:hover,
+.adaptive-navigation-menu-item:focus {
+  color: var(--text);
+  background: rgba(127,127,127,.12);
+}
+.adaptive-navigation-menu-item.active::before {
+  content: "✓";
+  margin-right: 7px;
+  color: var(--shell-accent);
+}
 .slide-strip {
   position: relative;
   flex: none;
@@ -338,31 +445,6 @@ body {
   right: 0;
   border-right: 2px solid var(--shell-accent);
   background: linear-gradient(270deg, var(--panel), transparent);
-}
-.slide-strip-allocation {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 1px;
-}
-.slide-strip-allocation[hidden] { display: none; }
-.slide-strip-allocation button {
-  width: 22px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--dim);
-  font: 13px var(--mono);
-}
-.slide-strip-allocation button:hover:not([aria-disabled="true"]) {
-  color: var(--text);
-  border-color: var(--line-strong);
-}
-.slide-strip-allocation button[aria-disabled="true"] {
-  opacity: .35;
-  cursor: default;
 }
 .home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
 .home-lens.active { border-bottom-color: var(--shell-accent); }
@@ -3204,10 +3286,6 @@ kbd {
   .titlebar {
     --shell-row-gaps: 24px;
   }
-  .titlebar > .application-scope-region {
-    --application-scope-yield: 1;
-  }
-  .titlebar > .application-scope-region:not(:focus-within) { display: none; }
 }
 
 /* Light mode: code surfaces are light, so re-tint the syntax tokens and copy

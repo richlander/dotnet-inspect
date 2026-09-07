@@ -10,6 +10,76 @@ import type {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+function subjectTab(page: Page, subject: string) {
+  return page.locator(`[data-subject-tab][data-scope="${subject}"]`);
+}
+
+function inspectorTab(page: Page, attribute: string, inspector: string) {
+  return page.locator(
+    `[data-inspector-tab][${attribute}="${inspector}"]`,
+  );
+}
+
+async function chooseInspector(
+  page: Page,
+  attribute: string,
+  inspector: string,
+  label: string,
+) {
+  const tab = inspectorTab(page, attribute, inspector);
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+
+  await trigger.click();
+  await page.locator("#inspector-navigation-menu")
+    .locator(`[${attribute}="${inspector}"]`)
+    .click();
+  if (await trigger.isVisible()) {
+    await expect(trigger).toHaveAccessibleName(label);
+  } else {
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+  }
+}
+
+async function chooseSubject(page: Page, subject: string, label: string) {
+  const tab = subjectTab(page, subject);
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+  } else {
+    await trigger.click();
+    await page.locator("#subject-navigation-menu")
+      .locator(`[data-scope="${subject}"]`)
+      .click();
+  }
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expectCurrentSubjectVisible(page, subject, label);
+}
+
+async function expectCurrentSubjectVisible(
+  page: Page,
+  subject: string,
+  label: string,
+) {
+  const tab = subjectTab(page, subject);
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await expect(tab).toBeInViewport({ ratio: 1 });
+    return;
+  }
+
+  await expect(trigger).toHaveAccessibleName(label);
+}
+
 function library(id: string, name: string, count: number): BrowserAssemblySurface {
   return {
     id,
@@ -376,9 +446,9 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
   await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
   await page.locator("#type-list [data-type]").click();
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
-  await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await chooseSubject(page, "member", "Member");
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "package", "Package");
   await expect(page.locator("#package-diff-target")).toHaveValue("exact:1.0.0");
   await expect(page.locator("#package-clone-target")).toHaveValue("package:0");
   await page.locator("#package-diff-target").selectOption("previous");
@@ -391,11 +461,10 @@ for (const initialWidth of [1440, 390]) {
     await page.setViewportSize({ width: initialWidth, height: 844 });
     await installFacades(page);
     await page.goto(root);
-    await expect(page.locator('[data-scope="package"]')).toBeVisible();
+    await expectCurrentSubjectVisible(page, "package", "Package");
     await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-    const libraryTab = page.locator('[data-scope="library"]');
+    const libraryTab = subjectTab(page, "library");
     await expect(libraryTab).toHaveAttribute("aria-selected", "true");
-    await expect(libraryTab).toBeVisible();
     await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
     const location = page.url();
     const historyLength = await page.evaluate(() => history.length);
@@ -403,8 +472,8 @@ for (const initialWidth of [1440, 390]) {
     await menu.focus();
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(libraryTab).toBeInViewport({ ratio: 1 });
     await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expectCurrentSubjectVisible(page, "library", "Library");
     await expect(menu).toBeFocused();
     await expect(page).toHaveURL(location);
     expect(await page.evaluate(() => history.length)).toBe(historyLength);
@@ -415,93 +484,29 @@ for (const initialWidth of [1440, 390]) {
 
     await page.reload();
     await expect(libraryTab).toHaveAttribute("aria-selected", "true");
-    await expect(libraryTab).toBeInViewport({ ratio: 1 });
+    await expectCurrentSubjectVisible(page, "library", "Library");
     await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
     await page.setViewportSize({ width: 1440, height: 844 });
     for (const subject of ["package", "library", "type"]) {
-      await expect(page.locator(`[data-scope="${subject}"]`)).toBeVisible();
+      await expect(subjectTab(page, subject)).toBeVisible();
     }
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(libraryTab).toBeInViewport({ ratio: 1 });
     await expect(libraryTab).toHaveAttribute("aria-selected", "true");
+    await expectCurrentSubjectVisible(page, "library", "Library");
   });
 }
-
-test("active subject continuity retains explicit browsing until the subject changes", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await installFacades(page);
-  await page.goto(root);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  const libraryTab = page.locator('[data-scope="library"]');
-  const packageTab = page.locator('[data-scope="package"]');
-  await expect(libraryTab).toBeVisible();
-  const menu = page.getByRole("button", { name: "Application menu", exact: true });
-  await menu.focus();
-  const location = page.url();
-  const historyLength = await page.evaluate(() => history.length);
-  await page.locator(".slide-strip-subject").hover();
-  await page.mouse.wheel(-100, 0);
-  await expect(packageTab).toBeVisible();
-  await expect(libraryTab).toBeHidden();
-  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
-  await expect(packageTab).toHaveAttribute("aria-selected", "false");
-  await expect(menu).toBeFocused();
-  await expect(page).toHaveURL(location);
-  expect(await page.evaluate(() => history.length)).toBe(historyLength);
-
-  await page.setViewportSize({ width: 1440, height: 844 });
-  await expect(libraryTab).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(packageTab).toBeVisible();
-  await expect(libraryTab).toBeHidden();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("Enter");
-  await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
-  await expect(packageTab).toBeVisible();
-  await expect(libraryTab).toBeHidden();
-  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
-
-  await packageTab.click();
-  await expect(packageTab).toHaveAttribute("aria-selected", "true");
-  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
-  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
-  await expect(libraryTab).toBeInViewport({ ratio: 1 });
-  await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
-});
-
-test("active subject continuity preserves focus without making a manual window", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 844 });
-  await installFacades(page);
-  await page.goto(root);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  const libraryTab = page.locator('[data-scope="library"]');
-  const typeTab = page.locator('[data-scope="type"]');
-  await typeTab.focus();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(typeTab).toBeFocused();
-  await expect(typeTab).toBeInViewport({ ratio: 1 });
-  await expect(typeTab).toHaveAttribute("aria-selected", "false");
-  await expect(libraryTab).toHaveAttribute("aria-selected", "true");
-
-  await page.getByRole("button", { name: "Application menu", exact: true }).focus();
-  await page.setViewportSize({ width: 1440, height: 844 });
-  await expect(libraryTab).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(libraryTab).toBeInViewport({ ratio: 1 });
-  await libraryTab.press("ArrowLeft");
-  await expect(page.locator('[data-scope="package"]')).toBeFocused();
-  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
-});
 
 async function openIntegrations(page: Page, location = root) {
   await page.goto(location);
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  if (await page.locator('[data-library-lens="references"]').count()) {
-    await page.keyboard.press("ArrowRight");
-  }
-  await page.keyboard.press("Enter");
-  await expect(page.locator('[data-library-lens="integrations"]')).toHaveAttribute("aria-selected", "true");
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "integrations",
+    "Integrations",
+  );
+  await expect(inspectorTab(page, "data-library-lens", "integrations"))
+    .toHaveAttribute("aria-selected", "true");
 }
 
 for (const width of [1440, 390]) {
@@ -617,11 +622,14 @@ test("production Integrations keeps deferred Library results out of the incoming
   await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
   await page.evaluate(() => document.dispatchEvent(new Event("fixture-integrations-ready:asset:core")));
   await expect(page.locator(".library-integrations-scroll .signal-row")).toHaveCount(3);
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await chooseSubject(page, "package", "Package");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Enter");
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "integrations",
+    "Integrations",
+  );
   await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
   await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
@@ -632,9 +640,9 @@ test("production Integrations keeps deferred Library results out of the incoming
 async function openReferences(page: Page) {
   await page.goto(root);
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("Enter");
-  await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+  await chooseInspector(page, "data-library-lens", "references", "References");
+  await expect(inspectorTab(page, "data-library-lens", "references"))
+    .toHaveAttribute("aria-selected", "true");
 }
 
 for (const width of [1440, 390]) {
@@ -728,10 +736,9 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-surface footer")).toContainText(core.asset);
   await page.evaluate(() => document.dispatchEvent(new Event("fixture-references-ready:asset:core")));
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await chooseSubject(page, "package", "Package");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("Enter");
+  await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
   await expect(page.locator(".library-references-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-references-surface")).not.toContainText("Example.Core");
@@ -774,7 +781,7 @@ for (const [width, selectedLibrary, activation] of [
     await installFacades(page);
     await page.goto(root);
     await page.locator(`.library-list [data-lib-scope="${selectedLibrary.id}"]`).click();
-    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     const libraryLocation = page.url();
     if (width === 480) {
       await page.getByRole("button", { name: "Types", exact: true }).click();
@@ -787,7 +794,7 @@ for (const [width, selectedLibrary, activation] of [
       await back.focus();
       await page.keyboard.press("Enter");
     }
-    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel")).toBeVisible();
     await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
     await expect(page.locator(width === 480
@@ -797,16 +804,16 @@ for (const [width, selectedLibrary, activation] of [
 
     await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
     await expect(page).toHaveURL(libraryLocation);
-    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel h1")).toHaveText(selectedLibrary.name);
     await expect(page.locator("#type-list [data-type]")).toHaveCount(selectedLibrary.publicTypes);
     await expect(page.locator(".type-browser .nav-back-row")).toHaveAttribute("title", "Back to package");
 
     await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
     await expect(page).toHaveURL(packageLocation);
-    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
     await page.reload();
-    await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
   });
 }
@@ -817,15 +824,14 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
     await installFacades(page);
     await page.goto(root);
     await page.locator('.library-list [data-lib-scope="asset:other"]').click();
-    await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-    await page.keyboard.press("Enter");
+    await chooseInspector(page, "data-library-lens", "references", "References");
     await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
     const libraryLocation = page.url();
     if (width === 480) {
       await page.getByRole("button", { name: "Types", exact: true }).click();
     }
     await page.locator('#type-list [data-type]').click();
-    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
     const typeLocation = page.url();
     if (width === 480) {
       await page.getByRole("button", { name: "Types", exact: true }).click();
@@ -839,7 +845,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
       await back.focus();
       await page.keyboard.press("Enter");
     }
-    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel")).toBeVisible();
     await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
     await expect(page.locator(width === 480
@@ -851,10 +857,11 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
 
     await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
     await expect(page).toHaveURL(typeLocation);
-    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
     await expect(page).toHaveURL(libraryLocation);
-    await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+    await expect(inspectorTab(page, "data-library-lens", "references"))
+      .toHaveAttribute("aria-selected", "true");
   });
 }
 
@@ -887,7 +894,7 @@ for (const width of [1440, 390]) {
       await page.getByRole("button", { name: "Show details", exact: true }).click();
     }
     await overview.locator('[data-lib-scope="asset:other"]').click();
-    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
     const libraryOverview = page.locator(".library-overview-surface");
     expect(await libraryOverview.boundingBox()).toEqual(
@@ -902,7 +909,7 @@ for (const width of [1440, 390]) {
     await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("1 type · 1 member");
     await expect(libraryOverview.locator(".overview-controls")).toHaveCount(0);
     await expect(overview).toHaveCount(0);
-    await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+    await chooseSubject(page, "package", "Package");
     await expect(overview).toBeVisible();
     await overview.locator('[data-lib-scope="asset:empty"]').click();
     await expect(libraryOverview.getByRole("heading", { level: 1 })).toHaveText("Example.Empty");
@@ -959,7 +966,7 @@ for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"
       await row.focus();
       await page.keyboard.press("Enter");
     }
-    await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".content-frame")).toHaveAttribute("data-content-pane", "detail");
     await expect(page.locator("#inspector-panel")).toBeVisible();
     await expect(page.locator("#inspector-panel h1")).toHaveText(selectedLibrary.name);
@@ -979,27 +986,26 @@ test("production navigation separates Package, Library, Type and Member", async 
   page.on("pageerror", error => errors.push(error.message));
   await installFacades(page);
   await page.goto(root);
-  await expect(page.locator('[data-package-lens="dependencies"]')).toBeVisible();
+  await expect(inspectorTab(page, "data-package-lens", "dependencies")).toBeVisible();
   await expect(page.locator('[data-library-lens]')).toHaveCount(0);
   await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
 
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
   await expect(page.locator("#type-list")).toContainText("Neighbor");
   await expect(page.locator("#type-list")).not.toContainText("Widget");
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("Enter");
+  await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
   await expect(page.locator("html")).toHaveAttribute("data-reference-request", "asset:other");
 
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
-  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "package", "Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
   await page.locator('#type-list [data-type]').click();
-  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
-  await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "member", "Member");
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target")).toContainText("Example.Core");
   await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
   await expect(page.locator(".inspected-target")).toContainText("Run");
@@ -1030,21 +1036,21 @@ test("returning to Library retains its inspector and selected Type context", asy
   });
   await page.goto(root);
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("Enter");
+  await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
   await page.locator('#type-list [data-type="asset:core:Example.SecondWidget"]').click();
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
-  await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "member", "Member");
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target")).toContainText("Example.SecondWidget");
-  await page.getByRole("tab", { name: "Member", exact: true }).press("ArrowLeft");
-  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("tab", { name: "Type", exact: true }).press("ArrowLeft");
-  await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "type", "Type");
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
+  await expect(inspectorTab(page, "data-library-lens", "references"))
+    .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
   await expect(page.locator("#type-list")).not.toContainText("Neighbor");
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
-  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "type", "Type");
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target")).toContainText("Example.SecondWidget");
 });
 
@@ -1053,9 +1059,8 @@ test("empty Library metadata survives refresh and history without selecting a ne
   await page.goto(root);
   await page.locator('.library-list [data-lib-scope="asset:empty"]').click();
   await expect(page.locator("#inspector-panel")).toContainText("No public types");
-  await expect(page.locator('[data-scope="type"]')).toHaveCount(0);
-  await page.locator('[data-library-lens="overview"]').press("End");
-  await page.keyboard.press("Enter");
+  await expect(subjectTab(page, "type")).toHaveCount(0);
+  await chooseInspector(page, "data-library-lens", "metadata", "Metadata");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator("html")).toHaveAttribute("data-metadata-request", "asset:empty");
   await page.locator('[data-mde-open="0"]').click();
@@ -1064,18 +1069,19 @@ test("empty Library metadata survives refresh and history without selecting a ne
   await page.keyboard.press("Escape");
   const shared = page.url();
   await page.reload();
-  await expect(page.locator('[data-library-lens="metadata"]')).toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-library-lens", "metadata"))
+    .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
-  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "package", "Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator(".inspected-target")).not.toContainText("Widget");
   await expect(page).toHaveURL(shared);
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
-  await page.locator('[data-scope="package"]').press("ArrowRight");
-  await expect(page.locator('[data-library-lens="metadata"]')).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
+  await expect(inspectorTab(page, "data-library-lens", "metadata"))
+    .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
 });
@@ -1091,10 +1097,10 @@ test("a single-library package retains a distinct Library level", async ({ page 
   const button = page.locator('.package-library-nav [data-lib-scope="asset:core"]');
   await button.focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await page.reload();
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
 });
 
 test("opening another package enters its default Library and preserves history", async ({ page }) => {
@@ -1108,7 +1114,7 @@ test("opening another package enters its default Library and preserves history",
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("Example.Core");
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
@@ -1116,7 +1122,7 @@ test("opening another package enters its default Library and preserves history",
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
@@ -1149,7 +1155,7 @@ test("Search between retained packages restores the incoming Library ancestry", 
 
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#type-list")).toBeFocused();
   await expect(page.locator('[data-subject-tab][data-scope="library"]')).toHaveCount(1);
   await expect(page.locator('[data-subject-tab][data-scope="type"]')).toHaveCount(1);
@@ -1159,16 +1165,15 @@ test("Search between retained packages restores the incoming Library ancestry", 
 
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-open="Second.Package"]').click();
-  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#type-list")).toBeFocused();
-  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
-  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("ArrowRight");
+  await chooseSubject(page, "package", "Package");
+  await chooseSubject(page, "library", "Library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await expect(page.locator("#type-list")).toContainText("SecondWidget");
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
-  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
   await page.reload();
@@ -1188,16 +1193,16 @@ for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
       await page.locator('#type-list [data-type="asset:core:Example.Widget"]').click();
     }
     if (startingSubject === "Member") {
-      await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
+      await chooseSubject(page, "member", "Member");
     }
-    await expect(page.locator(`[data-scope="${startingSubject.toLowerCase()}"]`))
+    await expect(subjectTab(page, startingSubject.toLowerCase()))
       .toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Control+k");
     await page.locator("#spotlight-input").fill("type Neighbor");
     await expect(page.locator("#spotlight-results")).toContainText("type Neighbor");
     await page.keyboard.press("Enter");
     await expect(page.locator("#spotlight-input")).toHaveCount(0);
-    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".inspected-target")).toContainText("Example.Other");
     await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
     await expect(page.locator("#type-list [data-type]")).toHaveCount(1);

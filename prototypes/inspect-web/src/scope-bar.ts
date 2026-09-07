@@ -10,26 +10,19 @@ import {
   type TypeLens,
   type WorkspaceScope,
 } from "./data.ts";
-import {
-  SlideStripDomController,
-  type SlideStripAppliedResult,
-  type SlideStripContinuityState,
-  type SlideStripResolveIntent,
-} from "./slide-strip-dom.ts";
-import type {
-  SlideStripItem,
-  SlideStripPolicy,
-  SlideStripResult,
-} from "./slide-strip.ts";
 
 type LensDefinition<TId extends string = string> = readonly [
   id: TId,
   label: string,
-  shortLabel?: string,
-  icon?: string,
 ];
 
 export type ApplicationScope = "query" | "workspace";
+export type AdaptiveNavigationForm = "tabs" | "chooser";
+
+export interface AdaptiveNavigationPair {
+  subject: AdaptiveNavigationForm;
+  inspector: AdaptiveNavigationForm | null;
+}
 
 export interface RenderScopeBarOptions<TId extends string = string> {
   scope: WorkspaceScope;
@@ -62,19 +55,53 @@ export interface ApplicationScopeBarBinding {
   disconnect(): void;
 }
 
+type NavigationGroupName = "subject" | "inspector";
+type NavigationItemPresentation = "tab" | "menuitem";
+
 export type ScopeBarFocusTarget =
-  | { kind: "application-scope"; value: ApplicationScope }
-  | { kind: "library-lens"; value: LibraryLens }
-  | { kind: "member-section"; value: MemberSection }
-  | { kind: "package-lens"; value: PackageLens }
-  | { kind: "scope"; value: WorkspaceScope }
-  | { kind: "type-lens"; value: TypeLens };
+  | {
+      kind: "navigation-trigger";
+      value: NavigationGroupName;
+    }
+  | {
+      kind: "application-scope";
+      value: ApplicationScope;
+    }
+  | {
+      kind: "library-lens";
+      value: LibraryLens;
+      presentation?: NavigationItemPresentation;
+    }
+  | {
+      kind: "member-section";
+      value: MemberSection;
+      presentation?: NavigationItemPresentation;
+    }
+  | {
+      kind: "package-lens";
+      value: PackageLens;
+      presentation?: NavigationItemPresentation;
+    }
+  | {
+      kind: "scope";
+      value: WorkspaceScope;
+      presentation?: NavigationItemPresentation;
+    }
+  | {
+      kind: "type-lens";
+      value: TypeLens;
+      presentation?: NavigationItemPresentation;
+    };
+
+interface AdaptiveNavigationGroupState {
+  key: string;
+  open: boolean;
+  focusedId: string | null;
+}
 
 export interface ScopeBarState {
-  subject: SlideStripContinuityState;
-  inspector: SlideStripContinuityState;
-  allocationKey: string;
-  allocationOrdinal: number;
+  subject: AdaptiveNavigationGroupState;
+  inspector: AdaptiveNavigationGroupState;
 }
 
 export interface ScopeBarBinding {
@@ -82,48 +109,19 @@ export interface ScopeBarBinding {
   revealFocusTarget(target: ScopeBarFocusTarget): void;
 }
 
-interface AllocationPair {
-  subject: SlideStripAppliedResult;
-  inspector: SlideStripAppliedResult;
-}
-
-interface AllocationFocusTransfer {
-  strip: "subject" | "inspector";
-  id: string;
-}
-
-function focusTransferIntent(
-  transfer: AllocationFocusTransfer | null,
-  strip: AllocationFocusTransfer["strip"],
-): SlideStripResolveIntent {
-  return transfer?.strip === strip
-    ? { pendingFocusId: transfer.id }
-    : {};
-}
-
-export function createScopeBarState(): ScopeBarState {
-  return {
-    subject: { key: "" },
-    inspector: { key: "" },
-    allocationKey: "",
-    allocationOrdinal: 0,
-  };
-}
-
-export function clampAllocationOrdinal(
-  requested: number,
-  levelCount: number,
-): number {
-  return Math.max(0, Math.min(requested, levelCount - 1));
-}
-
-export function scopeBarShortLabel(label: string): string {
-  return label
-    .trim()
-    .split(/\s+/)
-    .map(word => word[0] ?? "")
-    .join("")
-    .toUpperCase();
+interface AdaptiveNavigationGroup {
+  name: NavigationGroupName;
+  element: HTMLElement;
+  tabs: HTMLElement;
+  trigger: HTMLButtonElement;
+  menu: HTMLElement;
+  tabItems: readonly HTMLButtonElement[];
+  menuItems: readonly HTMLButtonElement[];
+  committedId: string | null;
+  state: AdaptiveNavigationGroupState;
+  tabsWidth: number;
+  chooserWidth: number;
+  form: AdaptiveNavigationForm;
 }
 
 function isApplicationScope(
@@ -132,33 +130,155 @@ function isApplicationScope(
   return value === "query" || value === "workspace";
 }
 
+function isNavigationGroupName(
+  value: string | null | undefined,
+): value is NavigationGroupName {
+  return value === "subject" || value === "inspector";
+}
+
+function itemPresentation(
+  element: HTMLElement,
+): NavigationItemPresentation | undefined {
+  const value = element.dataset.navigationItem;
+  return value === "tab" || value === "menuitem" ? value : undefined;
+}
+
+export function createScopeBarState(): ScopeBarState {
+  return {
+    subject: { key: "", open: false, focusedId: null },
+    inspector: { key: "", open: false, focusedId: null },
+  };
+}
+
+export function selectAdaptiveNavigationPair(options: {
+  availableWidth: number;
+  separatorAndGapsWidth: number;
+  subjectTabsWidth: number;
+  subjectChooserWidth: number;
+  subjectCount: number;
+  subjectCommitted: boolean;
+  inspectorTabsWidth?: number;
+  inspectorChooserWidth?: number;
+  inspectorCount?: number;
+  inspectorCommitted?: boolean;
+  pinnedChooser?: NavigationGroupName | null;
+}): AdaptiveNavigationPair {
+  const {
+    availableWidth: navigationWidth,
+    separatorAndGapsWidth,
+    subjectTabsWidth,
+    subjectChooserWidth,
+    subjectCount,
+    subjectCommitted,
+    inspectorTabsWidth,
+    inspectorChooserWidth,
+    inspectorCount = 0,
+    inspectorCommitted = false,
+    pinnedChooser = null,
+  } = options;
+  if (inspectorTabsWidth === undefined
+    || inspectorChooserWidth === undefined) {
+    return {
+      subject: pinnedChooser === "subject"
+        || subjectTabsWidth > navigationWidth
+        ? "chooser"
+        : "tabs",
+      inspector: null,
+    };
+  }
+
+  const fits = (subjectWidth: number, inspectorWidth: number) =>
+    subjectWidth + inspectorWidth + separatorAndGapsWidth <= navigationWidth;
+  if (pinnedChooser === "subject") {
+    return {
+      subject: "chooser",
+      inspector: fits(subjectChooserWidth, inspectorTabsWidth)
+        ? "tabs"
+        : "chooser",
+    };
+  }
+  if (pinnedChooser === "inspector") {
+    return {
+      subject: fits(subjectTabsWidth, inspectorChooserWidth)
+        ? "tabs"
+        : "chooser",
+      inspector: "chooser",
+    };
+  }
+  if (fits(subjectTabsWidth, inspectorTabsWidth)) {
+    return { subject: "tabs", inspector: "tabs" };
+  }
+
+  const subjectTabsFit = fits(subjectTabsWidth, inspectorChooserWidth);
+  const inspectorTabsFit = fits(subjectChooserWidth, inspectorTabsWidth);
+  if (subjectTabsFit || inspectorTabsFit) {
+    if (subjectTabsFit && inspectorTabsFit) {
+      const subjectGain = subjectCount - (subjectCommitted ? 1 : 0);
+      const inspectorGain = inspectorCount - (inspectorCommitted ? 1 : 0);
+      return subjectGain >= inspectorGain
+        ? { subject: "tabs", inspector: "chooser" }
+        : { subject: "chooser", inspector: "tabs" };
+    }
+    return subjectTabsFit
+      ? { subject: "tabs", inspector: "chooser" }
+      : { subject: "chooser", inspector: "tabs" };
+  }
+  return { subject: "chooser", inspector: "chooser" };
+}
+
 export function captureScopeBarFocus(
   element: HTMLElement,
 ): ScopeBarFocusTarget | null {
+  const trigger = element.dataset.navigationTrigger;
+  if (isNavigationGroupName(trigger)) {
+    return { kind: "navigation-trigger", value: trigger };
+  }
+
   const applicationScope = element.dataset.applicationScope;
   if (isApplicationScope(applicationScope)) {
     return { kind: "application-scope", value: applicationScope };
   }
 
+  const presentation = itemPresentation(element);
   const scope = element.dataset.scope;
-  if (isWorkspaceScope(scope)) return { kind: "scope", value: scope };
+  if (isWorkspaceScope(scope)) {
+    return { kind: "scope", value: scope, ...(presentation ? { presentation } : {}) };
+  }
 
   const packageLens = element.dataset.packageLens;
   if (isPackageLens(packageLens)) {
-    return { kind: "package-lens", value: packageLens };
+    return {
+      kind: "package-lens",
+      value: packageLens,
+      ...(presentation ? { presentation } : {}),
+    };
   }
 
   const libraryLens = element.dataset.libraryLens;
   if (isLibraryLens(libraryLens)) {
-    return { kind: "library-lens", value: libraryLens };
+    return {
+      kind: "library-lens",
+      value: libraryLens,
+      ...(presentation ? { presentation } : {}),
+    };
   }
 
   const typeLens = element.dataset.lens;
-  if (isTypeLens(typeLens)) return { kind: "type-lens", value: typeLens };
+  if (isTypeLens(typeLens)) {
+    return {
+      kind: "type-lens",
+      value: typeLens,
+      ...(presentation ? { presentation } : {}),
+    };
+  }
 
   const memberSection = element.dataset.memberSection;
   return isMemberSection(memberSection)
-    ? { kind: "member-section", value: memberSection }
+    ? {
+        kind: "member-section",
+        value: memberSection,
+        ...(presentation ? { presentation } : {}),
+      }
     : null;
 }
 
@@ -175,11 +295,10 @@ export function focusRenderedElement(
   return true;
 }
 
-export function restoreScopeBarFocus(
-  root: ParentNode,
-  target: ScopeBarFocusTarget,
-): boolean {
-  const [selector, value] = target.kind === "application-scope"
+function focusTargetSelector(
+  target: Exclude<ScopeBarFocusTarget, { kind: "navigation-trigger" }>,
+): [selector: string, value: string] {
+  return target.kind === "application-scope"
     ? ["[data-application-scope]", target.value]
     : target.kind === "scope"
       ? ["[data-scope]", target.value]
@@ -187,43 +306,70 @@ export function restoreScopeBarFocus(
         ? ["[data-package-lens]", target.value]
         : target.kind === "library-lens"
           ? ["[data-library-lens]", target.value]
-        : target.kind === "type-lens"
-          ? ["[data-lens]", target.value]
-          : ["[data-member-section]", target.value];
-  const tabs = [...root.querySelectorAll<HTMLElement>(selector)];
-  const replacement = tabs.find(element => (
-      element.dataset.applicationScope
-      ?? element.dataset.scope
-      ?? element.dataset.packageLens
-      ?? element.dataset.libraryLens
-      ?? element.dataset.lens
-      ?? element.dataset.memberSection
-    ) === value);
-  if (!replacement || replacement.hidden) return false;
-  tabs.forEach(tab => {
-    tab.tabIndex = tab === replacement ? 0 : -1;
-  });
+          : target.kind === "type-lens"
+            ? ["[data-lens]", target.value]
+            : ["[data-member-section]", target.value];
+}
+
+function elementIdentity(element: HTMLElement): string | undefined {
+  return element.dataset.applicationScope
+    ?? element.dataset.scope
+    ?? element.dataset.packageLens
+    ?? element.dataset.libraryLens
+    ?? element.dataset.lens
+    ?? element.dataset.memberSection;
+}
+
+export function restoreScopeBarFocus(
+  root: ParentNode,
+  target: ScopeBarFocusTarget,
+): boolean {
+  if (target.kind === "navigation-trigger") {
+    const trigger = root.querySelector<HTMLElement>(
+      `[data-navigation-trigger="${target.value}"]`);
+    if (focusRenderedElement(trigger)) return true;
+    const fallback = root.querySelector<HTMLElement>(
+      `[data-navigation-group="${target.value}"] `
+      + '[data-navigation-item="tab"][tabindex="0"]');
+    return focusRenderedElement(fallback);
+  }
+
+  const [selector, value] = focusTargetSelector(target);
+  const candidates = [...root.querySelectorAll<HTMLElement>(selector)]
+    .filter(element => elementIdentity(element) === value);
+  const preferred = "presentation" in target && target.presentation
+    ? candidates.find(element =>
+        itemPresentation(element) === target.presentation
+        && !element.hidden
+        && !element.closest<HTMLElement>("[hidden]"))
+    : undefined;
+  const replacement = preferred ?? candidates.find(element =>
+    !element.hidden && !element.closest<HTMLElement>("[hidden]"));
+  if (!replacement) return false;
+  if (itemPresentation(replacement) === "tab") {
+    const group = replacement.closest<HTMLElement>("[data-navigation-group]");
+    group?.querySelectorAll<HTMLElement>('[data-navigation-item="tab"]')
+      .forEach(tab => {
+        tab.tabIndex = tab === replacement ? 0 : -1;
+      });
+  }
   return focusRenderedElement(replacement);
 }
 
-function targetIdentity(target: ScopeBarFocusTarget): string {
-  return target.value;
-}
-
-function targetStrip(target: ScopeBarFocusTarget): "subject" | "inspector" {
-  return target.kind === "scope" ? "subject" : "inspector";
-}
-
-function bindRovingTabs(
-  tabs: readonly HTMLButtonElement[],
-  reveal: (target: HTMLButtonElement) => void,
-  activateOnNavigation = false,
-): void {
+function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
   tabs.forEach((tab, index) =>
     tab.addEventListener("keydown", event => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
+        const id = groupItemId(tab);
         tab.click();
+        if (id) {
+          queueMicrotask(() => {
+            const replacement = tab.ownerDocument.querySelector<HTMLElement>(
+              `[data-navigation-item="tab"][data-navigation-id="${CSS.escape(id)}"]`);
+            focusRenderedElement(replacement, { preventScroll: true });
+          });
+        }
         return;
       }
       const targetIndex = event.key === "ArrowLeft"
@@ -239,13 +385,46 @@ function bindRovingTabs(
       const target = tabs[targetIndex];
       if (!target) return;
       event.preventDefault();
-      reveal(target);
       tabs.forEach(candidate => {
-        candidate.tabIndex = -1;
+        candidate.tabIndex = candidate === target ? 0 : -1;
       });
-      target.tabIndex = 0;
       target.focus();
-      if (activateOnNavigation) target.click();
+    }));
+}
+
+function bindItemActions(
+  root: ParentNode,
+  actions: ScopeBarBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+    button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true") return;
+      const scope = button.dataset.scope;
+      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
+    button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true") return;
+      const lens = button.dataset.packageLens;
+      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-library-lens]").forEach(button =>
+    button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true") return;
+      const lens = button.dataset.libraryLens;
+      if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+    button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true") return;
+      const lens = button.dataset.lens;
+      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
+    button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true") return;
+      const section = button.dataset.memberSection;
+      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
     }));
 }
 
@@ -254,9 +433,9 @@ export function bindScopeBar(
   actions: ScopeBarBindingActions,
   state?: ScopeBarState,
 ): ScopeBarBinding {
-  const controller = state
-    ? ScopeBarController.create(root, state)
-    : null;
+  const controller = ScopeBarController.create(
+    root,
+    state ?? createScopeBarState());
   const applicationBinding = bindApplicationScopeBar(root, {
     onApplicationScopeSelect: actions.onApplicationScopeSelect,
     onFocusedControlUnavailable: () => {
@@ -265,37 +444,12 @@ export function bindScopeBar(
     },
   });
   bindRovingTabs([
-    ...root.querySelectorAll<HTMLButtonElement>(
-      "[data-subject-tab]"),
-  ], target => controller?.reveal(target), true);
+    ...root.querySelectorAll<HTMLButtonElement>("[data-subject-tab]"),
+  ]);
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
-  ], target => controller?.reveal(target));
-  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
-    button.addEventListener("click", () => {
-      const scope = button.dataset.scope;
-      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
-    }));
-  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      const lens = button.dataset.packageLens;
-      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
-    }));
-  root.querySelectorAll<HTMLElement>("[data-library-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      const lens = button.dataset.libraryLens;
-      if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
-    }));
-  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      const lens = button.dataset.lens;
-      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
-    }));
-  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
-    button.addEventListener("click", () => {
-      const section = button.dataset.memberSection;
-      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
-    }));
+  ]);
+  bindItemActions(root, actions);
   return {
     disconnect() {
       applicationBinding.disconnect();
@@ -314,7 +468,7 @@ export function bindApplicationScopeBar(
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>(
       "[data-application-scope-tab]:not([disabled])"),
-  ], () => {});
+  ]);
   root.querySelectorAll<HTMLElement>("[data-application-scope]").forEach(
     button => button.addEventListener("click", () => {
       const applicationScope = button.dataset.applicationScope;
@@ -371,78 +525,6 @@ function fullyRenderedWithin(
       viewport.clientHeight);
 }
 
-function presentationHtml(
-  label: string,
-  shortLabel: string | undefined,
-  icon: string | undefined,
-  index: number,
-  escapeHtml: (value: unknown) => string,
-): string {
-  return [
-    `<span class="slide-strip-label lens-label" data-slide-strip-representation="label">${escapeHtml(label)}</span>`,
-    shortLabel
-      ? `<span class="slide-strip-short-label" data-slide-strip-representation="short-label">${escapeHtml(shortLabel)}</span>`
-      : "",
-    icon
-      ? `<span class="slide-strip-icon" data-slide-strip-representation="icon" aria-hidden="true">${escapeHtml(icon)}</span>`
-      : "",
-    `<kbd data-slide-strip-representation="index" aria-hidden="true">${index + 1}</kbd>`,
-  ].join("");
-}
-
-function itemData(
-  id: string,
-  label: string,
-  shortLabel: string | undefined,
-  icon: string | undefined,
-  escapeHtml: (value: unknown) => string,
-): string {
-  return [
-    `data-slide-strip-id="${escapeHtml(id)}"`,
-    `data-slide-strip-label="${escapeHtml(label)}"`,
-    shortLabel
-      ? `data-slide-strip-short-label="${escapeHtml(shortLabel)}"`
-      : "",
-    icon ? `data-slide-strip-icon="${escapeHtml(icon)}"` : "",
-  ].filter(Boolean).join(" ");
-}
-
-function lensButton(
-  definition: LensDefinition,
-  active: boolean,
-  tabStop: boolean,
-  attribute: string,
-  index: number,
-  panelId: string | undefined,
-  escapeHtml: (value: unknown) => string,
-): string {
-  const [id, label, shortLabel, icon] = definition;
-  const escapedLabel = escapeHtml(label);
-  const activeAttributes = active
-    ? ` id="active-inspector-tab"${panelId ? ` aria-controls="${escapeHtml(panelId)}"` : ""}`
-    : "";
-  return `<button class="slide-strip-item lens ${active ? "active" : ""}" ${attribute}="${escapeHtml(id)}" ${itemData(id, label, shortLabel, icon, escapeHtml)} data-inspector-tab role="tab" aria-selected="${active}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}">${presentationHtml(label, shortLabel, icon, index, escapeHtml)}</button>`;
-}
-
-function scopeSegment(
-  id: Exclude<WorkspaceScope, "workspace">,
-  label: string,
-  active: boolean,
-  tabStop: boolean,
-  subjectPanelId: string,
-  index: number,
-  escapeHtml: (value: unknown) => string,
-): string {
-  const activeAttributes = active ? ' id="active-subject-tab"' : "";
-  return `<button class="slide-strip-item scope-seg ${active ? "active" : ""}" data-scope="${id}" ${itemData(id, label, undefined, undefined, escapeHtml)} role="tab" aria-selected="${active}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} data-subject-tab aria-controls="${subjectPanelId}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${presentationHtml(label, undefined, undefined, index, escapeHtml)}</button>`;
-}
-
-function edgeIndicators(): string {
-  return `
-    <span class="slide-strip-edge before" data-slide-strip-before hidden aria-hidden="true"></span>
-    <span class="slide-strip-edge after" data-slide-strip-after hidden aria-hidden="true"></span>`;
-}
-
 function subjectDefinitions(
   showMemberScope: boolean,
 ): readonly (readonly [Exclude<WorkspaceScope, "workspace">, string])[] {
@@ -454,6 +536,122 @@ function subjectDefinitions(
       ? [["member", "Member"] as const]
       : []),
   ];
+}
+
+function itemAttributes(
+  id: string,
+  attribute: string,
+  current: boolean,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return [
+    `${attribute}="${escapeHtml(id)}"`,
+    `data-navigation-id="${escapeHtml(id)}"`,
+    `data-navigation-current="${current}"`,
+  ].join(" ");
+}
+
+function tabButton(
+  definition: LensDefinition,
+  current: boolean,
+  tabStop: boolean,
+  attribute: string,
+  panelId: string | undefined,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const [id, label] = definition;
+  const escapedLabel = escapeHtml(label);
+  const activeAttributes = current
+    ? ` id="active-inspector-tab"${panelId
+      ? ` aria-controls="${escapeHtml(panelId)}"`
+      : ""}`
+    : "";
+  return `<button type="button" class="adaptive-navigation-tab lens ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="tab" data-inspector-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span></button>`;
+}
+
+function subjectTab(
+  id: Exclude<WorkspaceScope, "workspace">,
+  label: string,
+  current: boolean,
+  tabStop: boolean,
+  subjectPanelId: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const escapedLabel = escapeHtml(label);
+  return `<button type="button" class="adaptive-navigation-tab scope-seg ${current ? "active" : ""}" ${itemAttributes(id, "data-scope", current, escapeHtml)} data-navigation-item="tab" data-subject-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${current ? ' id="active-subject-tab"' : ""} aria-controls="${escapeHtml(subjectPanelId)}" aria-label="${escapedLabel}" title="${escapedLabel}"><span>${escapedLabel}</span></button>`;
+}
+
+function menuItem(
+  id: string,
+  label: string,
+  current: boolean,
+  attribute: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const escapedLabel = escapeHtml(label);
+  return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
+}
+
+function navigationGroup(options: {
+  name: NavigationGroupName;
+  label: string;
+  chooserLabel: string;
+  key: string;
+  committedId: string | null;
+  panelId?: string;
+  tabHtml: string;
+  menuHtml: string;
+  escapeHtml: (value: unknown) => string;
+}): string {
+  const {
+    name,
+    label,
+    chooserLabel,
+    key,
+    committedId,
+    panelId,
+    tabHtml,
+    menuHtml,
+    escapeHtml,
+  } = options;
+  const menuId = `${name}-navigation-menu`;
+  const triggerId = name === "inspector"
+    ? "active-inspector-chooser"
+    : "active-subject-chooser";
+  const escapedChooserLabel = escapeHtml(chooserLabel);
+  return `
+    <div class="adaptive-navigation-group adaptive-navigation-${name}${name === "subject" ? " scope-switch" : " inspector-strip"}"
+         data-navigation-group="${name}"
+         data-navigation-key="${escapeHtml(key)}"
+         data-committed-id="${escapeHtml(committedId ?? "")}"
+         ${panelId ? `data-panel-id="${escapeHtml(panelId)}"` : ""}>
+      <div class="adaptive-navigation-tabs"
+           data-navigation-tabs
+           role="tablist"
+           aria-label="${escapeHtml(label)}">
+        ${tabHtml}
+      </div>
+      <button id="${triggerId}"
+              type="button"
+              class="adaptive-navigation-trigger"
+              data-navigation-trigger="${name}"
+              aria-label="${escapedChooserLabel}"
+              title="${escapedChooserLabel}"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="${menuId}"
+              hidden>
+        <span>${escapedChooserLabel}</span><span aria-hidden="true">▾</span>
+      </button>
+      <div id="${menuId}"
+           class="adaptive-navigation-menu"
+           data-navigation-menu="${name}"
+           role="menu"
+           aria-label="${escapeHtml(label)}"
+           popover="manual">
+        ${menuHtml}
+      </div>
+    </div>`;
 }
 
 export function renderApplicationScopeBar(
@@ -472,8 +670,7 @@ export function renderApplicationScopeBar(
       ${scopes.map(([id, label]) => {
         const active = activeScope === id;
         const disabled = id === "workspace" && !workspaceAvailable;
-        const tabStop = active
-          || (activeScope === null && id === "query");
+        const tabStop = active || (activeScope === null && id === "query");
         return `<button id="application-scope-${id}" type="button" class="application-scope-item ${active ? "active" : ""}" data-application-scope="${id}" data-application-scope-tab${active ? ' aria-current="page"' : ""} tabindex="${tabStop ? "0" : "-1"}"${disabled ? " disabled" : ""} aria-label="${escapeHtml(label)}" title="${escapeHtml(disabled ? "No workspace is open" : label)}">${escapeHtml(label)}</button>`;
       }).join("")}
     </nav>`;
@@ -503,131 +700,83 @@ export function renderScopeBar<TId extends string>(
       ? "Package"
       : scope === "library"
         ? "Library"
-      : scope === "type"
-        ? "Type"
-        : "Member";
+        : scope === "type"
+          ? "Type"
+          : "Member";
   const subjects = subjectDefinitions(showMemberScope)
     .filter(([id]) => availableScopes?.includes(id) ?? true);
-  const subjectIds = subjects.map(([id]) => id).join(",");
-  const inspectorIds = strip.map(([id]) => id).join(",");
-  const inspectorAnchor = activeIndex >= 0
-    ? activeStripId
-    : strip[0]?.[0] ?? "";
-  const subjectAnchor = subjects.some(([id]) => id === scope)
+  const subjectCommitted = subjects.some(([id]) => id === scope)
     ? scope
-    : scope === "workspace"
-      ? subjects[0]?.[0] ?? ""
-      : subjects.at(-1)?.[0] ?? "";
-  const escapedSubjectPanelId = escapeHtml(subjectPanelId);
+    : null;
+  const subjectFallback = subjectCommitted
+    ?? subjects[0]?.[0]
+    ?? null;
+  const subjectHtml = subjects.length > 0
+    ? navigationGroup({
+        name: "subject",
+        label: "Subjects",
+        chooserLabel: subjectCommitted
+          ? subjects.find(([id]) => id === subjectCommitted)?.[1]
+            ?? "Choose subject"
+          : "Choose subject",
+        key: subjects.map(([id]) => id).join(","),
+        committedId: subjectCommitted,
+        panelId: subjectPanelId,
+        tabHtml: subjects.map(([id, label]) => subjectTab(
+          id,
+          label,
+          id === subjectCommitted,
+          id === subjectFallback,
+          subjectPanelId,
+          escapeHtml)).join(""),
+        menuHtml: subjects.map(([id, label]) => menuItem(
+          id,
+          label,
+          id === subjectCommitted,
+          "data-scope",
+          escapeHtml)).join(""),
+        escapeHtml,
+      })
+    : "";
   const inspectorHtml = strip.length > 0
-    ? `
-      <div class="slide-strip slide-strip-inspector inspector-strip"
-           data-slide-strip="inspector"
-           data-continuity-key="${escapeHtml(`${scope}:${inspectorIds}:v1`)}"
-           data-initial-anchor="${escapeHtml(inspectorAnchor)}"
-           role="tablist"
-           aria-label="${subjectLabel} lenses">
-        <div class="slide-strip-items">
-          ${strip.map((definition, index) => lensButton(
-            definition,
-            index === activeIndex,
-            index === (activeIndex >= 0 ? activeIndex : 0),
-            stripAttribute,
-            index,
-            panelId,
-            escapeHtml)).join("")}
-        </div>
-        ${edgeIndicators()}
-      </div>`
+    ? navigationGroup({
+        name: "inspector",
+        label: `${subjectLabel} lenses`,
+        chooserLabel: activeIndex >= 0
+          ? strip[activeIndex]?.[1] ?? "Choose inspector"
+          : "Choose inspector",
+        key: `${scope}:${strip.map(([id]) => id).join(",")}`,
+        committedId: activeIndex >= 0 ? activeStripId : null,
+        ...(panelId ? { panelId } : {}),
+        tabHtml: strip.map((definition, index) => tabButton(
+          definition,
+          index === activeIndex,
+          index === (activeIndex >= 0 ? activeIndex : 0),
+          stripAttribute,
+          panelId,
+          escapeHtml)).join(""),
+        menuHtml: strip.map(([id, label], index) => menuItem(
+          id,
+          label,
+          index === activeIndex,
+          stripAttribute,
+          escapeHtml)).join(""),
+        escapeHtml,
+      })
     : (emptyStripLabel
         ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
         : "");
-  const subjectHtml = subjects.length > 0
-    ? `
-      <div class="slide-strip slide-strip-subject scope-switch"
-           data-slide-strip="subject"
-           data-continuity-key="${escapeHtml(`${scope}:${subjectIds}:v2`)}"
-           data-initial-anchor="${subjectAnchor}"
-           role="tablist"
-           aria-label="Subject">
-        <div class="slide-strip-items">
-          ${subjects.map(([id, label], index) =>
-            scopeSegment(
-              id,
-              label,
-              scope === id,
-              id === subjectAnchor,
-              escapedSubjectPanelId,
-              index,
-              escapeHtml)).join("")}
-        </div>
-        ${edgeIndicators()}
-      </div>`
-    : "";
   return `
     <nav class="lensbar"
          data-scope-bar
-         data-allocation-key="${escapeHtml(`${scope}:${inspectorIds}`)}"
+         data-active-scope="${escapeHtml(scope)}"
          aria-label="Subjects and inspectors">
       ${subjectHtml}
       ${strip.length > 0
-        ? `<div class="slide-strip-allocation" data-slide-strip-allocation hidden>
-            <button type="button" data-more-subjects aria-label="Show more subjects">‹</button>
-            <button type="button" data-more-inspectors aria-label="Show more inspectors">›</button>
-          </div>
-          <span class="lens-separator" aria-hidden="true"></span>`
+        ? '<span class="lens-separator" aria-hidden="true"></span>'
         : ""}
       ${inspectorHtml}
     </nav>`;
-}
-
-function readItems(element: HTMLElement): readonly SlideStripItem[] {
-  return [...element.querySelectorAll<HTMLElement>("[data-slide-strip-id]")]
-    .map(item => {
-      const id = item.dataset.slideStripId;
-      const label = item.dataset.slideStripLabel;
-      if (!id || !label) {
-        throw new Error("SlideStrip item markup requires identity and Label.");
-      }
-      return {
-        id,
-        label,
-        ...(item.dataset.slideStripShortLabel
-          ? { shortLabel: item.dataset.slideStripShortLabel }
-          : {}),
-        ...(item.dataset.slideStripIcon
-          ? { icon: item.dataset.slideStripIcon }
-          : {}),
-      };
-    });
-}
-
-function readPolicy(
-  element: HTMLElement,
-  items: readonly SlideStripItem[],
-  subject: boolean,
-): SlideStripPolicy {
-  const initialAnchor = element.dataset.initialAnchor;
-  const continuityKey = element.dataset.continuityKey;
-  if (!initialAnchor || !continuityKey) {
-    throw new Error("SlideStrip markup requires anchor and continuity key.");
-  }
-  return {
-    modes: subject
-      ? [{ kind: "label", minimumVisible: 1, gap: 0 }]
-      : [
-          { kind: "label", minimumVisible: 2, gap: 0 },
-          { kind: "short-label", minimumVisible: 2, gap: 0 },
-          { kind: "icon", minimumVisible: 2, gap: 0 },
-          { kind: "index", minimumVisible: 2, gap: 0 },
-        ],
-    initialAnchor,
-    preferredDirection: "after",
-    continuityKey,
-    ...(subject ? { windowContinuity: "anchor-until-slide" } : {}),
-    fallbackVisibilityFloor: subject ? 48 : 28,
-    oversizedAlignment: "start",
-  };
 }
 
 function outerWidth(element: HTMLElement): number {
@@ -637,573 +786,547 @@ function outerWidth(element: HTMLElement): number {
     + Number.parseFloat(style.marginRight || "0");
 }
 
-function allocationRichnessKey(pair: AllocationPair): string {
-  return [
-    pair.subject.result.visibleCount,
-    pair.inspector.result.modeIndex,
-    pair.inspector.result.visibleCount,
-  ].join(":");
+function measureHidden(element: HTMLElement): number {
+  const hidden = element.hidden;
+  element.hidden = false;
+  element.dataset.navigationMeasuring = "true";
+  const width = outerWidth(element);
+  delete element.dataset.navigationMeasuring;
+  element.hidden = hidden;
+  return width;
 }
 
-function inspectorAtLeastAsRich(
-  left: SlideStripResult,
-  right: SlideStripResult,
-): boolean {
-  return left.modeIndex < right.modeIndex
-    || (left.modeIndex === right.modeIndex
-      && left.visibleCount >= right.visibleCount);
+function availableWidth(navigation: HTMLElement): number {
+  const style = getComputedStyle(navigation);
+  return Math.max(
+    0,
+    navigation.clientWidth
+    - Number.parseFloat(style.paddingLeft || "0")
+    - Number.parseFloat(style.paddingRight || "0"));
 }
 
-function inspectorStrictlyRicher(
-  left: SlideStripResult,
-  right: SlideStripResult,
-): boolean {
-  return inspectorAtLeastAsRich(left, right)
-    && !inspectorAtLeastAsRich(right, left);
+function navigationGap(navigation: HTMLElement): number {
+  const style = getComputedStyle(navigation);
+  return Number.parseFloat(style.columnGap || style.gap || "0");
 }
 
-function pairDominates(left: AllocationPair, right: AllocationPair): boolean {
-  const subjectAtLeast = left.subject.result.visibleCount
-    >= right.subject.result.visibleCount;
-  const inspectorAtLeast = inspectorAtLeastAsRich(
-    left.inspector.result,
-    right.inspector.result);
-  const strict = left.subject.result.visibleCount
-      > right.subject.result.visibleCount
-    || !inspectorAtLeastAsRich(right.inspector.result, left.inspector.result);
-  return subjectAtLeast && inspectorAtLeast && strict;
+function groupItemId(item: HTMLElement | null): string | null {
+  return item?.dataset.navigationId ?? null;
 }
 
-function resultWindowDistance(
-  result: SlideStripResult,
-  current: SlideStripResult | undefined,
-): number {
-  return current
-    ? Math.abs(result.startIndex - current.startIndex)
-      + Math.abs(result.endIndex - current.endIndex)
-    : 0;
+function firstEnabledItem(
+  items: readonly HTMLButtonElement[],
+): HTMLButtonElement | null {
+  return items.find(item => !item.disabled
+    && item.getAttribute("aria-disabled") !== "true") ?? null;
 }
 
-function requestedMinimum(
-  controller: SlideStripDomController,
-  result: SlideStripResult,
-): number {
-  const mode = controller.policy.modes[result.modeIndex];
-  return Math.min(
-    mode?.minimumVisible ?? 1,
-    controller.items.length);
+function committedOrFirst(
+  group: AdaptiveNavigationGroup,
+  items: readonly HTMLButtonElement[],
+): HTMLButtonElement | null {
+  return items.find(item =>
+    groupItemId(item) === group.committedId)
+    ?? firstEnabledItem(items);
 }
 
-function satisfiesPolicyMinimum(
-  controller: SlideStripDomController,
-  applied: SlideStripAppliedResult,
-): boolean {
-  return !applied.result.fallback
-    && applied.result.visibleCount >= requestedMinimum(
-      controller,
-      applied.result);
+function syncGroupState(
+  groupElement: HTMLElement,
+  state: AdaptiveNavigationGroupState,
+): void {
+  const key = groupElement.dataset.navigationKey ?? "";
+  if (state.key === key) return;
+  state.key = key;
+  state.open = false;
+  state.focusedId = null;
+}
+
+function readGroup(
+  navigation: HTMLElement,
+  name: NavigationGroupName,
+  state: AdaptiveNavigationGroupState,
+): AdaptiveNavigationGroup | null {
+  const element = navigation.querySelector<HTMLElement>(
+    `[data-navigation-group="${name}"]`);
+  if (!element) return null;
+  syncGroupState(element, state);
+  const tabs = element.querySelector<HTMLElement>("[data-navigation-tabs]");
+  const trigger = element.querySelector<HTMLButtonElement>(
+    `[data-navigation-trigger="${name}"]`);
+  const menu = element.querySelector<HTMLElement>(
+    `[data-navigation-menu="${name}"]`);
+  if (!tabs || !trigger || !menu) {
+    throw new Error(`Adaptive ${name} navigation markup is incomplete.`);
+  }
+  return {
+    name,
+    element,
+    tabs,
+    trigger,
+    menu,
+    tabItems: [...tabs.querySelectorAll<HTMLButtonElement>(
+      '[data-navigation-item="tab"]')],
+    menuItems: [...menu.querySelectorAll<HTMLButtonElement>(
+      '[data-navigation-item="menuitem"]')],
+    committedId: element.dataset.committedId || null,
+    state,
+    tabsWidth: 0,
+    chooserWidth: 0,
+    form: "tabs",
+  };
+}
+
+function showPopover(element: HTMLElement): void {
+  if ("showPopover" in element
+    && typeof element.showPopover === "function") {
+    try {
+      element.showPopover();
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "InvalidStateError")) {
+        throw error;
+      }
+    }
+  }
+}
+
+function hidePopover(element: HTMLElement): void {
+  if ("hidePopover" in element
+    && typeof element.hidePopover === "function") {
+    try {
+      element.hidePopover();
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "InvalidStateError")) {
+        throw error;
+      }
+    }
+  }
 }
 
 class ScopeBarController implements ScopeBarBinding {
+  private readonly root: ParentNode;
   private readonly navigation: HTMLElement;
-  private readonly state: ScopeBarState;
-  private readonly subject: SlideStripDomController;
-  private readonly inspector: SlideStripDomController | null;
-  private readonly allocation: HTMLElement | null;
+  private readonly subject: AdaptiveNavigationGroup | null;
+  private readonly inspector: AdaptiveNavigationGroup | null;
   private readonly separator: HTMLElement | null;
-  private readonly context: HTMLElement | null;
-  private readonly moreSubjects: HTMLButtonElement | null;
-  private readonly moreInspectors: HTMLButtonElement | null;
+  private readonly applicationScopeRegion: HTMLElement | null;
   private readonly observer: ResizeObserver | null;
-  private ladder: readonly AllocationPair[] = [];
-  private renderedAllocationOrdinal = 0;
-  private observedWidth = -1;
+  private readonly handleDocumentKeyDown = (event: KeyboardEvent) => {
+    const group = this.subject?.state.open
+      ? this.subject
+      : this.inspector?.state.open
+        ? this.inspector
+        : null;
+    if (!group) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.closeMenu(group, true);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const target = this.adjacentToTrigger(group.trigger, event.shiftKey);
+    this.closeMenu(group, false, false);
+    target?.focus();
+    this.layout();
+  };
+  private readonly handleDocumentPointerDown = (event: PointerEvent) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    const group = this.subject?.state.open
+      ? this.subject
+      : this.inspector?.state.open
+        ? this.inspector
+        : null;
+    if (!group
+      || group.element.contains(target)
+      || group.menu.contains(target)) return;
+    this.closeMenu(group, false);
+  };
 
-  static create(root: ParentNode, state: ScopeBarState): ScopeBarController | null {
+  static create(
+    root: ParentNode,
+    state: ScopeBarState,
+  ): ScopeBarController | null {
     const navigation = root.querySelector<HTMLElement>("[data-scope-bar]");
-    if (!navigation) return null;
-    // An empty subject ladder (e.g. the workspace-only catalog, which has nothing to switch
-    // between) renders no subject strip at all; there is nothing to allocate in that case.
-    const subjectElement = navigation.querySelector<HTMLElement>(
-      '[data-slide-strip="subject"]');
-    return subjectElement
-      ? new ScopeBarController(navigation, subjectElement, state)
-      : null;
+    return navigation ? new ScopeBarController(root, navigation, state) : null;
   }
 
   private constructor(
+    root: ParentNode,
     navigation: HTMLElement,
-    subjectElement: HTMLElement,
     state: ScopeBarState,
   ) {
+    this.root = root;
     this.navigation = navigation;
-    this.state = state;
-    const subjectItems = readItems(subjectElement);
-    this.subject = new SlideStripDomController(
-      subjectElement,
-      subjectItems,
-      readPolicy(subjectElement, subjectItems, true),
-      state.subject);
-    const inspectorElement = navigation.querySelector<HTMLElement>(
-      '[data-slide-strip="inspector"]');
-    if (inspectorElement) {
-      const inspectorItems = readItems(inspectorElement);
-      this.inspector = new SlideStripDomController(
-        inspectorElement,
-        inspectorItems,
-        readPolicy(inspectorElement, inspectorItems, false),
-        state.inspector);
-    } else {
-      this.inspector = null;
-    }
-    this.allocation = navigation.querySelector(
-      "[data-slide-strip-allocation]");
+    this.subject = readGroup(navigation, "subject", state.subject);
+    this.inspector = readGroup(navigation, "inspector", state.inspector);
     this.separator = navigation.querySelector(".lens-separator");
-    this.context = navigation.querySelector(".lens-context");
-    this.moreSubjects = navigation.querySelector("[data-more-subjects]");
-    this.moreInspectors = navigation.querySelector("[data-more-inspectors]");
-    const allocationKey = navigation.dataset.allocationKey ?? "";
-    if (state.allocationKey !== allocationKey) {
-      state.allocationKey = allocationKey;
-      state.allocationOrdinal = 0;
+    this.applicationScopeRegion = navigation.closest(".titlebar")
+      ?.querySelector<HTMLElement>(".application-scope-region")
+      ?? null;
+    navigation.ownerDocument.addEventListener(
+      "keydown",
+      this.handleDocumentKeyDown,
+      true);
+    navigation.ownerDocument.addEventListener(
+      "pointerdown",
+      this.handleDocumentPointerDown,
+      true);
+    this.bindGroup(this.subject);
+    this.bindGroup(this.inspector);
+    this.layout();
+    if (this.subject?.state.open) {
+      this.positionMenu(this.subject);
+      showPopover(this.subject.menu);
     }
-    this.bind();
-    this.observedWidth = this.availableWidth();
-    this.layout(this.observedWidth);
+    if (this.inspector?.state.open) {
+      this.positionMenu(this.inspector);
+      showPopover(this.inspector.menu);
+    }
     this.observer = typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(() => {
-          const available = this.availableWidth();
-          if (available === this.observedWidth) return;
-          this.observedWidth = available;
-          this.layout(available);
+          this.layout();
+          this.positionOpenMenu();
         });
     this.observer?.observe(navigation);
+    const fonts = navigation.ownerDocument.fonts;
+    void fonts?.ready.then(() => this.layout());
   }
 
   disconnect(): void {
     this.observer?.disconnect();
+    this.navigation.ownerDocument.removeEventListener(
+      "keydown",
+      this.handleDocumentKeyDown,
+      true);
+    this.navigation.ownerDocument.removeEventListener(
+      "pointerdown",
+      this.handleDocumentPointerDown,
+      true);
+    if (this.subject) hidePopover(this.subject.menu);
+    if (this.inspector) hidePopover(this.inspector.menu);
   }
 
   revealFocusTarget(target: ScopeBarFocusTarget): void {
-    if (target.kind === "application-scope") return;
-    const controller = targetStrip(target) === "subject"
-      ? this.subject
-      : this.inspector;
-    this.synchronizeAfterStripTransition(
-      controller?.revealForFocus(targetIdentity(target)) ?? false);
+    const groupName = target.kind === "navigation-trigger"
+      ? target.value
+      : target.kind === "scope"
+        ? "subject"
+        : target.kind === "application-scope"
+          ? null
+          : "inspector";
+    if (!groupName) return;
+    const group = groupName === "subject" ? this.subject : this.inspector;
+    if (!group) return;
+    if (target.kind === "navigation-trigger") {
+      if (group.form === "tabs") {
+        committedOrFirst(group, group.tabItems)?.focus();
+      }
+      return;
+    }
+    if ("presentation" in target && target.presentation === "menuitem") {
+      group.state.open = true;
+      this.layout();
+      this.openMenu(group, false);
+    }
   }
 
-  reveal(target: HTMLButtonElement): void {
-    const id = target.dataset.slideStripId;
-    if (!id) return;
-    const controller = target.closest('[data-slide-strip="subject"]')
-      ? this.subject
-      : this.inspector;
-    this.synchronizeAfterStripTransition(
-      controller?.revealForFocus(id) ?? false);
-  }
-
-  private bind(): void {
-    this.navigation.querySelectorAll<HTMLElement>("[data-slide-strip]")
-      .forEach(strip => strip.addEventListener("wheel", event => {
-        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
-          ? event.deltaX
-          : event.deltaY;
-        if (delta === 0) return;
-        const moved = this.controllerFor(strip)?.slide(
-          delta < 0 ? "before" : "after") ?? false;
-        if (!moved) return;
-        this.synchronizeAfterStripTransition(true);
-        event.preventDefault();
-      }, { passive: false }));
-    this.moreSubjects?.addEventListener("click", () => {
-      if (this.moreSubjects?.getAttribute("aria-disabled") === "true") return;
-      this.moveAllocation(1);
+  private bindGroup(group: AdaptiveNavigationGroup | null): void {
+    if (!group) return;
+    group.trigger.addEventListener("click", () => {
+      if (group.state.open) {
+        this.closeMenu(group, true);
+      } else {
+        this.openMenu(group, true);
+      }
     });
-    this.moreInspectors?.addEventListener("click", () => {
-      if (this.moreInspectors?.getAttribute("aria-disabled") === "true") return;
-      this.moveAllocation(-1);
+    group.trigger.addEventListener("keydown", event => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      this.openMenu(group, true, event.key === "ArrowUp");
+    });
+    group.menuItems.forEach(item => {
+      item.addEventListener("focus", () => {
+        group.state.focusedId = groupItemId(item);
+      });
+      item.addEventListener("click", () => {
+        this.closeMenu(group, true);
+      });
+      item.addEventListener("keydown", event => {
+        this.handleMenuKey(group, item, event);
+      });
     });
   }
 
-  private moveAllocation(delta: -1 | 1): void {
-    const candidate = this.allocationCandidate(delta);
-    if (!candidate) return;
-    this.state.allocationOrdinal = candidate.ordinal;
-    this.renderedAllocationOrdinal = candidate.ordinal;
-    this.applyPair(candidate.pair, "ladder", true);
-    this.updateAllocationButtons();
-  }
-
-  private allocationCandidate(
-    delta: -1 | 1,
-  ): { pair: AllocationPair; ordinal: number } | null {
-    const subject = this.subject.current?.result;
-    const inspector = this.inspector?.current?.result;
-    if (!subject || !inspector) return null;
-    const candidates = this.ladder.map((pair, ordinal) => ({ pair, ordinal }));
-    if (delta < 0) candidates.reverse();
-    return candidates.find(({ pair }) => delta > 0
-      ? pair.subject.result.visibleCount > subject.visibleCount
-        && inspectorStrictlyRicher(inspector, pair.inspector.result)
-      : pair.subject.result.visibleCount < subject.visibleCount
-        && inspectorStrictlyRicher(pair.inspector.result, inspector)) ?? null;
-  }
-
-  private controllerFor(
-    element: Element,
-  ): SlideStripDomController | null {
-    const strip = element.closest<HTMLElement>("[data-slide-strip]");
-    return strip?.dataset.slideStrip === "subject"
-      ? this.subject
-      : strip?.dataset.slideStrip === "inspector"
-        ? this.inspector
-        : null;
-  }
-
-  private synchronizeAfterStripTransition(changed: boolean): void {
-    if (!changed
-      || !this.inspector
-      || this.navigation.dataset.pressure !== "ladder") {
-      return;
-    }
-    const stripWidth = Math.max(
-      0,
-      this.observedWidth - this.overhead(true));
-    const subjectMinimum = this.subject.minimumOuterWidth;
-    const inspectorMinimum = this.inspector.minimumOuterWidth;
-    if (stripWidth < subjectMinimum + inspectorMinimum) {
-      this.layout(this.observedWidth);
-      return;
-    }
-    this.ladder = this.buildLadder(
-      stripWidth,
-      subjectMinimum,
-      inspectorMinimum);
-    if (this.ladder.length === 0) {
-      this.layout(this.observedWidth);
-      return;
-    }
-    this.state.allocationOrdinal = clampAllocationOrdinal(
-      this.state.allocationOrdinal,
-      this.ladder.length);
-    this.renderedAllocationOrdinal = this.state.allocationOrdinal;
-    this.updateAllocationButtons();
-  }
-
-  private availableWidth(): number {
-    const style = getComputedStyle(this.navigation);
-    return Math.max(
-      0,
-      this.navigation.clientWidth
-      - Number.parseFloat(style.paddingLeft || "0")
-      - Number.parseFloat(style.paddingRight || "0"));
-  }
-
-  private gap(): number {
-    const style = getComputedStyle(this.navigation);
-    return Number.parseFloat(style.columnGap || style.gap || "0");
-  }
-
-  private separatorWidth(): number {
-    return this.separator ? outerWidth(this.separator) : 0;
-  }
-
-  private allocationWidth(): number {
-    if (!this.allocation) return 0;
-    const hidden = this.allocation.hidden;
-    this.allocation.hidden = false;
-    const width = outerWidth(this.allocation);
-    this.allocation.hidden = hidden;
-    return width;
-  }
-
-  private overhead(withControls: boolean): number {
-    if (!this.inspector) return 0;
-    return this.separatorWidth()
-      + (withControls ? this.allocationWidth() : 0)
-      + this.gap() * (withControls ? 3 : 2);
-  }
-
-  private setControlsVisible(visible: boolean): void {
-    if (this.allocation) this.allocation.hidden = !visible;
-  }
-
-  private allocationFocusTransfer(
-    controls: boolean,
-  ): AllocationFocusTransfer | null {
-    if (controls || !this.allocation || this.allocation.hidden) return null;
-    const active = this.navigation.ownerDocument.activeElement;
-    if (!this.allocation.contains(active)) return null;
-    if (this.moreSubjects?.contains(active)) {
-      const selected = this.subject.element.querySelector<HTMLElement>(
-        '[aria-selected="true"]');
-      const id = selected?.dataset.slideStripId;
-      return id ? { strip: "subject", id } : null;
-    }
-    const selectedInspector = this.inspector?.element
-      .querySelector<HTMLElement>('[aria-selected="true"]');
-    const inspectorId = selectedInspector?.dataset.slideStripId;
-    if (inspectorId) return { strip: "inspector", id: inspectorId };
-    const selectedSubject = this.subject.element.querySelector<HTMLElement>(
-      '[aria-selected="true"]');
-    const subjectId = selectedSubject?.dataset.slideStripId;
-    return subjectId ? { strip: "subject", id: subjectId } : null;
-  }
-
-  private applyPair(
-    pair: AllocationPair,
-    pressure: string,
-    controls: boolean,
+  private handleMenuKey(
+    group: AdaptiveNavigationGroup,
+    item: HTMLButtonElement,
+    event: KeyboardEvent,
   ): void {
-    this.navigation.dataset.pressure = pressure;
-    if (controls) this.setControlsVisible(true);
-    this.subject.apply(pair.subject);
-    this.inspector?.apply(pair.inspector);
-    this.setControlsVisible(controls);
+    const index = group.menuItems.indexOf(item);
+    const targetIndex = event.key === "ArrowUp"
+      ? (index - 1 + group.menuItems.length) % group.menuItems.length
+      : event.key === "ArrowDown"
+        ? (index + 1) % group.menuItems.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? group.menuItems.length - 1
+            : null;
+    if (targetIndex !== null) {
+      event.preventDefault();
+      group.menuItems[targetIndex]?.focus();
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      item.click();
+      return;
+    }
+    if (event.key.length !== 1 || event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+    const prefix = event.key.toLocaleLowerCase();
+    const candidates = [
+      ...group.menuItems.slice(index + 1),
+      ...group.menuItems.slice(0, index + 1),
+    ];
+    const target = candidates.find(candidate =>
+      (candidate.textContent ?? "").trim().toLocaleLowerCase()
+        .startsWith(prefix));
+    if (target) {
+      event.preventDefault();
+      target.focus();
+    }
   }
 
-  private layout(available = this.availableWidth()): void {
-    if (!this.inspector) {
-      this.setControlsVisible(false);
-      this.navigation.dataset.pressure = "subject-only";
-      const contextWidth = this.context
-        ? outerWidth(this.context) + this.gap()
-        : 0;
-      this.subject.apply(this.subject.resolveRequired(
-        Math.max(
-          available - contextWidth,
-          this.subject.fallbackOuterWidth)));
-      return;
-    }
-    const subjectMinimum = this.subject.minimumOuterWidth;
-    const inspectorMinimum = this.inspector.minimumOuterWidth;
-    const noControlsWidth = Math.max(0, available - this.overhead(false));
-    const transfer = this.allocationFocusTransfer(false);
-    const subjectIntent = focusTransferIntent(transfer, "subject");
-    const inspectorIntent = focusTransferIntent(transfer, "inspector");
-    if (noControlsWidth
-      >= this.subject.preferredOuterWidth + this.inspector.preferredOuterWidth) {
-      this.applyPair({
-        subject: this.subject.resolveRequired(
-          this.subject.preferredOuterWidth,
-          subjectIntent),
-        inspector: this.inspector.resolveRequired(
-          this.inspector.preferredOuterWidth,
-          inspectorIntent),
-      }, "all-preferred", false);
-      return;
-    }
-
-    const controlsWidth = Math.max(0, available - this.overhead(true));
-    if (controlsWidth
-      >= subjectMinimum + inspectorMinimum) {
-      this.ladder = this.buildLadder(
-        controlsWidth,
-        subjectMinimum,
-        inspectorMinimum);
-      if (this.ladder.length > 0) {
-        this.state.allocationOrdinal = clampAllocationOrdinal(
-          this.state.allocationOrdinal,
-          this.ladder.length);
-        this.renderedAllocationOrdinal = this.state.allocationOrdinal;
-        const pair = this.ladder[this.renderedAllocationOrdinal];
-        if (pair) {
-          this.applyPair(pair, "ladder", true);
-          this.updateAllocationButtons();
-          return;
-        }
-      }
-    }
-
-    const noControlsSubjectMinimum = this.subject.minimumOuterWidthFor(
-      subjectIntent.pendingFocusId);
-    const noControlsInspectorMinimum = this.inspector.minimumOuterWidthFor(
-      inspectorIntent.pendingFocusId);
-    if (noControlsWidth
-      >= noControlsSubjectMinimum + noControlsInspectorMinimum) {
-      const provisionalInspectorWidth = noControlsWidth
-        - noControlsSubjectMinimum;
-      const inspector = this.inspector.resolveRequired(
-        provisionalInspectorWidth,
-        inspectorIntent);
-      const exactInspectorWidth = Math.min(
-        provisionalInspectorWidth,
-        inspector.result.requiredWidth + this.inspector.chromeWidth);
-      this.applyPair({
-        subject: this.subject.resolveRequired(
-          noControlsWidth - exactInspectorWidth,
-          subjectIntent),
-        inspector: this.inspector.resolveRequired(
-          exactInspectorWidth,
-          inspectorIntent),
-      }, "control-free", false);
-      return;
-    }
-
-    this.applyPair(
-      this.terminalPair(noControlsWidth, subjectIntent, inspectorIntent),
-      "terminal",
-      false);
+  private adjacentToTrigger(
+    trigger: HTMLButtonElement,
+    backwards: boolean,
+  ): HTMLElement | undefined {
+    const documentRoot = trigger.ownerDocument;
+    const candidates = [...documentRoot.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, [tabindex]')]
+      .filter(candidate => candidate.tabIndex >= 0
+        && !candidate.hidden
+        && !candidate.closest<HTMLElement>("[hidden]")
+        && candidate.getAttribute("aria-disabled") !== "true"
+        && !(candidate instanceof HTMLButtonElement && candidate.disabled)
+        && typeof candidate.checkVisibility === "function"
+        && candidate.checkVisibility());
+    const index = candidates.indexOf(trigger);
+    return backwards ? candidates[index - 1] : candidates[index + 1];
   }
 
-  private buildLadder(
-    stripWidth: number,
-    subjectMinimum: number,
-    inspectorMinimum: number,
-  ): readonly AllocationPair[] {
-    if (!this.inspector) return [];
-    const candidates = new Set<number>([
-      inspectorMinimum,
-      stripWidth - subjectMinimum,
-      ...this.inspector.candidateOuterWidths,
-      ...this.subject.candidateOuterWidths.map(width => stripWidth - width),
-    ]);
-    const pairs: AllocationPair[] = [];
-    for (const candidate of [...candidates].sort((left, right) => left - right)) {
-      if (candidate < inspectorMinimum
-        || candidate > stripWidth - subjectMinimum) {
-        continue;
-      }
-      const inspectorProbe = this.inspector.resolveRequired(candidate);
-      if (!satisfiesPolicyMinimum(this.inspector, inspectorProbe)) continue;
-      const exactInspectorWidth = inspectorProbe.result.requiredWidth
-        + this.inspector.chromeWidth;
-      const subject = this.subject.resolveRequired(
-        stripWidth - exactInspectorWidth);
-      const inspector = this.inspector.resolveRequired(exactInspectorWidth);
-      if (!satisfiesPolicyMinimum(this.subject, subject)
-        || !satisfiesPolicyMinimum(this.inspector, inspector)) {
-        continue;
-      }
-      pairs.push({ subject, inspector });
-    }
-    const distinctByRichness = new Map<string, AllocationPair>();
-    const currentSubject = this.subject.current?.result;
-    const currentInspector = this.inspector.current?.result;
-    for (const pair of pairs) {
-      const key = allocationRichnessKey(pair);
-      const existing = distinctByRichness.get(key);
-      if (!existing) {
-        distinctByRichness.set(key, pair);
-        continue;
-      }
-      const existingDistance = resultWindowDistance(
-        existing.subject.result,
-        currentSubject)
-        + resultWindowDistance(existing.inspector.result, currentInspector);
-      const candidateDistance = resultWindowDistance(
-        pair.subject.result,
-        currentSubject)
-        + resultWindowDistance(pair.inspector.result, currentInspector);
-      if (candidateDistance < existingDistance) {
-        distinctByRichness.set(key, pair);
-      }
-    }
-    const distinct = [...distinctByRichness.values()];
-    const pareto = distinct.filter(pair =>
-      !distinct.some(candidate =>
-        candidate !== pair && pairDominates(candidate, pair)));
-    return pareto.sort((left, right) => {
-      if (left.inspector.result.modeIndex !== right.inspector.result.modeIndex) {
-        return left.inspector.result.modeIndex
-          - right.inspector.result.modeIndex;
-      }
-      if (left.inspector.result.visibleCount
-        !== right.inspector.result.visibleCount) {
-        return right.inspector.result.visibleCount
-          - left.inspector.result.visibleCount;
-      }
-      return left.subject.result.visibleCount
-        - right.subject.result.visibleCount;
+  private openMenu(
+    group: AdaptiveNavigationGroup,
+    focusItem: boolean,
+    focusLast = false,
+  ): void {
+    const peer = group.name === "subject" ? this.inspector : this.subject;
+    if (peer?.state.open) this.closeMenu(peer, false);
+    group.state.open = true;
+    group.trigger.setAttribute("aria-expanded", "true");
+    this.layout();
+    this.positionMenu(group);
+    showPopover(group.menu);
+    if (!focusItem) return;
+    const target = group.state.focusedId
+      ? group.menuItems.find(item =>
+          groupItemId(item) === group.state.focusedId)
+      : focusLast
+        ? group.menuItems.at(-1)
+        : committedOrFirst(group, group.menuItems);
+    (target ?? committedOrFirst(group, group.menuItems))?.focus();
+  }
+
+  private closeMenu(
+    group: AdaptiveNavigationGroup,
+    returnFocus: boolean,
+    relayout = true,
+  ): void {
+    hidePopover(group.menu);
+    group.state.open = false;
+    group.trigger.setAttribute("aria-expanded", "false");
+    if (returnFocus) group.trigger.focus();
+    if (relayout) this.layout();
+  }
+
+  private measure(group: AdaptiveNavigationGroup): void {
+    group.tabsWidth = measureHidden(group.tabs);
+    group.chooserWidth = measureHidden(group.trigger);
+  }
+
+  private layout(): void {
+    if (!this.subject) return;
+    this.measure(this.subject);
+    if (this.inspector) this.measure(this.inspector);
+    const gap = navigationGap(this.navigation);
+    const separatorAndGapsWidth = this.inspector
+      ? (this.separator ? outerWidth(this.separator) : 0) + gap * 2
+      : 0;
+    this.updateApplicationScopeYield(separatorAndGapsWidth);
+    const width = availableWidth(this.navigation);
+    const pinnedChooser = this.subject.state.open
+      ? "subject"
+      : this.inspector?.state.open
+        ? "inspector"
+        : null;
+    const pair = selectAdaptiveNavigationPair({
+      availableWidth: width,
+      separatorAndGapsWidth,
+      subjectTabsWidth: this.subject.tabsWidth,
+      subjectChooserWidth: this.subject.chooserWidth,
+      subjectCount: this.subject.tabItems.length,
+      subjectCommitted: this.subject.committedId !== null,
+      ...(this.inspector
+        ? {
+            inspectorTabsWidth: this.inspector.tabsWidth,
+            inspectorChooserWidth: this.inspector.chooserWidth,
+            inspectorCount: this.inspector.tabItems.length,
+            inspectorCommitted: this.inspector.committedId !== null,
+          }
+        : {}),
+      pinnedChooser,
     });
+    this.applyForms(pair, width, separatorAndGapsWidth);
   }
 
-  private terminalPair(
-    stripWidth: number,
-    subjectIntent: SlideStripResolveIntent = {},
-    inspectorIntent: SlideStripResolveIntent = {},
-  ): AllocationPair {
-    if (!this.inspector) {
-      throw new Error("Terminal allocation requires an inspector strip.");
-    }
-    const minimumInternalWidth = this.subject.fallbackOuterWidth
-      + this.inspector.fallbackOuterWidth;
-    if (stripWidth < minimumInternalWidth) {
-      return {
-        subject: this.subject.resolveRequired(
-          this.subject.fallbackOuterWidth,
-          subjectIntent),
-        inspector: this.inspector.resolveRequired(
-          this.inspector.fallbackOuterWidth,
-          inspectorIntent),
-      };
-    }
-    const targetSubject = Math.floor(stripWidth / 3);
-    const clampedTargetSubject = Math.max(
-      this.subject.fallbackOuterWidth,
-      Math.min(
-        targetSubject,
-        stripWidth - this.inspector.fallbackOuterWidth));
-    const candidates = new Set<number>([
-      this.subject.fallbackOuterWidth,
-      stripWidth - this.inspector.fallbackOuterWidth,
-      clampedTargetSubject,
-      ...this.subject.candidateOuterWidths,
-      ...this.inspector.candidateOuterWidths.map(width => stripWidth - width),
-    ]);
-    const pairs = [...candidates].flatMap(subjectWidth => {
-      const inspectorWidth = stripWidth - subjectWidth;
-      if (subjectWidth < this.subject.fallbackOuterWidth
-        || inspectorWidth < this.inspector!.fallbackOuterWidth) {
-        return [];
-      }
-      const subject = this.subject.resolveRequired(
-        subjectWidth,
-        subjectIntent);
-      const inspector = this.inspector!.resolveRequired(
-        inspectorWidth,
-        inspectorIntent);
-      const subjectUnused = subject.result.fallback
-        ? 0
-        : Math.max(
-            0,
-            subjectWidth
-            - subject.result.requiredWidth
-            - this.subject.chromeWidth);
-      const inspectorUnused = inspector.result.fallback
-        ? 0
-        : Math.max(
-            0,
-            inspectorWidth
-            - inspector.result.requiredWidth
-            - this.inspector!.chromeWidth);
-      return [{
-        pair: { subject, inspector },
-        unused: subjectUnused + inspectorUnused,
-        distance: Math.abs(subjectWidth - targetSubject),
-        inspectorWidth,
-      }];
+  private updateApplicationScopeYield(overhead: number): void {
+    const region = this.applicationScopeRegion;
+    const subject = this.subject;
+    const inspector = this.inspector;
+    if (!region || !subject) return;
+    delete region.dataset.applicationScopeYield;
+    const expandedPair = selectAdaptiveNavigationPair({
+      availableWidth: availableWidth(this.navigation),
+      separatorAndGapsWidth: overhead,
+      subjectTabsWidth: subject.tabsWidth,
+      subjectChooserWidth: subject.chooserWidth,
+      subjectCount: subject.tabItems.length,
+      subjectCommitted: subject.committedId !== null,
+      ...(inspector
+        ? {
+            inspectorTabsWidth: inspector.tabsWidth,
+            inspectorChooserWidth: inspector.chooserWidth,
+            inspectorCount: inspector.tabItems.length,
+            inspectorCommitted: inspector.committedId !== null,
+          }
+        : {}),
     });
-    pairs.sort((left, right) =>
-      left.unused - right.unused
-      || left.distance - right.distance
-      || right.inspectorWidth - left.inspectorWidth);
-    const selected = pairs[0];
-    if (!selected) {
-      throw new Error("Scope bar terminal allocation has no valid candidate.");
+    if (expandedPair.subject !== "tabs"
+      || (expandedPair.inspector !== null
+        && expandedPair.inspector !== "tabs")) {
+      if (region.contains(region.ownerDocument.activeElement)) {
+        region.ownerDocument.querySelector<HTMLElement>(".brand")
+          ?.focus({ preventScroll: true });
+      }
+      region.dataset.applicationScopeYield = "true";
     }
-    return selected.pair;
   }
 
-  private updateAllocationButtons(): void {
-    if (!this.moreSubjects || !this.moreInspectors) return;
-    this.moreInspectors.setAttribute(
-      "aria-disabled",
-      String(this.allocationCandidate(-1) === null));
-    this.moreSubjects.setAttribute(
-      "aria-disabled",
-      String(this.allocationCandidate(1) === null));
+  private applyForms(
+    pair: AdaptiveNavigationPair,
+    width: number,
+    overhead: number,
+  ): void {
+    if (!this.subject) return;
+    this.applyForm(this.subject, pair.subject);
+    if (!this.inspector || pair.inspector === null) {
+      this.subject.element.style.width = `${Math.min(
+        width,
+        pair.subject === "tabs"
+          ? this.subject.tabsWidth
+          : this.subject.chooserWidth)}px`;
+      this.navigation.dataset.subjectForm = pair.subject;
+      delete this.navigation.dataset.inspectorForm;
+      return;
+    }
+    this.applyForm(this.inspector, pair.inspector);
+    const internalWidth = Math.max(0, width - overhead);
+    const subjectIdeal = pair.subject === "tabs"
+      ? this.subject.tabsWidth
+      : this.subject.chooserWidth;
+    const inspectorIdeal = pair.inspector === "tabs"
+      ? this.inspector.tabsWidth
+      : this.inspector.chooserWidth;
+    if (pair.subject === "chooser"
+      && pair.inspector === "chooser"
+      && subjectIdeal + inspectorIdeal > internalWidth) {
+      const subjectWidth = Math.floor(internalWidth / 2);
+      this.subject.element.style.width = `${subjectWidth}px`;
+      this.inspector.element.style.width = `${internalWidth - subjectWidth}px`;
+    } else {
+      this.subject.element.style.width = `${subjectIdeal}px`;
+      this.inspector.element.style.width = `${inspectorIdeal}px`;
+    }
+    this.navigation.dataset.subjectForm = pair.subject;
+    this.navigation.dataset.inspectorForm = pair.inspector;
+    this.updatePanelSemantics(this.subject);
+    this.updatePanelSemantics(this.inspector);
+  }
+
+  private applyForm(
+    group: AdaptiveNavigationGroup,
+    form: AdaptiveNavigationForm,
+  ): void {
+    const active = group.element.ownerDocument.activeElement;
+    const transferToTrigger = group.form !== form
+      && form === "chooser"
+      && group.tabs.contains(active);
+    const transferToTabs = group.form !== form
+      && form === "tabs"
+      && active === group.trigger
+      && !group.state.open;
+    group.form = form;
+    group.tabs.hidden = form !== "tabs";
+    group.trigger.hidden = form !== "chooser";
+    if (transferToTrigger) {
+      group.trigger.focus({ preventScroll: true });
+    } else if (transferToTabs) {
+      committedOrFirst(group, group.tabItems)
+        ?.focus({ preventScroll: true });
+    }
+    if (form === "tabs" && group.state.open) {
+      this.closeMenu(group, false);
+    }
+    this.updatePanelSemantics(group);
+  }
+
+  private updatePanelSemantics(group: AdaptiveNavigationGroup): void {
+    const panelId = group.element.dataset.panelId;
+    if (!panelId || !group.committedId) return;
+    const panel = this.root.querySelector<HTMLElement>(`#${CSS.escape(panelId)}`);
+    if (!panel) return;
+    const labelOwner = group.form === "tabs"
+      ? group.tabItems.find(item =>
+          groupItemId(item) === group.committedId)
+      : group.trigger;
+    if (!labelOwner?.id) return;
+    panel.setAttribute(
+      "role",
+      group.form === "tabs" ? "tabpanel" : "region");
+    panel.setAttribute("aria-labelledby", labelOwner.id);
+  }
+
+  private positionOpenMenu(): void {
+    if (this.subject?.state.open) this.positionMenu(this.subject);
+    if (this.inspector?.state.open) this.positionMenu(this.inspector);
+  }
+
+  private positionMenu(group: AdaptiveNavigationGroup): void {
+    const bounds = group.trigger.getBoundingClientRect();
+    const viewport = group.trigger.ownerDocument.documentElement;
+    const margin = 8;
+    group.menu.style.left = `${Math.max(margin, bounds.left)}px`;
+    group.menu.style.top = `${bounds.bottom + 4}px`;
+    group.menu.style.width = `${Math.max(bounds.width, 180)}px`;
+    group.menu.style.maxWidth =
+      `${Math.max(0, viewport.clientWidth - margin * 2)}px`;
+    group.menu.style.maxHeight =
+      `${Math.max(0, viewport.clientHeight - bounds.bottom - margin)}px`;
   }
 }
