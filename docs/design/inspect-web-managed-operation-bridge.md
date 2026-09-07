@@ -882,32 +882,37 @@ responsiveness or prompt physical-cancellation claim.
 
 ### Shared package acquisition adoption
 
-`BrowserPackageWorkspace` consumes `BrowserManagedSharedProducer` for its
-existing shared payload acquisition. The key remains exact coordinate plus
-source-client reference; deadlines, cache publication, and natural producer
-completion remain acquisition-owner policy. This producer has no nonterminal
-events and no last-waiter stop policy. Operation IDs do not enter the cache.
+When a managed epoch reporter is registered, `BrowserPackageWorkspace`
+consumes `BrowserManagedSharedProducer` for its existing shared payload
+acquisition. The key remains exact coordinate plus source-client reference;
+deadlines, cache publication, and natural producer completion remain
+acquisition-owner policy. This producer has no nonterminal events and no
+last-waiter stop policy. Operation IDs do not enter the cache.
 
-Without a registered epoch reporter, the last canceled waiter remains
-represented until physical acquisition finishes. Another waiter may leave
-independently. A late caller may await that sealed producer's completion,
-which is already retained by its final draining waiter, rather than start a
-duplicate download. This is a deliberate strengthening of physical release;
-logical Source cancellation remains immediate.
+Without a registered epoch reporter, the workspace preserves its existing
+page-host contract: each caller waits independently over the one shared
+physical acquisition task, so cancellation settles that logical wait and
+releases the Source gate without awaiting physical completion. The pending
+registry continues to retain and observe the task through physical completion,
+including late failure, and a later caller reuses it rather than starting a
+duplicate download. The late physical outcome does not replace the canceled
+operation's authoritative terminal result.
 
-With the registered reporter, final detachment consumes its opaque source
-and the existing lease/fault-record handoff. Later waiters reuse that same
-producer and lease. The registry independently observes completion, including
-producer finalization and lease release, before removing the pending entry.
-Registration is single-use: after unregister, acquisition cannot silently
-revert to the unregistered mode.
+Only with the registered reporter does the acquisition use
+`BrowserManagedSharedProducer`. Final detachment consumes the reporter's opaque
+source and the existing lease/fault-record handoff. Later waiters reuse that
+same producer and lease. The registry independently observes completion,
+including producer finalization and lease release, before removing the pending
+entry. Registration is single-use: after unregister, acquisition cannot
+silently revert to the page-host mode.
 
 `BrowserEngineBoundaryTests.AcquisitionLifetime.cs` gates the actual shared
-package path, canceled and healthy neighbors, final-detach reporting, later
-waiters, and reporting failures. The terminal-bounded cases and existing
-`BrowserManagedEpochWorkTests` cover retained completion and asynchronous
-finalization. These are Release engine cases; they do not claim Source Worker
-placement or DOM responsiveness.
+package path, page-host Source-gate release and late observation, canceled and
+healthy registered neighbors, final-detach reporting, later waiters, and
+reporting failures. The terminal-bounded cases and existing
+`BrowserManagedEpochWorkTests` cover registered retained completion and
+asynchronous finalization. These are Release engine cases; they do not claim
+Source Worker placement or DOM responsiveness.
 
 This supplies the shared-payload portion of step 4 of the shared-waiter
 adoption above and a prerequisite to #5420's typed Worker adapter. It serves

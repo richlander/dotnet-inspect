@@ -175,7 +175,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task SharedAcquisition_SealedTerminalDrainReusesPhysicalProducer()
+    public async Task SharedAcquisition_UnregisteredCanceledWaitersReuseObservedPhysicalTask()
     {
         var physical = new TaskCompletionSource<AcquiredPackageSourcePayload>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -189,16 +189,80 @@ public sealed partial class BrowserEngineBoundaryTests
         cancellation.Cancel();
         Task<AcquiredPackageSourcePayload> first = acquisition.WaitAsync(cancellation.Token);
         Task<AcquiredPackageSourcePayload> later = acquisition.WaitAsync(cancellation.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => later);
-        Assert.False(first.IsCompleted);
         Assert.Equal(1, starts);
+        Assert.False(physical.Task.IsCompleted);
+        Task<AcquiredPackageSourcePayload> healthy =
+            acquisition.WaitAsync(CancellationToken.None);
         var failure = new InvalidOperationException("physical failure");
         physical.SetException(failure);
-        await Assert.ThrowsAsync<AggregateException>(() => first);
+        Assert.Same(failure,
+            await Assert.ThrowsAsync<InvalidOperationException>(() => healthy));
         Assert.Same(failure,
             await Assert.ThrowsAsync<InvalidOperationException>(() => acquisition.Completion));
     }
 
+    [Fact]
+    public async Task SharedAcquisition_UnregisteredCancellationReleasesSourceGateBeforePhysicalCompletion()
+    {
+        string packageId = $"page.acquisition.{Guid.NewGuid():N}";
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new GalleryPackageHandler(
+            packageId, "1.0.0", PackageDocuments(1), payloadRelease: release.Task);
+        using IPackageSourceClient source = Gallery(handler);
+        var bridge = new BrowserManagedOperationBridge();
+        BrowserManagedOperationId id =
+            BrowserManagedOperationId.From(Guid.NewGuid().ToString());
+        Task<BrowserManagedOperationResult<bool, string, string>> running =
+            bridge.RunAsync<bool, string, string, object>(
+                id,
+                eventCallback: null,
+                async (token, _) =>
+                {
+                    using BrowserSourceOperationLease lease =
+                        await BrowserSourceOperationCoordinator.BeginAsync(
+                            token, reason => bridge.RequestCancellation(id, reason));
+                    await BrowserPackageWorkspace.AcquireAsync(
+                        packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                        TimeSpan.FromSeconds(30), lease.CancellationToken, epochWork: null);
+                    return new BrowserManagedOperationBodyResult<bool, string, string>.Succeeded(true);
+                },
+                error => new(error.Message, error.ToString()));
+
+        try
+        {
+            await AcquisitionWithin(handler.PayloadReadStarted.Task);
+            Task<BrowserSourceOperationLease> successor =
+                BrowserSourceOperationCoordinator.BeginAsync().AsTask();
+
+            var canceled = Assert.IsType<
+                BrowserManagedOperationResult<bool, string, string>.Canceled>(
+                    await AcquisitionWithin(running));
+            Assert.Equal(BrowserManagedOperationCancelReason.Superseded, canceled.Reason);
+            using BrowserSourceOperationLease successorLease =
+                await AcquisitionWithin(successor);
+            Assert.False(release.Task.IsCompleted);
+            Assert.Single(handler.Requested);
+
+            release.SetResult();
+            BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
+                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken,
+                epochWork: null);
+            Assert.Equal(packageId, package.PackageId, ignoreCase: true);
+            Assert.Single(handler.Requested);
+        }
+        finally
+        {
+            release.TrySetResult();
+            BrowserSourceOperationCoordinator.CancelCurrent();
+        }
+    }
+
     static Task AcquisitionWithin(Task task) =>
+        task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+    static Task<T> AcquisitionWithin<T>(Task<T> task) =>
         task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 }

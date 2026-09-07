@@ -296,6 +296,7 @@ internal static class BrowserPackageWorkspace
             CoordinateKey(coordinate.PackageId, coordinate.Version),
             source);
         BrowserSharedPackageAcquisition pending;
+        bool created = false;
         lock (PendingAcquisitions)
         {
             if (PendingAcquisitions.TryGetValue(pendingKey, out var existing)
@@ -309,9 +310,11 @@ internal static class BrowserPackageWorkspace
                         coordinate, source, configuredSourceIdentity, remaining),
                     epochWork ?? BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition);
                 PendingAcquisitions[pendingKey] = pending;
-                ObserveAndRemovePendingAcquisition(pendingKey, pending);
+                created = true;
             }
         }
+        if (created)
+            ObserveAndRemovePendingAcquisition(pendingKey, pending);
 
         using var waitCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(

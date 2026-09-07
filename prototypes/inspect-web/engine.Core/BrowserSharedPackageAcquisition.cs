@@ -9,23 +9,47 @@ namespace InspectWeb.Engine;
 
 internal sealed class BrowserSharedPackageAcquisition
 {
-    readonly Producer _producer;
+    readonly object _sync = new();
+    readonly Func<Task<AcquiredPackageSourcePayload>>? _acquire;
+    readonly Producer? _producer;
+    readonly Task<AcquiredPackageSourcePayload>? _registeredCompletion;
+    Task<AcquiredPackageSourcePayload>? _unregisteredCompletion;
 
     internal BrowserSharedPackageAcquisition(
         Func<Task<AcquiredPackageSourcePayload>> acquire,
         BrowserManagedEpochWorkSource? epochWork)
     {
-        _producer = new Producer(
-            async _ => new BodyResult.Succeeded(await acquire().ConfigureAwait(false)),
-            epochWork: epochWork);
-        Completion = ObserveAsync();
+        ArgumentNullException.ThrowIfNull(acquire);
+        if (epochWork is null)
+            _acquire = acquire;
+        else
+        {
+            _producer = new Producer(
+                async _ => new BodyResult.Succeeded(await acquire().ConfigureAwait(false)),
+                epochWork: epochWork);
+            _registeredCompletion = ObserveAsync();
+        }
     }
 
-    internal Task<AcquiredPackageSourcePayload> Completion { get; }
-    internal bool IsCompleted => _producer.IsCompleted;
+    internal Task<AcquiredPackageSourcePayload> Completion =>
+        _producer is null ? StartUnregistered() : _registeredCompletion!;
+
+    internal bool IsCompleted
+    {
+        get
+        {
+            if (_producer is not null)
+                return _producer.IsCompleted;
+            lock (_sync)
+                return _unregisteredCompletion?.IsCompleted == true;
+        }
+    }
 
     internal async Task<AcquiredPackageSourcePayload> WaitAsync(CancellationToken cancellationToken)
     {
+        if (_producer is null)
+            return await Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
+
         Producer.Subscription? subscription = _producer.TryAttach();
         if (subscription is null)
         {
@@ -61,8 +85,31 @@ internal sealed class BrowserSharedPackageAcquisition
         return Value(result);
     }
 
+    Task<AcquiredPackageSourcePayload> StartUnregistered()
+    {
+        lock (_sync)
+        {
+            if (_unregisteredCompletion is not null)
+                return _unregisteredCompletion;
+
+            try
+            {
+                _unregisteredCompletion = _acquire!()
+                    ?? Task.FromException<AcquiredPackageSourcePayload>(
+                        new InvalidOperationException(
+                            "Package acquisition returned no task."));
+            }
+            catch (Exception exception)
+            {
+                _unregisteredCompletion =
+                    Task.FromException<AcquiredPackageSourcePayload>(exception);
+            }
+            return _unregisteredCompletion;
+        }
+    }
+
     async Task<AcquiredPackageSourcePayload> ObserveAsync() =>
-        Value(await _producer.ObserveCompletionAsync().ConfigureAwait(false));
+        Value(await _producer!.ObserveCompletionAsync().ConfigureAwait(false));
 
     static AcquiredPackageSourcePayload Value(BodyResult? result) =>
         result is BodyResult.Succeeded succeeded

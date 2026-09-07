@@ -399,7 +399,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task CancelledWait_WithoutEpochRetainsPhysicalAcquisitionAndLateFailure()
+    public async Task CancelledWait_WithoutEpochSettlesBeforeObservedPhysicalFailure()
     {
         var completion =
             new TaskCompletionSource<AcquiredPackageSourcePayload>(
@@ -409,13 +409,10 @@ public sealed partial class BrowserEngineBoundaryTests
         cancellation.Cancel();
         Task<AcquiredPackageSourcePayload> waiting = acquisition.WaitAsync(cancellation.Token);
 
-        Assert.False(waiting.IsCompleted);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
         Assert.False(completion.Task.IsCompleted);
         var lateFailure = new InvalidOperationException("late package failure");
         completion.SetException(lateFailure);
-        var failure = await Assert.ThrowsAsync<AggregateException>(() => waiting);
-        Assert.IsAssignableFrom<OperationCanceledException>(failure.InnerExceptions[0]);
-        Assert.Same(lateFailure, failure.InnerExceptions[1]);
         Assert.Same(lateFailure,
             await Assert.ThrowsAsync<InvalidOperationException>(() => acquisition.Completion));
     }
