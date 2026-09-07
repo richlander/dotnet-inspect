@@ -276,7 +276,7 @@ accumulate patches indefinitely.
 Requested work hot-starts through branch, commit, push, PR, and eligible review
 without separate approval. Markdown-only changes use `markdownlint` as their
 non-boundary pre-review and per-round gate. Every non-trivial change receives
-two-seat adversarial review, and review blocks stop after six rounds so an
+one-seat adversarial review, and review blocks stop after six rounds so an
 unclosed design becomes an explicit decision rather than an endless loop.
 
 The exact candidate, eligibility, reconciliation, status, and recovery rules

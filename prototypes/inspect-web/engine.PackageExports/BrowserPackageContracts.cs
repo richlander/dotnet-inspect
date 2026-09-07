@@ -267,9 +267,22 @@ public sealed record BrowserGalleryDiscoveryCatalog(
     BrowserGalleryPackageTypeFacet PackageType,
     BrowserGalleryDiscoveryOrder[] Orders);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEvidenceScope>))]
+public enum BrowserPackageQueryEvidenceScope
+{
+    Package,
+    Query,
+}
+
+public sealed record BrowserPackageQueryEvidenceSummary(
+    int Count,
+    string[] Preview);
+
 public sealed record BrowserPackageQueryEvidence(
     string Id,
-    string Text);
+    string Text,
+    BrowserPackageQueryEvidenceScope Scope,
+    BrowserPackageQueryEvidenceSummary? Summary);
 
 public sealed record BrowserPackageQueryRow(
     string PackageId,
@@ -323,6 +336,7 @@ public enum BrowserPackageQueryCompletionKind
     ClientPageLimitReached,
     Failed,
     GalleryResponseComplete,
+    ExactPackageComplete,
 }
 
 public sealed record BrowserPackageQueryCompletion(

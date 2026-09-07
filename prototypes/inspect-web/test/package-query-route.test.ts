@@ -18,36 +18,25 @@ test("package query route recognizes only its canonical path", () => {
   assert.equal(isPackageQueryPath("/packages/query"), false);
 });
 
-test("package query search validation preserves nonempty Gallery text exactly", () => {
+test("package query editor validation preserves nonempty text exactly", () => {
   for (const text of [
     " Microsoft.Extensions. ",
     "Microsoft-*",
     "hosting dependency injection",
     ' tags:"web api" ',
     "a".repeat(100),
+    `${"a".repeat(100)}*`,
+    "a".repeat(101),
+    "contains\nnewline",
+    "Newtonsoft\u0000Json",
   ]) {
     assert.equal(validPackageQuerySearchText(text), text);
   }
 });
 
-test("package query blank search normalizes to browse without fabricating a wildcard", () => {
-  for (const text of ["", " ", " ".repeat(100), "\u00a0\u2003"]) {
+test("package query blank editor normalizes without fabricating a wildcard", () => {
+  for (const text of ["", " ", " ".repeat(102), "\t", "\u00a0\u2003"]) {
     assert.equal(validPackageQuerySearchText(text), "");
-  }
-});
-
-test("package query invalid search is distinct from blank browse", () => {
-  for (const text of [
-    "a".repeat(101),
-    " ".repeat(101),
-    "contains\nnewline",
-    "\t",
-    "\rtext",
-    "text\u0000",
-    "text\u007f",
-    "text\u0085",
-  ]) {
-    assert.equal(validPackageQuerySearchText(text), null);
   }
 });
 
