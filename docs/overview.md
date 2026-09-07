@@ -514,6 +514,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   decision guidance and evidence, including API combinations and first/last
   requested-result costs. This is not a new runtime selector; source, query,
   and host contracts remain with their focused owners.
+- [NuGet Catalog acquisition](design/nuget-catalog-acquisition.md): bounded,
+  incremental `NuGetFetch` acquisition of advertised Catalog event windows,
+  preserving source identity, observed horizon, completion, and typed failure.
+  Ecosystem scope, security meaning, report selection, cursors, leaf
+  enrichment, and host adoption remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific

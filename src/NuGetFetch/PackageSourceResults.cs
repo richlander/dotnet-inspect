@@ -670,6 +670,7 @@ public sealed class PackageSourceOperationResult<T>
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         if (typeof(T) != typeof(PackageSearchResult)
             && typeof(T) != typeof(NuGetGalleryDiscoveryResult)
+            && typeof(T) != typeof(NuGetCatalogPage)
             && typeof(T) != typeof(PackageVersionResult)
             && typeof(T) != typeof(PackageSourceManifest)
             && typeof(T) != typeof(PackageSourcePayload))
@@ -1526,7 +1527,7 @@ internal static class PackageSourceOperation
         }
     }
 
-    private static bool TryClassify(
+    internal static bool TryClassify(
         Exception exception,
         bool allowNotFound,
         out PackageSourceFailureKind kind)
@@ -1543,11 +1544,14 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.ResponseRejected,
             NuGetRedirectLimitExceededException
                 or NuGetRegistrationResourceLimitExceededException
+                or NuGetCatalogResourceLimitExceededException
+                or NuGetCatalogDecodedByteLimitExceededException
                 or LocalPackageSourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetSourceCapabilityUnavailableException =>
                 PackageSourceFailureKind.Unsupported,
             NuGetSourceResponseException
+                or NuGetCatalogStalePageException
                 or System.Text.Json.JsonException
                 or InvalidDataException =>
                 PackageSourceFailureKind.InvalidResponse,
@@ -1586,10 +1590,13 @@ internal static class PackageSourceOperation
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
+            or NuGetCatalogResourceLimitExceededException
+            or NuGetCatalogDecodedByteLimitExceededException
             or LocalPackageSourceLimitExceededException
             or LocalPackageSourceNotFoundException
             or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
+            or NuGetCatalogStalePageException
             or System.Text.Json.JsonException
             or InvalidDataException
             or HttpRequestException
