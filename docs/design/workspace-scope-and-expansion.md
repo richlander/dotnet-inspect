@@ -99,7 +99,7 @@ Roots, display/framework preservation, JSON/JSONL shape, and absence of a
 successful prefix after a failed Add batch. Browser adoption remains unverified.
 
 The Release implementation gate is
-[`WorkspaceScopeTests`](../../src/DotnetInspector.Queries.Tests/WorkspaceScopeTests.cs).
+[`WorkspaceScopeTests`](../../tests/DotnetInspector.Queries.Tests/WorkspaceScopeTests.cs).
 Its boundary evidence includes:
 
 | Implemented boundary | Release tests |
@@ -124,15 +124,15 @@ The focused implementation and adjacent-owner regression commands are run
 separately so each named selection has its own nonzero-execution result:
 
 ```bash
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-class '*WorkspaceScopeTests' && \
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-class '*ArtifactRootPublicationTests' && \
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-class '*ArtifactRootCorrespondenceTests' && \
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-class '*PackageAssemblyContextRealizationTests' && \
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-class '*WorkspacePackageRootAcquisitionTests'
 ```
 

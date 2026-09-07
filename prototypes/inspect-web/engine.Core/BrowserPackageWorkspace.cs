@@ -228,31 +228,16 @@ internal static class BrowserPackageWorkspace
         string? version,
         IPackageSourceClient source,
         TimeSpan operationTimeout,
-        CancellationToken cancellationToken) =>
-        AcquireAsync(packageId, version, source, ConfiguredSourceIdentityFor(source),
-            operationTimeout, cancellationToken);
-
-    internal static Task<BrowserPackage> AcquireAsync(
-        string packageId,
-        string? version,
-        IPackageSourceClient source,
-        TimeSpan operationTimeout) =>
+        CancellationToken cancellationToken,
+        BrowserManagedEpochWorkSource? epochWork) =>
         AcquireAsync(
             packageId,
             version,
             source,
             ConfiguredSourceIdentityFor(source),
-            operationTimeout);
-
-    internal static Task<BrowserPackage> AcquireAsync(
-        string packageId,
-        string? version,
-        IPackageSourceClient source,
-        PackageSourceIdentity configuredSourceIdentity,
-        TimeSpan operationTimeout,
-        CancellationToken cancellationToken = default) =>
-        AcquireAsync(packageId, version, source, configuredSourceIdentity, operationTimeout,
-            cancellationToken, epochWork: null);
+            operationTimeout,
+            cancellationToken,
+            epochWork);
 
     internal static Task<BrowserPackage> AcquireAsync(
         string packageId,
@@ -481,7 +466,9 @@ internal static class BrowserPackageWorkspace
             version,
             source,
             configuredSourceIdentity,
-            operationTimeout);
+            operationTimeout,
+            CancellationToken.None,
+            epochWork: null);
         return new BrowserPackageCoordinate(
             package,
             package.CreateRootBinding(targetFramework));

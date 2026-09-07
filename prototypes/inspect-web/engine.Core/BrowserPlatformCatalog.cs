@@ -104,7 +104,8 @@ internal static class BrowserPlatformCatalog
                 {
                     BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
                         family.RuntimePackage, version, source,
-                        deadline.Remaining, deadline.Token).ConfigureAwait(false);
+                        deadline.Remaining, deadline.Token,
+                        epochWork: null).ConfigureAwait(false);
                     leases.Lease(package.CacheKey);
                 }
                 return true;
@@ -145,7 +146,8 @@ internal static class BrowserPlatformCatalog
         };
         return BrowserPackageWorkspace.AcquireAsync(package, version,
             source,
-            timeout, cancellationToken);
+            timeout, cancellationToken,
+            epochWork: null);
     }
 
     internal static Task<BrowserPlatformCatalogResult> GetCatalogAsync(
@@ -208,7 +210,8 @@ internal static class BrowserPlatformCatalog
                 {
                     BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
                         packageId, version, source,
-                        deadline.Remaining, deadline.Token).ConfigureAwait(false);
+                        deadline.Remaining, deadline.Token,
+                        epochWork: null).ConfigureAwait(false);
                     using var leases = new BrowserPackageWorkspace.PackageLeaseSet();
                     leases.Lease(package.CacheKey);
                     string[] entries = runtime
