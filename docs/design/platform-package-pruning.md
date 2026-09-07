@@ -456,21 +456,34 @@ naming a shape or an identity may be stale.
 
 ## Gates
 
-Named here, unimplemented; each lands with the work it covers.
+Implemented gates live in
+`DotnetInspector.Services.Tests.PlatformPruneInventoryTests`; run them with
+`dotnet run --project src/DotnetInspector.Services.Tests -c Release`.
 
-| Property | Gate |
-| --- | --- |
-| Membership classification is exact for a known target | `Pruning_ClassifiesPlatformOnlyPackageOnlyAndOverlapping` |
-| Subsumption compares by NuGet semantic order, not string order | `Pruning_SubsumptionUsesSemanticVersionOrder` |
-| A version above the supplied version is not subsumed | `Pruning_LeapfroggingPackageIsNotSubsumed` |
-| Uncertainty resolves to not-subsumed | `Pruning_UnknownTargetIsNotSubsumed` |
-| The derivation binds to the committed target | `Pruning_DerivationDoesNotAdoptDiscoveredVersion` |
-| Selecting a subsumed package opens that package | `Pruning_SelectedPackageIsNotRedirectedToPlatform` |
-| Navigation inside a selected package stays in it | `Pruning_IntraAssemblyNavigationDoesNotDelegate` |
-| A subsumed edge delegates although the workspace holds the package | `Pruning_ContainedPackageDoesNotCaptureSubsumedEdge` |
-| Search advertises a subsumed name as both | `Pruning_SubsumedNameRemainsSelectableAsPackage` |
-| The derived supplied version matches an acquired pack | `Pruning_DerivedVersionMatchesAcquiredReferencePack` |
-| The projection is stable across patch releases | `Pruning_ProjectionIsStableAcrossPatchReleases` |
+| Property | Gate | State |
+| --- | --- | --- |
+| Membership classification is exact for a known target | `ClassifiesPlatformOnlyPackageOnlyAndOverlapping` | implemented |
+| A live entry derives its supplied version; a frozen entry stores it | `DerivesLiveSuppliedVersionAndStoresFrozenLiterals` | implemented |
+| Subsumption compares by NuGet semantic order, not string order | `SubsumptionUsesSemanticVersionOrder` | implemented |
+| A version above the supplied version is not subsumed | `LeapfroggingPackageIsNotSubsumed` | implemented |
+| Uncertainty resolves away from subsumed | `UncertaintyResolvesAwayFromSubsumed` | implemented |
+| The derivation binds to the committed target | `DerivationDoesNotAdoptDiscoveredVersion` | implemented |
+| A malformed override line fails rather than dropping an identity | `MalformedOverrideLineFails` | implemented |
+| Family composition decides the Platform/Extensions boundary | `FamilyCompositionDecidesThePlatformExtensionsBoundary` | implemented |
+| Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented |
+| The derived supplied version matches an acquired reference pack | `Pruning_DerivedVersionMatchesAcquiredReferencePack` | pending — projection slice |
+| The projection is stable across patch releases | `Pruning_ProjectionIsStableAcrossPatchReleases` | pending — projection slice |
+| Selecting a subsumed package opens that package | `Pruning_SelectedPackageIsNotRedirectedToPlatform` | pending — consumer slice |
+| Navigation inside a selected package stays in it | `Pruning_IntraAssemblyNavigationDoesNotDelegate` | pending — consumer slice |
+| A subsumed edge delegates although the workspace holds the package | `Pruning_ContainedPackageDoesNotCaptureSubsumedEdge` | pending — consumer slice |
+| Search advertises a subsumed name as both | `Pruning_SubsumedNameRemainsSelectableAsPackage` | pending — consumer slice |
+
+A pending gate names the slice that lands it. `Pruning_UnknownTargetIsNotSubsumed`
+was removed rather than left unimplemented: an inventory *is* its target, so an
+unknown target is not expressible against this API. The uncertainty cases that
+do exist — an identity absent from the inventory, and a request that cannot be
+compared — are covered by `UncertaintyResolvesAwayFromSubsumed`, and the
+cross-target case by `CompositionRefusesMismatchedTargets…`.
 
 ## Non-claims
 
