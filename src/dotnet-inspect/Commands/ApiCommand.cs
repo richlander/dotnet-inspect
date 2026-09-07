@@ -2724,7 +2724,8 @@ public class ApiCommand
                     typeBodyShapeDllPath,
                     options.PdbPath,
                     ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
-                    options);
+                    options,
+                    sourceAssembly);
             }
 
             // Type-scope analysis sections share one index build per type (built lazily, only
@@ -3671,7 +3672,8 @@ public class ApiCommand
                     typeBodyShapeDllPath,
                     renderOptions.PdbPath,
                     ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
-                    renderOptions);
+                    renderOptions,
+                    acquisition?.SourceAssembly);
             }
 
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
@@ -4138,6 +4140,7 @@ public class ApiCommand
                     type.IntroducedTypeParameterCounts,
                 Kind = type.Kind,
                 Layout = type.Layout,
+                LayoutDetails = type.LayoutDetails,
                 MemorySafety = type.MemorySafety,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -4345,6 +4348,7 @@ public class ApiCommand
                 type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             Layout = type.Layout,
+            LayoutDetails = type.LayoutDetails,
             MemorySafety = type.MemorySafety,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
