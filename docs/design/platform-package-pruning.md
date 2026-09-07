@@ -551,18 +551,33 @@ only when a project defines the workspace — `--project`, a
 package-rooted workspace has no current project, so every reference in it is
 transitive by NuGet's reckoning and the exemption never applies.
 
-For the project case the assets file is a stronger oracle than this owner's
-inventory, and it should be preferred where present. Restore already applied
-pruning and recorded both halves: the rules, as `PrunePackageReference` items
-in the `project` section, and the result, since a pruned id "will not appear in
-the assets file libraries or targets section". That is the exact answer for
-that project, at its exact framework and versions, with no derivation. This
-owner's inventory is what answers the same question when no project has
-already answered it.
+For the project case the assets file can be a stronger oracle than this
+owner's inventory, because restore already applied pruning and recorded both
+halves. Measured against SDK 11.0.100-preview.7, a `net10.0` project
+referencing `Azure.Identity` produces an
+`obj/project.assets.json` whose `project.frameworks.net10.0.packagesToPrune`
+holds 272 entries — the same count as `Microsoft.NETCore.App` 10.0
+`PackageOverrides` — and whose `libraries` and `targets` omit
+`System.Text.Json` entirely, despite `Azure.Core` depending on it. The built
+`deps.json` omits it too.
 
-Two consequences: a project-rooted workspace should read its own answer rather
-than recomputing one that could disagree with the build it is describing, and
-a disagreement between the two is a signal worth surfacing rather than
+**But an assets file is only an oracle when its producer pruned.** It is a
+post-resolution artifact, and whether pruning ran depends on the SDK that
+produced it and on `RestoreEnablePackagePruning`. A file from a pre-.NET 10
+SDK, or one restored with the property disabled, carries an unpruned graph and
+no rules. The presence of `packagesToPrune` is the signal that distinguishes
+the two; its absence means this owner's inventory must do the work rather than
+that nothing was subsumed.
+
+The recorded rules also use a different shape from the reference packs. Assets
+files carry NuGet version ranges with an inclusive upper bound —
+`Microsoft.CSharp: "(,4.7.32767]"` — where a pack carries
+`Microsoft.CSharp|4.7.0`. Both express the same inclusive ceiling, and a
+project-rooted reader must parse the range form rather than the pack form.
+
+Two consequences: a project-rooted workspace should prefer its own recorded
+answer over a recomputed one that could disagree with the build it describes,
+and a disagreement between the two is a signal worth surfacing rather than
 silently resolving.
 
 ### Open question: what a direct reference means for edges
