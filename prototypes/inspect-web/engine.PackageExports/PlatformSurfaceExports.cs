@@ -69,7 +69,8 @@ public static partial class PackageExports
         string targetFramework,
         string platformVersion,
         string assemblyFileName,
-        string pack)
+        string pack,
+        string assetFileName)
     {
         await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -77,7 +78,7 @@ public static partial class PackageExports
                 platformVersion,
                 assemblyFileName,
                 pack);
-        return ProjectPlatformSurface(resolution);
+        return ProjectPlatformSurface(resolution, assetFileName);
     }
 
     public static Task<string> LoadRuntimePackAssembly(
@@ -88,10 +89,12 @@ public static partial class PackageExports
             targetFramework,
             "",
             assemblyFileName,
-            pack);
+            pack,
+            assemblyFileName);
 
     internal static string ProjectPlatformSurface(
-        BrowserPlatformScopeResolution resolution)
+        BrowserPlatformScopeResolution resolution,
+        string? assetFileName = null)
     {
         ArgumentNullException.ThrowIfNull(resolution);
         WorkspaceContextMember participant = resolution.Participant;
@@ -113,7 +116,7 @@ public static partial class PackageExports
                         participant.Participant,
                         assembly,
                         assembly,
-                        $"{assembly}.dll"),
+                        assetFileName ?? $"{assembly}.dll"),
                 ],
                 qualifyTypeIds: true,
                 platformPack:

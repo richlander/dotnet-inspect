@@ -493,6 +493,7 @@ export interface PackageAcquisitionDependencies {
     platformVersion: string,
     assemblyFileName: string,
     pack: string,
+    assetFileName: string,
   ): Promise<string>;
   parseRuntimeSurface(json: string): InspectedPackageSurface;
   runtimePackage(): AppPackage | null;
@@ -530,6 +531,7 @@ export interface PackageAcquisition {
     pack: string,
     isCurrent?: () => boolean,
     platformVersion?: string,
+    assetFileName?: string,
   ): Promise<RuntimeAcquisitionResult>;
 }
 
@@ -655,6 +657,7 @@ export function createPackageAcquisition(
       pack,
       isCurrent = () => true,
       platformVersion = "",
+      assetFileName = assemblyFileName,
     ) {
       return enqueueRuntimeRequest(async () => {
         if (!isCurrent()) return { packageModel: null, error: null };
@@ -687,7 +690,8 @@ export function createPackageAcquisition(
               requestedFramework,
               requestedVersion,
               assemblyFileName,
-              pack || ""));
+              pack || "",
+              assetFileName));
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const existing = dependencies.runtimePackage();

@@ -429,6 +429,44 @@ test("runtime assembly acquisition projects the declared default, not the first"
     "lib/net10.0/Second.Assembly.dll");
 });
 
+test("runtime assembly acquisition preserves the catalog-issued physical filename", async () => {
+  let requestedAsset = "";
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async (
+      _framework,
+      _version,
+      _assembly,
+      _pack,
+      assetFileName,
+    ) => {
+      requestedAsset = assetFileName;
+      return JSON.stringify(packageSurface({
+        package: "Microsoft.NETCore.App",
+        activeFramework: "net10.0",
+        defaultAssemblyId: "mixed",
+        assemblies: [{
+          ...assembly("mixed", "Mixed"),
+          asset: "PhysicalName.dll",
+        }],
+        types: [],
+      }));
+    },
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "Mixed.dll",
+    "netcore.app",
+    undefined,
+    "",
+    "PhysicalName.dll");
+
+  assert.equal(result.error, null);
+  assert.equal(requestedAsset, "PhysicalName.dll");
+  assert.equal(result.packageModel?.assembly, "Mixed");
+  assert.equal(result.packageModel?.assemblyAsset, "PhysicalName.dll");
+});
+
 test("runtime models reject missing, empty, and whitespace selected assembly IDs", () => {
   for (const mode of ["missing", "empty", "whitespace"] as const) {
     assert.throws(

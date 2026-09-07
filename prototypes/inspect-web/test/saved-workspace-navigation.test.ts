@@ -55,16 +55,18 @@ assert.deepEqual(app.errors, []);
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
+  "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
-  "commitDemoNavigation", "cancelDemoNavigation",
+  "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
   "failWorkspaceCatalogAction", "afterCurrentNavigationFrame",
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "isRecord", "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
+  "openPlatformSubject",
   "canRestoreWorkbenchFocus", "isTextEntry",
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
@@ -171,7 +173,8 @@ function harness() {
   const state = {
     home: false, credits: false, packageQueryOpen: false,
     engineReady: true, loading: false, error: "",
-    workspaceSubjectOpen: true, atPackageRoot: true, packageLens: "overview",
+    workspaceSubjectOpen: true, atPackageRoot: true, atLibraryRoot: false,
+    packageLens: "overview",
     rootKind: "package" as "package" | "platform",
     platformSelection: null as {
       tfm: string;
@@ -423,6 +426,32 @@ function harness() {
       return controls.callGraph();
     },
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
+    platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
+      tab.kind === "group" && tab.source === ":Platform"
+        ? { tfm: tab.framework, version: tab.version }
+        : null,
+    ensurePlatformCatalog: async (tfm: string, version: string) => ({
+      tfm,
+      version,
+      isBundled: true,
+      runtimeIdentifier: "linux-x64",
+      catalog: [],
+    }),
+    installPlatformTarget: (target: { tfm: string; version: string }) => {
+      state.rootKind = "platform";
+      state.platformSelection = {
+        tfm: target.tfm,
+        version: target.version,
+        includeAllLibraries: false,
+        filter: "",
+      };
+      state.package = null;
+      state.home = false;
+      state.atPackageRoot = true;
+      state.atLibraryRoot = false;
+      state.workspaceSubjectOpen = false;
+    },
+    startPlatformTargetWork: () => {},
   };
   runInNewContext(stripTypeScriptTypes(hostDeclarations), context);
   return {
@@ -604,6 +633,38 @@ test("saved Open restores into an empty Workspace without a separate loader", as
   assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);
+});
+
+test("saved Platform Open commits its staged URL after Platform selection completes", async () => {
+  const h = harness();
+  h.controls.share = {
+    tabs: [{
+      id: "platform", kind: "group", source: ":Platform",
+      version: "11.0.6", framework: "net11.0", runtimeIdentifier: null,
+    }],
+    contexts: [{ id: "platform-context", tabIds: ["platform"] }],
+    activeTabId: "platform",
+    selectedContextId: "platform-context",
+    view: {
+      lens: null, type: null, memberAnchor: null, memberSignature: null,
+      section: null, libraries: [],
+    },
+  };
+  h.location.href = "https://inspect.test/demos";
+  h.open();
+  await h.settle();
+
+  const pushed = h.writes.filter(write => write.kind === "push");
+  assert.equal(pushed.length, 1);
+  assert.equal(h.location.pathname, "/");
+  assert.equal(h.location.searchParams.get("w"), packet);
+  assert.equal(h.location.hash, "#workspace");
+  assert.equal(h.state.rootKind, "platform");
+  assert.deepEqual(h.state.platformSelection, {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  });
+  assert.equal(h.context.pendingDemoNavigation, null);
 });
 
 function assertRetained(h: ReturnType<typeof harness>, href: string, entryState: unknown) {
@@ -1142,6 +1203,42 @@ test("Add at the 12-coordinate cap refuses visibly before querying or evicting",
   assert.equal(h.state.queryNoticeRetryAction, null);
   h.flushFocus();
   assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+});
+
+test("catalog-only Platform consumes one of the 12 Workspace coordinates", async () => {
+  const h = harness();
+  fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
+  h.state.platformSelection = {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  };
+  h.state.platformSlot = 0;
+  const previous = [...h.state.packages];
+
+  await h.add();
+
+  assert.deepEqual(h.queries, []);
+  assert.deepEqual(h.state.packages, previous);
+  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.equal(h.state.queryNoticeRetryAction, null);
+});
+
+test("opening Platform at the coordinate cap refuses before changing subject or loading a catalog", async () => {
+  const h = harness();
+  fillWorkspace(h);
+  const previous = [...h.state.packages];
+
+  await runInNewContext(
+    'openPlatformSubject("net11.0", "11.0.6")',
+    h.context,
+  );
+
+  assert.deepEqual(h.state.packages, previous);
+  assert.equal(h.state.rootKind, "package");
+  assert.equal(h.state.platformSelection, null);
+  assert.deepEqual(h.toasts, [
+    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+  ]);
 });
 
 test("Add whose last slot fills during query refuses before retention and preserves the independently admitted member", async () => {

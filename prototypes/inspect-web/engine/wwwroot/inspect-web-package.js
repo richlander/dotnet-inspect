@@ -106,9 +106,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "LoadRuntimePackAssembly.1579276339");
+        value = $ownDataProperty(value, "LoadRuntimePackAssembly.1330709314");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.LoadRuntimePackAssembly.1579276339\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.LoadRuntimePackAssembly.1330709314\u0027 is not callable.");
         }
     }
     {
@@ -271,8 +271,8 @@ export function listPackageQueryFacets() {
 export async function loadRuntimePack(targetFramework, platformVersion) {
     return await $requireManagedExports()["PackageExports"]["LoadRuntimePack.451505237"](targetFramework, platformVersion);
 }
-export async function loadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack) {
-    return await $requireManagedExports()["PackageExports"]["LoadRuntimePackAssembly.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+export async function loadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack, assetFileName) {
+    return await $requireManagedExports()["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
 }
 export function matchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson) {
     const $result = $requireManagedExports()["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, candidatesJson);

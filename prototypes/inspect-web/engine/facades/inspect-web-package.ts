@@ -375,7 +375,7 @@ type $ManagedExports = {
     readonly "ListGalleryDiscoveryCatalog.1310674786": () => string;
     readonly "ListPackageQueryFacets.1310674786": () => string;
     readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
-    readonly "LoadRuntimePackAssembly.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
+    readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
     readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
     readonly "PackageCacheStats.1310674786": () => string;
     readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
@@ -508,9 +508,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "LoadRuntimePackAssembly.1579276339");
+    value = $ownDataProperty(value, "LoadRuntimePackAssembly.1330709314");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027PackageExports.LoadRuntimePackAssembly.1579276339\u0027 is not callable.");
+      throw new Error("Managed export \u0027PackageExports.LoadRuntimePackAssembly.1330709314\u0027 is not callable.");
     }
   }
   {
@@ -694,8 +694,8 @@ export async function loadRuntimePack(targetFramework: string, platformVersion: 
   return await $requireManagedExports()["PackageExports"]["LoadRuntimePack.451505237"](targetFramework, platformVersion);
 }
 
-export async function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string> {
-  return await $requireManagedExports()["PackageExports"]["LoadRuntimePackAssembly.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+export async function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string> {
+  return await $requireManagedExports()["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
 }
 
 export function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch {

@@ -1754,6 +1754,16 @@ function cancelDemoNavigation(navigationSeq?: number): void {
   }
 }
 
+function commitRestoredWorkspaceNavigation(
+  navigationSeq: number,
+  failureHandler: ((message: string) => void) | null = null,
+) {
+  if (!failureHandler) return true;
+  if (!commitDemoNavigation(navigationSeq)) return false;
+  syncUrl();
+  return true;
+}
+
 type ParsedLocation = ParsedWorkspaceLocation;
 
 const initialWorkspace = workspaceLocation.preflightCurrent();
@@ -2566,6 +2576,7 @@ function selectWorkspacePackage(
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
   if (!packageModel) return;
+  navigationSequence.begin();
   activatePackage(packageModel, { resetAccessibility: true });
   state.home = false;
   state.typeFilter = "";
@@ -7378,6 +7389,12 @@ async function ensurePlatformCatalog(tfm: string, version?: string): Promise<Pla
 }
 
 function installPlatformTarget(target: PlatformCatalogTarget) {
+  if (!state.platformSelection
+    && workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES) {
+    throw new Error(
+      `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. `
+      + "Remove a package before opening Platform.");
+  }
   const previous = state.platformSelection;
   state.rootKind = "platform";
   state.platformSelection = {
@@ -7453,6 +7470,13 @@ async function openPlatformSubject(
   tfm = state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
   version = state.platformSelection?.version,
 ) {
+  if (!state.platformSelection
+    && workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES) {
+    showToast(
+      `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. `
+      + "Remove a package before opening Platform.");
+    return;
+  }
   const sequence = navigationSequence.begin();
   const request = ++platformCatalogSequence;
   spotlight.reset();
@@ -8157,7 +8181,8 @@ async function openPlatformLibrary(
     startPlatformTargetWork(target);
     const runtimeResult = await loadRuntimePackAssembly(
       target.tfm, platformAssemblyRequest(row), row.pack,
-      () => navigationSequence.isCurrent(navigationSeq), target.version);
+      () => navigationSequence.isCurrent(navigationSeq), target.version,
+      row.file);
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     const pkg = runtimeResult.packageModel;
     if (!pkg) throw new Error(runtimeResult.failureMessage || `Could not inspect ${row.assembly}.`);
@@ -8236,6 +8261,7 @@ async function pickSpotlightMember(
       || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!pkg || !type) { closeSpotlight(); return; }
+  navigationSequence.begin();
   const navigationGeneration = beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
   state.home = false;
@@ -8274,6 +8300,7 @@ async function pickSpotlight(
     closeSpotlight();
     return;
   }
+  navigationSequence.begin();
   const navigationGeneration = beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
   state.home = false;
@@ -8486,6 +8513,10 @@ BrowserWorkspaceShareState["tabs"] {
     });
   }
   return tabs.map((tab, index) => ({ ...tab, id: `t${index}` }));
+}
+
+function workspaceCoordinateCount() {
+  return resolvedWorkspaceShareTabs().length;
 }
 
 function capturedShareTabs() {
@@ -9518,7 +9549,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
   }
   const limitMessage =
     `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. Remove a package before adding another.`;
-  if (state.packages.length >= MAX_WORKSPACE_PACKAGES) {
+  if (workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES) {
     appendQueryNotice(limitMessage, null);
     render({ synchronizeUrl: false });
     afterCurrentNavigationFrame(() =>
@@ -9540,7 +9571,7 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
       framework: coordinate.framework,
       // Background acquisition can fill the last slot while this request waits.
       isCurrent: () => navigationSequence.isCurrent(navigationSeq)
-        && state.packages.length < MAX_WORKSPACE_PACKAGES,
+        && workspaceCoordinateCount() < MAX_WORKSPACE_PACKAGES,
     });
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!packageModel) throw new Error(limitMessage);
@@ -12630,11 +12661,13 @@ const packageAcquisition = createPackageAcquisition({
     platformVersion,
     assemblyFileName,
     pack,
+    assetFileName,
   ) => inspectLoadRuntimePackAssembly(
     framework,
     platformVersion,
     assemblyFileName,
-    pack),
+    pack,
+    assetFileName),
   parseRuntimeSurface: json => parseEngineJson<BrowserPackageSurface>(json),
   runtimePackage: runtimePackPackage,
   retainPackage: retainPackageModel,
@@ -12678,13 +12711,15 @@ async function loadRuntimePackAssembly(
   pack: string,
   isCurrent: () => boolean = () => true,
   platformVersion = "",
+  assetFileName = assemblyFileName,
 ): Promise<RuntimeLoadResult> {
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
     pack,
     isCurrent,
-    platformVersion);
+    platformVersion,
+    assetFileName);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -13072,6 +13107,8 @@ async function restoreWorkspaceFromLocation(
     render();
     startPlatformTargetWork(loadedPlatformTarget);
     await loadSelectionData();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!commitRestoredWorkspaceNavigation(navigationSeq, failureHandler)) return;
     if (focusResult) focusInspectionResult(navigationSeq);
     return;
   }
@@ -13127,10 +13164,7 @@ async function restoreWorkspaceFromLocation(
     render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    if (failureHandler) {
-      if (!commitDemoNavigation(navigationSeq)) return;
-      syncUrl();
-    }
+    if (!commitRestoredWorkspaceNavigation(navigationSeq, failureHandler)) return;
     if (focusResult) {
       focusInspectionResult(navigationSeq);
     }

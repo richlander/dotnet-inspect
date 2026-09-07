@@ -327,7 +327,7 @@ export declare function getPlatformVersions(targetFramework: string): Promise<Re
 export declare function listGalleryDiscoveryCatalog(): BrowserGalleryDiscoveryCatalog;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
-export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;

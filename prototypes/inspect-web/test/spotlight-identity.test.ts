@@ -2381,6 +2381,15 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
+    /function selectWorkspacePackage\([\s\S]*if \(!packageModel\) return;\s*navigationSequence\.begin\(\);/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*navigationSequence\.begin\(\);\s*const navigationGeneration = beginSpotlightNavigation\(\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*navigationSequence\.begin\(\);\s*const navigationGeneration = beginSpotlightNavigation\(\)/);
+  assert.match(
+    appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);
   assert.match(
     appSource,
@@ -3045,10 +3054,10 @@ test("home demos restore the complete parsed location", () => {
     /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);\s*state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.atLibraryRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
   assert.match(
     restoreWorkspace,
-    /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);\s*\}\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
+    /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler\)\) return;\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
   assert.match(
     restoreWorkspace,
-    /commitWorkspaceShareBasis\(loc\.shareState\);\s*state\.loading = false;\s*render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);/);
+    /if \(loadedPlatformTarget\)[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\);\s*state\.loading = false;\s*render\(\);\s*startPlatformTargetWork\(loadedPlatformTarget\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler\)\) return;/);
   assert.match(
     restoreWorkspace,
     /if \(!clearWorkspaceRouteFailure\(\)\) \{\s*if \(failureHandler\) \{\s*failureHandler\("The existing package route could not be cleared\."\);[\s\S]*if \(!loc\.package\) \{\s*failureHandler\?\.\(\s*"The resolved product demo did not identify a package\."\)/);
