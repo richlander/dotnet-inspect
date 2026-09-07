@@ -3,19 +3,17 @@ using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
 
-/// <summary>
-/// How a package identity relates to one exact platform target.
-/// </summary>
-public enum PlatformPruneClassification
+/// <summary>How precisely an inventory value describes its queried target.</summary>
+public enum PlatformPrunePrecision
 {
-    /// <summary>The target neither subsumes the identity nor ships a library of that name.</summary>
-    PackageOnly,
+    /// <summary>
+    /// The value came from a committed projection. It is comparable only when the projection's
+    /// source target is also the queried target.
+    /// </summary>
+    Projected,
 
-    /// <summary>The target subsumes the identity, whether or not it ships that assembly name.</summary>
-    Overlapping,
-
-    /// <summary>The target ships a library of that name and subsumes no package of it.</summary>
-    PlatformOnly,
+    /// <summary>The value came from the queried target's exact reference pack.</summary>
+    Exact,
 }
 
 /// <summary>
@@ -25,14 +23,14 @@ public enum PlatformSubsumption
 {
     /// <summary>
     /// No comparison was possible. Never treat this as <see cref="Subsumed"/>: the caller decides
-    /// what an absent, floating, or unparsable request means.
+    /// what an absent, floating, unparsable, or cross-target projected request means.
     /// </summary>
     NotComparable,
 
     /// <summary>The target supplies this version or a higher one.</summary>
     Subsumed,
 
-    /// <summary>The target does not supply this version. The package remains a distinct subject.</summary>
+    /// <summary>The target does not supply this package identity or version.</summary>
     NotSubsumed,
 }
 
@@ -40,29 +38,36 @@ public enum PlatformSubsumption
 /// One package identity a platform target subsumes, as published in a reference pack's
 /// <c>data/PackageOverrides.txt</c>.
 /// </summary>
-/// <param name="PackageId">The subsumed package identity.</param>
-/// <param name="Family">
-/// The shared framework that supplies it, such as <c>Microsoft.NETCore.App</c>. A target subsumes
-/// an identity only when it references that family, so the same package is Platform for one target
-/// composition and an ordinary package for another.
-/// </param>
-/// <param name="IsLive">
-/// Whether the entry's supplied version tracks the pack's own version. A live entry's package
-/// still ships in lockstep with the runtime and is bumped mechanically each patch release; a
-/// frozen entry names a legacy version that never moves.
-/// </param>
-/// <param name="FrozenVersion">
-/// The literal supplied version for a frozen entry. Null for a live entry, whose supplied version
-/// is derived from the owning inventory's target instead of stored.
-/// </param>
+/// <param name="PackageId">The package identity with a subsumption entry.</param>
+/// <param name="Family">The shared framework that published the entry.</param>
+/// <param name="SuppliedVersion">The literal supplied version published by the source pack.</param>
+/// <param name="TargetPackVersion">The pack version selected by the queried target.</param>
+/// <param name="SourcePackVersion">The exact pack version from which the entry was read.</param>
+/// <param name="Precision">Whether the entry came from a projection or the exact queried pack.</param>
 public sealed record PlatformPruneEntry(
     string PackageId,
     string Family,
-    bool IsLive,
-    NuGetVersion? FrozenVersion);
+    NuGetVersion SuppliedVersion,
+    NuGetVersion TargetPackVersion,
+    NuGetVersion SourcePackVersion,
+    PlatformPrunePrecision Precision);
 
-/// <summary>One shared framework a target references, and the exact pack version it was read from.</summary>
-public sealed record PlatformPruneFamily(string Name, NuGetVersion PackVersion);
+/// <summary>
+/// One shared framework in a queried target and the source inventory used to describe it.
+/// </summary>
+/// <param name="Name">The shared-framework family name.</param>
+/// <param name="TargetPackVersion">The pack version selected by the queried target.</param>
+/// <param name="SourcePackVersion">The pack version from which inventory values were read.</param>
+/// <param name="Precision">Whether those values are projected or exact.</param>
+public sealed record PlatformPruneFamily(
+    string Name,
+    NuGetVersion TargetPackVersion,
+    NuGetVersion SourcePackVersion,
+    PlatformPrunePrecision Precision)
+{
+    /// <summary>Whether this inventory source describes the queried family target exactly.</summary>
+    public bool DescribesTarget => TargetPackVersion == SourcePackVersion;
+}
 
 /// <summary>
 /// The package identities a platform target subsumes, and the comparison that decides whether a
@@ -70,31 +75,28 @@ public sealed record PlatformPruneFamily(string Name, NuGetVersion PackVersion);
 /// </summary>
 /// <remarks>
 /// <para>
-/// An inventory is read per shared framework and composed for a target. A console app references
-/// only <c>Microsoft.NETCore.App</c>; a web app also references <c>Microsoft.AspNetCore.App</c>
-/// and subsumes more. On <c>net10.0</c> a console app has no
-/// <c>Microsoft.Extensions.*</c> package pruned at all, while the same app on <c>net11.0</c> has
-/// nine, because those libraries moved into the base framework. Composition is therefore part of
-/// the question, not a detail.
+/// A console app normally composes only <c>Microsoft.NETCore.App</c>; a web app also composes
+/// <c>Microsoft.AspNetCore.App</c>. The resulting membership follows those actual framework
+/// families rather than a package-name prefix.
 /// </para>
 /// <para>
-/// An inventory carries the exact pack version each family was read from, so a derived supplied
-/// version can never adopt a version observed later by discovery. Selecting a different target
-/// requires reading that target's inventory.
+/// A selected target may temporarily use a projection from another patch. Its membership remains
+/// visible with the source coordinate, but a present entry is <see cref="PlatformSubsumption.NotComparable"/>
+/// until exact data for the selected target replaces it.
 /// </para>
 /// </remarks>
 public sealed class PlatformPruneInventory
 {
     readonly ImmutableDictionary<string, PlatformPruneEntry> entries;
-    readonly ImmutableDictionary<string, NuGetVersion> packVersions;
+    readonly ImmutableDictionary<string, PlatformPruneFamily> families;
 
     PlatformPruneInventory(
         string targetFramework,
-        ImmutableDictionary<string, NuGetVersion> packVersions,
+        ImmutableDictionary<string, PlatformPruneFamily> families,
         ImmutableDictionary<string, PlatformPruneEntry> entries)
     {
         TargetFramework = targetFramework;
-        this.packVersions = packVersions;
+        this.families = families;
         this.entries = entries;
     }
 
@@ -103,47 +105,74 @@ public sealed class PlatformPruneInventory
 
     /// <summary>The shared frameworks composed into this inventory, ordered by name.</summary>
     public IEnumerable<PlatformPruneFamily> Families =>
-        packVersions
-            .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(pair => new PlatformPruneFamily(pair.Key, pair.Value));
+        families.Values.OrderBy(family => family.Name, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The subsumed identities, ordered by package id.</summary>
+    /// <summary>The subsumption entries, ordered by package id.</summary>
     public IEnumerable<PlatformPruneEntry> Entries =>
         entries.Values.OrderBy(entry => entry.PackageId, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The entries whose supplied version tracks their family's pack version.</summary>
-    public IEnumerable<PlatformPruneEntry> LiveEntries => Entries.Where(entry => entry.IsLive);
-
     /// <summary>
-    /// The inventory of a workspace with no platform registered. Nothing is subsumed and every
-    /// identity classifies as package-only, so every package reference is followed as one. This
-    /// is a coherent configuration rather than a degraded one, and modelling it as an empty
-    /// inventory keeps consumers from having to special-case a missing platform.
+    /// The inventory of a workspace with no platform. No identity has an entry and nothing is
+    /// subsumed; package availability, traversal, and acquisition remain consumer decisions.
     /// </summary>
     public static PlatformPruneInventory None(string targetFramework)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
         return new PlatformPruneInventory(
             targetFramework,
-            ImmutableDictionary<string, NuGetVersion>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase),
-            ImmutableDictionary<string, PlatformPruneEntry>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase));
+            ImmutableDictionary<string, PlatformPruneFamily>.Empty.WithComparers(
+                StringComparer.OrdinalIgnoreCase),
+            ImmutableDictionary<string, PlatformPruneEntry>.Empty.WithComparers(
+                StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
-    /// Reads one shared framework's <c>data/PackageOverrides.txt</c>. Each non-empty line is
-    /// <c>PackageId|Version</c>; an entry whose version equals <paramref name="packVersion"/> is
-    /// live. A malformed line is a failure rather than a silently dropped identity, because a
-    /// dropped identity would turn an overlapping package into a package-only one.
+    /// Reads the exact <c>data/PackageOverrides.txt</c> from one selected shared-framework pack.
     /// </summary>
-    public static PlatformPruneInventory ForFamily(
+    public static PlatformPruneInventory FromExactFamily(
         string family,
         string targetFramework,
         NuGetVersion packVersion,
+        IEnumerable<string> lines) =>
+        FromFamily(
+            family,
+            targetFramework,
+            packVersion,
+            packVersion,
+            PlatformPrunePrecision.Exact,
+            lines);
+
+    /// <summary>
+    /// Applies a committed projection to one selected shared-framework pack. When
+    /// <paramref name="targetPackVersion"/> differs from <paramref name="sourcePackVersion"/>,
+    /// membership remains queryable but a present entry cannot produce <c>Subsumed</c>.
+    /// </summary>
+    public static PlatformPruneInventory FromProjectedFamily(
+        string family,
+        string targetFramework,
+        NuGetVersion targetPackVersion,
+        NuGetVersion sourcePackVersion,
+        IEnumerable<string> lines) =>
+        FromFamily(
+            family,
+            targetFramework,
+            targetPackVersion,
+            sourcePackVersion,
+            PlatformPrunePrecision.Projected,
+            lines);
+
+    static PlatformPruneInventory FromFamily(
+        string family,
+        string targetFramework,
+        NuGetVersion targetPackVersion,
+        NuGetVersion sourcePackVersion,
+        PlatformPrunePrecision precision,
         IEnumerable<string> lines)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(family);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
-        ArgumentNullException.ThrowIfNull(packVersion);
+        ArgumentNullException.ThrowIfNull(targetPackVersion);
+        ArgumentNullException.ThrowIfNull(sourcePackVersion);
         ArgumentNullException.ThrowIfNull(lines);
 
         var builder = ImmutableDictionary.CreateBuilder<string, PlatformPruneEntry>(
@@ -165,25 +194,32 @@ public sealed class PlatformPruneInventory
 
             var packageId = text[..separator].Trim().ToString();
             var versionText = text[(separator + 1)..].Trim().ToString();
-            if (!NuGetVersion.TryParse(versionText, out var supplied))
+            if (!NuGetVersion.TryParse(versionText, out var suppliedVersion))
             {
                 throw new FormatException(
-                    $"Malformed supplied version for '{packageId}' in {family} {targetFramework}: '{versionText}'.");
+                    $"Malformed supplied version for '{packageId}' in {family} "
+                    + $"{targetFramework}: '{versionText}'.");
             }
 
-            var isLive = supplied == packVersion;
             builder[packageId] = new PlatformPruneEntry(
                 packageId,
                 family,
-                isLive,
-                isLive ? null : supplied);
+                suppliedVersion,
+                targetPackVersion,
+                sourcePackVersion,
+                precision);
         }
 
+        var familyValue = new PlatformPruneFamily(
+            family,
+            targetPackVersion,
+            sourcePackVersion,
+            precision);
         return new PlatformPruneInventory(
             targetFramework,
             ImmutableDictionary.CreateRange(
                 StringComparer.OrdinalIgnoreCase,
-                [KeyValuePair.Create(family, packVersion)]),
+                [KeyValuePair.Create(family, familyValue)]),
             builder.ToImmutable());
     }
 
@@ -192,9 +228,8 @@ public sealed class PlatformPruneInventory
     /// because a composition across frameworks would describe no real target.
     /// </summary>
     /// <remarks>
-    /// The shipped families publish disjoint identities, so the conflict rule below is defensive.
-    /// When two families do supply one identity, the lower supplied version wins: that is the
-    /// direction that cannot over-claim, and over-claiming is the failure that matters.
+    /// Published families currently have disjoint identities. If two families publish one
+    /// identity, the lower literal supplied version wins because that cannot over-claim.
     /// </remarks>
     public static PlatformPruneInventory Compose(IEnumerable<PlatformPruneInventory> inventories)
     {
@@ -210,7 +245,10 @@ public sealed class PlatformPruneInventory
         var targetFramework = composed[0].TargetFramework;
         foreach (var inventory in composed)
         {
-            if (!string.Equals(inventory.TargetFramework, targetFramework, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(
+                    inventory.TargetFramework,
+                    targetFramework,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 throw new ArgumentException(
                     $"Cannot compose prune inventories across '{targetFramework}' and "
@@ -219,85 +257,69 @@ public sealed class PlatformPruneInventory
             }
         }
 
-        var packs = ImmutableDictionary.CreateBuilder<string, NuGetVersion>(StringComparer.OrdinalIgnoreCase);
-        var entries = ImmutableDictionary.CreateBuilder<string, PlatformPruneEntry>(StringComparer.OrdinalIgnoreCase);
+        var familyBuilder = ImmutableDictionary.CreateBuilder<string, PlatformPruneFamily>(
+            StringComparer.OrdinalIgnoreCase);
+        var entryBuilder = ImmutableDictionary.CreateBuilder<string, PlatformPruneEntry>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var inventory in composed)
         {
-            foreach (var (family, packVersion) in inventory.packVersions)
+            foreach (var family in inventory.families.Values)
             {
-                packs[family] = packVersion;
+                if (familyBuilder.TryGetValue(family.Name, out var existingFamily)
+                    && existingFamily != family)
+                {
+                    throw new ArgumentException(
+                        $"Family '{family.Name}' has conflicting target or source coordinates.",
+                        nameof(inventories));
+                }
+
+                familyBuilder[family.Name] = family;
             }
 
             foreach (var entry in inventory.entries.Values)
             {
-                if (!entries.TryGetValue(entry.PackageId, out var existing))
+                if (!entryBuilder.TryGetValue(entry.PackageId, out var existing)
+                    || entry.SuppliedVersion < existing.SuppliedVersion
+                    || (entry.SuppliedVersion == existing.SuppliedVersion
+                        && entry.Precision == PlatformPrunePrecision.Exact
+                        && existing.Precision == PlatformPrunePrecision.Projected))
                 {
-                    entries[entry.PackageId] = entry;
-                    continue;
-                }
-
-                var incoming = inventory.Supplied(entry);
-                var kept = composed.First(c => c.packVersions.ContainsKey(existing.Family)).Supplied(existing);
-                if (incoming < kept)
-                {
-                    entries[entry.PackageId] = entry;
+                    entryBuilder[entry.PackageId] = entry;
                 }
             }
         }
 
-        return new PlatformPruneInventory(targetFramework, packs.ToImmutable(), entries.ToImmutable());
+        return new PlatformPruneInventory(
+            targetFramework,
+            familyBuilder.ToImmutable(),
+            entryBuilder.ToImmutable());
     }
 
-    NuGetVersion Supplied(PlatformPruneEntry entry) =>
-        entry.IsLive ? packVersions[entry.Family] : entry.FrozenVersion!;
-
-    /// <summary>
-    /// Classifies a package identity against this target. <paramref name="hasPlatformLibrary"/>
-    /// comes from the target's library catalog, which this owner does not define.
-    /// </summary>
-    public PlatformPruneClassification Classify(string packageId, bool hasPlatformLibrary)
+    /// <summary>Whether the target inventory contains a subsumption entry for this identity.</summary>
+    public bool Contains(string packageId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        return entries.ContainsKey(packageId)
-            ? PlatformPruneClassification.Overlapping
-            : hasPlatformLibrary
-                ? PlatformPruneClassification.PlatformOnly
-                : PlatformPruneClassification.PackageOnly;
+        return entries.ContainsKey(packageId);
     }
 
     /// <summary>
-    /// The version this target supplies for a subsumed identity, and the family supplying it. A
-    /// live entry derives the version from its family's pack version; a frozen entry uses its
-    /// stored literal.
+    /// Gets the owner-issued entry, including its literal, source target, and precision.
     /// </summary>
-    public bool TryGetSuppliedVersion(
-        string packageId,
-        out NuGetVersion suppliedVersion,
-        out string family)
+    public bool TryGetEntry(string packageId, out PlatformPruneEntry entry)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        if (!entries.TryGetValue(packageId, out var entry))
-        {
-            suppliedVersion = null!;
-            family = string.Empty;
-            return false;
-        }
-
-        suppliedVersion = Supplied(entry);
-        family = entry.Family;
-        return true;
+        return entries.TryGetValue(packageId, out entry!);
     }
 
     /// <summary>
     /// Whether this target supplies <paramref name="requestedVersion"/> of
     /// <paramref name="packageId"/>. Every uncertainty resolves away from
-    /// <see cref="PlatformSubsumption.Subsumed"/>, because over-claiming would delegate a caller
-    /// to an older implementation and hide that a newer package exists.
+    /// <see cref="PlatformSubsumption.Subsumed"/>.
     /// </summary>
     public PlatformSubsumption Subsumes(string packageId, NuGetVersion? requestedVersion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        if (!entries.ContainsKey(packageId))
+        if (!entries.TryGetValue(packageId, out var entry))
         {
             return PlatformSubsumption.NotSubsumed;
         }
@@ -307,10 +329,14 @@ public sealed class PlatformPruneInventory
             return PlatformSubsumption.NotComparable;
         }
 
-        return TryGetSuppliedVersion(packageId, out var supplied, out _)
-            && requestedVersion <= supplied
-                ? PlatformSubsumption.Subsumed
-                : PlatformSubsumption.NotSubsumed;
+        if (!families[entry.Family].DescribesTarget)
+        {
+            return PlatformSubsumption.NotComparable;
+        }
+
+        return requestedVersion <= entry.SuppliedVersion
+            ? PlatformSubsumption.Subsumed
+            : PlatformSubsumption.NotSubsumed;
     }
 
     /// <summary>
@@ -318,10 +344,13 @@ public sealed class PlatformPruneInventory
     /// An absent or unparsable request is <see cref="PlatformSubsumption.NotComparable"/> rather
     /// than a comparison against a guessed version.
     /// </summary>
-    public PlatformSubsumption Subsumes(string packageId, string? requestedVersion) =>
-        NuGetVersion.TryParse(requestedVersion, out var parsed)
+    public PlatformSubsumption Subsumes(string packageId, string? requestedVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        return NuGetVersion.TryParse(requestedVersion, out var parsed)
             ? Subsumes(packageId, parsed)
             : entries.ContainsKey(packageId)
                 ? PlatformSubsumption.NotComparable
                 : PlatformSubsumption.NotSubsumed;
+    }
 }
