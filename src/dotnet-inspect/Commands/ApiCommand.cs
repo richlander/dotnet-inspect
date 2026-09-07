@@ -3457,7 +3457,24 @@ public class ApiCommand
             filteredType,
             options.IncludeSections,
             explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
-        if (!options.BodyKindQuery.HasFilter)
+        ApiType? bodyFilteredType = null;
+        if (options.BodyKindQuery.HasFilter)
+        {
+            bodyFilteredType = BuildFilteredTypeForBodyShapes(apiType, options);
+            var bodyEffective = memberPipeline.GetDiscoverableSections(
+                    bodyFilteredType,
+                    options.IncludeSections,
+                    explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true })
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var normallyEffective = effective.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            effective = memberPipeline.SelectableSectionNames
+                .Where(section => BodyKindQueryOptions.Sections.Contains(
+                        section, StringComparer.OrdinalIgnoreCase)
+                    ? bodyEffective.Contains(section)
+                    : normallyEffective.Contains(section))
+                .ToList();
+        }
+        else
         {
             effective = effective
                 .Where(section => !BodyKindQueryOptions.Sections.Contains(
@@ -3473,6 +3490,17 @@ public class ApiCommand
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
+        if (bodyFilteredType is not null)
+        {
+            var bodyRenderManifest = BuildTypeRenderManifest(
+                bodyFilteredType,
+                options,
+                discoveryRenderSections,
+                acquisition);
+            renderManifest.ReplaceSectionsFrom(
+                bodyRenderManifest,
+                BodyKindQueryOptions.Sections);
+        }
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();

@@ -241,6 +241,55 @@ public sealed class BodyShapeSummaryApiTests
     }
 
     [Theory]
+    [InlineData("type", SectionNames.BodyShapeSummary, "Count")]
+    [InlineData("type", SectionNames.BodyShapes, "Member")]
+    [InlineData("member", SectionNames.BodyShapeSummary, "Count")]
+    [InlineData("member", SectionNames.BodyShapes, "Member")]
+    public async Task EffectiveDiscovery_PreservesExplicitPrefixedMethodSelection(
+        string command,
+        string section,
+        string expectedColumn)
+    {
+        string member = nameof(BodyShapeFilterFixture.s_Create);
+        var target = command == "type"
+            ? new[]
+            {
+                command,
+                typeof(BodyShapeFilterFixture).FullName!,
+                "--member",
+                member,
+                "--library",
+                FixturePath
+            }
+            : [command, typeof(BodyShapeFilterFixture).FullName!,
+                $"{member}:1", "--library", FixturePath];
+        var result = await Run(
+            [.. target, "-D", section,
+                "--where", "Kind=ObjectCreationExpression"]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains($"| {expectedColumn} |", result.Output);
+        Assert.DoesNotContain("has no data", result.Error);
+        Assert.DoesNotContain("Error:", result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_KeepsPresentationFilteringForUnrelatedSections()
+    {
+        var result = await Run(
+            ["type", typeof(BodyShapeFilterFixture).FullName!,
+                "--library", FixturePath,
+                "--member", nameof(BodyShapeFilterFixture.s_Create),
+                "-D", $"{SectionNames.BodyShapeSummary},{SectionNames.Methods}",
+                "--where", "Kind=ObjectCreationExpression"]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("| Count |", result.Output);
+        Assert.Contains($"section '{SectionNames.Methods}' has no data", result.Error);
+        Assert.DoesNotContain("Error:", result.Error);
+    }
+
+    [Theory]
     [InlineData("type")]
     [InlineData("member")]
     public async Task BareEffectiveDiscovery_DoesNotRunOrAdvertiseEitherBodyViewWithoutKind(string command)
