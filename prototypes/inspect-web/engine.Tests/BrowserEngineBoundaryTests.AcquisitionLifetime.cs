@@ -32,7 +32,7 @@ public sealed partial class BrowserEngineBoundaryTests
         using var laterCancellation = new CancellationTokenSource();
         Task<BrowserPackage> Acquire(CancellationToken token) =>
             BrowserPackageWorkspace.AcquireAsync(
-                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                packageId, "1.0.0", source,
                 TimeSpan.FromSeconds(30), token, registration.Source);
 
         try
@@ -93,7 +93,7 @@ public sealed partial class BrowserEngineBoundaryTests
         using var cancellation = new CancellationTokenSource();
         Task<BrowserPackage> Acquire(CancellationToken token) =>
             BrowserPackageWorkspace.AcquireAsync(
-                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                packageId, "1.0.0", source,
                 TimeSpan.FromSeconds(30), token, registration.Source);
 
         try
@@ -143,7 +143,7 @@ public sealed partial class BrowserEngineBoundaryTests
         try
         {
             Task<BrowserPackage> waiting = BrowserPackageWorkspace.AcquireAsync(
-                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                packageId, "1.0.0", source,
                 TimeSpan.FromSeconds(30), cancellation.Token, registration.Source);
             await AcquisitionWithin(handler.PayloadReadStarted.Task);
             cancellation.Cancel();
@@ -224,7 +224,7 @@ public sealed partial class BrowserEngineBoundaryTests
                         await BrowserSourceOperationCoordinator.BeginAsync(
                             token, reason => bridge.RequestCancellation(id, reason));
                     await BrowserPackageWorkspace.AcquireAsync(
-                        packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                        packageId, "1.0.0", source,
                         TimeSpan.FromSeconds(30), lease.CancellationToken, epochWork: null);
                     return new BrowserManagedOperationBodyResult<bool, string, string>.Succeeded(true);
                 },
@@ -250,7 +250,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
             release.SetResult();
             BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
-                packageId, "1.0.0", source, PackageSourceIdentity.NuGetOrg,
+                packageId, "1.0.0", source,
                 TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken,
                 epochWork: null);
             Assert.Equal(packageId, package.PackageId, ignoreCase: true);

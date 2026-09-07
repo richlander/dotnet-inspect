@@ -6,9 +6,27 @@ import {
   engineWorkerText,
 } from "./engine-worker-contract.ts";
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
+import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
+registerEngineWorkerStartupOperations(operations, {
+  async buildIdentity() {
+    return (await import("/inspect-web-host.js")).buildIdentity();
+  },
+  async listVocabulary() {
+    return (await import("/inspect-web-catalog.js")).listVocabulary();
+  },
+  async listHomeDemos() {
+    return (await import("/inspect-web-catalog.js")).listHomeDemos();
+  },
+  async listPackageQueryFacets() {
+    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  },
+  async listGalleryDiscoveryCatalog() {
+    return (await import("/inspect-web-package.js")).listGalleryDiscoveryCatalog();
+  },
+});
 operations.register({
   kind: engineWorkerCanaryKind,
   allowance: { kind: "unbounded" },
