@@ -29,15 +29,18 @@ and their CLI/browser discovery remain staged under #5728 and #6012.
 The [website example](#aspire-prefix-discovery-website-mockup) is a mockup,
 not shipped behavior. Existing search and full Integration behavior is unchanged.
 
-[Approved lazy traversal](approved-lazy-traversal.md) records the approved
-target experience for compact namespace hints, core-package starting points,
-Integration-owned contract knowledge, and Platform as an ecosystem selecting
-source-owned discovery/acquisition bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
+[Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md) records the approved
+target experience for inert ecosystem registration, compact namespace hints,
+core-package starting points, Integration-owned contract knowledge, and
+Platform as an ecosystem selecting source-owned discovery/acquisition
+bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
 under #6028 is implemented by #6037: discovery and exact lookup expose inert
 namespace hints and core-package priorities, covered by the
 [retrieval-knowledge gates](#retrieval-knowledge-gates).
 Executable source contributions retain separate prerequisites under #6012
-and #5728; the new metadata does not advertise traversal availability.
+and #5728; the metadata does not establish Workspace registration or
+call-graph reachability.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -142,7 +145,8 @@ The exact claim is:
 > static contributions ship and supplies their data, product-demo sources, and
 > scanner implementations. Namespace hints and core-package priorities are
 > inert discovery knowledge, not type identity, package-set membership, source
-> availability, or traversal permission. Product-demo inventory, grouping, display metadata,
+> availability, Workspace registration, or call-graph reachability.
+> Product-demo inventory, grouping, display metadata,
 > and product order are application-catalog concerns; demo records, resolution,
 > section admission, run plans, and execution remain Workspace Definitions
 > concerns. The co-located Package Set Registry remains a separate owner, while
@@ -536,8 +540,8 @@ or browser-Core component references the application registry.
 
 ## Retrieval hints and core packages
 
-This is the focused catalog contract for #6028, implemented by #6037 within stage 2 of the
-[eight-stage lazy-traversal adoption plan](approved-lazy-traversal.md#ownership-and-adoption).
+This is the focused catalog contract for #6028, implemented by #6037 within the
+[Workspace-registration adoption plan](workspace-registration-and-call-graph-scope.md#ownership-and-adoption).
 The existing registry and ordinary non-friend consumer suites enforce the
 [retrieval-knowledge gates](#retrieval-knowledge-gates).
 
