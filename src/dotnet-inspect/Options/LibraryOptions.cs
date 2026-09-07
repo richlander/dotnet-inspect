@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Options;
 
@@ -80,6 +81,9 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string? Tfm { get; init; }
 
+    /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
+    public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
+
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
     /// </summary>
@@ -94,6 +98,9 @@ public record LibraryOptions : IProjectionOptions
     /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
     /// </summary>
     public string? HeapParameter { get; init; }
+
+    /// <summary>The metadata root selected for every <c>@Metadata</c> operation.</summary>
+    public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
 
     /// <summary>
     /// Path to a text file containing sparse MethodDef token + IL offset coordinates.

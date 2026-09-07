@@ -87,6 +87,13 @@ that every recommendation above has shipped.
 | Termless/type-filtered Gallery browse and download ordering | [Gallery discovery](nuget-gallery-discovery.md) is the design from #5922, not evidence of completed host adoption. | [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) retains its eight-milestone source, row, CLI, and browser sequence. This record does not restart or replace it. |
 | Catalog history/inventory | Referenced leaves already contribute metadata; the [package-set audits](package-set-registry.md#initial-registry) used the event Catalog as authoring evidence. | Bounded change queries and a maintained inventory are candidate capabilities, not product behavior established by those audits. Establish their scenario and cost before choosing a new runtime design. |
 
+Since that inventory, [#5947](https://github.com/richlander/dotnet-inspect/issues/5947)
+replaces the exact-version metadata service's guessed Registration leaf and
+Catalog fetch with [portable index/page lookup](#1-registration-api).
+The historical inventory above is not evidence that the old route remains
+active. Gallery version listing, browser suggestions, and Catalog enumeration
+are unchanged.
+
 Names-only Autocomplete adoption and Catalog enumeration are research
 directions here, not automatic replacements for current paths. Shared API
 selection does not mean one endpoint, one request, or one universal planner.
@@ -146,7 +153,250 @@ The linked records preserve the inputs, dates, procedures, and qualifications.
 They do not establish a general API speed ranking. In particular, the time to
 fetch a known Catalog leaf, scan a bounded interval, bootstrap an inventory,
 and query a warm derived index are four different measurements. First/last
-product-result comparisons for these alternatives remain **unmeasured**.
+comparisons for maintained Catalog inventory alternatives remain
+**unmeasured**. The bounded event-window experiment below measures a different,
+smaller question.
+The narrower exact-version service-return comparison below is measured; it
+does not measure Catalog enumeration, an inventory, or either host's UI.
+
+### Measured exact-version metadata
+
+The [preserved benchmark](../../tools/PackageMetadataBenchmark.cs) calls the
+production `PackageMetadataService.FetchAllMetadataAsync` sequentially for a
+fixed prefix of explicit package coordinates. `T_first` and `T_n` observe
+usable results at the **service caller**, not CLI output or browser paint.
+The operation still includes its ordinary Search, content-size, and
+VulnerabilityInfo enrichment; these are not isolated Registration HTTP timings.
+The required comparison projection is publication date, listing state, and
+exact-version deprecation availability/value. Projection hashes matched
+between routes and cache states for every completed batch.
+
+On 2026-09-05 UTC, an AMD Ryzen 9 9900X / Ubuntu 24.04 x64 host running the
+Release .NET 11.0.0-preview.7.26381.103 runtime compared:
+
+- baseline `f66c9b6ce1679e4a7efcabc54b1d1a837b5164d8`, with the guessed
+  leaf plus Catalog route;
+- the #5947 portable implementation, whose `PackageMetadataService.cs`
+  SHA-256 was
+  `9b75cc0044d6a55c5776b4728e1154e8d45dc17b5c56b8b2d4fb4539e745a3f9`.
+
+These samples predate the advertised-link corrections below. They
+characterize the index/page route; the corrected revision was not re-timed.
+
+The coordinates, in order, were `Microsoft.AspNetCore.App@2.2.8`,
+`Newtonsoft.Json@13.0.3`, and `Microsoft.Extensions.Logging@8.0.0`.
+They include an older deprecated version, inline registration, and a linked
+registration page. Each route ran three trials at `n=1` and `n=3`.
+All requested results arrived; the table shows medians in milliseconds.
+
+| Cache state | n | Before `T_first` | After `T_first` | Before `T_n` | After `T_n` |
+| --- | --- | --- | --- | --- | --- |
+| Cold client | 1 | 670.097 | 688.503 | 670.097 | 688.503 |
+| Cold client | 3 | 630.130 | 835.987 | 1389.072 | 1527.829 |
+| Warm metadata | 1 | 0.332 | 0.363 | 0.332 | 0.363 |
+| Warm metadata | 3 | 0.243 | 0.317 | 0.501 | 0.495 |
+| Warm transport, metadata refresh | 1 | 333.907 | 378.084 | 333.907 | 378.084 |
+| Warm transport, metadata refresh | 3 | 289.317 | 332.078 | 882.257 | 960.678 |
+
+For cold-client and refresh runs, request/body costs were identical across
+trials:
+
+| n | Before requests | After requests | Before decoded body bytes | After decoded body bytes |
+| --- | --- | --- | --- | --- |
+| 1 | 8 | 7 | 1,243,863 | 4,083,133 |
+| 3 | 24 | 22 | 3,287,550 | 7,124,049 |
+
+Warm metadata used zero requests and zero body bytes for both routes.
+The harness also emits last-result and terminal times; cold `n=3` terminal
+medians were 1389.085 ms before and 1527.842 ms after. It labels incomplete
+metadata rather than reporting an unattained `T_n`, and propagates unexpected
+exceptions as a failed process.
+
+**Decision:** adopt parent-link traversal for protocol compatibility, not as
+a latency optimization. These observations demonstrate why fewer requests do
+not imply faster first or last results: inlined history and page metadata
+carry more bytes than a known leaf. A nuget.org-specific shortcut would need a
+separate provider contract; it is not silently generalized to configured feeds.
+No new response cache or universal planner is introduced to conceal this cost.
+
+The portable run preceded the baseline run. Three samples on one host are
+descriptive, not a statistical speed ranking. "Cold" means a fresh private
+product cache and HTTP client per batch, not cold OS DNS, provider/CDN, or
+runtime state. Warm metadata repeats the batch; refresh then bypasses the
+metadata cache on the same client. Bytes count decoded response bodies
+actually consumed, not compressed wire bytes, headers, or unread probe bodies.
+Both runs used the same credential-free transport and synchronous diagnostic
+sink; timings include its overhead.
+
+Reproduce on each revision using the same benchmark file (copy it into a
+baseline worktree when that revision predates the harness):
+
+```bash
+dotnet run tools/PackageMetadataBenchmark.cs -c Release -- \
+  REVISION \
+  Microsoft.AspNetCore.App@2.2.8,Newtonsoft.Json@13.0.3,Microsoft.Extensions.Logging@8.0.0 \
+  1,3 3
+```
+
+The harness uses a private temporary cache, removes only that cache, and
+explicitly authorizes advisory acquisition. It does not clear the user's cache.
+Live timings are design evidence, not a CI performance threshold. The
+Registration contract below is enforced by hermetic Release cases.
+
+### Bounded Catalog change-window experiment
+
+[#6104](https://github.com/richlander/dotnet-inspect/issues/6104) preserves a
+research probe for "which package-version events were committed in this
+interval?" This section owns the experiment and its API-selection evidence,
+not a new product Catalog query, cursor store, or inventory architecture.
+The user approved this evidence-only step after #5980; the consumer is the
+file-based research harness. Its three steps are the bounded probe and
+offline cases, fixed-window measurements, and this decision record. Product
+adoption would need a separate shared implementation and CLI/browser tracker.
+
+The [probe](../../tools/CatalogChangeBenchmark.cs) uses an exclusive UTC start
+and inclusive UTC end, at most 24 hours apart. It discovers Catalog through
+the nuget.org service index, follows advertised pages in commit order, and
+selects events using commit time, not `published`. A page's index timestamp is
+its maximum, so the page crossing the upper boundary must also be inspected.
+The index must already advertise a horizon at or beyond the requested end.
+
+`events` requires ID, version, details/delete kind, commit ID/time, and leaf
+URL, all supplied by Catalog pages. `snapshots` additionally follows each
+selected leaf and binds its coordinate, kind, and commit back to the page
+event before returning nullable listing state and the leaf's `published`
+timestamp. These modes supply different evidence; their costs are not an
+equivalent-query speed competition. Missing optional `listed` remains unknown.
+A false value describes a snapshot, not proof that this event was caused by
+unlisting. `PackageDetails` does not distinguish push, relist, unlist,
+deprecation, reflow, or vulnerability updates.
+
+The result unit is an **event**, not a distinct coordinate or current package.
+Repeated coordinates remain separate events; a unique-coordinate count is
+supplemental. `T_first` and `T_n` observe typed rows at the **probe consumer**,
+immediately before JSONL serialization, not CLI publication or browser paint.
+Page order and then event commit order are chronological; ordinal URL is a
+deterministic within-page tie-breaker, not an ordering promised by the server.
+`result-limit` means the requested `n` arrived, not that the interval was
+exhausted or a commit was fully processed. `window-exhausted` means all pages
+that can cover the interval were processed. Fewer than `n` results leaves
+`T_n` unavailable, including on empty windows and failures.
+
+The probe imposes 128 fetched pages, 512 requests, 16 MiB per decoded body,
+64 MiB total decoded bodies, a 30-second HTTP timeout, and a two-minute
+operation deadline. These are research budgets, not NuGet limits. Exhaustion,
+HTTP/JSON failure, unsupported endpoint, or mismatched leaf ends visibly as
+`failed`, preserves partial counts/timings, and returns a nonzero exit code.
+Only HTTPS `api.nuget.org` endpoints are supported; credential-free,
+no-redirect transport and duplicate-rejecting `HardenedJson` are used. This is
+not a configured-feed implementation. Typed rows and summaries lower directly
+through source-generated JSON serialization; machine-readable measurement
+data does not use the product's multi-format Markout rendering.
+
+The offline `--self-test` mode exercises 12 outcome-level boundary/failure
+cases in Release, including both time bounds, a crossing page, upper-bound
+commit ties, repeated coordinates, result limits, empty results, unlisted
+and deleted snapshots, unobserved horizons, partial acquisition failure,
+page/request/body budgets, leaf identity, and malformed JSON. CI runs that
+mode; live timings are evidence, not a CI performance threshold. The offline
+command took 0.83 seconds with the already built probe on the measured host.
+
+The analogous [NuGet sample][catalog-sample] collects all matching page
+entries before globally sorting and processing them, then persists a cursor.
+It supports the page-only evidence tier but does not measure first-result
+latency or impose a fixed upper horizon. This probe deliberately processes
+ordered pages incrementally and persists no cursor. No sample code or new
+runtime dependency was copied.
+
+#### Fixed-window observations
+
+On 2026-09-06 at 05:28 UTC, the same Ryzen 9 9900X / Ubuntu 24.04.4 x64 host
+and Release .NET 11 preview 7 runtime used above measured
+`(2026-09-04T00:00:00Z, 2026-09-05T00:00:00Z]`. The measured probe's SHA-256 is
+`82915728af3486848727eb89612894ecc9c6edcd147f563fdff11dbeef25eb71`.
+[All 14 raw summaries](../evidence/catalog-change-window-2026-09-04.jsonl)
+preserve per-stage requests, consumed decoded body bytes, acquisition/parse
+time, observed Catalog horizon, completion scope, and projection hashes.
+
+Each mode ran three trials selecting the first 100 events. Each trial starts
+with a fresh client, then repeats using that same connection pool. Neither run
+uses an application response cache; "cold" does not mean cold OS DNS, CDN, or
+runtime. Modes ran sequentially, events before snapshots, not interleaved.
+These are descriptive samples, not a causal or statistical API speed ranking.
+The table shows medians in milliseconds; requests and bytes were identical
+across repeated runs of each mode.
+
+| Required row | Client state | `T_first` | `T_100` | `T_terminal` | Requests | Decoded bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Page event | Cold client | 1004.305 | 1016.636 | 1016.985 | 3 | 5,310,949 |
+| Page event | Warm connection | 530.830 | 531.031 | 531.050 | 3 | 5,310,949 |
+| Enriched snapshot | Cold client | 1058.417 | 3037.618 | 3037.666 | 103 | 6,286,396 |
+| Enriched snapshot | Warm connection | 512.661 | 2273.307 | 2273.331 | 103 | 6,286,396 |
+
+All 100-event runs ended `result-limit`, not `window-exhausted`. The common
+ID/version/kind/commit/leaf projection selected by both modes matched; each
+mode's full projection hash also matched across its six runs. The first 100
+events were details snapshots and all enriched listing flags were true.
+There is no live unlisting observation in that sample; the offline case
+establishes how a false listing flag is reported without inferring a cause.
+
+The service index cost 9,272 decoded bytes, the Catalog index 4,417,893,
+and the first selected page 883,784. The enriched mode added 100 leaf requests
+and 975,447 bytes. The first page had 2,749 entries: no 550-item assumption
+from old example documentation is built into the probe. Body counts exclude
+compression, headers, and transport framing. The typed-row callback includes
+earlier rows' JSONL output overhead; terminal accounting precedes summary
+serialization.
+
+A separate one-trial page-only census requested up to 100,000 events and
+exhausted the window after **17,801 events / 17,572 distinct coordinates**:
+17,782 details and **19 deletions**. It examined 19,215 page entries in seven
+pages, plus the service and Catalog indexes: **9 requests and 10,450,308
+decoded bytes**, with no leaf fetches. The cold/warm-connection observations
+were `T_first` 900.361/893.856 ms, last-result 1517.960/1324.697 ms, and terminal
+1518.486/1324.823 ms. `T_100000` was unattained, not relabeled as the last
+returned event. Both census projections matched. This is one pair of
+observations, not a median or a full-history inventory benchmark.
+
+The first event was `AutoSDK.CLI@0.34.7-dev.7` at
+`2026-09-04T00:00:35.2351445Z`. A neighboring kind was the deletion of
+`Esri.ArcGISRuntime.WinUI@200.8.3` at `2026-09-04T05:58:35.9359475Z`.
+Neither event establishes current availability or the state of versions that
+had no event in this interval. For a concrete counterexample,
+`Newtonsoft.Json@13.0.3` had no census event, while a separate Flat Container
+manifest HEAD request returned HTTP 200. That availability observation is
+outside the timed experiment and is not inferred from Catalog absence.
+There is no baseline ingestion, persisted
+cursor, incremental refresh, or warm derived-index measurement here.
+
+**Decision:** Catalog merits a focused bounded-change-query capability
+proposal. Page-only discovery can answer an event-history question at modest
+observed request cost; leaf enrichment should be requested only for fields
+that need it. In these samples, the 4.4 MB global index is a material initial
+cost, while per-event enrichment increases the request count and `T_100`.
+Search remains appropriate for ranked current-package discovery and cannot
+answer the same historical/deletion question. This evidence does not justify
+replacing Search, implementing an inventory service, or claiming CLI/browser
+latency. A later proposal must settle result and completion semantics and
+track both host adopters before adding product code.
+
+Reproduce, with JSONL output redirected to a file when measuring:
+
+```bash
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  events 2026-09-04T00:00:00Z 2026-09-05T00:00:00Z 100 3
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  snapshots 2026-09-04T00:00:00Z 2026-09-05T00:00:00Z 100 3
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  events 2026-09-04T00:00:00Z 2026-09-05T00:00:00Z 100000 1
+```
+
+The historical interval is fixed; the live service/Catalog indexes, their
+byte sizes, and transport timings will change on later reproduction. No local
+or shared package cache is cleared. The fixed horizon excludes later events
+but is not a claim that the source has ingested every upstream operation by
+wall-clock time.
 
 ### Next comparisons, not presumed winners
 
@@ -165,8 +415,9 @@ Use the smallest experiment that can change a scenario decision:
   Container plus Registration for the same listed/stable/SemVer population.
   Include unlisted and SemVer 2 versions; a smaller response that omits required
   versions is not a faster answer to the same question.
-- **Catalog discovery:** separately measure a bounded recent-change request,
-  initial inventory construction, and resumed cursor consumption. Pin the
+- **Catalog discovery:** extend the bounded-window evidence across additional
+  windows and budgets. Separately measure initial inventory construction and
+  resumed cursor consumption if those scenarios are proposed. Pin the
   baseline/horizon and distinguish event rows from distinct current packages.
   Include a package with no event in the recent interval so the experiment
   cannot accidentally equate "recently changed" with "all current packages."
@@ -286,14 +537,71 @@ The **standalone Registration leaf** is a different shape: it can contain
 `published`, `listed`, `packageContent`, `registration`, and a `catalogEntry`
 **URL**, without the full metadata embedded in a page item. Following that URL
 is an additional request, not a guarantee of one-request deprecation lookup.
-The current metadata service also accepts an embedded Catalog object from feeds.
+The metadata service uses embedded page entries rather than this standalone
+leaf response.
 
 The public contract discovers page and leaf URLs through parent links.
-`PackageMetadataService` currently constructs
-`{registration-base}/{id-lower}/{version-lower}.json`, the familiar nuget.org
-leaf pattern. That is an implementation convention, not a portable V3 URL
-guarantee; [#5947](https://github.com/richlander/dotnet-inspect/issues/5947)
-tracks parent-link discovery separately from this documentation.
+The familiar `{registration-base}/{id-lower}/{version-lower}.json` leaf pattern
+is an implementation convention, not a portable V3 URL guarantee.
+
+#### Exact-version acquisition contract
+
+This section owns the focused acquisition claim for
+[#5947](https://github.com/richlander/dotnet-inspect/issues/5947):
+`PackageMetadataService` obtains the requested coordinate's metadata through
+the advertised Registration hierarchy, without assuming page or leaf URL
+spelling or adopting another coordinate's facts.
+
+Start at the per-ID index, compare inclusive page bounds using NuGet version
+precedence, and consume only matching pages. Use an inline `items` array when
+present; otherwise follow that page's `@id`, resolved against the index
+without normalizing its advertised path/query escaping. HTTP page requests
+omit fragments and use `/` for an empty path; escaped delimiters and an
+explicit empty query remain unchanged. The existing source-owned endpoint
+normalizer supplies this projection, not a Registration-specific URL grammar.
+The selected page's required embedded `catalogEntry` supplies the package
+ID/version and optional metadata. No standalone leaf or separate Catalog
+request is needed. Required identity and structure are checked before the
+entry becomes a metadata result.
+
+A valid traversal with no requested version is absence. A malformed index,
+invalid bounds or identity, failed advertised page (including a 404), or an
+exceeded page bound is indeterminate, not absence. The existing source loop
+may try an equivalent advertised endpoint; it does not borrow a lower
+source's facts after an indeterminate higher source. A page response must
+contain leaves, not another link to recursively traverse.
+A page link rejected by the preserving HTTP transport's URI validation or
+the source-owned endpoint normalizer is also indeterminate. Embedded user
+information is not accepted in page links; credentials continue to come
+from the configured source under existing origin scoping.
+
+The index admits at most 128 page descriptors. Existing bounded HTTP reads,
+request deadlines, credential-origin scoping, and failure disclosure also
+apply to linked pages. Only candidate pages are fetched, never an unrelated
+version history by default. This cannot reduce an inlined index's transfer
+size; the provider chose that response shape.
+
+The `v7-full-` operation cache key excludes observations made by the old
+guessed-leaf route, including false absence on a conforming feed. The metadata
+serialization, source scoping, one-hour TTL, and complete-result publication
+rules are unchanged and remain with their owners.
+
+This is a replacement algorithm behind existing `PackageInspector` and
+`AuditSignalBuilder` consumers, not a new public service, source capability,
+command, or host path. The shared service result shape is unchanged; existing
+browser source operations and rendering are not migrated by this fix.
+The old standalone-leaf acquisition path is retired in the same change.
+
+The conventional comparison is NuGet.Client's
+[`RegistrationResourceV3.GetPackageMetadata`](https://github.com/NuGet/NuGet.Client/blob/5fe0c128b2d58335a60161c5141064be42dd8a6b/src/NuGet.Core/NuGet.Protocol/Resources/RegistrationResourceV3.cs):
+its exact-identity overload requests an exact version range and consumes
+inline Catalog metadata. That behavior supports the choice; the public
+Registration contract is the authority. No code was transferred.
+
+`PackageMetadataServiceTests` is the enforcing Release gate for inline and
+non-pattern linked pages, exact older-version deprecation, normalized version
+selection, credential isolation, absence versus failure, and cache behavior.
+The live benchmark above characterizes cost, not portability or correctness.
 
 **Notes:**
 
@@ -553,7 +861,8 @@ all versions are deprecated.
 4. If using a standalone leaf that references Catalog, fetch that entry for
    its version-specific metadata
 
-The current service's direct-leaf access convention is documented above.
+The current service uses the index/page route; the standalone-leaf option
+describes the protocol, not an additional current service path.
 Source/version association and metadata-availability state remain important:
 a missing optional field or failed fetch is not permission to use another
 version's answer.
@@ -623,4 +932,5 @@ This is the authoritative source for .NET runtime/SDK CVEs but requires navigati
 [vulnerability-info]: https://learn.microsoft.com/en-us/nuget/api/vulnerability-info
 [package-content]: https://learn.microsoft.com/en-us/nuget/api/package-base-address-resource
 [catalog]: https://learn.microsoft.com/en-us/nuget/api/catalog-resource
+[catalog-sample]: https://github.com/NuGet/Samples/blob/ec30a2b7c54c2d09e5a476444a2c7a8f2f289d49/CatalogReaderExample/CatalogReaderExample/Program.cs
 [autocomplete]: https://learn.microsoft.com/en-us/nuget/api/search-autocomplete-service-resource

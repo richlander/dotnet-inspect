@@ -55,6 +55,7 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryIlOffsetSemanticContexts_RenderPointFacts()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.AllSignals))!;
@@ -79,6 +80,7 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryIlOffsetAllocationContext_RendersEstimatedSize()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.ConstArray))!;
@@ -170,6 +172,7 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryIlOffsetSafetyContext_FlagsUnsafeCall()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.UnsafeAs))!;
@@ -225,6 +228,7 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryIlOffsetSafetyContext_DoesNotFlagSafeSpanOfUnsafeNamedType()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.SafeSpanOfUnsafeNamedType))!;

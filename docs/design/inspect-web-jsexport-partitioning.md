@@ -2,8 +2,10 @@
 
 Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
-The [page-facing engine client](#page-facing-engine-client) is **design-only,
-not implemented**, preparing the single-runtime Worker cutover for
+The [page-facing engine client](#page-facing-engine-client) is **partially
+implemented**: startup reads, home-demo resolution, and dependency-coordinate
+matching have Promise-valued main-thread bindings.
+The single-runtime Worker cutover remains unimplemented, tracked by
 [#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
 consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
 
@@ -567,6 +569,50 @@ survives an awaited engine call; its navigation owner retains that interaction
 constraint.
 
 ### Adoption and evidence
+
+The first caller-adoption slice uses
+[`engine-client.ts`](../../prototypes/inspect-web/src/engine-client.ts) for
+Promise-valued build identity, vocabulary, home demo, Package Query facet, and
+Gallery discovery reads. Its three facade groups retain generated types;
+`engine-facades.ts` still owns the existing single page runtime and readiness.
+The application awaits each read in its existing startup error boundary:
+build identity remains fatal, vocabulary and home demo failures remain
+independent, and the two Package Query catalogs retain their shared failure
+path. This is asynchronous caller preparation, not Worker execution or a
+responsiveness claim.
+
+`test/engine-client.test.ts` exercises deferred invocation, exact result and
+failure forwarding, and independent neighboring reads;
+`test/engine-facades.test.ts` retains the existing readiness/one-runtime
+composition evidence. Both use the existing inspect-web Node test runner, and
+the TypeScript gate checks the application's awaited DTO use.
+Home-demo resolution also uses the catalog group. Its caller establishes the
+existing navigation sequence before awaiting resolution, then carries that
+sequence into workspace restoration or call-graph execution. A superseded
+resolution cannot publish success or failure over newer navigation.
+Source location, retry policy, and focus remain with the existing transactional
+navigation path. `test/saved-workspace-navigation.test.ts` exercises that
+production caller with delayed success/failure, a newer saved-workspace open,
+and the call-graph handoff. Other computed callers, mutable/control calls,
+and Worker activation remain outstanding.
+
+Dependency-coordinate matching uses the package group without moving NuGet
+selection into JavaScript. Dependency lists await results before enabling
+open/load actions; graph construction awaits the same matcher before Mermaid
+lowering; dependency navigation establishes its existing sequence before
+matching or acquiring a package. List publication is tied to its current
+container, framework selection, and coordinate snapshot. Graph requests use
+their existing sequence from before matching and deduplicate the captured
+input while pending, so duplicate render requests cannot cancel their own
+in-flight diagram. Failure remains visible, including when an older graph is
+retained during replacement. These are page-owned consumer mechanics, not a
+new managed operation or persistent match cache.
+`test/dependency-matching.test.ts` executes the production functions with
+delayed results, replacement views, generated match outcomes, and failures;
+it also covers awaited caller edges and the existing graph node bound.
+The existing dependency-graph browser harness covers the async builder's
+viewer integration. Its fixture remains a browser rendering gate, not evidence
+of Worker execution.
 
 The user-approved
 [five-milestone plan](https://github.com/richlander/dotnet-inspect/issues/5420#issuecomment-5549528380)

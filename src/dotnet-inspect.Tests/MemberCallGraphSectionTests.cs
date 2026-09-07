@@ -375,6 +375,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_LowersToAnEdgeTable_UnderTabularOutput()
     {
         // The section is a graph, not a fixed rendering: Markdown and TSV both lower the same
@@ -402,6 +403,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_CountsEdgeRowsAcrossRenderModes()
     {
         var baseOptions = new MemberOptions
@@ -456,6 +458,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_MultiSectionCountMapKeepsEdgeCardinality()
     {
         var baseOptions = new MemberOptions
@@ -525,6 +528,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_AbsoluteWindowSelectsTheSameEdgeAcrossLowerings()
     {
         var baseOptions = new MemberOptions
@@ -569,6 +573,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_StandaloneTreeWritesOnlyTheTree()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -632,6 +637,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_PrettyTableTsvAndJsonlUseTheSameRows()
     {
         var baseOptions = new MemberOptions
@@ -707,6 +713,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_EmptyMarkdownWindowRendersTableHeadersWithoutFocusRow()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -729,6 +736,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_EmptyTreeWindowRendersEmptyStateWithoutFocusRow()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -762,6 +770,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_DoesNotDefaultCuesForAnotherSectionsField()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -785,6 +794,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ColumnsDoNotProjectGraphFields()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -830,6 +840,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ProjectsExceptionSignals()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -856,6 +867,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_EvidenceILRetainsAllocationOffsetsWithoutAllocField()
     {
         var result = await ConsoleCapture.RunAsync(() =>
@@ -879,6 +891,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ProjectsAsyncAlternativeOpportunities()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -899,6 +912,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_DoesNotProjectAsyncAlternativesByDefault()
     {
         var result = await RunCallGraphAsync(
@@ -910,6 +924,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ProjectsAsyncAlternativesInJsonl()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -934,6 +949,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ResolvesAsyncAlternativeFieldWildcard()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -953,6 +969,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ResolvesAllWildcardSignalFields()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -973,6 +990,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ProjectsAsyncAlternativesAcrossAssemblies()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -996,6 +1014,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -1103,6 +1122,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task CallGraphSection_ResolvesPropertyGetterAccessor()
     {
         // A property has no body of its own; the default accessor ordinal addresses the

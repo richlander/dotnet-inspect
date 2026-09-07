@@ -12,6 +12,9 @@ type $ManagedExports = {
     readonly "AsyncLoweringCanary.1684317047": () => Promise<string>;
     readonly "BuildIdentity.1310674786": () => string;
     readonly "ConfigureHost.92020726": (origin: string) => void;
+    readonly "DrainEpochWorkReporter.1731052262": () => Promise<void>;
+    readonly "RegisterEpochWorkReporter.1170383003": (allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined) => void;
+    readonly "UnregisterEpochWorkReporter.19325221": () => void;
   };
 };
 
@@ -81,6 +84,30 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
       throw new Error("Managed export \u0027InspectionEngine.ConfigureHost.92020726\u0027 is not callable.");
     }
   }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "DrainEpochWorkReporter.1731052262");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.DrainEpochWorkReporter.1731052262\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "RegisterEpochWorkReporter.1170383003");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.RegisterEpochWorkReporter.1170383003\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "UnregisterEpochWorkReporter.19325221");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.UnregisterEpochWorkReporter.19325221\u0027 is not callable.");
+    }
+  }
 }
 
 async function $initializeRuntimeCore(
@@ -130,5 +157,17 @@ export function buildIdentity(): BrowserBuildIdentity {
 
 export function configureHost(origin: string): void {
   return $requireManagedExports()["InspectionEngine"]["ConfigureHost.92020726"](origin);
+}
+
+export async function drainEpochWorkReporter(): Promise<void> {
+  return await $requireManagedExports()["InspectionEngine"]["DrainEpochWorkReporter.1731052262"]();
+}
+
+export function registerEpochWorkReporter(allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined): void {
+  return $requireManagedExports()["InspectionEngine"]["RegisterEpochWorkReporter.1170383003"](allowance, started, finished);
+}
+
+export function unregisterEpochWorkReporter(): void {
+  return $requireManagedExports()["InspectionEngine"]["UnregisterEpochWorkReporter.19325221"]();
 }
 

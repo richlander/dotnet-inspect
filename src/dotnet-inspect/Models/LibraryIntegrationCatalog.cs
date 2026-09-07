@@ -1,3 +1,4 @@
+using DotnetInspector.Ecosystems;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Models;
@@ -14,6 +15,8 @@ internal sealed record LibraryIntegrationDescriptor(
     Func<LibraryInspection, bool> HasPresence,
     bool IncludeTypesWhenApisPresent)
 {
+    public EcosystemPackId? Ecosystem { get; init; }
+
     public string Name => Concept.DisplayLabel;
 
     // User-facing section name/selector for this integration (e.g. "Integration: AI").
@@ -23,6 +26,8 @@ internal sealed record LibraryIntegrationDescriptor(
 
     public bool CanRender(LibraryInspection inspection)
     {
+        if (!inspection.IntegrationQuery.Matches(Concept))
+            return false;
         var failed = Source switch
         {
             LibraryIntegrationSource.Ecosystem =>
@@ -41,7 +46,7 @@ internal sealed record LibraryIntegrationDescriptor(
             LibraryIntegrationSource.Ecosystem =>
                 inspection.EcosystemIntegrationInspection
                     .PayloadsForRendering()
-                    .Any(signal => signal.Integration.Equals(Name, StringComparison.Ordinal)),
+                    .Any(signal => ReferenceEquals(signal.GetConcept(), Concept)),
             LibraryIntegrationSource.OpenTelemetry =>
                 inspection.OpenTelemetryInspection.PayloadsForRendering().Any(),
             _ => throw new InvalidOperationException($"Unknown integration source: {Source}."),
@@ -49,13 +54,13 @@ internal sealed record LibraryIntegrationDescriptor(
 
     public List<(string Kind, string Name, string Shape)> GetSignals(
         LibraryInspection inspection)
-        => Source switch
+        => !inspection.IntegrationQuery.Matches(Concept) ? [] : Source switch
         {
             LibraryIntegrationSource.Ecosystem =>
             [
                 .. inspection.EcosystemIntegrationInspection
                     .PayloadsForRendering()
-                    .Where(signal => signal.Integration.Equals(Name, StringComparison.Ordinal))
+                    .Where(signal => ReferenceEquals(signal.GetConcept(), Concept))
                     .Select(static signal => (signal.Kind, signal.Name, signal.Shape)),
             ],
             LibraryIntegrationSource.OpenTelemetry =>
@@ -107,7 +112,10 @@ internal static class LibraryIntegrationCatalog
         IntegrationConceptCatalog.Aspire,
         LibraryIntegrationSource.Ecosystem,
         inspection => inspection.HasAspireSupport,
-        IncludeTypesWhenApisPresent: true);
+        IncludeTypesWhenApisPresent: true)
+    {
+        Ecosystem = EcosystemPackIds.Aspire,
+    };
 
     public static readonly LibraryIntegrationDescriptor DependencyInjection = new(
         IntegrationConceptCatalog.DependencyInjection,

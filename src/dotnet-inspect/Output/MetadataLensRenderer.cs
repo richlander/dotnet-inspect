@@ -89,7 +89,10 @@ internal static class MetadataLensRenderer
         {
             output.WriteLine($"## {MetadataSectionNames.Image}");
             output.WriteLine();
-            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns);
+            if (inspection.MetadataRoot is { } root)
+                MetadataProjectionRenderer.RenderImageFacts(overview, root, output, columns);
+            else
+                MetadataProjectionRenderer.RenderImageFacts(overview, output, columns);
             WriteCaveats(output, MetadataProjectionRenderer.Caveats(overview));
             first = false;
         }
@@ -185,7 +188,12 @@ internal static class MetadataLensRenderer
             // The same fact rows the Markdown path renders, deliberately not the standalone
             // report's three-part shape: one section must mean one set of rows in every format, or
             // --count and --rows would report different sizes for the same selection.
-            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns, format);
+            if (inspection.MetadataRoot is { } root)
+                MetadataProjectionRenderer.RenderImageFacts(
+                    overview, root, output, columns, format);
+            else
+                MetadataProjectionRenderer.RenderImageFacts(
+                    overview, output, columns, format);
             foreach (string caveat in MetadataProjectionRenderer.Caveats(overview))
                 caveats.WriteLine(caveat);
         }
@@ -239,7 +247,14 @@ internal static class MetadataLensRenderer
         {
             projection.RecordTable(
                 MetadataSectionNames.Image,
-                WindowedCount(MetadataProjectionRenderer.CountImageFactRows(overview), rows));
+                WindowedCount(
+                    inspection.MetadataRoot is { } root
+                        ? MetadataProjectionRenderer.CountImageFactRows(
+                            overview,
+                            root)
+                        : MetadataProjectionRenderer.CountImageFactRows(
+                            overview),
+                    rows));
         }
 
         if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
@@ -308,7 +323,6 @@ internal static class MetadataLensRenderer
 
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
             var options = new MetadataProjectionOptions
             {
                 MaxRowsPerTable = MaxRowsPerTable,
@@ -316,12 +330,21 @@ internal static class MetadataLensRenderer
             };
 
             var builder = ImmutableArray.CreateBuilder<MetadataHeapEntrySet>(heaps.Length);
-            foreach (var heap in heaps)
+            if (inspection.MetadataRoot is { } root)
             {
-                if (session.MetadataHeapEntries(heap, options) is { } entries)
-                    builder.Add(entries);
-                else
-                    caveats.WriteLine($"{path} carries no metadata, so its {MetadataHeapCoordinate.StreamName(heap)} heap could not be listed.");
+                foreach (var heap in heaps)
+                    builder.Add(root.HeapEntries(heap, options));
+            }
+            else
+            {
+                using var session = AssemblyInspectionSession.Open(path);
+                foreach (var heap in heaps)
+                {
+                    if (session.MetadataHeapEntries(heap, options) is { } entries)
+                        builder.Add(entries);
+                    else
+                        caveats.WriteLine($"{path} carries no metadata, so its {MetadataHeapCoordinate.StreamName(heap)} heap could not be listed.");
+                }
             }
 
             return builder.ToImmutable();
@@ -361,15 +384,22 @@ internal static class MetadataLensRenderer
         MetadataTableProjection projection;
         try
         {
-            // Projected through AssemblyInspectionSession rather than by opening a PEReader here:
-            // the metadata layer owns reading the image, and the CLI is gated against referencing
-            // raw readers (LayeringTests.Cli_DoesNotReferenceRawMetadataReaders).
-            using var session = AssemblyInspectionSession.Open(path);
-            projection = session.MetadataTables(new MetadataProjectionOptions
+            var options = new MetadataProjectionOptions
             {
                 Tables = tables,
                 MaxRowsPerTable = MaxRowsPerTable,
-            });
+            };
+            if (inspection.MetadataRoot is { } root)
+            {
+                projection = root.Tables(options);
+            }
+            else
+            {
+                // Source-less COFF metadata intentionally has no PE/RVA root
+                // identity, so it retains the established session projection.
+                using var session = AssemblyInspectionSession.Open(path);
+                projection = session.MetadataTables(options);
+            }
         }
         catch (Exception ex)
         {

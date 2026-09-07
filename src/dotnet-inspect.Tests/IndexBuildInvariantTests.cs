@@ -98,6 +98,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task MemberCommand_MultipleIndexSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
@@ -126,6 +127,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task TypeCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
@@ -155,6 +157,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LibraryCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
@@ -178,6 +181,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void DiffCommand_AnalysisInputs_OpenOneSessionPerEndpointAssembly()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
@@ -193,6 +197,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void DiffCommand_ImplementationInputs_OpenOneSessionPerEndpointAssembly()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;

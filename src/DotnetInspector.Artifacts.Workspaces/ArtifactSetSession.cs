@@ -122,6 +122,9 @@ public abstract class ArtifactSetPublicationOutcome
 /// </remarks>
 public sealed class ArtifactSetSession : IAsyncDisposable
 {
+    private const string CleanupFailuresKey =
+        "DotnetInspector.Artifacts.Workspaces.CleanupFailures";
+
     private readonly object _gate = new();
     private readonly ArtifactGenerationAuthority _authority = new();
     private readonly ArtifactAdmissionAuthorization _admission;
@@ -220,13 +223,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             scope.Dispose();
             IReadOnlyList<Exception> cleanupFailures =
                 await AbortAsync().ConfigureAwait(false);
-            if (cleanupFailures.Count > 0)
-            {
-                ex.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
-                    cleanupFailures;
-            }
-
+            AttachCleanupFailures(ex, cleanupFailures);
             throw;
         }
         finally
@@ -297,9 +294,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 IReadOnlyList<Exception> cleanupFailures =
                     new ReadOnlyCollection<Exception>([ex]);
                 RecordCleanupFailures(cleanupFailures);
-                disposed.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
-                    cleanupFailures;
+                AttachCleanupFailures(disposed, cleanupFailures);
             }
         }
 
@@ -861,21 +856,16 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             IReadOnlyList<Exception> cleanupFailures =
                 await AbortAsync().ConfigureAwait(false);
-            if (cleanupFailures.Count > 0)
-            {
-                ex.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
-                    cleanupFailures;
-            }
-
+            AttachCleanupFailures(ex, cleanupFailures);
             throw;
         }
         catch (ObjectDisposedException) when (IsDisposed())
         {
             throw;
         }
-        catch (ArtifactMaterializationLimitException)
+        catch (ArtifactMaterializationLimitException ex)
         {
+            RecordMaterializationCleanupFailures(ex);
             failures.Add(
                 Failure(
                     ArtifactSetAdmissionFailureKind.Rejected,
@@ -892,6 +882,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                     "The artifact session was disposed during publication.");
             }
 
+            RecordMaterializationCleanupFailures(ex);
             failures.Add(
                 Failure(
                     ArtifactSetAdmissionFailureKind.Failed,
@@ -1269,8 +1260,9 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 }
             }
         }
-        catch (ArtifactMaterializationLimitException)
+        catch (ArtifactMaterializationLimitException ex)
         {
+            RecordMaterializationCleanupFailures(ex);
             return new RequiredCheckpointResult(
                 [],
                 0,
@@ -1282,6 +1274,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         catch (Exception ex) when (
             !IsDisposed() && IsMaterializationFailure(ex))
         {
+            RecordMaterializationCleanupFailures(ex);
             return new RequiredCheckpointResult(
                 [],
                 0,
@@ -1378,8 +1371,9 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                         snapshot));
             }
         }
-        catch (ArtifactMaterializationLimitException)
+        catch (ArtifactMaterializationLimitException ex)
         {
+            RecordMaterializationCleanupFailures(ex);
             return new SupplementalMaterializationResult(
                 [],
                 0,
@@ -1391,6 +1385,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         catch (Exception ex) when (
             !IsDisposed() && IsMaterializationFailure(ex))
         {
+            RecordMaterializationCleanupFailures(ex);
             return new SupplementalMaterializationResult(
                 [],
                 0,
@@ -1513,17 +1508,61 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             or InvalidOperationException
             or OverflowException;
 
-    private static void AttachCleanupFailures(
+    /// <summary>
+    /// Attaches cleanup evidence to a primary exception, merging with any this
+    /// owner already attached.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Cleanup evidence is always secondary and additive. Callers outside this
+    /// assembly use this entry rather than writing the key directly, because a
+    /// raw assignment would replace evidence an earlier stage attached to the
+    /// same exception — for example a throwing stream disposal recorded during
+    /// materialization, which must survive a later release sweep over the same
+    /// failure.
+    /// </para>
+    /// <para>
+    /// Read it back with <see cref="GetCleanupFailures"/>. Gated by
+    /// <c>ArtifactSetSessionCleanupEvidenceTests.AttachedCleanupEvidenceMergesRatherThanReplaces</c>.
+    /// </para>
+    /// </remarks>
+    public static void AttachCleanupFailures(
         Exception primary,
         IReadOnlyList<Exception> cleanupFailures)
     {
-        if (cleanupFailures.Count > 0)
-        {
-            primary.Data[
-                "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
-                cleanupFailures;
-        }
+        ArgumentNullException.ThrowIfNull(primary);
+        ArgumentNullException.ThrowIfNull(cleanupFailures);
+        if (cleanupFailures.Count == 0)
+            return;
+
+        primary.Data[CleanupFailuresKey] =
+            primary.Data[CleanupFailuresKey]
+                is IReadOnlyList<Exception> existing
+                ? new ReadOnlyCollection<Exception>(
+                    [.. existing, .. cleanupFailures])
+                : cleanupFailures;
     }
+
+    /// <summary>
+    /// Reads the cleanup failures this owner attached to a primary exception.
+    /// </summary>
+    /// <remarks>
+    /// Cleanup evidence is always secondary: a cancelled or failed
+    /// materialization keeps its own exception and token, and a throwing
+    /// stream disposal is reported here instead of replacing it. Gated by
+    /// <c>ArtifactSetSessionCleanupEvidenceTests.DisposalFailureDoesNotReplaceCancelledRead</c>.
+    /// </remarks>
+    public static IReadOnlyList<Exception> GetCleanupFailures(
+        Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        return failure.Data[CleanupFailuresKey]
+            as IReadOnlyList<Exception>
+            ?? [];
+    }
+
+    private void RecordMaterializationCleanupFailures(Exception failure) =>
+        RecordCleanupFailures(GetCleanupFailures(failure));
 
     private static void AttachAdmissionFailures(
         Exception primary,
@@ -1548,7 +1587,42 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         long maxArtifactBytes,
         CancellationToken cancellationToken)
     {
-        using Stream stream = contribution.OpenRead(_admissionLease);
+        Stream stream = contribution.OpenRead(_admissionLease);
+        Exception? primary = null;
+        try
+        {
+            return await CopyBoundedAsync(
+                    stream,
+                    maxArtifactBytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            primary = failure;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                stream.Dispose();
+            }
+            // A throwing disposal must not replace the cancellation or read
+            // failure that is already being reported; it stays secondary
+            // evidence on that exact exception.
+            catch (Exception disposalFailure) when (primary is not null)
+            {
+                AttachCleanupFailures(primary, [disposalFailure]);
+            }
+        }
+    }
+
+    private static async ValueTask<byte[]> CopyBoundedAsync(
+        Stream stream,
+        long maxArtifactBytes,
+        CancellationToken cancellationToken)
+    {
         if (stream.CanSeek
             && checked(stream.Length - stream.Position)
                 > maxArtifactBytes)

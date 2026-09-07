@@ -41,6 +41,30 @@ public sealed record PackageAuthorityFailure(
     public PackageSourceTimeout? Timeout { get; init; }
 }
 
+internal sealed class ConfiguredPackageCandidateObservation
+{
+    internal ConfiguredPackageCandidateObservation(
+        ConfiguredPackageAuthority authority,
+        PackageCandidateObservation observation)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(observation);
+        if (!ReferenceEquals(
+                observation.Source.Association,
+                authority.Association))
+        {
+            throw new InvalidOperationException(
+                "The package candidate observation belongs to another configured authority.");
+        }
+
+        Authority = authority;
+        Observation = observation;
+    }
+
+    public ConfiguredPackageAuthority Authority { get; }
+    public PackageCandidateObservation Observation { get; }
+}
+
 /// <summary>
 /// The package-owned aggregate of version evidence from every eligible
 /// configured authority.
@@ -51,7 +75,10 @@ public sealed class PackageVersionDiscoveryResult
         PackageVersionDiscoveryState state,
         IReadOnlyList<PackageVersionSourceInfo> sourceListings,
         IReadOnlyList<PackageAuthorityFailure> failures,
-        bool hasAnyCandidate)
+        bool hasAnyCandidate,
+        IReadOnlyList<ConfiguredPackageCandidateObservation>? candidates = null,
+        PackageVersionDiscoveryContract? contract = null,
+        object? candidateIssuer = null)
     {
         State = state;
         SourceListings = new ReadOnlyCollection<PackageVersionSourceInfo>([.. sourceListings]);
@@ -63,6 +90,10 @@ public sealed class PackageVersionDiscoveryResult
         Failures =
             new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         HasAnyCandidate = hasAnyCandidate;
+        Candidates = new ReadOnlyCollection<ConfiguredPackageCandidateObservation>(
+            candidates is null ? [] : [.. candidates]);
+        Contract = contract ?? PackageVersionDiscoveryContract.Unspecified;
+        CandidateIssuer = candidateIssuer ?? new object();
     }
 
     public PackageVersionDiscoveryState State { get; }
@@ -73,6 +104,62 @@ public sealed class PackageVersionDiscoveryResult
     public IReadOnlyList<PackageVersionSourceInfo> SourceListings { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
     public bool HasAnyCandidate { get; }
+    public int CandidateObservationCount => Candidates.Count;
+    public PackageVersionDiscoveryContract Contract { get; }
+    internal IReadOnlyList<ConfiguredPackageCandidateObservation> Candidates { get; }
+    private object CandidateIssuer { get; }
+    internal bool HasCandidateIssuer(object issuer) =>
+        ReferenceEquals(CandidateIssuer, issuer);
+
+    /// <summary>
+    /// Issues the exact acquisition candidate for one version retained by an
+    /// authoritative discovery result.
+    /// </summary>
+    public PackageAcquisitionCandidate SelectCandidate(string version)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        if (State != PackageVersionDiscoveryState.Authoritative)
+        {
+            throw new InvalidOperationException(
+                "Only authoritative version discovery can issue an acquisition candidate.");
+        }
+
+        string normalized = PackageSourceCoordinate.Create(
+            Candidates.FirstOrDefault()?.Observation.Coordinate.PackageId
+                ?? throw new InvalidOperationException(
+                    "The discovery result contains no candidate observations."),
+            version).Version;
+        var reporters = new List<ConfiguredPackageCandidateObservation>();
+        var seen = new HashSet<ConfiguredPackageAuthority>(
+            ReferenceEqualityComparer.Instance);
+        PackageSourceCoordinate? coordinate = null;
+        foreach (ConfiguredPackageCandidateObservation candidate in Candidates)
+        {
+            if (!candidate.Observation.Coordinate.Version.Equals(
+                    normalized,
+                    StringComparison.OrdinalIgnoreCase)
+                || !seen.Add(candidate.Authority))
+            {
+                continue;
+            }
+
+            coordinate ??= candidate.Observation.Coordinate;
+            reporters.Add(candidate);
+        }
+
+        if (coordinate is null)
+        {
+            throw new ArgumentException(
+                "The selected version is not present in the discovery result.",
+                nameof(version));
+        }
+
+        return PackageAcquisitionCandidate.CreateDiscovered(
+            CandidateIssuer,
+            coordinate,
+            Contract,
+            reporters);
+    }
 }
 
 /// <summary>
@@ -94,6 +181,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     private readonly Dictionary<PackageSourceAssociation, AuthorityEntry>
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
+    private readonly object _candidateIssuer = new();
     private int _disposed;
 
     /// <summary>
@@ -127,6 +215,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     /// <summary>
     /// Enumerates versions from every configured authority eligible for one
     /// package ID and adopts their results through exact association lookup.
+    /// A supplied operation context remains caller-owned.
     /// </summary>
     public async Task<PackageVersionDiscoveryResult> GetVersionsAsync(
         string packageId,
@@ -135,8 +224,14 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         NuGetSourceOptions? sourceOptions = null,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        bool includeUnlisted = false)
+        bool includeUnlisted = false,
+        NuGetOperationContext? operationContext = null)
     {
+        PackageVersionDiscoveryContract contract =
+            PackageVersionDiscoveryContract.Create(
+                includePrerelease,
+                includeUnlisted,
+                limit);
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
@@ -146,7 +241,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Input,
-                    "The package ID must use the NuGet package ID grammar."));
+                    "The package ID must use the NuGet package ID grammar."),
+                contract);
         }
 
         if (limit <= 0)
@@ -155,7 +251,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Input,
-                    "The package version limit must be greater than zero."));
+                    "The package version limit must be greater than zero."),
+                contract);
         }
 
         var failures = new List<PackageAuthorityFailure>();
@@ -164,12 +261,22 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (sources.Count == 0)
         {
             return new PackageVersionDiscoveryResult(
-                PackageVersionDiscoveryState.Failed, [], failures, hasAnyCandidate: false);
+                PackageVersionDiscoveryState.Failed,
+                [],
+                failures,
+                hasAnyCandidate: false,
+                contract: contract,
+                candidateIssuer: _candidateIssuer);
         }
 
-        using var operation = CreateOperationContext(cancellationToken);
+        using NuGetOperationContext? ownedOperation = operationContext is null
+            ? CreateOperationContext(cancellationToken)
+            : null;
+        NuGetOperationContext operation = operationContext ?? ownedOperation!;
+        cancellationToken = operation.ResolveInvocationToken(cancellationToken);
         IReadOnlyList<InertString> feedLabels = PackageSourceDisplay.ForVersionListings(sources);
         var versions = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<ConfiguredPackageCandidateObservation>();
         bool hasAnyCandidate = false;
         bool operationTimedOut = false;
 
@@ -185,7 +292,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             catch (NuGetOperationTimeoutException)
             {
                 operationTimedOut = true;
-                AddOperationTimeoutFailure(failures);
+                AddOperationTimeoutFailure(failures, operation);
                 for (int remainingIndex = sourceIndex;
                      remainingIndex < sources.Count;
                      remainingIndex++)
@@ -255,6 +362,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                     if ((listed || includeUnlisted)
                         && (includePrerelease || !parsed.IsPrerelease))
                     {
+                        candidates.Add(new(authority.Authority, candidate));
                         string version = candidate.Coordinate.Version;
                         if (!versions.TryGetValue(version, out var rows))
                         {
@@ -274,7 +382,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             catch (NuGetOperationTimeoutException)
             {
                 operationTimedOut = true;
-                AddOperationTimeoutFailure(failures);
+                AddOperationTimeoutFailure(failures, operation);
                 for (int remainingIndex = sourceIndex + 1;
                      remainingIndex < sources.Count;
                      remainingIndex++)
@@ -300,6 +408,15 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 .Take(limit ?? int.MaxValue)
                 .SelectMany(candidate => versions[candidate.Original]),
         ];
+        HashSet<string> retainedVersions =
+            ordered.Select(row => row.Version)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<ConfiguredPackageCandidateObservation> retainedCandidates =
+        [
+            .. candidates.Where(candidate =>
+                retainedVersions.Contains(
+                    candidate.Observation.Coordinate.Version)),
+        ];
         try
         {
             operation.ThrowIfExpired();
@@ -307,7 +424,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         catch (NuGetOperationTimeoutException)
         {
             operationTimedOut = true;
-            AddOperationTimeoutFailure(failures);
+            AddOperationTimeoutFailure(failures, operation);
         }
 
         PackageVersionDiscoveryState state = operationTimedOut
@@ -323,8 +440,31 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             state,
             ordered,
             failures,
-            hasAnyCandidate);
+            hasAnyCandidate,
+            retainedCandidates,
+            contract,
+            _candidateIssuer);
     }
+
+    /// <summary>
+    /// Enumerates the complete listed candidate set required for one NuGet
+    /// dependency version constraint.
+    /// </summary>
+    public Task<PackageVersionDiscoveryResult> GetDependencyVersionsAsync(
+        string packageId,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null) =>
+        GetVersionsAsync(
+            packageId,
+            includePrerelease: true,
+            limit: null,
+            sourceOptions,
+            log,
+            cancellationToken,
+            includeUnlisted: false,
+            operationContext);
 
     private static IReadOnlyList<PackageSource> ResolveEligibleSources(
         string packageId,
@@ -615,7 +755,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             : HttpClientFactory.CreateCredentialFreePackageSourceHandler(
                 source.Url);
 
-    private static PackageAuthorityFailure DescribeFailure(
+    internal static PackageAuthorityFailure DescribeFailure(
         PackageSource source,
         PackageSourceFailure failure)
     {
@@ -639,19 +779,26 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 $"Package source {authority} could not be reached while enumerating versions.",
             _ => failure.Message,
         };
-        return new PackageAuthorityFailure(authority, kind, message);
+        return new PackageAuthorityFailure(authority, kind, message)
+        {
+            SourceFailure = failure,
+            ResultSource = failure.Source,
+        };
     }
 
     private static PackageVersionDiscoveryResult Failed(
-        PackageAuthorityFailure failure) =>
+        PackageAuthorityFailure failure,
+        PackageVersionDiscoveryContract contract) =>
         new(
             PackageVersionDiscoveryState.Failed,
             [],
             [failure],
-            hasAnyCandidate: false);
+            hasAnyCandidate: false,
+            contract: contract);
 
     private static void AddOperationTimeoutFailure(
-        List<PackageAuthorityFailure> failures)
+        List<PackageAuthorityFailure> failures,
+        NuGetOperationContext operation)
     {
         if (failures.Any(failure =>
                 failure.Authority == InertString.Empty
@@ -663,7 +810,10 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         failures.Add(new PackageAuthorityFailure(
             InertString.Empty,
             PackageAuthorityFailureKind.Timeout,
-            "The package version operation deadline expired before the aggregate completed."));
+            "The package version operation deadline expired before the aggregate completed.")
+        {
+            Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
+        });
     }
 
     public async ValueTask DisposeAsync()

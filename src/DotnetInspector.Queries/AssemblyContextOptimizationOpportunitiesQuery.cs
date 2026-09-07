@@ -198,14 +198,15 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         LibraryBodyIndex? index = null;
         try
         {
+            var resolver = AssemblyContextAnalysisSource.Resolver(
+                group,
+                subject);
             index = LibraryBodyIndex.OpenFromPrefetchedImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
-                AssemblyContextAnalysisSource.Resolver(
-                    group,
-                    subject));
+                resolver);
 
             ImmutableArray<
                 OptimizationOpportunityMemberRanking> rankings =
@@ -216,13 +217,15 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                                 .IncludePerformanceOpportunity(
                                     opportunity,
                                     index.GeneratedFrameworkTypes)));
-            return new AssemblyOptimizationOpportunityRanking(
+            var result = new AssemblyOptimizationOpportunityRanking(
                 AggregatePublicMembers(
                     rankings,
                     publicMembers.Members),
                 index.GeneratedFrameworkTypes.ToImmutableHashSet(),
                 index.Diagnostics,
                 publicMembers.InspectionFailures);
+            resolver.ValidateForPublication();
+            return result;
         }
         finally
         {

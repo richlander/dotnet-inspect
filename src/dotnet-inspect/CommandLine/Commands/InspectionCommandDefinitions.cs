@@ -307,6 +307,10 @@ public static class InspectionCommandDefinitions
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
         var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
         var heapOption = new Option<string?>("--heap") { Description = "Metadata heap coordinate for the coordinate-scoped heap section (e.g., #Strings:0x1a4)" };
+        var metadataRootOption = new Option<string?>("--metadata-root")
+        {
+            Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
+        };
         var extractResourcesOption = new Option<string?>("--extract-resources")
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
@@ -325,6 +329,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(ilOffsetOption);
         assemblyCommand.Options.Add(ilOffsetsOption);
         assemblyCommand.Options.Add(heapOption);
+        assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -341,6 +346,27 @@ public static class InspectionCommandDefinitions
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
+            if (!IntegrationQueryOptions.TryExtract(
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    out var integrationQuery,
+                    out var nonIntegrationWhere,
+                    out var integrationError))
+            {
+                CommandError.Write(integrationError);
+                return 1;
+            }
+            var independentTriage = opts.ParsePerformanceTriageOptions(parseResult, []);
+            if (integrationQuery.HasFilter
+                && (nonIntegrationWhere.Length > 0
+                    || independentTriage.HasFilters
+                    || independentTriage.HasRanking
+                    // Count mode suppresses Top, but the explicit option is still incompatible.
+                    || parseResult.GetValue(opts.PerformanceTriageTop) is not null))
+            {
+                CommandError.Write(
+                    "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+                return 1;
+            }
             var source = parseResult.GetValue(assemblyPathArg);
             var explicitPackage = parseResult.GetValue(asmPackageOption);
             var explicitPlatform = parseResult.GetValue(asmPlatformOption);
@@ -407,9 +433,8 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
-            var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
             if (!BodyKindQueryOptions.TryExtract(
-                    whereExpressions,
+                    nonIntegrationWhere,
                     out var bodyKindQuery,
                     out var performanceWhere,
                     out var bodyKindError))
@@ -465,6 +490,27 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], .. targets];
             }
 
+            string? metadataRootText = parseResult.GetValue(metadataRootOption);
+            MetadataRootKind metadataRoot;
+            if (string.IsNullOrWhiteSpace(metadataRootText)
+                || metadataRootText.Equals("cli", StringComparison.OrdinalIgnoreCase))
+            {
+                metadataRoot = MetadataRootKind.Cli;
+            }
+            else if (metadataRootText.Equals(
+                "r2r-manifest",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                metadataRoot = MetadataRootKind.ReadyToRunManifest;
+            }
+            else
+            {
+                CommandError.Write(
+                    $"invalid --metadata-root value '{metadataRootText}': "
+                    + "expected cli or r2r-manifest.");
+                return 1;
+            }
+
             var options = new LibraryOptions
             {
                 AssemblyName = assemblyPath,
@@ -478,10 +524,12 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = requestedFramework,
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
+                IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
                 HeapParameter = parseResult.GetValue(heapOption),
+                MetadataRoot = metadataRoot,
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,

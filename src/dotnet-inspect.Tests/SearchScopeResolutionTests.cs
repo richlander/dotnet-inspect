@@ -2,6 +2,7 @@ using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Tests;
 
@@ -14,11 +15,11 @@ public class SearchScopeResolutionTests
     }
 
     [Fact]
-    public void NoExplicitSource_UsesOnlyPlatformFrameworks()
+    public async Task NoExplicitSource_UsesOnlyPlatformFrameworks()
     {
-        var scope = ScopeResolver.Resolve(new(), [], []);
+        var scope = await BindSources();
 
-        Assert.Equal(["runtime", "aspnetcore", "netstandard"], scope.Frameworks);
+        Assert.Equal(["runtime", "aspnetcore", "netstandard"], scope.PlatformFrameworks);
         Assert.Empty(scope.Packages);
     }
 
@@ -31,21 +32,22 @@ public class SearchScopeResolutionTests
     [InlineData(true, false, true, true, "aspnetcore")]
     [InlineData(false, true, true, false, "both")]
     [InlineData(true, true, true, true, "both")]
-    public void EachGroupCombination_ResolvesExactly(
+    public async Task EachGroupCombination_ResolvesExactly(
         bool platform,
         bool extensions,
         bool aspnetcore,
         bool expectsPlatformFrameworks,
         string expectedCatalogs)
     {
-        var scope = ScopeResolver.Resolve(
-            new(platform, extensions, aspnetcore),
-            [],
-            []);
+        List<string> args = [];
+        if (platform) args.Add("--platform");
+        if (extensions) args.Add("--extensions");
+        if (aspnetcore) args.Add("--aspnetcore");
+        var scope = await BindSources([.. args]);
 
         Assert.Equal(
             expectsPlatformFrameworks ? ScopeConstants.PlatformFrameworks : [],
-            scope.Frameworks);
+            scope.PlatformFrameworks);
         Assert.Equal(
             expectedCatalogs switch
             {
@@ -67,40 +69,28 @@ public class SearchScopeResolutionTests
     }
 
     [Theory]
-    [InlineData("package")]
-    [InlineData("library")]
-    [InlineData("platform-library")]
-    [InlineData("project-or-directory")]
-    [InlineData("package-prefix")]
-    public void EachDirectSourceSignal_SuppressesTheDefault(string sourceKind)
+    [InlineData("--package", "Example.Package")]
+    [InlineData("--library", "Example.dll")]
+    [InlineData("--platform", "System.Text.Json")]
+    [InlineData("--project", "Example.csproj")]
+    [InlineData("--bin", "missing")]
+    [InlineData("--package-prefix", "Example.")]
+    public void EachDirectSourceSignal_SuppressesTheDefault(string option, string value)
     {
-        string[] packages = sourceKind == "package" ? ["Example.Package"] : [];
-        string[] libraries = sourceKind == "library" ? ["Example.dll"] : [];
-        string? packagePrefix = sourceKind == "package-prefix" ? "Example." : null;
-        bool hasOtherSource = sourceKind is "platform-library" or "project-or-directory";
-
-        var scope = ScopeResolver.Resolve(
-            new(),
-            packages,
-            libraries,
-            packagePrefix,
-            hasOtherSource);
+        var intent = SearchSourceAdapterTests.DeclareSources("find", option, value);
+        var scope = SearchSourceNormalizer.Normalize(intent);
 
         Assert.Empty(scope.Frameworks);
-        Assert.Equal(packages, scope.Packages);
+        Assert.False(scope.UsesImplicitPlatform);
+        Assert.Single(intent.Selectors);
+        Assert.Equal(option == "--package" ? 1 : 0, scope.Packages.Count);
     }
 
     [Fact]
-    public void PackageSetFlagsUseAuditedMembership()
+    public async Task PackageSetFlagsUseAuditedMembership()
     {
-        ScopeResolver.ResolvedScope extensions = ScopeResolver.Resolve(
-            new(Extensions: true),
-            [],
-            []);
-        ScopeResolver.ResolvedScope aspNetCore = ScopeResolver.Resolve(
-            new(AspNetCore: true),
-            [],
-            []);
+        var extensions = await BindSources("--extensions");
+        var aspNetCore = await BindSources("--aspnetcore");
 
         Assert.Equal(
             ExpectedPackageSets.MicrosoftExtensions,
@@ -109,16 +99,15 @@ public class SearchScopeResolutionTests
     }
 
     [Fact]
-    public void ExplicitGroups_ComposeInOrderWithoutDuplicatePackages()
+    public async Task ExplicitGroups_ComposeInOrderWithoutDuplicatePackages()
     {
         string duplicate =
             ExpectedPackageSets.MicrosoftExtensions[0].ToUpperInvariant();
         string[] explicitPackages = ["Example.Package", duplicate, "example.package"];
 
-        var scope = ScopeResolver.Resolve(
-            new(Platform: true, Extensions: true, AspNetCore: true),
-            explicitPackages,
-            []);
+        var scope = await BindSources("--aspnetcore", "--platform", "--extensions",
+            "--package", explicitPackages[0], "--package", explicitPackages[1],
+            "--package", explicitPackages[2]);
 
         string[] expectedPackages =
         [
@@ -128,23 +117,28 @@ public class SearchScopeResolutionTests
                 .Distinct(StringComparer.OrdinalIgnoreCase)
         ];
 
-        Assert.Equal(ScopeConstants.PlatformFrameworks, scope.Frameworks);
+        Assert.Equal(ScopeConstants.PlatformFrameworks, scope.PlatformFrameworks);
         Assert.Equal(expectedPackages, scope.Packages);
         Assert.Equal("Example.Package", scope.Packages[0]);
         Assert.Equal(duplicate, scope.Packages[1]);
     }
 
     [Fact]
-    public void VersionedAndUnversionedPackageCoordinates_RemainDistinct()
+    public async Task VersionedAndUnversionedPackageCoordinates_RemainDistinct()
     {
-        var scope = ScopeResolver.Resolve(
-            new(),
-            ["Example.Package", "example.package@1.0.0", "EXAMPLE.PACKAGE"],
-            []);
+        var scope = await BindSources("--package", "Example.Package",
+            "--package", "example.package@1.0.0", "--package", "EXAMPLE.PACKAGE");
 
         Assert.Equal(
             ["Example.Package", "example.package@1.0.0"],
             scope.Packages);
+    }
+
+    private static async Task<AssemblySetRequest> BindSources(params string[] args)
+    {
+        using var client = new HttpClient();
+        return (await SearchSourceAdapter.BindAsync(
+            SearchSourceAdapterTests.DeclareSources("find", args), client, false, null)).Request;
     }
 
     [Theory]
@@ -338,7 +332,7 @@ public class SearchScopeResolutionTests
         {
             CommandLineHelpers.WarnIfPackagePrefixLimitReached(
                 ScopeConstants.PackagePrefixExpansionLimit,
-                "Contoso.");
+                new("Contoso.", ScopeConstants.PackagePrefixExpansionLimit));
             return Task.FromResult(0);
         });
 

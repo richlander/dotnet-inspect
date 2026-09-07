@@ -69,8 +69,8 @@ development model and rationale. The binding summary:
 - **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
   `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
 - **Use bounded adversarial review to find design and implementation gaps.**
-  Every non-trivial change gets two seats; repeated findings are evidence to
-  revisit design, and six rounds ends the current review block.
+  Every non-trivial change gets one seat, GPT-6 Astra; repeated findings are
+  evidence to revisit design, and six rounds ends the current review block.
 - **Keep security work inside the repository threat model.** Focus on
   untrusted internet-origin data and construction-time containment, not local
   or intra-repository actors unless an owning design explicitly opts in.
@@ -95,18 +95,12 @@ This section is tmux-specific and applies only inside a tmux pane — check
 `[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
 attach state to, so skip it entirely. Each window name must identify its work
 item, domain, and purpose; its pane title reports current activity, while
-window options carry structured state. Full mechanics live in
-[Agent session state](docs/agent-session-state.md).
+window options carry structured state. Full naming, pane-title, and state-
+publishing mechanics (exact commands, `@agent_state` fields, `blocked` vs.
+`waiting`) live in [Agent session state](docs/agent-session-state.md).
 
-- **Name the window** `PR <number> | <Domain> | <Short description>`, or
-  `Issue <number> | <Domain> | <Short description>` before a PR exists. Keep
-  Domain to one or two words, omit machine and tmux coordinates, and always
-  target `"${TMUX_PANE:?}"`.
-- **Update the pane title** with concise current activity, always targeting
-  `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
-  fallback; replace it at the start of work, after every resume, and at
-  meaningful phase changes with
-  `tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"`.
+- **Name the window and title the pane**, always targeting `"${TMUX_PANE:?}"`,
+  at the start of work, after every resume, and at meaningful phase changes.
 - **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
   plus branch or expected head — at the start of work, after every resume, and
   at every round start. Round completions use the
@@ -115,16 +109,9 @@ window options carry structured state. Full mechanics live in
   as normal visible output first; only after it appears in the session log may
   you open an approval prompt containing just the concise decision question and
   answer labels — never the report, checkpoint, or evidence itself.
-- **Publish `@agent` and `@agent_state`** after every state change, each as its
-  own single command (never inside `if`/`&&`/a loop). `@agent_state` carries
-  `theme`, `head`, and `pr`/`issue`, plus `round`, `reviews`, `blocked`,
-  `waiting`, and `rec` (`continue`, `wait`, `merge`, `split`, `approve`,
-  `stop`); clear both when the window no longer owns the work. `blocked` names
-  an issue/PR a person can act on; `waiting` names tool-evaluable predicates
-  (`check:<name>`, `checks`, `merge`, `review`).
-- **Signal `HELP`** with a persistent state plus one best-effort
-  `tmux display-message` nudge when blocked on a human decision; clear it once
-  the decision arrives.
+- **Publish `@agent`/`@agent_state`** after every state change; clear both
+  only when the window no longer owns the work. **Signal `HELP`** when
+  blocked on a human decision; clear only `HELP` once the decision arrives.
 
 ### Keep the review-clean label current
 
@@ -333,6 +320,12 @@ Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
 compiler-generated IL shapes differ in Debug.
 
+Tag a test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
+whole-assembly analysis rather than ordinary unit-test setup, so it runs only
+in nightly Deep Inspect, not the PR-blocking fast leg. See
+[Classifying test cost](docs/testing-cost-classification.md) for the
+threshold, placement convention, and existing consumers.
+
 | Area | Command |
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
@@ -342,6 +335,7 @@ compiler-generated IL shapes differ in Debug.
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
+| Additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
@@ -493,10 +487,10 @@ as a normal round), and **merge conflict requiring semantic resolution**
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-6 Astra**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
+| Everything else | **GPT-6 Astra**, one seat. |
 
-When uncertain, use the standard round. Second-seat selection by prior clean
-count lives in
+When uncertain, use the standard round. Substitution when GPT-6 Astra is
+unavailable lives in
 [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch IDs live
 in [Agent model mapping](docs/agent-models.md). A MAI-Code
 quick read on unsettled work is neither tier: it gets no isolated worktree or
@@ -507,8 +501,8 @@ feedback, since the settled PR still requires its full round.
 
 Start every reviewer prompt with the complete canonical
 [adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
-paraphrase, reorder, or precede it with domain instructions. Append the same
-self-contained candidate instructions for every seat, directly or with the
+paraphrase, reorder, or precede it with domain instructions. Append the
+self-contained candidate instructions for the seat, directly or with the
 optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.

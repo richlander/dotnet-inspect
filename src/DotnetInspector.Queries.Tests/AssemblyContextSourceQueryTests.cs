@@ -1662,22 +1662,23 @@ public sealed partial class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public void CancellationObservingBindingPolicy_RejectsForeignSnapshot()
+    public void CancellationObservingBindingPolicy_ForwardsAndObservesForeignSnapshot()
     {
         var inner = new FrameworkBindingPolicy();
-        AssemblyBindingPolicyVersion expectedVersion = inner.Version;
         inner.SnapshotVersion = new AssemblyBindingPolicyVersion();
         var policy =
             new AssemblyContextSourceQuery.CancellationObservingBindingPolicy(
-                inner,
-                expectedVersion);
+                inner);
         var request = new AssemblyBindingRequest(
             AssemblyBindingTarget.CoreLibrary(),
             AssemblyBindingOrigin.Global(),
             AssemblyResolutionScope.Platform);
 
-        Assert.Throws<InvalidOperationException>(
-            () => policy.Select(request));
+        AssemblyBindingPolicyVersion version = policy.Version;
+        AssemblyBindingSelectionSnapshot snapshot = policy.Select(request);
+        Assert.Same(inner.SnapshotVersion, snapshot.Version);
+        Assert.NotSame(version, policy.Version);
+        Assert.Throws<InvalidOperationException>(policy.ThrowIfObserved);
         Assert.Equal(1, inner.SelectionCount);
     }
 
@@ -1687,8 +1688,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         var inner = new NullSnapshotPolicy();
         var policy =
             new AssemblyContextSourceQuery.CancellationObservingBindingPolicy(
-                inner,
-                inner.Version);
+                inner);
         var request = new AssemblyBindingRequest(
             AssemblyBindingTarget.CoreLibrary(),
             AssemblyBindingOrigin.Global(),

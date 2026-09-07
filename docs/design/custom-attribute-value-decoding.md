@@ -21,10 +21,11 @@ paired-walker hazards described under
 [How this design changed](#how-this-design-changed) are gone from the code.
 Slice 3's compiler-produced fixture gate landed in #5148; it does not establish
 real-package certification or a certified producer-SDK range. Slice 4 retires
-the temporary guard bridge and its validation-only mode. D1's generative cost
-gate (#5733), D2's internal-exhaustion evidence (#5397), and broader D3
-certification remain open, so the full invariants below remain targets rather
-than gated facts.
+the temporary guard bridge and its validation-only mode. D2 now has focused
+resource-failure propagation evidence (#5397), using deterministic fault
+injection rather than actual memory pressure. D1's generative cost gate
+(#5733), exhaustive D2 coverage, and broader D3 certification remain open, so
+the full invariants below remain targets rather than gated facts.
 
 ## Responsibility
 
@@ -318,8 +319,10 @@ observer and resolver instances.
 Resource exhaustion is a separate class. An `OutOfMemoryException` raised
 inside materialization crosses no caller boundary, so callback provenance
 cannot protect it. It propagates because it is not a malformed-input outcome.
-Slice 2 removed the catch that converted it to `null`; issue #5397 records that
-repair, while a dedicated internal-resource-exhaustion gate remains missing.
+Slice 2 removed the catch that converted it to `null`. The focused
+[resource-failure propagation gate](#resource-failure-propagation-gate)
+exercises that policy with a raw, injected failure beneath the public decoder,
+separately from callback-provenance tests (#5397).
 
 **D2 is outcome-shaped, and only that.** Its whole content is which of three
 outcomes a caller can observe: a complete value, `null`, or a propagated
@@ -834,7 +837,7 @@ remain `unverified`.**
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
-| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial, landed in #5815; resource-exhaustion propagation remains unverified. |
+| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. Slice 4 exercises those fixtures through `AttributeDecoder` directly. The [resource-failure propagation gate](#resource-failure-propagation-gate) covers raw `OutOfMemoryException` propagation from SRM string materialization. | Focused refusal, callback, width-signal, and injected resource-failure cases are gated; exhaustive D2 coverage remains unverified. |
 | **D3** | #5148's fixtures-first gate compares compiler-produced values with independent SRM results and source-owned cross-assembly enum expectations. `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce this fixture subset. | Partial fixture coverage; real-package certification and its producer range remain unverified. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated, landed in #5815. |
 
@@ -958,6 +961,71 @@ I1 offset seam and generated guard-approval assertions are retired, not carried
 as additional D3 requirements. Exhaustive grammar coverage, D1/D2 enumeration,
 and real-package certification are not established by this fixture gate.
 
+### Resource-failure propagation gate
+
+`CustomAttributeFailurePropagationTests.StringMaterializationOutOfMemory_PropagatesUnchanged`
+is the focused Release gate for #5397. It uses SRM's existing
+`MetadataStringDecoder` customization point to inject one
+`OutOfMemoryException` during type-name materialization inside a decode.
+The ordinary, serialized-name-preserving, and detailed public entry points must
+each propagate the original exception instance, rather than return `null` or a
+value.
+
+No `beforeMaterialize` observer or enum resolver is supplied. The failure
+therefore reaches the owned decoder as a raw dependency exception, not through
+its caller-callback provenance sentinel. This distinction is what the existing
+callback tests cannot establish. The compiler-produced `Types` sample already
+used by the fidelity gate supplies ordinary metadata; healthy decodes before
+and after the one-shot injection are controls for the test double.
+
+Gate adequacy was checked at `6e076e9502645b2d0a01550f407bbc9deebb643f` with a
+temporary policy mutation that included `OutOfMemoryException` in the owned
+decoder's refusal filter. All three new cases failed because no exception
+escaped, while 110 neighboring cases still passed. The mutation was removed;
+it is a synthetic regression control, not a reproduction of historical memory
+exhaustion. The implementation repair already landed in #5815.
+
+This follows the existing metadata tests' use of a custom SRM string decoder
+for observation and injected dependency failures for exception-identity checks.
+The metadata test runner is the evidence consumer; it exercises the same shared
+decoder already used by CLI and browser/Wasm. No product hook, new decoding
+path, or host integration is introduced.
+
+The evidence is **fault-injected propagation**, not a claim about actual heap
+exhaustion, recovery under memory pressure, every allocation site, or exhaustive
+D2 grammar coverage. Those stronger claims are not needed to check the decoder's
+exception policy. The test does not exhaust host memory or reproduce a malformed
+resource-amplifying input.
+
+### Generic-context lookup gate
+
+Within one attribute decode, locating repeated, alternating, or increasing
+`VAR` indices must reuse the generic prefix already traversed (#5098). This is
+an operation-local lookup claim, not a bound on selected-type decoding, enum
+resolution, output materialization, or work across attribute rows. Existing CLI
+and browser/Wasm consumers receive the repair through the shared decoder.
+
+Reuse preserves the existing structural skipper's cursor semantics and does not
+inspect unused trailing arguments. Storage grows from traversed argument starts,
+not declared generic arity. Substitution still has an empty generic context;
+selected types, resolver calls, charges, and per-argument defaulted-width flags
+retain their existing behavior rather than being cached as decoded values.
+
+`CustomAttributeGenericContextTests` is the focused Release gate. Its
+compiler-produced samples vary constructor parameter count, generic arity, and
+index order, with mixed scalar/array values and unused-context neighbors. An
+optional internal counter records bytes advanced by the actual prefix skipper;
+the assertions measure traversal, not elapsed time or allocation. The public
+facade remains unchanged, and the counter is absent from ordinary calls.
+
+At pre-repair head `b830af9b4901912f6e17a1e7e346822d0e1b6342` (the unchanged
+lookup loop plus the counter and initial samples), eight of nine cases failed
+only their skipped-byte assertions. For example, four/eight repetitions of the
+last argument in a four-argument context skipped 12/24 bytes; both now skip
+three. Values and charges already matched, and the unused-tail case passed.
+This gate establishes the local reuse regression, **not full D1**; #5733 still
+owns the generative joint-dimension cost gate.
+
 ## Known gaps
 
 Each row is a **verified** divergence between the contract above and the
@@ -971,7 +1039,6 @@ component.
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 | #5132 |
 | 7 | Building the type-definition index costs `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 | #5757 |
 | 8 | A definition scan performs `O(L)` work per row on a loop-invariant name, costing `Θ(T × L)`. | D1 | #5758 |
-| I2 → D1 | Each `VAR` fixed argument re-skips its generic context, so `P` arguments over a `G`-node context cost `Θ(P × G)`. | D1 | #5098 |
 
 Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-walk
 memo can address it.
@@ -988,9 +1055,9 @@ place it.
 
 | Former gap | Was | Disposition |
 | --- | --- | --- |
-| SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the guard memoized the offset and never experienced it. | I2 (#5098) | **Transferred to D1.** SRM no longer runs, but the owned decoder currently re-skips the generic context per `VAR` argument and retains the same cost shape. |
+| SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the owned decoder initially retained that prefix-rescan cost. | I2 → D1 (#5098) | **Repaired.** Operation-local lazy prefix reuse is covered by the [generic-context lookup gate](#generic-context-lookup-gate), including alternating and increasing indices. |
 | `SZARRAY` replay re-parsed one element type per value. | D1 gap 2 (#5047) | **Repaired.** The owned decoder resolves one `ArgumentType` before the array value loop and reuses it for every element. |
-| Four single-slot memos admitted alternating-input amplification. | D1 gap 3 (#5130) | **Repaired.** Those memos were deleted with the paired walker. The remaining generic-context re-skip is #5098 above. |
+| Four single-slot memos admitted alternating-input amplification. | D1 gap 3 (#5130) | **Repaired.** Those memos were deleted with the paired walker. The generic-context cost transferred to #5098 is also repaired. |
 | The resolver-less `IsSafeToDecode` overload resolves widths in a different order, so its `true` does not carry I1. | I1 scope (#5120) | **Moot.** There is no alignment claim to carry. |
 | The guard and `ArgTypeProvider` each apply their own `"System.Type"` comparison, so the predicate can diverge. | I1 (#5393) | **Moot.** One decoder, one predicate. Recorded as a fidelity caution under [Classification](#classification-is-a-display-name-comparison-not-an-identity-test). |
 | Whether the #4914 width-alignment collapse remains reachable on the blob-authored name path. | I1 (#4992) | **Moot as an alignment question.** The name path's own collapse risk is retained as a D3 concern under [The two resolution paths are not symmetric](#the-two-resolution-paths-are-not-symmetric). |
@@ -1032,15 +1099,15 @@ slice 2. Both are now settled.
 | --- | --- |
 | #5288 | This inversion. Slice 2 landed in #5815 and the fixtures-first slice 3 gate in #5148. Slice 4 retires the legacy bridge; broader package certification remains outstanding. |
 | #5047 | Repaired in #5815: each array element type is resolved once. |
-| #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
+| #5098 | Repaired: operation-local generic-prefix reuse; the focused Release gate measures skipped bytes, not full D1. |
 | #5065 | D3 fidelity and producer certification; the fixture subset landed in #5148. It is not D1's gate. |
 | #5085 | Repaired in #5815: observer-exception provenance is preserved. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
-| #5130 | #5815 retired the paired walk's single-slot memos; the remaining generic-context cost is tracked by #5098. |
+| #5130 | #5815 retired the paired walk's single-slot memos; #5098 repairs the transferred generic-context cost. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | Merged: fixtures-first D3 value equality and retained-image producer truth. Broader package certification remains outstanding in #5065. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
-| #5397 | Slice 2 no longer catches internal `OutOfMemoryException`; dedicated propagation evidence remains absent, so D2 stays partially unverified. |
+| #5397 | Gated: a one-shot SRM string-materialization fault propagates unchanged through all three public decode surfaces. This is fault-injection evidence, not actual memory-pressure testing or exhaustive D2 coverage. |
 | #5733 | The D1 generative bounded-cost gate; #5065 does not measure cost. |
 | #5742 | Implemented in #5815: the opt-in defaulted-width signal mitigates D3's row-three carve-out. |
 | #5755 | Retained-name evidence and the representation-bound revisit point if the output-shape hold is lifted. |

@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Options;
 
@@ -8,6 +9,8 @@ namespace DotnetInspector.Options;
 /// </summary>
 public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
+    internal SearchSourceSelection? SourceSelection { get; init; }
+
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
     /// </summary>
@@ -155,6 +158,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool PackagePrefixSpecified { get; init; }
 
+    internal bool HasPackageProfileGroupScope { get; init; }
+
     /// <summary>
     /// True when a patternless package-prefix search projects package manifests
     /// rather than acquiring package archives for API search.
@@ -164,9 +169,10 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         && (PackagePrefixSpecified || PackagePrefix is not null);
 
     /// <summary>
-    /// Returns true if any search scope is specified.
+    /// Returns true if a scope has been selected, including a normalized empty contribution.
     /// </summary>
     public bool HasAnyScope =>
+        SourceSelection is not null ||
         Packages.Length > 0 ||
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||

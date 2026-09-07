@@ -494,7 +494,7 @@ relation per item.
 ## Required gates
 
 The Release test
-`src/ILInspector.Instructions.Tests/AnalysisDiffTests.cs` verifies:
+`tests/ILInspector.Instructions.Tests/AnalysisDiffTests.cs` verifies:
 
 - `AnalysisDiff_ConstructsEmptyDiff` and
   `AnalysisDiff_ConstructsOneSidedAndAllCorrespondenceArities` cover empty,

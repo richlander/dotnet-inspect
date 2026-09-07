@@ -16,7 +16,6 @@
     <IsAotCompatible>false</IsAotCompatible>
     <SignAssembly>false</SignAssembly>
     <NoWarn>$(NoWarn);CS0436</NoWarn>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
 </Project>

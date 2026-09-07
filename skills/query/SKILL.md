@@ -146,6 +146,14 @@ columns; companion schema discovery requires one resolved section.
 A known section with no implemented query bindings
 says so; this currently includes package-query facets not yet wired to the CLI.
 
+`library -Q Integrations` describes the ecosystem facet for the whole Integration
+family. All integrations are enabled by default; use
+`library MyLibrary.dll -S Integrations --where "ecosystem=ecosystem.aspire"`
+to narrow the ordinary result. The initial supported value is
+`ecosystem.aspire`. Use a concrete section such as `Integration: Aspire` for
+TSV/JSONL. This predicate does not combine with Body Shapes or Performance
+Triage filters/rankings.
+
 ## Correlate one member's Findings
 
 Select `Finding Census` by its exact name for one body-backed method or
@@ -233,18 +241,25 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
+- `-n N` and numeric shorthand like `-6` cap output lines on commands that
+  have not adopted semantic rows, like `head`.
 - `--tail` takes the same count from the end, like `tail`.
-- `--rows N` takes the first N data rows per table, preserving headings and
-  headers; add `--tail` for the last N.
-- `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
-  means ten rows starting at row 2, and `10..` runs from row 10 to the end.
-  Ranges reject `--head`/`--tail`; all `--rows` forms reject `-n`.
+- `--rows N` takes the first N data rows per table on commands that retain the
+  legacy row window, preserving headings and headers; add `--tail` for the last
+  N. On package version lenses, use `-n N` instead.
+- On commands retaining the legacy row window, `--rows 2..10` is an absolute
+  1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
+  and `10..` runs from row 10 to the end. These legacy ranges reject
+  `--head`/`--tail`, and all legacy `--rows` forms reject `-n`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-Command-specific caps: `-t N` for type/find rows, `-m N` for members, and
-`--versions N` for package versions.
+Command-specific caps: `-t N` for type/find rows and `-m N` for members.
+Package `--versions` and `--versions-with-feed` are zero-arity selectors;
+`-n N` selects complete version rows, while `-n N --lines` clips their rendered
+lines. `--rows` on those lenses accepts only `A..B`, `A..`, and `..B`.
+`-n` and `--rows` compose as stages in argv order on those lenses;
+`--head` and `--tail` modify `-n`, not the range.

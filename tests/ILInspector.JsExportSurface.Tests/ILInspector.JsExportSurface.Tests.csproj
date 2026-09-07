@@ -17,10 +17,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The payload oracle runs as a file-based app, not as test-host source. -->
+    <Compile Remove="Fixtures/ts-jsexport-runtime/union-payloads.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures/ILInspector.JsExportSurface.UnionFixtures.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />

@@ -8,6 +8,13 @@
   Column projection remains presentational; summary row limits select groups
   without truncating their counts. Type `--member` filters now bound both
   summary and occurrence evidence before rendering (#6186).
+- Online single-package inspection now selects latest and wildcard versions
+  from configured local and HTTP authorities, including `--preview`.
+  Selection requires fresh, complete discovery and acquires only from sources
+  that reported the chosen version, even on a payload-cache hit. Local payload
+  caches and HTTP temporary ownership match exact-pin inspection. API/timeline
+  range hosts, multi-package commands, and offline extraction remain on their
+  existing paths (#5400).
 - **Breaking:** Renames `match --implementation` to `match --body`, with
   a `Method Body Diff` view. Body comparison now consumes the shared Queries
   designated-pair path and retains native endpoint and failure outcomes.
@@ -105,6 +112,14 @@
 
 ### Package acquisition and audit
 
+- **Breaking:** `--versions` and `--versions-with-feed` are now zero-arity
+  selectors. Use `--versions -n N` or `--versions-with-feed -n N` to select
+  complete semantic rows; use `-n N --lines` only for explicit rendered-line
+  clipping. Version rows are selected after source aggregation and
+  completeness classification, including authenticated multi-source queries
+  (#5786). On these lenses, `--rows` accepts only `A..B`, `A..`, and `..B`;
+  use `-n N` for the first N rows. Rendered-line selection is unavailable with
+  document JSON because clipping would produce an invalid document.
 - Online metadata-only package version queries now support configured folder
   feeds for pinned verification, latest and range selection, listing status,
   and per-feed rows (#5400).
@@ -125,7 +140,6 @@
   incomplete evidence. Fix or exclude the failing source, or use raw
   `--versions` to inspect explicitly partial results. Online version queries
   bypass legacy producer-keyed caches; offline behavior is unchanged (#5400).
-
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify
   control or bidi text, package-source declarations, cleared restore sources,

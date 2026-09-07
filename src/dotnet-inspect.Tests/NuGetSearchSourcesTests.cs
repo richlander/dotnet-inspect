@@ -280,6 +280,7 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task SearchAsync_EquivalentEndpointFailover_SharesOperationCeiling()
     {
         const string firstSearch = "https://feed.example/v3/query-fast-failure";

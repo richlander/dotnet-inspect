@@ -58,6 +58,7 @@ public class ApiMemberAnalysisInspectionTests
     // ILInspector.Analysis names neither itself nor dotnet-inspect.Tests as a reference, so it is
     // ruled out without being opened, leaving nothing to walk — but the request was still scoped.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerScopes_WhenEveryScopeAssemblyIsPrefiltered_StillSelectsTheCrossAssemblyBuilder()
     {
         var inspection = Create(SelfPath, [AnalysisPath]);
@@ -81,6 +82,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallGraphBodyIndexes_IncludeOpportunityEnabledCalleeScopes()
     {
         var inspection = new ApiMemberAnalysisInspection(
@@ -126,6 +128,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallGraphScopes_DoNotInheritPerformanceTriageOpportunities()
     {
         var inspection = new ApiMemberAnalysisInspection(
@@ -158,6 +161,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallGraphColumns_DoNotEnableScopedGraphOpportunities()
     {
         var inspection = new ApiMemberAnalysisInspection(
@@ -191,6 +195,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData("Fanout")]
     [InlineData("Copy")]
     [InlineData("EvidenceIL")]
@@ -220,6 +225,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallGraphAllocationField_EnablesClassifiedAllocationAnalysis()
     {
         var inspection = new ApiMemberAnalysisInspection(
@@ -245,6 +251,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallGraphAsyncField_EnablesCallerScopeOpportunitiesWithoutAllocations()
     {
         var inspection = new ApiMemberAnalysisInspection(
@@ -320,6 +327,7 @@ public class ApiMemberAnalysisInspectionTests
     // it routed on whether its opened list came back empty. A scope whose every entry is
     // unopenable produced an empty list and took the token-keyed builder, so this must too.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerScopes_WhenNoScopeEntryIsOpenable_SelectsTheSameAssemblyBuilder()
     {
         string missing = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll");
@@ -331,6 +339,7 @@ public class ApiMemberAnalysisInspectionTests
 
     // The two lenses are cached independently and must decide identically.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerScopes_CachesTheAllocationLensSeparatelyFromTheCallerLens()
     {
         var inspection = Create(AnalysisPath, [CliPath]);
@@ -578,6 +587,7 @@ public class ApiMemberAnalysisInspectionTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_BodilessTargetRetainsSameAssemblyCallers()
     {
         int target = MetadataTokenOf(
@@ -621,6 +631,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerQueries_InvalidTargetTypeProvenanceDegradeWithoutThrowing()
     {
         string directory = Path.Combine(
@@ -701,6 +712,7 @@ public class ApiMemberAnalysisInspectionTests
     // The control is obtained by resolving the graph lens first, which makes DirectCallerScopes
     // reuse that wider set — so this exercises the reuse branch as well as pinning equivalence.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallerEdges_AreUnchangedByNarrowing()
     {
         string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();

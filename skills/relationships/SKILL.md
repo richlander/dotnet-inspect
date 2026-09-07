@@ -107,6 +107,22 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 
 ## What does it integrate with? (ecosystem)
 
+All integrations are enabled by default. Discover and narrow the ordinary
+Integration result with canonical ecosystem identities:
+
+```bash
+dnx dotnet-inspect -y -- library -Q Integrations
+dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- library MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+```
+
+Omitting `-S` with this predicate selects the Integration family. Use a concrete
+section for tabular output. An empty filtered result is not absence of all
+Integration support; full-library presence and Census remain unchanged.
+Unsupported IDs and combinations fail explicitly. Do not combine the ecosystem
+predicate with Performance Triage or Body Shapes queries.
+This option belongs to `library`, not `package --library` or `graph`.
+
 `graph integrations` compares an explicit package set inside one
 binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family
