@@ -1234,6 +1234,44 @@ test("platform assembly residency includes the requested pack", async () => {
     /cross-family duplicate rejected/);
 });
 
+test("a same-named assembly from another platform family replaces its Browser surface", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface(
+      "Shared",
+      "Shared",
+      "Shared.CommonType",
+      2,
+      "netcore.app"));
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(runtimeSurface(
+      "Shared",
+      "Shared",
+      "Shared.CommonType",
+      2,
+      "aspnetcore.app")),
+    runtimePackage: () => resident,
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "Shared.dll",
+    "aspnetcore.app");
+
+  assert.equal(result.error, null);
+  assert.equal(result.packageModel, resident);
+  assert.deepEqual(
+    resident.assemblies.map(descriptor => [
+      descriptor.name,
+      descriptor.platformPack,
+    ]),
+    [["Shared", "aspnetcore.app"]]);
+  assert.deepEqual(
+    resident.types.map(type => [type.id, type.platformPack]),
+    [["Shared.CommonType", "aspnetcore.app"]]);
+  assert.equal(resident.accessibility[0]?.count, 1);
+  assert.equal(resident.totalMembers, 2);
+});
+
 test("runtime pack acquisition fills the core family after an ASP.NET-first load", async () => {
   const calls: string[] = [];
   let resident: AppPackage | null = null;

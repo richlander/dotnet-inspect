@@ -213,7 +213,7 @@ async function installFacades(
         const row = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack)
           ?? { assembly: file.replace(/\\.dll$/, ""), file, publicTypes: 0 };
         const assembly = {
-          id: "platform:" + pack + ":" + file, name: row.assembly, version: "11.0.0.0",
+          id: row.assembly, name: row.assembly, version: "11.0.0.0",
           culture: null, publicKeyToken: null,
           asset: file === "System.Private.CoreLib.dll" ? "runtimes/linux-x64/native/" + assetFileName : assetFileName,
           publicTypes: row.publicTypes,
@@ -532,6 +532,27 @@ test("Platform Library parent, history and refresh retain the exact target witho
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
 });
 
+test("history-restored cached Platform Libraries remain usable through Spotlight", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  const libraryLocation = page.url();
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(libraryLocation);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator('[data-sl-type*="Example.Widget"]:not([data-sl-member])').first().click();
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+});
+
 test("Platform Library acquisition failure keeps its catalog usable", async ({ page }) => {
   await openPlatform(page, { libraryFailure: true });
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
@@ -652,8 +673,13 @@ test("A failed dynamic Platform catalog leaves the installed target and inventor
   await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
 });
 
-test("Same-named Platform Libraries retain their catalog-issued pack through metadata and refresh", async ({ page }) => {
+test("Sequential same-named Platform Libraries replace the prior family and retain the selected pack", async ({ page }) => {
   await openPlatform(page, { duplicateLibrary: true });
+  await page.getByRole("button", { name: /System.Text.Json Implementation netcore.app/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: /System.Text.Json Implementation aspnetcore.app/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "aspnetcore.app", "System.Text.Json.dll"]));

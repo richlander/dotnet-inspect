@@ -402,6 +402,54 @@ export function mergeRuntimePackageSurface(
   }
 
   const newTypes = packageTypes(result);
+  const incomingPlatformPacks = new Map<string, string>();
+  for (const assembly of result.assemblies ?? []) {
+    if (assembly.platformPack) {
+      incomingPlatformPacks.set(
+        assembly.name.toLowerCase(),
+        assembly.platformPack);
+    }
+  }
+  const replacedAssemblies = existing.assemblies.filter(assembly => {
+    const incomingPack = incomingPlatformPacks.get(assembly.name.toLowerCase());
+    return Boolean(
+      incomingPack
+      && assembly.platformPack
+      && assembly.platformPack !== incomingPack);
+  });
+  if (replacedAssemblies.length > 0) {
+    const replacedNames = new Set(
+      replacedAssemblies.map(assembly => assembly.name.toLowerCase()));
+    const defaultAccessibility = new Set(
+      existing.accessibility
+        .filter(descriptor => descriptor.isDefault)
+        .map(descriptor => descriptor.id));
+    const removedTypes = existing.types.filter(type =>
+      replacedNames.has(type.assemblyName.toLowerCase())
+      && type.platformPack !== incomingPlatformPacks.get(
+        type.assemblyName.toLowerCase()));
+    const removedAccessibility = new Map<string, number>();
+    for (const type of removedTypes) {
+      removedAccessibility.set(
+        type.accessibilityId,
+        (removedAccessibility.get(type.accessibilityId) ?? 0) + 1);
+    }
+    existing.assemblies = existing.assemblies.filter(assembly =>
+      !replacedAssemblies.includes(assembly));
+    existing.types = existing.types.filter(type => !removedTypes.includes(type));
+    existing.accessibility = existing.accessibility.map(descriptor => ({
+      ...descriptor,
+      count: Math.max(
+        0,
+        descriptor.count - (removedAccessibility.get(descriptor.id) ?? 0)),
+    }));
+    existing.totalMembers = Math.max(
+      0,
+      existing.totalMembers - removedTypes
+        .filter(type => defaultAccessibility.has(type.accessibilityId))
+        .reduce((total, type) => total + type.members, 0));
+  }
+
   const seenTypes = new Set(existing.types.map(type => type.id));
   const acceptedTypes: AppTypeSurface[] = [];
   for (const type of newTypes) {

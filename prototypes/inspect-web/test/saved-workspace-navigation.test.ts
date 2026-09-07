@@ -66,7 +66,7 @@ const hostNames = new Set([
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "isRecord", "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
-  "openPlatformSubject",
+  "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
@@ -324,9 +324,15 @@ function harness() {
     retainWorkspacePackage: (
       packages: readonly Package[], active: Package | null,
       packageModel: Package, replacedPackage: Package | null,
+      capacity = MAX_WORKSPACE_PACKAGES,
     ) => {
       retained.push({ packageModel, replacedPackage });
-      return retainWorkspacePackage(packages, active, packageModel, replacedPackage);
+      return retainWorkspacePackage(
+        packages,
+        active,
+        packageModel,
+        replacedPackage,
+        capacity);
     },
     createPackageAcquisition,
     inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
@@ -1223,6 +1229,33 @@ test("catalog-only Platform consumes one of the 12 Workspace coordinates", async
   assert.equal(h.state.queryNoticeRetryAction, null);
 });
 
+test("ordinary package retention reserves the catalog-only Platform coordinate", () => {
+  const h = harness();
+  fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
+  h.state.platformSelection = {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  };
+  const incoming = {
+    ...sourcePackage,
+    id: "Incoming.Package",
+    version: "2.0.0",
+  };
+
+  runInNewContext("retainPackageModel(incoming)", {
+    ...h.context,
+    incoming,
+  });
+
+  assert.equal(h.state.packages.length, MAX_WORKSPACE_PACKAGES - 1);
+  assert.equal(h.state.packages.includes(sourcePackage), true);
+  assert.equal(h.state.packages.includes(incoming), true);
+  assert.equal(h.state.packages.some(pkg => pkg.id === "Resident.0"), false);
+  assert.equal(
+    runInNewContext("workspaceCoordinateCount()", h.context),
+    MAX_WORKSPACE_PACKAGES);
+});
+
 test("opening Platform at the coordinate cap refuses before changing subject or loading a catalog", async () => {
   const h = harness();
   fillWorkspace(h);
@@ -1236,6 +1269,25 @@ test("opening Platform at the coordinate cap refuses before changing subject or 
   assert.deepEqual(h.state.packages, previous);
   assert.equal(h.state.rootKind, "package");
   assert.equal(h.state.platformSelection, null);
+  assert.deepEqual(h.toasts, [
+    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+  ]);
+});
+
+test("opening a Platform Library at the coordinate cap preserves the prior subject", async () => {
+  const h = harness();
+  fillWorkspace(h);
+  const previous = [...h.state.packages];
+
+  await runInNewContext(
+    'openPlatformLibrary("System.Text.Json", "netcore.app")',
+    h.context,
+  );
+
+  assert.deepEqual(h.state.packages, previous);
+  assert.equal(h.state.rootKind, "package");
+  assert.equal(h.state.platformSelection, null);
+  assert.equal(h.picker.resets, 0);
   assert.deepEqual(h.toasts, [
     "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
   ]);

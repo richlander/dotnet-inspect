@@ -452,6 +452,7 @@ export function retainWorkspacePackage<T extends PackageIdentity>(
   activePackage: T | null | undefined,
   packageModel: T,
   replacedPackage: T | null = null,
+  capacity = MAX_WORKSPACE_PACKAGES,
 ): RetainWorkspacePackageResult<T> {
   const evicted: T[] = [];
   const next = packages.filter(item => {
@@ -466,7 +467,7 @@ export function retainWorkspacePackage<T extends PackageIdentity>(
   else
     next.push(packageModel);
 
-  while (next.length > MAX_WORKSPACE_PACKAGES) {
+  while (next.length > capacity) {
     const eviction = next.findIndex(item =>
       packageIdentityKey(item) !== packageIdentityKey(activePackage)
       && packageIdentityKey(item) !== packageIdentityKey(packageModel));

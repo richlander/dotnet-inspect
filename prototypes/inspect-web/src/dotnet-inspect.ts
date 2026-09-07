@@ -2467,11 +2467,18 @@ function retainPackageModel(
     replacedPackage = state.packages.find(pkg => pkg.source.kind === "platform") ?? replacedPackage;
   }
   const activeWasReplaced = packageIdentityEquals(state.package, packageModel);
+  const retainedPackageCapacity =
+    packageModel.source.kind !== "platform"
+    && state.platformSelection
+    && !state.packages.some(pkg => pkg.source.kind === "platform")
+      ? MAX_WORKSPACE_PACKAGES - 1
+      : MAX_WORKSPACE_PACKAGES;
   const retained = retainWorkspacePackage(
     state.packages,
     state.package,
     packageModel,
-    replacedPackage);
+    replacedPackage,
+    retainedPackageCapacity);
   state.packages = retained.packages;
   if (activeWasReplaced)
     state.package = packageModel;
@@ -7405,12 +7412,8 @@ async function ensurePlatformCatalog(tfm: string, version?: string): Promise<Pla
 }
 
 function installPlatformTarget(target: PlatformCatalogTarget) {
-  if (!state.platformSelection
-    && workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES) {
-    throw new Error(
-      `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. `
-      + "Remove a package before opening Platform.");
-  }
+  const capacityError = platformCoordinateCapacityError();
+  if (capacityError) throw new Error(capacityError);
   const previous = state.platformSelection;
   state.rootKind = "platform";
   state.platformSelection = {
@@ -7433,6 +7436,14 @@ function installPlatformTarget(target: PlatformCatalogTarget) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
+}
+
+function platformCoordinateCapacityError() {
+  return !state.platformSelection
+    && workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES
+      ? `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. `
+        + "Remove a package before opening Platform."
+      : "";
 }
 
 function refreshPlatformStatus() {
@@ -7486,11 +7497,9 @@ async function openPlatformSubject(
   tfm = state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
   version = state.platformSelection?.version,
 ) {
-  if (!state.platformSelection
-    && workspaceCoordinateCount() >= MAX_WORKSPACE_PACKAGES) {
-    showToast(
-      `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. `
-      + "Remove a package before opening Platform.");
+  const capacityError = platformCoordinateCapacityError();
+  if (capacityError) {
+    showToast(capacityError);
     return;
   }
   const sequence = navigationSequence.begin();
@@ -8172,6 +8181,11 @@ async function openPlatformLibrary(
   pack: string,
   options: OpenPlatformLibraryOptions = {},
 ) {
+  const capacityError = platformCoordinateCapacityError();
+  if (capacityError) {
+    showToast(capacityError);
+    return undefined;
+  }
   const scopeOnly = options.scopeOnly === true;
   const navigationGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
@@ -8205,6 +8219,7 @@ async function openPlatformLibrary(
     if (pkg.version !== target.version || pkg.activeFramework !== target.tfm) {
       throw new Error("The inspected Library does not match the selected Platform target.");
     }
+    if (!state.packages.includes(pkg)) retainPackageModel(pkg);
     platformPackages.set(platformTargetKey(target), pkg);
     const libraries = pkg.assemblies.filter(item => platformLibraryMatchesDescriptor(row, item));
     if (libraries.length !== 1) throw new Error(`The Platform inspection did not return an exact descriptor for ${row.assembly}.`);
