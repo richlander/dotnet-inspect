@@ -194,6 +194,16 @@ focused consumer rebuilds and checks the composed Release graph after merge;
 pull-request and merge-group candidates instead run the same policy inside
 their selected pre-merge test job.
 
+A validation's selection set must cover its entire scan set. A repository-wide
+scan therefore selects every pre-merge candidate rather than deriving
+relevance from narrower project ownership. Accordingly, every pull-request and
+merge-group candidate selects `repositoryGuards` independently of changed
+paths. Its focused consumer runs tests whose asserted surfaces are wider than
+their owning projects: the tracked repository tree for line endings and every
+non-excluded top-level source root for legacy package-source identity. This
+does not broaden the ordinary `test` lane for documentation-only or
+inspect-web-only candidates.
+
 Two conservative inventory policies are current and named. When
 `eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
 change broadens to the Browser/Wasm lane. When
@@ -290,7 +300,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -303,6 +313,7 @@ Conceptually:
   },
   "validations": {
     "test": true,
+    "repositoryGuards": true,
     "dependencyPolicy": false,
     "markdownlint": false,
     "ilRoundtrip": true,
@@ -326,13 +337,14 @@ Path corpora and refusal diagnostics remain outside the plan.
 Concretely, the serialized plan is one compact UTF-8 JSON object containing
 only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
-carries every field — `test`, `dependencyPolicy`, `csharpDiffSmoke`,
-`decompilerGates`, `markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`,
-`buildNet10`, `inspectWeb`, `skillGate`, `tla`, `codeqlActions`,
-`codeqlCSharp`, and `codeqlJavaScript` — so a consumer never distinguishes
-"false" from "absent". `ilRoundTrip` implies `test` as a construction
-invariant. A scope descriptor names its artifact, record framing, record
-count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan
+carries every field — `test`, `repositoryGuards`, `dependencyPolicy`,
+`csharpDiffSmoke`, `decompilerGates`, `markdownlint`, `ilDiffSmoke`,
+`ilRoundTrip`, `pack`, `buildNet10`, `inspectWeb`, `skillGate`, `tla`,
+`codeqlActions`, `codeqlCSharp`, and `codeqlJavaScript` — so a consumer never
+distinguishes "false" from "absent". `ilRoundTrip` implies `test` as a
+construction invariant. A scope descriptor names its artifact, record
+framing, record count, and digest; the TLA+ artifact is
+`ci-plan-tla-paths0`. The plan
 publisher writes scoped evidence and then the single plan line only after the
 serialized bytes have been re-parsed and revalidated by the strict plan
 reader, so a plan a consumer would reject never reaches one.
@@ -467,8 +479,8 @@ The planner implementation gate must also cover:
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
   refusal; and
-- a neighboring docs-only candidate that selects documentation validation
-  without unrelated content gates.
+- a neighboring docs-only candidate that selects documentation validation and
+  repository-wide guards without ordinary content gates.
 
 Workflow-adoption evidence separately demonstrates that GitHub accepts the
 workflow, the non-matrix producer publishes exactly one compact plan, and
@@ -477,12 +489,14 @@ event or path policy. Review checks the fail-closed publication boundary,
 execution-local conditions such as matrix placement, and aggregate handling of
 a planner job that fails, is skipped, is cancelled, or never starts.
 
-The repository intentionally does not parse workflow YAML to pin the projection
-text or reimplement GitHub expression semantics. The actual PR workflow run and
-adversarial review are the wiring evidence, while planner values and aggregate
-result safety remain persistently gated. Consequently, the absence of
-arbitrary future duplicate routing expressions is specified and review-owned,
-not claimed as a persistently enforced repository invariant.
+The workflow contract parses YAML to pin consumers to their intended
+`validations.*` projections and reject independently routed consumer steps. It
+does not reimplement GitHub expression semantics. The actual PR workflow run
+and adversarial review are the execution evidence, while planner values and
+aggregate result safety remain persistently gated. Consequently, the absence
+of arbitrary future duplicate routing expressions outside covered consumers
+is specified and review-owned, not claimed as a persistently enforced
+repository invariant.
 
 The demo is one planner invocation for the #5347 rename-into-model fixture. Its
 plan selects TLA+, and the TLA+ job verifies and consumes the planner-assigned
