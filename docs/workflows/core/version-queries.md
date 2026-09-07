@@ -202,7 +202,7 @@ provenance. `--versions-with-feed` keeps it, emitting one row per (version, feed
 pair, so a version carried by two sources appears twice.
 
 ```bash
-dotnet-inspect package System.CommandLine --versions-with-feed 3 --tsv
+dotnet-inspect package System.CommandLine --versions-with-feed -n 3 --tsv
 ```
 
 ```query
@@ -218,7 +218,7 @@ The interesting case is more than one source. `System.CommandLine` is available
 from both nuget.org and the public `dotnet-public` feed:
 
 ```bash
-dotnet-inspect package System.CommandLine --versions-with-feed 4 \
+dotnet-inspect package System.CommandLine --versions-with-feed -n 4 \
   --source https://api.nuget.org/v3/index.json \
   --source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-public/nuget/v3/index.json
 ```
@@ -237,11 +237,11 @@ multiple-feeds
 duplicate-version
 ```
 
-Two things to note. The limit counts **versions, not rows**, so `4` can produce
-more than four rows when a version is served by both feeds. And the feed label
-is the source's configured name when it has a meaningful one, otherwise the
-host; sources passed as bare `--source` URLs all carry the same internal name,
-so the host is what distinguishes them.
+Two things to note. `-n 4` selects four complete version/feed rows after all
+eligible sources have contributed and the aggregate's completeness is known.
+The feed label is the source's configured name when it has a meaningful one,
+otherwise the host; sources passed as bare `--source` URLs all carry the same
+internal name, so the host is what distinguishes them.
 
 ### 3c. Listing status accompanies each feed row
 
@@ -249,7 +249,7 @@ Unlisted versions are hidden here exactly as they are from `--versions`. Add
 `--include-unlisted` to show them, and a `Listing` column appears:
 
 ```bash
-dotnet-inspect package Markout --versions-with-feed 3 --include-unlisted \
+dotnet-inspect package Markout --versions-with-feed -n 3 --include-unlisted \
   --source https://api.nuget.org/v3/index.json
 ```
 

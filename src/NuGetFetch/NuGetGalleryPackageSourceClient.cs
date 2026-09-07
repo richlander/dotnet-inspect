@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 
 namespace NuGetFetch;
@@ -170,28 +172,105 @@ internal sealed class NuGetGalleryPackageSourceClient : INuGetGalleryPackageSour
                         exception);
                 }
 
-                return PackageSourceProjection.ProjectSearch(
-                    _results,
+                return ProjectPrefixSearch(
                     result.Matches,
-                    operation,
-                    result.Completion switch
-                    {
-                        PrefixSearchCompletion.Complete =>
-                            PackageSearchTruncationReason.None,
-                        PrefixSearchCompletion.TakeReached =>
-                            PackageSearchTruncationReason.RequestedLimit,
-                        PrefixSearchCompletion.SourcePageLimitReached =>
-                            PackageSearchTruncationReason.SourcePageLimit,
-                        PrefixSearchCompletion.ClientPageLimitReached =>
-                            PackageSearchTruncationReason.ClientPageLimit,
-                        _ => throw new InvalidOperationException(
-                            "Unknown prefix-search completion state."),
-                    });
+                    result.Completion,
+                    operation);
             },
             cancellationToken,
             operationContext: operationContext,
             operationDeadline: operation).ConfigureAwait(false);
     }
+
+    public async IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixPagesAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        cancellationToken = operationContext?.ResolveInvocationToken(
+            cancellationToken) ?? cancellationToken;
+        SearchService.PrefixSearchCursor cursor =
+            _search.CreatePrefixSearchCursor(
+                prefix, take, prerelease, auth: null, MaximumSearchSkip);
+        TimeSpan remaining = _options.OperationTimeout;
+        while (!cursor.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (operationContext is null && remaining <= TimeSpan.Zero)
+            {
+                yield return _results.FailedSearch(PackageSourceFailureKind.Timeout);
+                yield break;
+            }
+
+            long started = Stopwatch.GetTimestamp();
+            PackageSourceOperationResult<PackageSearchResult> outcome;
+            using (NuGetOperationDeadline operation = operationContext is null
+                ? new NuGetOperationDeadline(
+                    _options with { OperationTimeout = remaining },
+                    _client.Timeout,
+                    cancellationToken,
+                    Source)
+                : CreateOperation(cancellationToken, operationContext))
+            {
+                outcome = await PackageSourceOperation.CaptureSearchAsync(
+                    _results,
+                    async () =>
+                    {
+                        SearchService.PrefixSearchPage page;
+                        try
+                        {
+                            page = await cursor.ReadNextAsync(operation)
+                                .ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException exception)
+                            when (exception.GetType()
+                                == typeof(InvalidOperationException))
+                        {
+                            throw new NuGetSourceResponseException(
+                                "The NuGet Gallery prefix-search response did not satisfy the search contract.",
+                                exception);
+                        }
+
+                        return ProjectPrefixSearch(
+                            page.Matches, page.Completion, operation);
+                    },
+                    cancellationToken,
+                    operationContext,
+                    operation).ConfigureAwait(false);
+            }
+
+            // No source work or deadline resource remains live across the yield.
+            remaining -= Stopwatch.GetElapsedTime(started);
+            yield return outcome;
+            if (outcome.Failure is not null)
+                yield break;
+        }
+    }
+
+    private PackageSearchResult ProjectPrefixSearch(
+        IReadOnlyList<SearchResult> matches,
+        PrefixSearchCompletion? completion,
+        NuGetOperationDeadline operation) =>
+        PackageSourceProjection.ProjectSearch(
+            _results,
+            matches,
+            operation,
+            completion switch
+            {
+                null or PrefixSearchCompletion.Complete =>
+                    PackageSearchTruncationReason.None,
+                PrefixSearchCompletion.TakeReached =>
+                    PackageSearchTruncationReason.RequestedLimit,
+                PrefixSearchCompletion.SourcePageLimitReached =>
+                    PackageSearchTruncationReason.SourcePageLimit,
+                PrefixSearchCompletion.ClientPageLimitReached =>
+                    PackageSearchTruncationReason.ClientPageLimit,
+                _ => throw new InvalidOperationException(
+                    "Unknown prefix-search completion state."),
+            });
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,

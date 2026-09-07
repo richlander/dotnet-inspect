@@ -10,9 +10,10 @@ row-selection composition pattern locked by
 Implementation is partial. #5557 implements one already-resolved, one-cohort
 Rows path: request-local sequence-key binding, one named semantic invocation,
 and typed success or strict-failure rebinding. #5625 adds the immutable typed
-selection-operation intent received before schema and order resolution.
-Row-intent association and resolution, projection, Count, source outcomes, and
-multiple-cohort composition remain unimplemented.
+selection-operation intent received before schema and order resolution. #5786
+binds Head, Tail, and Window intent directly to one unordered cohort for
+package-version rows. Ordered/ranked intent resolution, projection, Count,
+source outcomes, and multiple-cohort composition remain unimplemented.
 
 Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -575,6 +576,7 @@ The one-cohort Rows implementation is enforced by:
 | Gate | Contract |
 | --- | --- |
 | `RowsCohortPreservesOwnerIdentityAndSelection` | One cohort preserves declared identity and order through composed semantic selection, including resolver reuse once per reached `Top` stage across row sets. |
+| `RowsCohortAppliesUnorderedIntentInDeclaredOrder` | Head, Tail, and Window intent lowers in declared order for an unordered cohort; Top is rejected rather than acquiring an implicit ranking. |
 | `RowsCohortBindsStrictFailureAtomically` | A strict semantic failure binds to its exact declared identity and publishes no selected row sets. |
 | `RowsCohortRejectsAmbiguousOrInvalidInput` | Empty cohorts, duplicate identities, and invalid required inputs reject before plausible output; resolver and comparer exceptions propagate unchanged. |
 | `RowsCohortSnapshotsInputsAndResults` | Input and result collection membership and order are snapshots while row values remain caller-owned objects. |
