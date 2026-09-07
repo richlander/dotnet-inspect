@@ -844,6 +844,7 @@ bindings. These properties are gated by
 `ToRunPlan_RejectsUnsupportedPlatformFamily`,
 `ToRunPlan_RejectsNonUniformPlatformTarget`,
 `ToRunPlan_RejectsPlatformFrameworkConflictingWithContext`,
+`ToRunPlan_RejectsFloatingPlatformVersion`,
 `ToRunPlan_RejectsCaseInsensitivePlatformDuplicates`,
 `ToRunPlan_PlatformWorkspacePreservesNonFirstFocus`,
 `ToRunPlan_RejectsUnsupportedBrowserSection`,

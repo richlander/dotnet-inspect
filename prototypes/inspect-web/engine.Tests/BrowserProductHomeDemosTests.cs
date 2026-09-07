@@ -288,6 +288,20 @@ public sealed class BrowserProductHomeDemosTests
     }
 
     [Fact]
+    public void ToRunPlan_RejectsFloatingPlatformVersion()
+    {
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(
+                () => BrowserProductHomeDemos.ToRunPlan(
+                    ResolveSyntheticPlatformScenario(
+                        version: "latest")));
+
+        Assert.Contains(
+            "must pin an exact version for browser execution",
+            error.Message);
+    }
+
+    [Fact]
     public void ToRunPlan_PlatformWorkspacePreservesNonFirstFocus()
     {
         BrowserHomeDemoRunPlan plan =

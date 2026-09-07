@@ -277,6 +277,16 @@ internal static class BrowserProductHomeDemos
                 + "assembly, version, and framework for browser execution.");
         }
 
+        if (platformVersion.Equals(
+            "latest",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{scenarioId}' Platform coordinate "
+                + $"'{platform.Family}:{assembly}' must pin an exact version "
+                + "for browser execution.");
+        }
+
         return new BrowserHomeDemoRunRequest.Platform(
             platform.Family,
             assembly,
