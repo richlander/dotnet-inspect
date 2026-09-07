@@ -455,6 +455,40 @@ installed hive, which applies equally to an assembly that does have a package
 twin. The distinction is designated-versus-platform, not twinned-versus-not,
 which is why it stays orthogonal to this owner.
 
+## The inventory is a queryable fact, not only a decision input
+
+Pruning decides edges, but the inventory that decides them is data with more
+than one use. It should be readable directly, as a section, rather than being
+observable only through its effects.
+
+This matters most for agents and for auditability. An agent asking why a
+reference resolved to the platform, or which packages a target subsumes before
+running anything, should read the rule rather than infer it from outcomes. A
+person debugging an unexpected delegation has the same need. Both are badly
+served by a fact that exists only inside a decision.
+
+Treating the inventory as a data source rather than a private input has one
+design consequence, which is why it belongs here: **the projection is part of
+this owner's contract, not an implementation detail.** Package identity, the
+supplying family, the live flag, and the supplied version are the fields a
+consumer may rely on and this owner may not reshape freely. The in-memory
+comparison API and the rendered rows are two projections of the same fact.
+
+Section shape is the section owner's to register, not this document's, but the
+axes follow from the data:
+
+| Axis | Value | Why |
+| --- | --- | --- |
+| `SizeClass` | `Verbose` | 440 entries at `net11.0` across both families |
+| `Cost` | `NetworkFree` from the shipped projection; `Moderated` when a reference pack must be acquired | Matches the [staleness contract](#staleness-contract): shipped data answers immediately, acquisition sharpens it |
+| Execution policy | `ExplicitOnly` | It is not the single high-value section of any command, so it must not enter an automatic verbosity preset |
+
+The rows should distinguish live from frozen entries and name the supplying
+family, since those are the two facts that explain a subsumption result rather
+than merely restating it.
+
+This is design intent for the projection slice; nothing here is implemented.
+
 ## Correspondence with the NuGet specification
 
 `PrunePackageReference` is specified in three accepted NuGet designs:
@@ -611,6 +645,7 @@ Implemented gates live in
 | Navigation inside a selected package stays in it | `Pruning_IntraAssemblyNavigationDoesNotDelegate` | pending — consumer slice |
 | A subsumed edge delegates although the workspace holds the package | `Pruning_ContainedPackageDoesNotCaptureSubsumedEdge` | pending — consumer slice |
 | Search advertises a subsumed name as both | `Pruning_SubsumedNameRemainsSelectableAsPackage` | pending — consumer slice |
+| The inventory projects to stable rows carrying family, live flag, and supplied version | `Pruning_InventoryProjectsAuditableRows` | pending — projection slice |
 
 A pending gate names the slice that lands it. `Pruning_UnknownTargetIsNotSubsumed`
 was removed rather than left unimplemented: an inventory *is* its target, so an
