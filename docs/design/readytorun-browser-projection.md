@@ -20,9 +20,11 @@ values, decode metadata, or infer root identity from display text.
 
 ## Claim
 
-For one selected library, the managed facade projects:
+For one selected library admitted through its CLI assembly identity, the
+managed facade projects:
 
-- the independently available CLI and ReadyToRun manifest metadata roots;
+- the CLI metadata outcome and independently optional ReadyToRun manifest
+  metadata outcome;
 - each root's requested and canonical identity, image overview, tables, and
   heaps;
 - the validated ReadyToRun image overview and complete section directory; and
@@ -34,9 +36,16 @@ summary. Metadata Explorer carries that same root in its state and supplies it
 to every table-window and heap-listing request. A manifest selection never
 falls back to CLI metadata.
 
-The default remains the CLI root when it is available. If an image has no CLI
-root but has a valid manifest root, Package Metadata selects the manifest
-rather than presenting the artifact as metadata-free.
+The default remains the CLI root when it is available. If the CLI-root
+projection fails after participant admission but a valid manifest root remains
+available, Package Metadata selects the manifest rather than suppressing the
+healthy result.
+
+This owner does not broaden assembly-context admission. A selected library
+must have the readable CLI assembly identity required by the existing
+workspace participant contract. Native or composite ReadyToRun containers
+that expose manifest metadata without an admitted CLI assembly identity are
+not selected libraries in this slice.
 
 ## Managed facade
 
@@ -60,10 +69,11 @@ with its numeric identity. TypeScript renders those fields but does not
 reclassify the image or discover the manifest section.
 
 The facade may perform the CLI-root, manifest-root, and ReadyToRun queries
-independently against the same immutable workspace participant. This preserves
-partial success: malformed ReadyToRun structure does not erase a readable CLI
-root, and malformed CLI metadata does not erase an independently readable
-manifest root.
+independently against the same immutable, admitted workspace participant. This
+preserves partial success after admission: malformed ReadyToRun structure does
+not erase a readable CLI root, and a CLI-root projection failure does not erase
+an independently readable manifest root. A failure that prevents workspace
+participant admission remains a library-level acquisition failure.
 
 ## Package Metadata
 
@@ -130,6 +140,9 @@ interaction and rendering responsibilities.
   and never retries against another root.
 - Acquisition failure remains a library-level failure rather than successful
   emptiness.
+- An image without the CLI assembly identity required for workspace admission
+  remains an acquisition failure; this slice does not salvage a manifest-only
+  native or composite container.
 
 ## Gates
 
@@ -157,6 +170,8 @@ This slice does not:
 - decode ReadyToRun native methods, imports, fixups, GC information, or section
   payloads other than manifest metadata through the existing metadata owner;
 - add TypeScript PE or metadata parsing;
+- broaden assembly-context admission to native or composite ReadyToRun
+  containers that lack a CLI assembly identity;
 - make ReadyToRun a separate persistent navigation subject or lens;
 - persist metadata-root selection in Workspace packets or browser URLs; or
 - change metadata projection budgets, table coverage, or heap completeness.

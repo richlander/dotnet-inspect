@@ -146,7 +146,7 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataOverview_PreservesManifestWhenCliRootIsAbsent()
+    public void MetadataOverview_PreservesManifestWhenCliProjectionFails()
     {
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
@@ -163,7 +163,9 @@ public sealed class BrowserMetadataOperationsTests
                     "System.Private.CoreLib.dll",
                     new AssemblyContextEntry<MetadataImageResult>.Available(
                         manifest.Subject,
-                        new MetadataImageResult.NoMetadata()),
+                        new MetadataImageResult.Failed(
+                            new BadImageFormatException(
+                                "Malformed CLI root."))),
                     manifest,
                     entries.ReadyToRun));
 
@@ -171,7 +173,9 @@ public sealed class BrowserMetadataOperationsTests
         Assert.Equal(
             nameof(MetadataRootKind.ReadyToRunManifest),
             root.RequestedRoot);
-        Assert.Null(result.CliMetadataError);
+        Assert.StartsWith(
+            "Assembly inspection failed",
+            result.CliMetadataError);
     }
 
     [Fact]
