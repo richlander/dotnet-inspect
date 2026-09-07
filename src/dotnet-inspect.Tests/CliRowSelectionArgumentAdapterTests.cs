@@ -842,6 +842,99 @@ public sealed class CliRowSelectionArgumentAdapterTests
                 .LineIntent.Count);
     }
 
+    [Fact]
+    public void CliRowSelectionExplicitScalarOptionBindingsLower()
+    {
+        var limit = new Option<int?>("-n");
+        var rows = new Option<string?>("--rows");
+        var top = new Option<int?>("--top");
+        var orderBy = new Option<string?>("--order-by");
+        var head = new Option<bool>("--head");
+        var tail = new Option<bool>("--tail");
+        var lines = new Option<bool>("--lines");
+        var tailLines = new Option<bool>("--tail-lines");
+        var command = new Command("demo")
+        {
+            limit,
+            rows,
+            head,
+            tail,
+            lines,
+            tailLines
+        };
+        var root = new RootCommand
+        {
+            command
+        };
+
+        CliRowSelectionArgumentResult result =
+            CliRowSelectionArgumentAdapter.LowerExplicit(
+                root,
+                [
+                    "demo",
+                    "--rows",
+                    "2..4",
+                    "-n2"
+                ],
+                new(
+                    limit,
+                    rows,
+                    top,
+                    orderBy,
+                    head,
+                    tail,
+                    lines,
+                    tailLines),
+                CliRowSelectionCapabilities.HeadTail
+                    | CliRowSelectionCapabilities.Window);
+
+        Assert.False(result.HasParseErrors);
+        Assert.Null(result.ArgumentFailure);
+        Assert.True(result.LoweringResult!.IsSuccess);
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Window,
+                RowSelectionStageKind.Head
+            ],
+            result.LoweringResult.Value!.SemanticIntent
+                .Operations.Select(operation => operation.Kind));
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public void CliRowSelectionExplicitPresenceArityPreservesLegacyBinding(
+        string modifierName)
+    {
+        Fixture fixture = new();
+        Option<bool> modifier = modifierName == "--head" ? fixture.Head : fixture.Tail;
+        modifier.Arity = ArgumentArity.ZeroOrOne;
+        Assert.False(fixture.Parse(["demo", modifierName, "false"]).GetValue(modifier));
+
+        CliRowSelectionArgumentResult result = fixture.Success(
+            ["demo", modifierName, "false", "-n", "1"]);
+
+        Assert.Equal(
+            ["false"],
+            Assert.IsType<string[]>(result.ParseResult.GetValue(fixture.Positionals)));
+        Assert.True(result.ParseResult.GetValue(modifier));
+        Assert.False(fixture.Parse(["demo", modifierName, "false"]).GetValue(modifier));
+    }
+
+    [Fact]
+    public void CliRowSelectionRawOwnershipPreservesCompactOptionExpansion()
+    {
+        Fixture fixture = new();
+        string[] arguments = ["demo", "-n1", "--required", "--head", "--tail"];
+        CliRowSelectionArgumentResult result = fixture.Success(arguments);
+
+        Assert.Equal("--head", result.ParseResult.GetValue(fixture.Required));
+        Assert.NotNull(result.LoweringResult);
+        Assert.Equal(
+            RowSelectionStageKind.Tail,
+            Assert.Single(result.LoweringResult.Value!.SemanticIntent.Operations).Kind);
+    }
+
     private sealed class Fixture
     {
         private readonly RootCommand _root;
@@ -1033,6 +1126,8 @@ public sealed class CliRowSelectionArgumentAdapterTests
                     arguments,
                     _bindings,
                     _capabilities);
+
+        public ParseResult Parse(string[] arguments) => _root.Parse(arguments);
 
         public CliRowSelectionArgumentResult Success(
             string[] arguments)
