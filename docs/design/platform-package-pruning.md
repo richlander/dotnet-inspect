@@ -560,7 +560,7 @@ exact because its source target now matches.
 
 The first implementation slice is #6239. Its gates live in
 `DotnetInspector.Services.Tests.PlatformPruneInventoryTests` and run with
-`dotnet run --project src/DotnetInspector.Services.Tests -c Release`.
+`dotnet run --project tests/DotnetInspector.Services.Tests -c Release`.
 
 | Property | Gate | State |
 | --- | --- | --- |

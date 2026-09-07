@@ -337,7 +337,7 @@ threshold, placement convention, and existing consumers.
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
 | Additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
-| Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
+| Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
 

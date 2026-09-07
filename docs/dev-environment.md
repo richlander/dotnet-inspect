@@ -156,6 +156,22 @@ resources live under `tests/`; the independently compiled binaries it inspects
 remain under `fixtures/`. See
 [repository layout](fixture-governance.md#repository-layout).
 
+### Shared services tests
+
+Build the solution before running the shared-services suite so its route-learning
+FixtureCatalog binaries are available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source lives under
+`tests/`; independently compiled route-learning inputs and static signed-package
+archives remain under `fixtures/services/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ## Test tooling activation
 
 The CLI and decompiler suites skip `ilasm`/`ildasm` checks when those tools are
