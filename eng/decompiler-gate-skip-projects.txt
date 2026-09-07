@@ -81,7 +81,6 @@ src/DotnetInspector.Queries.Tests
 src/DotnetInspector.Sections
 src/DotnetInspector.Services.Tests
 src/DotnetInspector.SourceDelegation
-src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.Analysis.Tests
