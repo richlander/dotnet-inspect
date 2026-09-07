@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 using InertText;
 
 namespace DotnetInspector.Tests;
@@ -456,6 +457,10 @@ public class MarkoutRowContainmentTests
             6,
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspector.Views.PackageSourceIntegritySection)));
+        Assert.Equal(
+            3,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.PackageQueryRow)));
 
         Assert.Equal(OutOfReach, declined.Order(StringComparer.Ordinal).ToArray());
 
@@ -624,6 +629,11 @@ public class MarkoutRowContainmentTests
             // InspectionResultView projects a model rather than accepting text
             // columns directly, so give it hostile values through that model.
             return PackageInspectionTextTests.CompleteResult(Hostile);
+        }
+
+        if (type == typeof(PackageQueryMatch))
+        {
+            return PackageQueryCliTests.ContainmentMatch(Hostile);
         }
 
         if (type == typeof(InertString))

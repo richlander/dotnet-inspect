@@ -9,6 +9,12 @@ namespace DotnetInspector.Options;
 /// </summary>
 public sealed record BodyKindQueryOptions
 {
+    public static IReadOnlyList<string> Sections { get; } =
+        [SectionNames.BodyShapes, SectionNames.BodyShapeSummary];
+
+    internal static bool IsSelected(IEnumerable<string>? sections)
+        => sections?.Any(section => Sections.Contains(section, StringComparer.OrdinalIgnoreCase)) == true;
+
     /// <summary>No body-kind predicate.</summary>
     public static BodyKindQueryOptions Default { get; } = new();
 

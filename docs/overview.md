@@ -70,8 +70,11 @@ substrates, and inspection producers that will extend that space.
   assembly content; the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
-  owns an explicit two-endpoint attempt over one resolved member. The project
-  has no Markout, console, or filesystem-path dependency.
+  owns an explicit two-endpoint attempt over one resolved member. The proposed
+  [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
+  package-activity report's request, evidence categories, selection, and
+  coverage, including the six-week default and qualified security overlay.
+  The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -91,6 +94,9 @@ substrates, and inspection producers that will extend that space.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
+  Its decoded string-literal producer uses the `InertText` leaf for
+  construction-time containment of artifact-authored evidence. Semantic
+  matching uses the original decoded text, never its contained display form.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
 - `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
@@ -141,7 +147,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing. It owns the accepted package/metadata XML structure
+  and nuspec parsing. `AssemblyDependencyResolver` owns the
+  [assembly dependency candidate inventory](design/assembly-dependency-candidate-inventory.md):
+  explicit undiscarded discovery evidence, target-input association and
+  acquisition outcomes before consumer selection.
+  Services owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
   Its [package metadata persistence](design/package-metadata-persistence.md)
@@ -191,6 +201,17 @@ substrates, and inspection producers that will extend that space.
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Browser comparison targets](design/inspect-web-comparison-targets.md) owns
+  session-local Package Diff and Clone target intent, inheritance during
+  subject navigation, and target-setting controls. It does not own acquisition
+  authority, comparison execution, or portable Workspace fields.
+- [Library API diff presentation](design/library-api-diff-presentation.md)
+  owns the portable Library-root and changed-Type projection of one complete
+  selected-library API comparison. It preserves Metadata identity,
+  correspondence, and compatibility classification without owning Browser
+  transport or text rendering. Its Browser adopter retires #6076's transient
+  Compare-authored-source interaction with zero compatibility rather than
+  adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
@@ -441,6 +462,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member source diff presentation](design/member-source-diff-presentation.md):
   canonical placement-aligned endpoint text, source-line analysis and statistics,
   Markout mapped-text lowering, and the CLI Source Diff first adoption.
+- [Library API diff presentation](design/library-api-diff-presentation.md):
+  portable Library-root changed-Type composition, complete compatibility
+  changes, and distinct changed-member summaries for shared host adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
