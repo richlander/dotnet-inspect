@@ -42,6 +42,7 @@ export type PackageQueryFocusSnapshot =
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "discover" }
+  | { kind: "results" }
   | { kind: "type" | "order" | "prerelease" }
   | { kind: "facet"; facetKey: string }
   | { kind: "row"; packageId: string; version: string }
@@ -91,6 +92,7 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-discover") return { kind: "discover" };
+  if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-type") return { kind: "type" };
   if (active.id === "package-query-order") return { kind: "order" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
@@ -134,6 +136,9 @@ export function restorePackageQueryFocus(
       break;
     case "discover":
       target = root.querySelector("#package-query-discover");
+      break;
+    case "results":
+      target = root.querySelector("#package-query-results");
       break;
     case "type":
     case "order":

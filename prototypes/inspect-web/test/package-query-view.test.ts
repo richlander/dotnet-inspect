@@ -1034,23 +1034,42 @@ test("a vanished query control reports prefix fallback", () => {
   }
 });
 
-test("a virtualized query row reports results-region fallback", () => {
+test("a virtualized query row keeps results focus across later renders", () => {
   const active = new FakeElement({
     queryRowOpen: "Vanished.Package",
     queryRowVersion: "1.0.0",
   });
-  const results = new FakeElement({}, "package-query-results");
-  const root = new FakeRoot(active);
-  root.add("#package-query-results", results);
+  const firstResults = new FakeElement({}, "package-query-results");
+  const firstRoot = new FakeRoot(active);
+  firstRoot.add("#package-query-results", firstResults);
   // Test fake implements the Document and ParentNode subset consumed by the helpers.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const documentRoot = root as unknown as Document;
+  const firstDocument = firstRoot as unknown as Document;
 
-  const snapshot = capturePackageQueryFocus(documentRoot);
-  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+  const rowSnapshot = capturePackageQueryFocus(firstDocument);
+  const rowRestoration = restorePackageQueryFocus(firstDocument, rowSnapshot);
 
-  assert.equal(restoration, "fallback");
-  assert.equal(results.focusCount, 1);
+  assert.equal(rowRestoration, "fallback");
+  assert.equal(firstResults.focusCount, 1);
+
+  const nextResults = new FakeElement({}, "package-query-results");
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const nextRoot = new FakeRoot(firstResults);
+  nextRoot.add("#package-query-results", nextResults);
+  nextRoot.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const nextDocument = nextRoot as unknown as Document;
+
+  const resultsSnapshot = capturePackageQueryFocus(nextDocument);
+  const resultsRestoration = restorePackageQueryFocus(
+    nextDocument,
+    resultsSnapshot);
+
+  assert.deepEqual(resultsSnapshot, { kind: "results" });
+  assert.equal(resultsRestoration, "restored");
+  assert.equal(nextResults.focusCount, 1);
+  assert.equal(prefix.focusCount, 0);
 });
 
 test("a CSS-hidden query control reports prefix fallback", () => {

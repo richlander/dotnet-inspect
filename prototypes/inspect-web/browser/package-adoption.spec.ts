@@ -554,6 +554,9 @@ test.describe("Package Query website over real Wasm", () => {
 
     await expect(footer).toContainText("20 packages");
     await expect(page.locator(".query-row")).toHaveCount(20);
+    const firstOpen = page.locator("[data-query-row-open]").first();
+    await firstOpen.focus();
+    await expect(firstOpen).toBeFocused();
     for (let target = 30; target <= 100; target += 10) {
       await main.evaluate(element => {
         element.scrollTop = element.scrollHeight;
@@ -564,6 +567,9 @@ test.describe("Package Query website over real Wasm", () => {
       }).toBeGreaterThanOrEqual(target);
       expect(await page.locator(".query-row").count())
         .toBeLessThanOrEqual(30);
+      if (target >= 40) {
+        await expect(page.locator("#package-query-results")).toBeFocused();
+      }
     }
 
     await expect(footer)
