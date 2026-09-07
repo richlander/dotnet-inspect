@@ -226,7 +226,8 @@ Some supplied versions move with platform patches, such as
 `System.Text.Json`; many legacy ceilings remain literal, such as
 `System.Runtime|4.3.1`. The distinction matters for freshness but is not
 inferred into the shipped projection. A projected literal is always safe to
-compare, and an acquired exact inventory supplies the current ceiling directly.
+compare for its committed target, and an acquired exact inventory supplies the
+current ceiling for another target directly.
 
 ## Consumer composition boundary
 
@@ -251,6 +252,101 @@ examples as part of this owner's contract. In particular, it does not compare
 assembly versions with package versions, infer package existence from catalog
 or inventory absence, or define an app-authored-reference exemption.
 
+### Worked example: availability is a composed answer
+
+The inventory becomes useful when another owner joins it to facts from package
+discovery and the platform catalog. Keeping the columns separate shows why no
+one column can answer the final question:
+
+| Name | Inventory entry | Catalog library | Published package | What this owner establishes |
+| --- | --- | --- | --- | --- |
+| `System.Text.Json` | yes | yes | yes | The target supplies the package identity through a version ceiling |
+| `Microsoft.Extensions.FileProviders.Embedded` | no | yes | yes | The target makes no package-subsumption claim |
+| `System.Private.CoreLib` | no | yes | no known package | The target makes no package-subsumption claim |
+| `Newtonsoft.Json` | no | no | yes | The target makes no package-subsumption claim |
+
+The second row is the discriminator. Calling every catalog library without an
+inventory entry platform-only would erase a real package. Calling every absent
+entry package-only would erase the platform library. A search or routing owner
+can still produce a three-way user-facing answer, but only after it joins all
+three facts.
+
+### Worked example: the ceiling matters
+
+For an exact .NET 11 inventory whose `System.Text.Json` entry supplies version
+11, the comparison produces:
+
+| Requested package version | Owner result | Why |
+| --- | --- | --- |
+| `9.0.0` | `Subsumed` | Below the supplied version |
+| `10.0.0` | `Subsumed` | NuGet semantic order, not string order |
+| `11.0.0` | `Subsumed` | The ceiling is inclusive |
+| `12.0.0` | `NotSubsumed` | The package has leapfrogged the platform |
+| absent, floating, or unparsable | `NotComparable` | There is no safe version comparison |
+
+The table stops at the owner boundary. A traversal owner may use
+`Subsumed` when deciding whether package acquisition is necessary, while a
+search owner may use it when ranking two already-known subjects. Neither
+outcome is implied by the comparison itself.
+
+### Worked example: the selected dependency group comes first
+
+`System.Text.Json` 10.0.0 illustrates why this fact is not an
+`AssemblyRef` classifier:
+
+| Dependency group | Declared package dependencies |
+| --- | --- |
+| `net10.0` | 0 |
+| `net9.0`, `net8.0` | 2 |
+| `netstandard2.0` | 7 |
+| `net462` | 8 |
+
+Its `net10.0` assembly still carries 15 assembly references. The empty package
+dependency group means there is no package edge on which to ask the pruning
+question, not that the assembly references disappeared. Down-level groups
+declare `System.Memory`, `System.Buffers`, and other package identities, so
+those graph edges can carry the package identity and version this owner needs.
+
+The example assigns no resolution policy. Asset-group selection decides which
+dependency group applies, the package graph decides which package edge exists,
+and an `AssemblyRef` resolver owns assembly binding. This owner enters only
+when a consumer already has a package identity and target to compare.
+
+### Worked example: one package exercises several owners
+
+`Microsoft.Azure.SignalR` 1.33.1 contains multiple assemblies and package
+dependencies in the same `net8.0` asset group:
+
+| Reference | Relevant fact before pruning | Pruning input |
+| --- | --- | --- |
+| `Microsoft.Azure.SignalR.Common` | Assembly is in the same asset group | none |
+| `Microsoft.Azure.SignalR.Protocols` | Separate package dependency at 1.33.1 | package identity and requested version |
+| `Microsoft.AspNetCore.SignalR` | Platform catalog has a same-named library | none until a package edge exists |
+| `System.Memory` | Platform catalog has a same-named library | none until a package edge exists |
+| `Azure.Core` | Transitive package dependency through `Azure.Identity` | package identity and requested version |
+
+`Common` and `Protocols` share a prefix, version, and public key token, yet one
+is in-package and the other is a package edge. Name shape cannot supply the
+missing graph fact. Conversely, catalog presence for
+`Microsoft.AspNetCore.SignalR` or `System.Memory` does not manufacture a
+package edge. The surrounding owners establish those facts before this owner
+can answer whether a real package edge is subsumed.
+
+### Worked example: restore correspondence is informative, not policy
+
+NuGet's direct-reference rules explain questions later graph consumers must
+settle without making those answers part of this owner:
+
+| Input | What the artifact reveals | Consumer-owned question |
+| --- | --- | --- |
+| `.csproj` | App-authored direct package references | Whether an authored reference is exempt from graph transformation |
+| `.nuspec` or package dependency group | Library package edges | Where to apply the subsumption comparison |
+| `project.assets.json` or `app.deps.json` | A graph after some SDK processing | Whether pruning has already been applied and must not be repeated |
+
+The inventory and comparison are unchanged in all three rows. Input-kind and
+processing policy belong to the project, package-graph, and restored-artifact
+owners that can interpret those artifacts.
+
 ## The inventory is a queryable fact
 
 The inventory is structured data, not only a private comparison input. Its
@@ -262,6 +358,19 @@ the same owner-issued fact.
 A section owner may expose that data for auditability, but it owns registration,
 selection policy, cost and size axes, Markout lowering, and host adoption. This
 document defines no section or execution policy.
+
+For example, the same literal can carry different precision without changing
+its provenance:
+
+| Queried target | Source target | Precision | Stored value | Comparable? |
+| --- | --- | --- | --- | --- |
+| ASP.NET Core 10.0.0 | 10.0.0 projection | projected, same target | `Microsoft.Extensions.Caching.Memory` at 10.0.0 | yes |
+| ASP.NET Core 10.0.1 | 10.0.0 projection | projected, different target | `Microsoft.Extensions.Caching.Memory` at 10.0.0 | no |
+| ASP.NET Core 10.0.1 | acquired 10.0.1 pack | exact | `Microsoft.Extensions.Caching.Memory` at 10.0.0 | yes |
+
+The second and third rows intentionally retain the same supplied-version text.
+The target association and precision, not the spelling of the version, decide
+whether a comparison is valid.
 
 ## Correspondence with the NuGet specification
 
