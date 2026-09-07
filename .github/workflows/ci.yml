@@ -480,6 +480,8 @@ jobs:
 
       - name: Test published Worker browser binding
         working-directory: prototypes/inspect-web
+        env:
+          INSPECT_WEB_WORKER_SOURCE_DLL: ../../artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll
         run: npm run inspect-web-worker-browser-binding
 
       - name: Test artifact-backed package scope adoption in Firefox

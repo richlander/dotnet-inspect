@@ -538,7 +538,7 @@ function decodeLiteral<T extends string>(
   return success(value);
 }
 
-function isCancellationReason(
+export function isWorkerOperationCancelReason(
   value: string,
 ): value is WorkerOperationCancelReason {
   return cancellationReasons.has(value);
@@ -629,7 +629,7 @@ function decodeCancellationReason(
 ): DecodeResult<WorkerOperationCancelReason> {
   return decodeLiteral<WorkerOperationCancelReason>(
     value,
-    isCancellationReason,
+    isWorkerOperationCancelReason,
     path,
     "a known operation cancellation reason",
   );

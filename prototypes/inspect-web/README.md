@@ -1087,23 +1087,39 @@ credit policy. `npm run inspect-web-worker-protocol` covers this transport.
 Package Query's production adapter and the single-runtime cutover remain
 separate adoption work under #5987 and #5420.
 
+The Worker bootstrap also prepares the typed Type Source operation. Its
+page-side adapter posts only package ID, version, framework, assembly, type
+identity, and serialized taste; the Worker validates the generated managed
+result and keyed cancellation acknowledgment before translating them to the
+closed Worker protocol. Type Source publishes no progress and uses unbounded
+liveness. `inspect-web-worker-protocol` covers the host/realm/catalog path.
+The application still uses its direct page-runtime Source adapter: this
+prepared binding is not production activation and does not create a second
+managed runtime.
+
 After a Release publish, run the native binding gate:
 
 ```bash
 dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
   -c Release --output artifacts/inspect-web-publish
 cd prototypes/inspect-web
-npm run inspect-web-worker-browser-binding
+INSPECT_WEB_WORKER_SOURCE_DLL=\
+../../artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll \
+  npm run inspect-web-worker-browser-binding
 ```
 
 The existing frontend build must precede the publish. Set
 `INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
+`INSPECT_WEB_WORKER_SOURCE_DLL` remains the deterministic local package
+fixture even when the published site comes from another directory.
 The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
-restart, bootstrap rejection, and input during stalled Wasm initialization.
-It does not yet prove responsiveness during managed CPU
-work or complete the Worker lifecycle gate; those and source-feature adoption
-remain focused follow-on slices under #5418 and #5420.
+one decompiled Type Source result through the prepared typed adapter, restart,
+bootstrap rejection, and input during stalled Wasm initialization. It does not
+yet prove responsiveness during managed CPU
+work or complete the Worker lifecycle gate; lifecycle composition, production
+Source activation, and direct page-runtime retirement remain focused follow-on
+slices under #5418, #5987, and #5420.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies

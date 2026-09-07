@@ -1,16 +1,24 @@
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
+  type OperationProducerAdapter,
 } from "./operation-authority.ts";
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+import type { TypeSourceLoadRequest } from "./source-inspection.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
 import {
   createEngineWorkerProducerClasses,
+  engineWorkerBoundaryErrors,
   engineWorkerCanaryKind,
   engineWorkerDiagnostic,
   engineWorkerPolicy,
   engineWorkerText,
 } from "./engine-worker-contract.ts";
+import {
+  createEngineWorkerTypeSourceHostRegistration,
+} from "./engine-worker-source.ts";
 import type {
+  WorkerRuntimeHost,
   WorkerRuntimeHostOptions,
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
@@ -28,8 +36,26 @@ export interface EngineWorkerProbeOptions {
   readonly startupBudgetMilliseconds?: number;
 }
 
-// The existing managed canary is an explicit diagnostic consumer, not a feature
-// migration or a claim that application operations already run in this Worker.
+export type EngineWorkerHost = WorkerRuntimeHost<string, string>;
+
+export type EngineWorkerTypeSourceAdapter = OperationProducerAdapter<
+  TypeSourceLoadRequest,
+  BrowserSource,
+  string,
+  never,
+  WorkerRuntimePreparationError
+>;
+
+export function registerEngineWorkerTypeSourceAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerTypeSourceAdapter {
+  return host.registerOperation(
+    createEngineWorkerTypeSourceHostRegistration(),
+  );
+}
+
+// This published diagnostic harness exercises prepared Worker bindings without
+// connecting them to the production application.
 export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   const host = createBrowserWorkerRuntimeHost(createEngineWorker, {
     ...engineWorkerPolicy,
@@ -50,17 +76,9 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     diagnostic: engineWorkerText,
     progress: engineWorkerText,
     mapPreparationError: error => error,
-    boundaryErrors: {
-      startup: "Worker startup failed.",
-      "worker-crash": "Worker realm was lost.",
-      protocol: "Worker protocol failed.",
-      watchdog: "Worker event loop stopped responding.",
-      "control-response": "Worker control response was missing.",
-      "probe-exhaustion": "Worker probe identity was exhausted.",
-      "worker-declared": "Worker reported a runtime failure.",
-      "worker-message": "Worker message delivery failed.",
-    },
+    boundaryErrors: engineWorkerBoundaryErrors,
   });
+  const typeSourceAdapter = registerEngineWorkerTypeSourceAdapter(host);
   const page = createOperationAuthorityPage();
   const session = page.createSession<
     string, string, string, string, WorkerRuntimePreparationError
@@ -68,11 +86,24 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
     feature: { publish: () => undefined },
     diagnostic: { report: options.operationDiagnostic },
   });
+  const typeSourceSession = page.createSession<
+    TypeSourceLoadRequest,
+    BrowserSource,
+    string,
+    never,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: options.operationDiagnostic },
+  });
   return {
     host,
     probe: () => session.start("", adapter),
+    typeSource: (request: TypeSourceLoadRequest) =>
+      typeSourceSession.start(request, typeSourceAdapter),
     dispose: () => {
       session.dispose();
+      typeSourceSession.dispose();
       host.dispose();
     },
   };

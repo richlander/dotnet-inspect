@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test, type Page, type Worker } from "@playwright/test";
 import type { createEngineWorkerProbe } from "../src/engine-worker-client.ts";
+import {
+  fixtureFramework,
+  galleryDownloadPath,
+  healthyNupkg,
+} from "./package-adoption-nupkg.ts";
 
 type WorkerProbe = ReturnType<typeof createEngineWorkerProbe>;
 type WorkerClient = typeof import("../src/engine-worker-client.ts");
@@ -32,6 +37,20 @@ if (typeof entry !== "object" || entry === null
   throw new Error("Published Worker client entry has no asset.");
 }
 const clientUrl = `/${entry.file}`;
+const sourcePackageId = "InspectWeb.Worker.Source";
+const sourceVersion = "1.0.0";
+const sourceAssemblyName = "TsJsExport.Contracts.dll";
+const sourceAssemblyPath = process.env.INSPECT_WEB_WORKER_SOURCE_DLL;
+if (!sourceAssemblyPath) {
+  throw new Error(
+    "INSPECT_WEB_WORKER_SOURCE_DLL must point at the built "
+      + "TsJsExport.Contracts.dll used by the Worker Type Source gate.",
+  );
+}
+const sourceArchive = healthyNupkg(
+  readFileSync(resolve(sourceAssemblyPath)),
+  sourceAssemblyName,
+);
 
 async function start(page: Page, startupBudgetMilliseconds = 60_000) {
   await page.goto("/worker-runtime-gate.html");
@@ -82,7 +101,55 @@ async function canary(page: Page) {
   });
 }
 
-test("published generated facades boot in a real Worker and serve cold and warm managed calls", async ({ page }) => {
+async function typeSourceBoundary(page: Page) {
+  return page.evaluate(async coordinate => {
+    const result = window.engineWorkerProbe.typeSource({
+      packageId: coordinate.packageId,
+      version: coordinate.version,
+      framework: coordinate.framework,
+      assembly: coordinate.assembly,
+      type: "TsJsExport.JsExportRootAttribute",
+      taste: "[]",
+      signature: "worker-binding-gate",
+      isVisible: () => true,
+    });
+    if (result.kind !== "started")
+      throw new Error(`Type Source refused: ${result.reason.kind}`);
+    const outcome = await result.handle.outcome;
+    await result.handle.quiesced;
+    return outcome;
+  }, {
+    packageId: sourcePackageId,
+    version: sourceVersion,
+    framework: fixtureFramework,
+    assembly: sourceAssemblyName,
+  });
+}
+
+test("published generated facades boot in a real Worker and serve cold, warm, and Type Source calls", async ({ page, context }) => {
+  await context.route("https://globalcdn.nuget.org/**", async route => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({
+        status: 204,
+        headers: { "access-control-allow-origin": "*" },
+      });
+      return;
+    }
+    const pathname = new URL(request.url()).pathname;
+    if (pathname !== galleryDownloadPath(sourcePackageId, sourceVersion)) {
+      await route.fulfill({ status: 404 });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "access-control-allow-origin": "*",
+        "content-type": "application/octet-stream",
+      },
+      body: sourceArchive,
+    });
+  });
   const workers: Worker[] = [];
   page.on("worker", worker => workers.push(worker));
   expect((await start(page)).kind).toBe("started");
@@ -92,6 +159,16 @@ test("published generated facades boot in a real Worker and serve cold and warm 
   expect(await canary(page)).toEqual({
     kind: "succeeded", value: "inspect-web-async-lowering-ok",
   });
+  const sourceOutcome = await typeSourceBoundary(page);
+  expect(sourceOutcome).toMatchObject({
+    kind: "succeeded",
+    value: { provider: "decompiled" },
+  });
+  if (sourceOutcome.kind !== "succeeded")
+    throw new Error("Type Source did not succeed through the Worker.");
+  expect(sourceOutcome.value.text).toContain(
+    "sealed class JsExportRootAttribute",
+  );
   expect(workers).toHaveLength(1);
   const worker = workers[0];
   if (worker === undefined) throw new Error("The runtime did not create a Worker.");

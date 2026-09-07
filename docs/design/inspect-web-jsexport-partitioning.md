@@ -4,7 +4,8 @@ Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 The [page-facing engine client](#page-facing-engine-client) is **partially
 implemented**: startup reads, home-demo resolution, and dependency-coordinate
-matching have Promise-valued main-thread bindings.
+matching have Promise-valued main-thread bindings, and the Worker-only host has
+a typed Type Source producer adapter with no production caller.
 The single-runtime Worker cutover remains unimplemented, tracked by
 [#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
 consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
@@ -623,7 +624,8 @@ is the production-host adoption and retirement path under #5418 and #5420:
    existing single page runtime.
 3. Consume the separately owned durable Worker event prerequisite in #5418.
 4. Prepare typed Worker bindings and the Source producer adapter in a
-   Worker-only host, without activating them alongside the production runtime.
+   Worker-only host, without activating them alongside the production runtime
+   (**implemented**).
 5. Switch production bootstrap and all required bindings together, retire the
    temporary page client/direct managed calls, and complete the Source demo.
 
@@ -633,6 +635,21 @@ deferring correctness to a later slice. This uses the approved inspect-web-only
 Worker scope; it is not a CLI runtime migration. Feature-specific lifecycle
 adoption may continue after placement, but direct page managed dispatch does
 not.
+
+Milestone 4 registers the generated Type Source facade in the Worker catalog
+and exposes its operation-authority-compatible producer adapter from the
+page-facing Worker entry. The adapter projects the six clone-safe Source
+fields, validates bounded Source and terminal DTOs, forwards keyed
+cancellation, preserves expected versus unexpected failure, rejects progress,
+and declares unbounded liveness. `test/engine-worker-source.test.ts`, included
+in `inspect-web-worker-protocol`, exercises the real host, realm, catalog, and
+operation-authority path plus malformed boundary data. The published Firefox
+Worker gate additionally returns decompiled Source from a deterministic local
+package through the generated facade. The production `source-inspection.ts`
+adapter and `dotnet-inspect.ts` dependencies remain unchanged. Milestone 5
+still owns lifecycle composition, production bootstrap, all required
+neighboring bindings, direct page-runtime retirement, and the real-browser
+Source responsiveness demonstration.
 
 All new runtime claims are **unverified** until implementation. Extend the
 existing published facade-composition gate to exercise the actual client
