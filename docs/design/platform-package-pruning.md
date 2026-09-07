@@ -485,8 +485,9 @@ version observed later by discovery. Relabeling projected values with a newly
 discovered version while presenting inventory from a shipped snapshot mixes
 two coordinates, which
 [version resolution](version-resolution.md#browser-platform-catalog-targets)
-already forbids. Selecting a discovered version requires acquiring its
-inventory first.
+already forbids. Selecting a discovered version remains valid with an older
+projection; the comparison is `NotComparable`. Acquiring that version's
+inventory is required only before its values can be published or used as exact.
 
 ### A search hint may need membership without a current ceiling
 
