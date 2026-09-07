@@ -65,7 +65,7 @@ public class ApiHeaderProvenanceTests
             CreateType(), "lib/net10.0/Example.dll", "Example.Package", "2.0.0",
             "NuGet", "net10.0", options, output);
 
-        string text = output.ToString();
+        string text = output.ToString().ReplaceLineEndings("\n");
         Assert.Equal(0, exit);
         Assert.DoesNotContain("(Example.Package", text);
         if (focused)
@@ -106,7 +106,7 @@ public class ApiHeaderProvenanceTests
             CreateType(), "lib/net10.0/Example.dll", "Example.Package", "2.0.0",
             "NuGet", "net10.0", options, output);
 
-        string text = output.ToString();
+        string text = output.ToString().ReplaceLineEndings("\n");
         Assert.Equal(0, exit);
         Assert.Contains("Run", text);
         Assert.DoesNotContain("(Example.Package", text);
