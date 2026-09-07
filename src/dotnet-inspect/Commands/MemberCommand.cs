@@ -1139,7 +1139,10 @@ public static class MemberCommand
             return false;
         if (options.BodyKindQuery.HasFilter)
         {
-            sections = [SectionNames.BodyShapes];
+            sections = options.IncludeSections is { Count: > 0 } bodySections
+                ? bodySections.Where(section => BodyKindQueryOptions.Sections.Contains(
+                    section, StringComparer.OrdinalIgnoreCase)).ToList()
+                : [SectionNames.BodyShapes];
             return true;
         }
         if (options.EffectiveDiscovery
@@ -1212,6 +1215,7 @@ public static class MemberCommand
         SectionNames.CallGraph,
         SectionNames.UnsafeOperations,
         SectionNames.BodyShapes,
+        SectionNames.BodyShapeSummary,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
         SectionNames.Facts,
@@ -1225,6 +1229,7 @@ public static class MemberCommand
         SectionNames.AnnotatedSourceDocument,
         SectionNames.FindingCensus,
         SectionNames.BodyShapes,
+        SectionNames.BodyShapeSummary,
         SectionNames.Facts,
     ];
 

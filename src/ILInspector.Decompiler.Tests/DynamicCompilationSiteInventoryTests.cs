@@ -80,7 +80,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["UnsafeEmitterTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case unsafe source with varying parse options."),
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
             ["ReturnToSenderPrototypeTests.cs"] = (2, "Runtime construction: builds a shell input assembly asserting 30+ facts; plus a fault-isolation oracle site compiling composed decompiled source for span attribution."),
-            ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
+            ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation and cross-assembly seams: builds temporary RTS catalog inputs and pathless donors that require sibling metadata."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
             ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
             ["ValidDifferentFaultIsolationTests.cs"] = (1, "Round-trip oracle seam: compiles runtime-varying authored and rejected bodies to gate successful IL-diff attribution."),

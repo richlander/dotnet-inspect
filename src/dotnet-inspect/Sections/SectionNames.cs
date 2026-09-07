@@ -210,6 +210,7 @@ public static class SectionNames
 
     /// <summary>Section for exact rendered C# syntax occurrences in method bodies.</summary>
     public const string BodyShapes = "Body Shapes";
+    public const string BodyShapeSummary = "Body Shape Summary";
 
     // Kind-scoped performance sections (library scope). Each renders one family of the
     // optimization-opportunity scan, is explicit-only, and is absent when its family has no

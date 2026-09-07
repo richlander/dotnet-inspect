@@ -144,7 +144,31 @@ Each named description is a companion section called `Query: <Section>`;
 wildcards omit companions. `-D "Query: Body Shapes"` describes one companion's
 columns; companion schema discovery requires one resolved section.
 A known section with no implemented query bindings
-says so; this currently includes package-query facets not yet wired to the CLI.
+says so; for example, `find -Q Results` does not advertise package facets as
+API-search predicates.
+
+`find -Q Packages` exposes the `facet` equality selector and its product-issued
+Package Query IDs. Use it with patternless `find --package-prefix`:
+
+```bash
+dnx dotnet-inspect -y -- find -Q Packages --json
+dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect -S Packages \
+  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
+dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect --package-content \
+  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+```
+
+`--where` repeats select product facets, not arbitrary package-field
+expressions. Independent facets are ANDed; compatible tool v1/v2 alternatives
+are ORed. Query rows represent individual packages, with exact versions and
+product-authored evidence. `--candidates` bounds work (default 200) and
+`--matches` bounds semantic matches (default 100), each at most 1,000.
+Package-content facets need `--package-content` and at most 20 candidates;
+the flag sets that conservative default. `--rows` and `--count` operate on
+matched package rows. Count rejects explicit `--matches`; reached budgets and
+failures remain visible. Package Query does not accept `-t`, API-search scopes,
+source overrides, or ranking. Query-execution flags cannot be combined with
+`-Q`.
 
 `library -Q Integrations` describes the ecosystem facet for the whole Integration
 family. All integrations are enabled by default; use
@@ -197,7 +221,15 @@ dnx dotnet-inspect -y -- type Widget --library MyLib.dll \
 At library scope, repeated Performance Triage predicates are ANDed before
 decompilation. The matching opportunities are mapped through their typed source
 owner identities and only those MethodDef bodies are searched for `Kind`.
-Body Shapes remains the output section; select a Performance section separately
+`Body Shapes` is the default occurrence section. Explicitly select
+`-S "Body Shape Summary"` for exact Kind/Match groups with a Count column;
+`--columns "Match;Count"` hides the already-known kind. Summary windows select
+groups without reducing their occurrence counts. `--count` counts the surviving
+rows in the selected view, and hiding columns never aggregates. Occurrence
+Member/Token and start/end coordinates locate matches in rendered C# method
+bodies, not original source files or IL.
+
+Select a Performance section separately
 when the canonical candidate/evidence/IL rows are also needed. Performance
 `--top` and `--order-by` do not compose with Body Shapes; use `--rows` to limit
 rendered matches.
