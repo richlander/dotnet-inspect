@@ -8,6 +8,7 @@ import type {
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
+  BrowserDependencyCoordinateMatch,
   BrowserGalleryDiscoveryCatalog,
   BrowserPackageAssemblyQueryPattern,
   BrowserPackageQueryFacetCatalog,
@@ -27,6 +28,7 @@ const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "example", title: "Example", summary: "A startup catalog entry." }],
 };
 const missingDemo: BrowserHomeDemoResolveResult = { found: false, demo: null };
+const noDependencyMatch: BrowserDependencyCoordinateMatch = { outcome: "NoMatch", candidateKey: null };
 const facets: BrowserPackageQueryFacetCatalog = { facets: [] };
 const assemblyPatterns: BrowserPackageAssemblyQueryPattern[] = [];
 const gallery: BrowserGalleryDiscoveryCatalog = {
@@ -62,6 +64,10 @@ function createFacades(calls: string[] = []) {
       },
     },
     package: {
+      matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string) {
+        calls.push(JSON.stringify([packageId, declaredRange, candidatesJson]));
+        return noDependencyMatch;
+      },
       listPackageQueryFacets() {
         calls.push("listPackageQueryFacets");
         return facets;
@@ -115,6 +121,7 @@ test("each client binding turns a thrown failure into the same Promise rejection
       package: {
         listPackageQueryFacets: fail,
         listGalleryDiscoveryCatalog: fail,
+        matchPackageDependencyCoordinate: fail,
         listPackageAssemblyQueryPatterns: fail,
       },
     });
@@ -126,6 +133,7 @@ test("each client binding turns a thrown failure into the same Promise rejection
       () => client.package.listGalleryDiscoveryCatalog(),
       () => client.package.listPackageAssemblyQueryPatterns(),
       () => client.catalog.resolveHomeDemo("missing"),
+      () => client.package.matchPackageDependencyCoordinate("Example", null, "[]"),
     ];
     for (const read of reads) {
       const result = read();
@@ -156,4 +164,24 @@ test("demo resolution forwards the generated argument and result without replaci
   assert.ok(result instanceof Promise);
   assert.equal(await result, missingDemo);
   assert.deepEqual(calls, ["resolveHomeDemo:missing"]);
+});
+
+test("dependency matching forwards generated arguments and every outcome unchanged", async () => {
+  for (const outcome of ["Unique", "NoMatch", "Ambiguous"] as const) {
+    const expected: BrowserDependencyCoordinateMatch = {
+      outcome, candidateKey: outcome === "Unique" ? "exact-coordinate" : null,
+    };
+    const calls: unknown[] = [];
+    const facades = createFacades();
+    facades.package.matchPackageDependencyCoordinate = (...args) => {
+      calls.push(args);
+      return expected;
+    };
+    const client = createMainThreadEngineClient(facades);
+    const candidates = '[{"key":"exact-coordinate"}]';
+    const result = client.package.matchPackageDependencyCoordinate("Example", "[1.0,2.0)", candidates);
+    assert.ok(result instanceof Promise);
+    assert.equal(await result, expected);
+    assert.deepEqual(calls, [["Example", "[1.0,2.0)", candidates]]);
+  }
 });

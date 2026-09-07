@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.RowSelection;
+using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
 
@@ -58,34 +59,58 @@ public static partial class PackageQuery
     {
         if (plan.GalleryRequest is not { } request)
         {
-            evidence.Add(new PackageQueryEvidence(PrefixEvidenceId, plan.PrefixEvidence));
+            evidence.Add(ScopeEvidence(
+                plan.PackageInput is SourceSelector.Package
+                    ? ExactPackageEvidenceId
+                    : PrefixEvidenceId,
+                plan.PrefixEvidence));
             return;
         }
 
-        evidence.Add(new PackageQueryEvidence(GalleryScopeEvidenceId, plan.PrefixEvidence));
-        evidence.Add(new PackageQueryEvidence(
+        evidence.Add(ScopeEvidence(GalleryScopeEvidenceId, plan.PrefixEvidence));
+        evidence.Add(ScopeEvidence(
             GalleryOrderEvidenceId,
             Evidence(request.Order == NuGetGalleryDiscoveryOrder.MostDownloaded
                 ? "Gallery download-ranked response order; not a global top-N."
                 : "Gallery relevance response order.")));
-        evidence.Add(new PackageQueryEvidence(
+        evidence.Add(ScopeEvidence(
             GalleryPrereleaseEvidenceId,
             Evidence(request.IncludePrerelease
                 ? "Gallery source selection permits prerelease versions."
                 : "Gallery source selection permits stable versions only.")));
         if (request.PackageType is { } packageType)
         {
-            evidence.Add(new PackageQueryEvidence(
+            evidence.Add(ScopeEvidence(
                 GalleryPackageTypeEvidenceId,
                 Evidence($"Gallery applied package type \"{packageType.Name}\"; this is index evidence.")));
         }
     }
+
+    static PackageQueryEvidence ScopeEvidence(string id, InertString text) =>
+        new(id, text) { Scope = PackageQueryEvidenceScope.Query };
 
     static async IAsyncEnumerable<PackageQueryInputEvent> AcquireInputAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        if (plan.PackageInput is SourceSelector.Package exact)
+        {
+            await foreach (PackageQueryInputEvent item in AcquireExactInputAsync(
+                source, plan, exact, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
+        if (plan.PackageInput is SourceSelector.PackagePrefix prefix
+            && plan.Definitions.IsEmpty)
+        {
+            await foreach (PackageQueryInputEvent item in AcquirePrefixMetadataAsync(
+                source, prefix.Request, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
         if (plan.GalleryRequest is not null)
         {
             await foreach (PackageQueryInputEvent item in AcquireGalleryInputAsync(

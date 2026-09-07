@@ -103,7 +103,7 @@ public sealed class BrowserPackageAssemblyQueryTests
         BrowserPackageQueryRow row = Project(await Evaluate(candidate, Marker)).Row!;
         using var archiveStream = new MemoryStream(archive, writable: false);
         using var reservation = await BrowserPackageWorkspace.ReservePackageDownloadAsync(
-            $"{PackageId}@{Version}", archive.LongLength);
+            BrowserPackageWorkspace.PackageKey(PackageId, Version), archive.LongLength);
         IPackageContent destination = await BrowserPackageWorkspace.SessionPackageStore.CommitAsync(
             PackageId, Version, Producer, archiveStream, Cancellation);
         reservation.Complete();

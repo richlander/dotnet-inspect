@@ -63,21 +63,29 @@ namespace InspectWeb.Engine.PackageFacade
             int maximumMatches,
             bool includePrerelease,
             string? packageType = null,
-            string? sourceOrderId = null) =>
-            PackageQuery.PlanGallery(
-                new NuGetGalleryDiscoveryRequest(
-                    PackageSourceDescriptor.NuGetGallery,
-                    maximumCandidates,
+            string? sourceOrderId = null,
+            bool discovery = false) =>
+            discovery
+                ? PackageQuery.PlanGallery(
+                    new NuGetGalleryDiscoveryRequest(
+                        PackageSourceDescriptor.NuGetGallery,
+                        maximumCandidates,
+                        text,
+                        packageType is null
+                            ? null
+                            : NuGetGalleryDiscoveryCatalog.PackageType.Select(packageType),
+                        sourceOrderId is null
+                            ? null
+                            : NuGetGalleryDiscoveryCatalog.GetOrder(sourceOrderId).Order,
+                        includePrerelease),
+                    facetIds,
+                    maximumMatches)
+                : PackageQuery.PlanInput(
                     text,
-                    packageType is null
-                        ? null
-                        : NuGetGalleryDiscoveryCatalog.PackageType.Select(packageType),
-                    sourceOrderId is null
-                        ? null
-                        : NuGetGalleryDiscoveryCatalog.GetOrder(sourceOrderId).Order,
-                    includePrerelease),
-                facetIds,
-                maximumMatches);
+                    facetIds,
+                    maximumCandidates,
+                    maximumMatches,
+                    includePrerelease);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -90,7 +98,8 @@ namespace InspectWeb.Engine.PackageFacade
             CancellationToken cancellationToken,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
             string? packageType = null,
-            string? sourceOrderId = null)
+            string? sourceOrderId = null,
+            bool discovery = false)
             => await ExecuteAsync(
                 prefix,
                 facetIds,
@@ -103,7 +112,8 @@ namespace InspectWeb.Engine.PackageFacade
                 cancellationToken,
                 deadline,
                 packageType,
-                sourceOrderId).ConfigureAwait(false);
+                sourceOrderId,
+                discovery).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -117,7 +127,8 @@ namespace InspectWeb.Engine.PackageFacade
             CancellationToken cancellationToken,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
             string? packageType = null,
-            string? sourceOrderId = null)
+            string? sourceOrderId = null,
+            bool discovery = false)
         {
             ArgumentNullException.ThrowIfNull(facetIds);
             ArgumentNullException.ThrowIfNull(emit);
@@ -129,7 +140,8 @@ namespace InspectWeb.Engine.PackageFacade
                 maximumMatches,
                 includePrerelease,
                 packageType,
-                sourceOrderId);
+                sourceOrderId,
+                discovery);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
@@ -220,12 +232,16 @@ namespace InspectWeb.Engine.PackageFacade
                             [
                                 new("selected-assembly",
                                     $"{selected.Asset.Path}: {matched.Evidence.Occurrences.Length} literal uses; "
-                                    + $"{selected.UnevaluatedSiblings} sibling assemblies not evaluated."),
+                                    + $"{selected.UnevaluatedSiblings} sibling assemblies not evaluated.",
+                                    BrowserPackageQueryEvidenceScope.Package,
+                                    null),
                                 .. matched.Evidence.Occurrences.Take(3).Select(occurrence =>
                                     new BrowserPackageQueryEvidence("literal-use",
                                         $"Method 0x{occurrence.Address.MethodDefinitionToken:X8}, "
                                         + $"IL_{occurrence.Address.ILOffset:X4}: "
-                                        + Excerpt(occurrence.LiteralText.ToString()))),
+                                        + Excerpt(occurrence.LiteralText.ToString()),
+                                        BrowserPackageQueryEvidenceScope.Package,
+                                        null)),
                             ],
                             null, null, subject.Coordinate.Producer,
                             RootRequest: rootRequest),
@@ -371,7 +387,24 @@ namespace InspectWeb.Engine.PackageFacade
                             .. match.Value.Evidence.Select(evidence =>
                                 new BrowserPackageQueryEvidence(
                                     evidence.Id,
-                                    evidence.Value)),
+                                    evidence.Value,
+                                    evidence.Scope switch
+                                    {
+                                        PackageQueryEvidenceScope.Package =>
+                                            BrowserPackageQueryEvidenceScope.Package,
+                                        PackageQueryEvidenceScope.Query =>
+                                            BrowserPackageQueryEvidenceScope.Query,
+                                        _ => throw new InvalidOperationException(
+                                            "Unknown package-query evidence scope."),
+                                    },
+                                    evidence.Summary is { } summary
+                                        ? new BrowserPackageQueryEvidenceSummary(
+                                            summary.Count,
+                                            [
+                                                .. summary.Preview.Select(
+                                                    value => value.ToString()),
+                                            ])
+                                        : null)),
                         ],
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
@@ -437,6 +470,8 @@ namespace InspectWeb.Engine.PackageFacade
                                 BrowserPackageQueryCompletionKind.Failed,
                             PackageQueryCompletionKind.GalleryResponseComplete =>
                                 BrowserPackageQueryCompletionKind.GalleryResponseComplete,
+                            PackageQueryCompletionKind.ExactPackageComplete =>
+                                BrowserPackageQueryCompletionKind.ExactPackageComplete,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query completion kind."),
                         },
@@ -548,7 +583,8 @@ public static partial class PackageExports
         int initialMatchCredit,
         JSObject eventSink,
         string? packageType,
-        string? sourceOrderId)
+        string? sourceOrderId,
+        bool discovery)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
         string[] facetIds = JsonSerializer.Deserialize(
@@ -578,7 +614,8 @@ public static partial class PackageExports
                     deadline.Token,
                     deadline,
                     packageType,
-                    sourceOrderId);
+                    sourceOrderId,
+                    discovery);
             },
             BrowserPackageWorkspace.PackageOperationTimeout,
             operation.CancellationToken);

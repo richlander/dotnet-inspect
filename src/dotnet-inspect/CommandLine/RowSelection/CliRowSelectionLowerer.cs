@@ -560,7 +560,7 @@ internal static class CliRowSelectionLowerer
         return null;
     }
 
-    private static CliRowSelectionCapabilities RequiredCapabilities(
+    internal static CliRowSelectionCapabilities RequiredCapabilities(
         CliRowSelectionOccurrenceKind kind,
         bool lineSelection) =>
         kind switch

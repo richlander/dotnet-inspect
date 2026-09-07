@@ -135,7 +135,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 2
+            and .schemaVersion == 3
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -523,6 +523,43 @@ jobs:
         shell: bash
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
 
+  # These tests inspect repository paths outside their owning projects. Run
+  # them for every pre-merge candidate so their selection is never narrower
+  # than the repository surface they validate.
+  repository-guards:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.repositoryGuards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Run repository line-ending guard
+        run: >
+          dotnet run --project src/dotnet-inspect.Tests -c Release --
+          --filter-class "DotnetInspector.Tests.RepositoryLineEndingTests"
+          --minimum-expected-tests 2
+
+      - name: Run legacy source-identity guard
+        run: >
+          dotnet run --project tests/NuGetFetch.Tests -c Release --
+          --filter-method "*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet"
+          --minimum-expected-tests 1
+
   # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
   # 26.04 compatibility suites run daily in Deep Inspect, where
   # platform-specific failures do not hold the predominantly Linux and macOS
@@ -671,6 +708,9 @@ jobs:
 
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
+
+      - name: Run CSharp snapshot preservation tests
+        run: dotnet run --project src/ILInspector.CSharp.Tests -c Release -- -method '*SnapshotTypeForRendering_*'
 
       - name: Run artifact contract tests
         run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
@@ -1573,13 +1613,15 @@ jobs:
       - markdownlint
       - inspect-web
       - skill-gate
+      - repository-guards
       - test
       - dependency-policy
       - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
       # expensive jobs except inspect-web and dependency-policy skip on pushes
-      # to main. That passes the gate by design; the allow list below distinguishes
-      # "correctly not run" from "ran and failed".
+      # to main. The focused repository-guards job also skips on pushes. That
+      # passes the gate by design; the allow list below distinguishes "correctly
+      # not run" from "ran and failed".
       - build-net10
       - decompiler-gates
       - csharp-diff-smoke

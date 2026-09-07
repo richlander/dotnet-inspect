@@ -66,7 +66,22 @@ const assemblyCompletionEvent = {
   },
 };
 
-async function runCompletion(completion: BrowserPackageQueryCompletion) {
+function packageEvidence(
+  id: string,
+  text: string,
+  summary: { count: number; preview: string[] } | null = null,
+) {
+  return { id, text, scope: "Package" as const, summary };
+}
+
+function queryEvidence(id: string, text: string) {
+  return { id, text, scope: "Query" as const, summary: null };
+}
+
+async function runCompletion(
+  completion: BrowserPackageQueryCompletion,
+  inputKind: "package" | "gallery" = "gallery",
+) {
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
     requestMatches() { return true; },
@@ -75,18 +90,23 @@ async function runCompletion(completion: BrowserPackageQueryCompletion) {
     },
   };
   return createBrowserPackageQueryDataSource(engine).run(
-    createQueryRequest(""),
+    createQueryRequest("", inputKind),
     () => {},
     () => {},
     () => {},
     new AbortController().signal);
 }
 
-test("Browser source forwards browse and free text with opaque selections and unchanged K", async () => {
-  for (const searchText of ["", "  hosting dependency injection  ", "System.*"]) {
+test("Browser source dispatches package and explicit Gallery input with unchanged K", async () => {
+  for (const [searchText, inputKind, discovery] of [
+    ["Newtonsoft.Json", "package", false],
+    ["Newtonsoft.*", "package", false],
+    [`${"a".repeat(100)}*`, "package", false],
+    ["", "gallery", true],
+  ] as const) {
     for (const matchLimit of [100, 7]) {
       const request = {
-        ...withFacet(createQueryRequest(searchText), {
+        ...withFacet(createQueryRequest(searchText, inputKind), {
           key: "producer.inspection.facet",
           label: "Producer inspection",
           tier: "nuspec",
@@ -105,7 +125,7 @@ test("Browser source forwards browse and free text with opaque selections and un
           ]);
           assert.ok(typeof args[6] === "object" && args[6] !== null);
           assert.deepEqual(args.slice(7), [
-            "Producer.CustomType", "producer.order.custom",
+            "Producer.CustomType", "producer.order.custom", discovery,
           ]);
           return completionEvent;
         },
@@ -116,20 +136,23 @@ test("Browser source forwards browse and free text with opaque selections and un
   }
 });
 
-test("Browser source leaves automatic source order and package type unresolved", async () => {
-  for (const searchText of ["", "hosting"]) {
+test("Browser source leaves automatic source selections unresolved in either mode", async () => {
+  for (const [searchText, inputKind, discovery] of [
+    ["Newtonsoft.Json", "package", false],
+    ["", "gallery", true],
+  ] as const) {
     const engine: BrowserPackageQueryEngine = {
       cancel() {},
       requestMatches() { return true; },
       async run(...args) {
         assert.equal(args[0], searchText);
         assert.equal(args[4], false);
-        assert.deepEqual(args.slice(7), [null, null]);
+        assert.deepEqual(args.slice(7), [null, null, discovery]);
         return completionEvent;
       },
     };
     await createBrowserPackageQueryDataSource(engine).run(
-      createQueryRequest(searchText),
+      createQueryRequest(searchText, inputKind),
       () => {}, () => {}, () => {}, new AbortController().signal);
   }
 });
@@ -144,10 +167,9 @@ test("Gallery metadata rows preserve unknown downloads and source-authored evide
           tier: "SearchMetadata",
           totalDownloads,
           verified,
-          evidence: [{
-            id: "producer.source-selection",
-            text: "Source order: producer ranking; package type: Producer.Type",
-          }],
+          evidence: [queryEvidence(
+            "producer.source-selection",
+            "Source order: producer ranking; package type: Producer.Type")],
         },
       };
       Reflect.set(
@@ -165,7 +187,7 @@ test("Gallery metadata rows preserve unknown downloads and source-authored evide
         },
       };
       await createBrowserPackageQueryDataSource(engine).run(
-        createQueryRequest(""),
+        createQueryRequest("", "gallery"),
         page => rows.push(...page),
         () => {}, () => {}, new AbortController().signal);
       assert.deepEqual(rows, [{
@@ -175,7 +197,12 @@ test("Gallery metadata rows preserve unknown downloads and source-authored evide
         totalDownloads,
         description: null,
         producer: "nuget.org",
-        evidence: ["Source order: producer ranking; package type: Producer.Type"],
+        evidence: [{
+          id: "producer.source-selection",
+          text: "Source order: producer ranking; package type: Producer.Type",
+          scope: "query",
+          summary: null,
+        }],
       }]);
     }
   }
@@ -202,7 +229,7 @@ test("Gallery row descriptions are projected unchanged from the producer", async
   };
 
   await createBrowserPackageQueryDataSource(engine).run(
-    createQueryRequest(""),
+    createQueryRequest("", "gallery"),
     page => rows.push(...page),
     () => {}, () => {}, new AbortController().signal);
 
@@ -280,8 +307,24 @@ test("legacy match completion and failed package input retain distinct outcomes"
     kind: "Failed",
   }), {
     kind: "failed",
-    reason: "The package source failed before returning usable package input.",
+    reason: "Package source work failed before the query completed.",
   });
+});
+
+test("exact package completion remains distinct for zero or one source candidate", async () => {
+  for (const sourceCandidates of [0, 1]) {
+    assert.deepEqual(await runCompletion({
+      ...completionEvent.completion!,
+      prefix: "Missing.Package",
+      candidateLimit: 1,
+      candidates: sourceCandidates,
+      matches: sourceCandidates,
+      failures: 0,
+      sourceCandidates,
+      estimatedTotalHits: null,
+      kind: "ExactPackageComplete",
+    }, "package"), { kind: "exact" });
+  }
 });
 
 test("streamed metadata admission rejects unknown tiers, malformed metadata, and empty evidence", async () => {
@@ -297,7 +340,28 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     {
       ...toolMatchEvent.row!,
       tier: "SearchMetadata",
-      evidence: [{ id: "producer.source", text: " " }],
+      evidence: [queryEvidence("producer.source", " ")],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        scope: "Unknown",
+      }],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        summary: { count: -1, preview: [] },
+      }],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        summary: { count: 1, preview: "not an array" },
+      }],
     },
   ];
   for (const row of invalidRows) {
@@ -312,9 +376,9 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     };
     await assert.rejects(
       createBrowserPackageQueryDataSource(engine).run(
-        createQueryRequest(""),
+        createQueryRequest("", "gallery"),
         () => {}, () => {}, () => {}, new AbortController().signal),
-      /Unsupported package-query row tier|not a finite number|not a boolean|not text|no evidence/);
+      /Unsupported package-query row tier|not a finite number|not a non-negative integer|not a boolean|not text|no evidence|Unknown package-query evidence scope|evidence preview was not an array/);
   }
 });
 
@@ -328,10 +392,13 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
     packageId: "Contoso.Tool",
     version: "2.0.0",
     tier: "PackageContent",
-    evidence: [{
-      id: "package.query.dotnet-tool-v2",
-      text: "DotnetToolSettings.xml declares v2.",
-    }],
+    evidence: [packageEvidence(
+      "package.query.dotnet-tool-v2",
+      "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
+      {
+        count: 2,
+        preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
+      })],
     totalDownloads: 12,
     description: null,
     verified: false,
@@ -585,10 +652,9 @@ test("Browser source keeps assembly matches and assessments distinct", async () 
           packageId: "Contoso.Match",
           version: "1.2.3",
           tier: "Assembly",
-          evidence: [{
-            id: "package.query.assembly.ldstr-contains",
-            text: "lib/net10.0/Contoso.Match.dll: M (IL_0001)",
-          }],
+          evidence: [packageEvidence(
+            "package.query.assembly.ldstr-contains",
+            "lib/net10.0/Contoso.Match.dll: M (IL_0001)")],
           totalDownloads: null,
           verified: null,
           producer: "analysis.ldstr",
@@ -650,7 +716,12 @@ test("Browser source keeps assembly matches and assessments distinct", async () 
     packageId: "Contoso.Match",
     version: "1.2.3",
     tier: "assembly",
-    evidence: ["lib/net10.0/Contoso.Match.dll: M (IL_0001)"],
+    evidence: [{
+      id: "package.query.assembly.ldstr-contains",
+      text: "lib/net10.0/Contoso.Match.dll: M (IL_0001)",
+      scope: "package",
+      summary: null,
+    }],
     totalDownloads: null,
     description: null,
     producer: "analysis.ldstr",
@@ -695,7 +766,7 @@ test("assembly match rows require the opaque Root request", async () => {
           packageId: "Contoso.Match",
           version: "1.2.3",
           tier: "Assembly",
-          evidence: [{ id: "literal", text: "Occurrence" }],
+          evidence: [packageEvidence("literal", "Occurrence")],
           totalDownloads: null,
           verified: null,
           producer: "analysis.ldstr",
@@ -760,7 +831,7 @@ test("Browser data source maps package-content rows and visible failures", async
       return completionEvent;
     },
   };
-  const rows: { packageId: string; tier: string }[] = [];
+  const rows: QueryResultRow[] = [];
   const failures: string[] = [];
   const request = withFacet(createQueryRequest("Contoso."), {
     key: "package.query.dotnet-tool-v2",
@@ -770,18 +841,23 @@ test("Browser data source maps package-content rows and visible failures", async
 
   await createBrowserPackageQueryDataSource(engine).run(
     request,
-    page => rows.push(...page.map(row => ({
-      packageId: row.packageId,
-      tier: row.tier,
-    }))),
+    page => rows.push(...page),
     failure => failures.push(failure),
     () => {},
     new AbortController().signal);
 
   assert.equal(candidateLimit, 20);
-  assert.deepEqual(rows, [{
-    packageId: "Contoso.Tool",
-    tier: "package-content",
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.packageId, "Contoso.Tool");
+  assert.equal(rows[0]?.tier, "package-content");
+  assert.deepEqual(rows[0]?.evidence, [{
+    id: "package.query.dotnet-tool-v2",
+    text: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
+    scope: "package",
+    summary: {
+      count: 2,
+      preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
+    },
   }]);
   assert.deepEqual(
     failures,
@@ -812,7 +888,9 @@ test("Browser data source streams matches and failures before terminal completio
       packageId: "Microsoft.Extensions.Hosting",
       version: "10.0.0",
       tier: "Nuspec",
-      evidence: [{ id: "package.query.source-verified", text: "Verified source" }],
+      evidence: [packageEvidence(
+        "package.query.source-verified",
+        "Verified source")],
       totalDownloads: 1234,
       description: null,
       verified: true,
@@ -874,6 +952,7 @@ test("Browser data source streams matches and failures before terminal completio
     false,
     20,
   ]);
+  assert.deepEqual(receivedArguments.slice(7), [null, null, false]);
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
     failures,
