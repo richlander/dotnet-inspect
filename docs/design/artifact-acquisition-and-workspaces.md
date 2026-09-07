@@ -2199,7 +2199,9 @@ is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 #### Durable package-content identity adoption
 
-[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) tracks the
+`AcquiredPackagePayload.GetContentDigest` and
+`AcquiredPackageSourcePayload.GetContentDigest` implement
+[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) as the
 durable content-identity prerequisite for the existing CLI
 `PackageInspector -> PackageIndexCache` consumer. The user
 [approved CLI-first production adoption on 2026-09-06](https://github.com/richlander/dotnet-inspect/issues/5484#issuecomment-5560862576).
@@ -2208,22 +2210,96 @@ acquisition remains host-neutral and all existing Browser/Wasm compatibility
 requirements remain in force. No browser persistent-result cache, UI, or
 browser delivery commitment is introduced.
 
-The package-index workstream of
-[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) has two
-remaining production-adoption steps:
+Only an acquisition-issued payload exposes this operation. Its
+construction-controlled content has already passed the package payload
+admission contract; arbitrary `IPackageContent` handles do not expose a public
+digest operation. A successful request returns an owner-issued
+`PackageContentDigest` containing:
 
-1. Acquisition supplies the retained-content identity tracked by #5484,
-   reusing the existing configured authority and acquired-payload carriers.
-2. The CLI producer/cache path adopts that subject under the
-   [package-index contract](package-index-cache.md), retiring the predecessor
-   namespace and establishing its cold/warm-equivalence gate.
+- lowercase hexadecimal SHA-256 over the retained nupkg bytes;
+- the exact process-local `PackageContentGenerationIdentity` whose retained
+  bytes were hashed; and
+- no path, content handle, package coordinate, producer, authority, or
+  credentials.
 
-This is sequencing between owners, not a new definition of either owner's
-internals. The existing extraction result already carries `Authority` and
-`AcquiredPayload`; their presence does not itself supply the durable identity
-or bind a filesystem-scanning producer to one retained subject. The durable
-identity and consumer adoption remain unimplemented. Rendering is unchanged:
-the prerequisite carries typed acquisition evidence, not presentation.
+For filesystem content, immutable store provenance
+`RequiresArchiveTreeMatch` is the eligibility gate. Acquisition issues the
+payload only after admission has verified that such a product-owned extracted
+tree matches the retained archive's paths, sizes, and CRC-32 values. A later
+tree-derived producer may inherit the archive digest only by consuming that
+same acquired payload and checking the returned digest's generation against
+the content it inspects. The digest operation accepts no caller-supplied path
+or stream that could name a different subject.
+
+A legacy product-owned commit that had no source archive hashes the retained
+archive synthesized from its admitted tree. That value identifies the durable
+retained package snapshot; it does not claim to reproduce absent feed bytes.
+
+Foreign global-packages trees never carry that immutable provenance, so they
+cannot issue a digest even when a neighboring retained archive exists.
+Archive-less filesystem content is likewise ineligible. Direct local-package
+extraction and legacy results without `AcquiredPayload` do not gain identity
+through this API. In-memory content hashes its private retained archive and
+therefore remains eligible on Browser/Wasm hosts without adding a persistent
+browser consumer.
+
+An unavailable digest is returned as `null`. It means only that this acquired
+payload cannot establish durable identity now; it is not a durable negative
+observation and must not be persisted or reused for a later acquisition.
+A missing or concurrently unreadable retained filesystem archive is likewise a
+retryable unavailable result and is not memoized. Other failures remain
+visible. Ordinary acquisition does not hash.
+
+The operation is explicit and lazy. The first successful request invokes its
+required `chargeWork` callback with the retained archive length immediately
+before hashing. Callback failure propagates and publishes no value. Successful
+work is memoized on the content-generation identity, so concurrent requests
+and multiple in-memory cache-hit wrappers over one generation share one
+charge, hash pass, and digest object. The synchronous callback must not
+re-enter the operation for the same generation or wait for work that may
+request that generation; direct re-entry fails visibly. Cancellation is
+observed before and after the synchronous pass: cancellation during the pass
+prevents delivery to that caller while preserving the completed value for a
+later request. Filesystem reacquisition may mint another process-local
+generation and therefore perform another charged hash; no digest is persisted
+by acquisition.
+
+`Algorithm` plus `HexValue` is the future durable cache-key component.
+`Generation` is the process-local correspondence check and is never serialized
+or reconstructed. Equal digest bytes do not coalesce generations and do not
+grant authority; the cache owner must still combine this evidence with its
+configured-authority and coordinate subject.
+
+Release gates are:
+
+- `PackageContentDigest_ChargesColdPassAndReusesGenerationValue`;
+- `PackageContentDigest_ChargeFailureDoesNotPublish`;
+- `PackageContentDigest_ReentrantChargeFailsVisibly`;
+- `PackageContentDigest_CancellationAfterChargeMemoizesButCancelsCaller`;
+- `PackageContentDigest_ConcurrentRequestsShareColdPass`;
+- `PackageContentDigest_ReplacementChangesGenerationAndDigestSubject`,
+  including W-to-S-to-W replacement;
+- `PackageContentDigest_ProductOwnedArchiveBindsAdmittedTreeAcrossHosts`;
+- `PackageContentDigest_ForeignGlobalPackagesTreesAreIneligible`;
+- `PackageContentDigest_MissingRetainedArchiveDoesNotPublish`; and
+- `PackageContentDigest_OrdinaryAcquisitionDoesNotHash`.
+
+Existing admission gates
+`ProductOwned_WithoutMarker_StillRequiresArchiveTreeMatch`,
+`ProductOwned_DeletedNupkg_DoesNotAdmitMutatedTree`, and
+`GlobalPackagesShapedTree_IsAdmittedWithoutExactArchiveMatch` establish the
+correspondence and foreign-layout boundary that the digest eligibility rule
+consumes.
+
+The acquisition step in the package-index workstream of
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) is now
+complete. One production-adoption step remains: the CLI producer/cache path
+must consume this subject under the
+[package-index contract](package-index-cache.md), retire the predecessor
+namespace, and establish its cold/warm-equivalence gate. This is a handoff
+between owners, not a definition of cache internals. Rendering remains
+unchanged: the prerequisite carries typed acquisition evidence, not
+presentation.
 
 #### Sparse selected-assembly projection
 
