@@ -50,6 +50,11 @@ public sealed class ApiSurfaceEmitSetTests
             type.Members,
             member => member.Kind == "method"
                 && member.Name == nameof(EmitSetFixture.remove_Standalone));
+        Assert.All(
+            type.Members.Where(member => member.Kind == "method"),
+            member => Assert.Equal(
+                ApiMethodSemanticsKind.None,
+                member.MethodSemantics));
     }
 
     [Fact]
@@ -102,6 +107,15 @@ public sealed class ApiSurfaceEmitSetTests
                 && member.Name.EndsWith(
                     $".remove_{nameof(IEmitSetContract.Changed)}",
                     StringComparison.Ordinal));
+        Assert.Equal(
+            ApiMethodSemanticsKind.PropertyGetter,
+            propertyAccessor.MethodSemantics);
+        Assert.Contains(
+            type.Members,
+            member => member.MethodSemantics == ApiMethodSemanticsKind.EventAdder);
+        Assert.Contains(
+            type.Members,
+            member => member.MethodSemantics == ApiMethodSemanticsKind.EventRemover);
 
         Assert.DoesNotContain(
             type.Members,
