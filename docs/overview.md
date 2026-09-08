@@ -143,7 +143,11 @@ substrates, and inspection producers that will extend that space.
   Definitions retains demo records, resolution, run plans, and execution. Only
   the CLI and the managed inspect-web facade may consume this application
   assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
-  not reference it.
+  not reference it. The
+  [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
+  is the focused one-way projection from a selected application pack and the
+  authored product-default sequence into lower immutable declarations; it does
+  not move catalog identity, display actions, or source execution downward.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -211,7 +215,9 @@ substrates, and inspection producers that will extend that space.
   breadth. It retires traversal approval and permission semantics. Its
   owner-issued route prerequisite is the
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md);
-  component contracts and their focused adoption remain with the participating
+  its catalog boundary is the
+  [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md).
+  Component contracts and their focused adoption remain with the participating
   owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
@@ -437,6 +443,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   static shipped-pack manifest that compose package-set identity, typed
   package-prefix requests, and opaque Integration-owned semantic-scanner
   bindings without making reusable infrastructure depend on the catalog.
+- [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md):
+  explicit application-pack correspondence, lower immutable retrieval,
+  population, and Integration contributions, typed projection outcomes, and
+  one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package or non-package Root, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
