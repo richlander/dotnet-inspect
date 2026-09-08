@@ -146,7 +146,7 @@ capture guarantees in Release. The existing `AssemblyDependencyResolverTests`,
 projections and shared parsing behavior. Run the focused set with:
 
 ```sh
-dotnet run --project src/DotnetInspector.Services.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release -- \
   --filter-class \
   DotnetInspector.Services.Tests.AssemblyDependencyResolverTests \
   DotnetInspector.Services.Tests.ProjectAssetsParserTests \

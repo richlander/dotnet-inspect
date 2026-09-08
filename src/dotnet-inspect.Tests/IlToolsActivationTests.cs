@@ -821,7 +821,7 @@ public class IlToolsActivationTests
             (
                 "services",
                 "dotnet run --project " +
-                "src/DotnetInspector.Services.Tests -c Release"),
+                "tests/DotnetInspector.Services.Tests -c Release"),
             (
                 "analysis",
                 "dotnet run --project src/ILInspector.Analysis.Tests " +
