@@ -28,8 +28,8 @@ dnx dotnet-inspect -y -- <command>
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use the current .NET 11
-preview SDK.
+above. Contributors building this repository should use the .NET SDK selected
+by `global.json`: `11.0.100-preview.7.26381.103`.
 
 Check the selected SDK first:
 

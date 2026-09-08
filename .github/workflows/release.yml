@@ -39,8 +39,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-preview.7.26381.103'
 
       - name: Validate certification and resolve commit
         id: sha
@@ -83,8 +82,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-preview.7.26381.103'
 
       - name: Pack RID-specific package
         run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
@@ -110,8 +108,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-preview.7.26381.103'
 
       - name: Pack pointer package
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
@@ -195,8 +192,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-preview.7.26381.103'
 
       - name: Revalidate certification before publish
         env:
