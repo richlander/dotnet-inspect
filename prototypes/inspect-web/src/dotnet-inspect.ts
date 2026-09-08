@@ -11935,8 +11935,8 @@ async function drillPlatformNode(
     : -1;
   const captured = capturedShareTabs();
   const platformVersion = retainedPlatformTargetVersion(
-    captured.preservesBasis && runtimeIndex >= 0
-      ? captured.tabs[runtimeIndex]
+    runtimeIndex >= 0
+      ? captured.resolvedTabs[runtimeIndex]
       : null,
     runtimePack,
     framework);
@@ -12202,11 +12202,15 @@ async function openRuntimeMemberFromGraph(
       throw new Error(
         "The matching Platform catalog does not contain the selected Library.");
     }
+    if (retainPlatformPackageForTarget(target) !== pack) {
+      throw new Error(
+        "The matching Platform runtime model is unavailable.");
+    }
   } catch (error) {
     if (!navigationIsCurrent()) return;
     await showPlatformTargetError(
       node,
-      `the matching Platform catalog is unavailable: ${errorMessage(error)}`,
+      `the exact Platform target is unavailable: ${errorMessage(error)}`,
       failureSurface);
     return;
   }

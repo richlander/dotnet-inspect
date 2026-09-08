@@ -702,7 +702,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /retainedPlatformTargetVersion\(\s*captured\.preservesBasis && runtimeIndex >= 0[\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
+    /retainedPlatformTargetVersion\(\s*runtimeIndex >= 0\s*\? captured\.resolvedTabs\[runtimeIndex\][\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
   assert.doesNotMatch(
     appSource,
     /platformVersion:\s*currentPackage\(\)\.version/);
@@ -5193,7 +5193,10 @@ test("runtime graph member activation requires the matching exact catalog", () =
     /target\.rows\.some\(row =>\s*row\.hasImplementation\s*&& platformLibraryMatchesDescriptor\(row, library\)\)/);
   assert.match(
     navigation,
-    /catch \(error\) \{[\s\S]*showPlatformTargetError\([\s\S]*matching Platform catalog is unavailable[\s\S]*return;[\s\S]*navigateToRuntimeMember\(/);
+    /retainPlatformPackageForTarget\(target\) !== pack[\s\S]*matching Platform runtime model is unavailable/);
+  assert.match(
+    navigation,
+    /catch \(error\) \{[\s\S]*showPlatformTargetError\([\s\S]*exact Platform target is unavailable[\s\S]*return;[\s\S]*navigateToRuntimeMember\(/);
 });
 
 test("home navigation invalidates pending graph work", () => {
