@@ -1439,8 +1439,8 @@ the real coordinator/host adoption path, not an independently unused participant
 #### Mock restoration and delivery
 
 ```text
-Current Scope: JSON occurrence A
-Definition: JSON, NETStandard; inspect a descendant under NETStandard
+Current Scope: Newtonsoft.Json occurrence A
+Definition: Newtonsoft.Json, Humanizer.Core; inspect a member in Humanizer.dll
 
 Prepared Scope: A, new occurrence B       Current Scope: still A
 Navigation prepares its exact view under B

@@ -3602,17 +3602,27 @@ retries are not used to wait for physical cleanup.
 
 ##### Problem being solved
 
-Suppose the current Workspace contains `System.Text.Json`, and a saved
-Workspace definition asks for `System.Text.Json` plus `NETStandard.Library`
-with a member under `NETStandard.Library` selected.
+Suppose the current Workspace contains `Newtonsoft.Json`, and a saved
+Workspace definition asks for `Newtonsoft.Json` plus `Humanizer.Core`, with a
+member from its `Humanizer.dll` asset selected.
 
 Before accepting that restoration, Navigation and the relevant query owner
-must inspect `NETStandard.Library` to prove that the selected member and view
-can be restored. Today they cannot inspect it until Artifact Acquisition makes
-the package Root current. Making it current early is incorrect: a later
-Navigation, query, or Definitions failure would leave the user with package
-membership from the failed restoration instead of the previous usable
-Workspace.
+must inspect `Humanizer.Core` to prove that the selected member and view can be
+restored. Today they cannot inspect it until Artifact Acquisition makes the
+package Root current. Making it current early is incorrect: a later Navigation,
+query, or Definitions failure would leave the user with package membership
+from the failed restoration instead of the previous usable Workspace.
+
+`NETStandard.Library` is deliberately not the added package in this example.
+In an ordinary Platform-backed Workspace, the
+[platform/package pruning](platform-package-pruning.md) contract subsumes that
+package request. The .NET Standard API surface is supplied by Platform
+reference assemblies; the
+[`netstandard` Platform family](platform-assemblies.md#framework-mappings) is
+reference-only and resolves through type forwarders to platform
+implementations. No new package Root remains for this candidate to inspect.
+Explicit inspection of the NuGet package and a Workspace with no registered
+Platform are separate scenarios.
 
 The required behavior is therefore:
 
