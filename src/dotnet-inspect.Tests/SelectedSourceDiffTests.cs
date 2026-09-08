@@ -236,7 +236,7 @@ public sealed class SelectedSourceDiffTests
             client,
             new InMemoryPdbStore(),
             new UniformPackageSourceAuthorization([NuGetFetch.PackageSource.NuGetOrg]),
-            new SourceFetcher(client, new InMemorySourceContentStore()));
+            new SourceFetch(client, new InMemorySourceContentStore()));
         var surface = AssemblySetSurfaceBuilder.Build([beforePath])!;
         var type = Assert.Single(surface.Types, type => type.FullName == "SourceDiffFixture.Counter");
         var member = Assert.Single(type.Members, member => member.Name == "Value");

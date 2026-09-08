@@ -2301,7 +2301,7 @@ public class ApiCommand
             }
             else if (methodInfo.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+                var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
                 var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
@@ -3307,7 +3307,7 @@ public class ApiCommand
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
             fetcher,
             selectedSource.FilePath,

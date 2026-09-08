@@ -1,12 +1,20 @@
-# Browser comparison targets
+# Browser Diff targets
 
-This document owns the browser's Package-scoped comparison **intent**: the
-Diff baseline and Clone candidate scope inherited while navigating within that
-Package. It does not own comparison execution or acquisition authority.
-The production consumer is the Library Diff/Clone experience tracked by
+This document owns the browser's Package-scoped Diff baseline inherited while
+navigating within that Package. It does not own comparison execution or
+acquisition authority. The production consumer is the Library Diff experience
+tracked by
 [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
 The target-settings implementation is tracked by
 [#6156](https://github.com/richlander/dotnet-inspect/issues/6156).
+
+Clone candidate scope moved to the shared
+[Structural Clone Search Scope](structural-clone-search-scope.md) owner under
+[#6282](https://github.com/richlander/dotnet-inspect/issues/6282) and was
+revised under [#6289](https://github.com/richlander/dotnet-inspect/issues/6289).
+The current Package-specific Clone selector remains implemented only until
+that contract's Inspect Web adoption stage retires it. It is not a target
+contract or compatibility surface.
 
 ## Boundary
 
@@ -61,18 +69,6 @@ publish only into the same still-retained Package model and request entry;
 discarding the model retires its pending publication. Failure is visible and
 retry is explicit, not an automatic render/retry loop.
 
-## Clone
-
-The default candidate scope is the current Workspace, including the query's
-own library. It follows current Workspace membership rather than capturing a
-frozen list when the Package is first viewed.
-
-An explicit Package choice narrows candidates to that live retained Package.
-If it is removed or replaced, retain the user's choice as visibly unavailable
-until changed; do not silently switch back to Workspace. These settings do not
-define ranking, top-N, search coverage, member correspondence, or the eventual
-self-match navigation rules.
-
 ## Presentation and adoption
 
 Controls use the browser's existing native form and DOM-rendering conventions.
@@ -110,9 +106,12 @@ retry, replacement, and rollback of completed inventory. The companion
 production-selector cases gate option order and selectedness for current
 versions missing above, within, or below the inventory, without changing the
 available exact candidates.
-`package-comparison-targets.test.ts` gates defaults, exact choice admission,
-separate same-coordinate settings, Clone target removal, rollback associations,
-and form rendering/binding. The production-root case
+`package-comparison-targets.test.ts` gates Diff defaults, exact choice
+admission, separate same-coordinate settings, rollback associations, and form
+rendering/binding. Its current Clone-selector cases characterize the
+implementation that the shared Clone Browser adoption will remove; they do not
+define the replacement breadth or candidate-discovery contract. The
+production-root case
 `Package comparison targets survive Library, Type, and Member navigation` in
 `browser/library-hierarchy.spec.ts` exercises the actual navigation and controls
 with deterministic facade responses, including retained keyboard focus.

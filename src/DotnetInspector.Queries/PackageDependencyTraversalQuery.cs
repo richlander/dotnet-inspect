@@ -85,7 +85,7 @@ public static class PackageDependencyTraversalQuery
         PackageDependencyEvidenceInput.Package input =
             PackageDependencyEvidenceQuery.CreatePackageInput(
                 facts,
-                PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                 requestedFramework,
                 sourceLabel: null,
                 source: manifest.Source);

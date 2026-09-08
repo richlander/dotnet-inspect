@@ -24,7 +24,7 @@ public class LocalRepoSourceAcquisitionIntegrationTests
         using SourceLinkService source = SourceLinkService.Open(targetType.Assembly.Location);
         var outage = new NetworkOutageHandler();
         using var client = new HttpClient(outage);
-        var fetcher = new SourceFetcher(client, new InMemorySourceContentStore());
+        var fetcher = new SourceFetch(client, new InMemorySourceContentStore());
         var subject = new FindingSubject("local-repo-source", targetType.FullName!);
 
         PdbMemberSourceInspection member =

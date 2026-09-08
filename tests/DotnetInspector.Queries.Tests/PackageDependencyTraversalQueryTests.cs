@@ -10,7 +10,8 @@ namespace DotnetInspector.Queries.Tests;
 
 /// <summary>
 /// Release gates for the host-neutral Package Dependency Traversal Query
-/// (<c>#5996</c>). Two harnesses are used deliberately:
+/// (<c>#5996</c>), compiled by the Queries test executable. Two harnesses are
+/// used deliberately:
 /// </summary>
 /// <remarks>
 /// <para>
@@ -1681,7 +1682,7 @@ public sealed class PackageDependencyTraversalQueryTests
                                         packageId,
                                         version,
                                         dependenciesXml))).Value,
-                            PackageDependencyEvidenceSourceKind.PackageArchive,
+                            PackageDependencyEvidenceAcquisitionForm.PackageArchive,
                             requestedFramework),
                     ])).Roots);
 

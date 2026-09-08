@@ -247,7 +247,7 @@ projection. The resulting declaration must remain sliceable with identical
 boundaries; otherwise the slicer refuses the result rather than include a
 sibling from an inactive branch.
 
-`SourceFetcher` delegates reusable verified bytes to an
+`SourceFetch` delegates reusable verified bytes to an
 `ISourceContentStore`. Its compatibility constructor retains the desktop
 `CoreCache`; content-only hosts supply `InMemorySourceContentStore`, so source
 acquisition has no ambient filesystem requirement.

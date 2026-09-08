@@ -570,7 +570,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             ReturnToSenderSourceProbeResult result = Assert.Single(results);
             SourceAcquisitionOutcome expected = expectedFailure
@@ -605,7 +605,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             ReturnToSenderSourceProbeResult result = Assert.Single(results);
             Assert.Equal(
@@ -640,7 +640,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient),
+                    new SourceFetch(httpClient),
                     pdbStore: new PermissionDeniedPdbStore());
 
             ReturnToSenderSourceProbeResult result = Assert.Single(results);
@@ -674,7 +674,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             AuthoredRebuildFidelityResult result = Assert.Single(results);
             Assert.Equal(
@@ -707,7 +707,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             AuthoredRebuildFidelityResult result = Assert.Single(results);
             Assert.Equal(
@@ -744,7 +744,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             ReturnToSenderSourceProbeResult result = Assert.Single(results);
             Assert.Equal(
@@ -813,7 +813,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             ReturnToSenderSourceProbeResult result = Assert.Single(results);
             Assert.Equal(
@@ -829,7 +829,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
             AuthoredRebuildFidelityResult authored = Assert.Single(fidelity);
             Assert.Equal(
                 AuthoredRebuildOutcome.SourceFailed,
@@ -861,7 +861,7 @@ public sealed class AuthoredRebuildFidelityTests
                 [assemblyPath],
                 cap: 1,
                 httpClient,
-                new SourceFetcher(httpClient));
+                new SourceFetch(httpClient));
 
         ReturnToSenderSourceProbeResult result = Assert.Single(results);
         Assert.Equal(
@@ -893,7 +893,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [assemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
         ReturnToSenderSourceProbeResult result = Assert.Single(results);
         Assert.Equal(
@@ -925,7 +925,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [assemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
         ReturnToSenderSourceProbeResult result = Assert.Single(results);
         Assert.Equal(
@@ -957,7 +957,7 @@ public sealed class AuthoredRebuildFidelityTests
                         [assemblyPath],
                         cap: 1,
                         httpClient,
-                        new SourceFetcher(httpClient));
+                        new SourceFetch(httpClient));
 
         ReturnToSenderSourceProbeResult result = Assert.Single(results);
         Assert.Equal(
@@ -996,7 +996,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 2,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             Assert.Equal(2, results.Count);
             Assert.All(
@@ -1039,7 +1039,7 @@ public sealed class AuthoredRebuildFidelityTests
                     [fixture.AssemblyPath],
                     cap: 1,
                     httpClient,
-                    new SourceFetcher(httpClient));
+                    new SourceFetch(httpClient));
 
             ReturnToSenderSourceProbeResult result = Assert.Single(results);
             Assert.True(

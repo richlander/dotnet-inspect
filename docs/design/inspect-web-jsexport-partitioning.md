@@ -314,8 +314,8 @@ it projects one API member after navigation rather than expanding topology.
 
 The catalog facade adapts product-owned static vocabulary and demo definitions
 plus product-owned workspace-share transport. `RunHomeDemo` may call shared
-package/workspace services through `InspectWeb.Engine.Core`; it does not call the
-package facade or reuse that facade's wire DTOs.
+package or Platform workspace services through `InspectWeb.Engine.Core`; it
+does not call sibling facades or reuse their wire DTOs.
 
 ## Managed assembly contract
 

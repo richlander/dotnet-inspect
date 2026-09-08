@@ -671,14 +671,14 @@ public static class DependencyEvidenceCommand
             DependencyEvidenceSections.Roots => true,
             DependencyEvidenceSections.Dependencies
                 or DependencyEvidenceSections.DependencyGroups =>
-                summary.Phases.IncompleteDeclarations == 0
-                && summary.Phases.FailedDeclarations == 0
-                && summary.Phases.UnavailableDeclarations == 0,
+                summary.Phases.Declarations.Incomplete == 0
+                && summary.Phases.Declarations.Failed == 0
+                && summary.Phases.Declarations.Unavailable == 0,
             DependencyEvidenceSections.RestoredEdges
                 or DependencyEvidenceSections.RestoredPackages =>
-                summary.Phases.IncompleteGraphs == 0
-                && summary.Phases.FailedGraphs == 0
-                && summary.Phases.UnavailableGraphs == 0,
+                summary.Phases.Relationships.Incomplete == 0
+                && summary.Phases.Relationships.Failed == 0
+                && summary.Phases.Relationships.Unavailable == 0,
             _ => false,
         };
     }
@@ -712,15 +712,15 @@ public static class DependencyEvidenceCommand
             RejectedRootCount = summary.RejectedRootCount,
             FailedRootCount = summary.FailedRootCount,
             Truncated = summary.IsTruncated,
-            CompleteDeclarations = summary.Phases.CompleteDeclarations,
-            IncompleteDeclarations = summary.Phases.IncompleteDeclarations,
-            UnavailableDeclarations = summary.Phases.UnavailableDeclarations,
-            FailedDeclarations = summary.Phases.FailedDeclarations,
-            NotApplicableGraphs = summary.Phases.NotApplicableGraphs,
-            CompleteGraphs = summary.Phases.CompleteGraphs,
-            IncompleteGraphs = summary.Phases.IncompleteGraphs,
-            UnavailableGraphs = summary.Phases.UnavailableGraphs,
-            FailedGraphs = summary.Phases.FailedGraphs,
+            CompleteDeclarations = summary.Phases.Declarations.Complete,
+            IncompleteDeclarations = summary.Phases.Declarations.Incomplete,
+            UnavailableDeclarations = summary.Phases.Declarations.Unavailable,
+            FailedDeclarations = summary.Phases.Declarations.Failed,
+            NotApplicableGraphs = summary.Phases.Relationships.NotApplicable,
+            CompleteGraphs = summary.Phases.Relationships.Complete,
+            IncompleteGraphs = summary.Phases.Relationships.Incomplete,
+            UnavailableGraphs = summary.Phases.Relationships.Unavailable,
+            FailedGraphs = summary.Phases.Relationships.Failed,
             PrefixText = summary.PackagePrefix?.Prefix,
             PrefixSourceText = summary.PackagePrefix?.Source.Producer.Display,
             PrefixCandidates = summary.PackagePrefix?.Candidates,
@@ -843,10 +843,10 @@ public static class DependencyEvidenceCommand
         return summary.FailedRootCount > 0
             || summary.RejectedRootCount > 0
             || truncatedBeyondRequest
-            || summary.Phases.IncompleteDeclarations > 0
-            || summary.Phases.FailedDeclarations > 0
-            || summary.Phases.IncompleteGraphs > 0
-            || summary.Phases.FailedGraphs > 0
+            || summary.Phases.Declarations.Incomplete > 0
+            || summary.Phases.Declarations.Failed > 0
+            || summary.Phases.Relationships.Incomplete > 0
+            || summary.Phases.Relationships.Failed > 0
                 ? 1
                 : 0;
     }
@@ -864,8 +864,8 @@ public static class DependencyEvidenceCommand
                 $"{failureRecords} typed failure record(s) are reported; run with '-S {DependencyEvidenceSections.Failures}' for the rows.");
         }
 
-        if (summary.Phases.UnavailableDeclarations > 0
-            || summary.Phases.UnavailableGraphs > 0)
+        if (summary.Phases.Declarations.Unavailable > 0
+            || summary.Phases.Relationships.Unavailable > 0)
         {
             CommandError.WriteWarning(
                 "Some optional declaration or restored-graph evidence is unavailable for the supplied roots.");
@@ -903,12 +903,16 @@ public static class DependencyEvidenceCommand
         {
             DependencyEvidenceSections.RestoredEdges
                 or DependencyEvidenceSections.RestoredPackages =>
-                phases.CompleteGraphs + phases.IncompleteGraphs == 0
+                phases.Relationships.Complete
+                    + phases.Relationships.Incomplete
+                    == 0
                     ? "no admitted root carries restored graph evidence."
                     : "the restored graph projected no nodes or edges.",
             DependencyEvidenceSections.Dependencies
                 or DependencyEvidenceSections.DependencyGroups =>
-                phases.CompleteDeclarations + phases.IncompleteDeclarations == 0
+                phases.Declarations.Complete
+                    + phases.Declarations.Incomplete
+                    == 0
                     ? "no admitted root carries a declaration projection."
                     : "the admitted roots declare no direct dependencies.",
             DependencyEvidenceSections.Failures =>

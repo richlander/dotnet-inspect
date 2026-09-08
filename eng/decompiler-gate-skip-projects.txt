@@ -60,6 +60,9 @@ fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
+fixtures/presentation/LibraryApiDiff.V1
+fixtures/presentation/LibraryApiDiff.V2
+fixtures/queries/DotnetInspector.CloneSearchFixtures
 fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures
 fixtures/queries/DotnetInspector.RestoredProjectFixtures
 fixtures/queries/DotnetInspector.SourceDiff.V1

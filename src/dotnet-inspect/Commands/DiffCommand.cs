@@ -1189,7 +1189,7 @@ public class DiffCommand
                 httpClient,
                 FileSystemPdbStore.CreateDefault(),
                 new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
-                new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch))
+                new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch))
             {
                 AllowAdjacentPdbReads = true,
                 AllowLocalSourceReads = true,
@@ -1348,7 +1348,7 @@ public class DiffCommand
     {
         var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
         var indexingFailures = ImmutableArray.CreateBuilder<string>();
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
 
         foreach (string path in paths)

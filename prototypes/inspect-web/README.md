@@ -1,6 +1,6 @@
 # dotnet-inspect browser prototype
 
-This prototype explores a type-first, keyboard-driven browser experience for
+This prototype explores a Library-first, keyboard-driven browser experience for
 `dotnet-inspect`. This branch is a **thin-engine rebuild on current `main`**, and
 its organising rule is:
 
@@ -9,6 +9,12 @@ its organising rule is:
 > is exported as explicitly unsupported and reported as a product API gap. It is
 > never answered by opening a session, a metadata source, an analysis index, or a
 > retained image descriptor.
+
+Opening a package without an explicit destination starts at Library Overview
+using the product-selected default Library. Package remains available one level
+up with its complete Library inventory. Explicit links and restored workspace
+history keep their selected subjects and inspectors; packages with no compile
+Libraries remain at Package with the reason visible.
 
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
@@ -829,8 +835,14 @@ ambiguity and diagnostic cases gate these host behaviors.
 Package Overview contains session-local **Comparison targets**. Diff defaults
 to the preceding listed stable release, including earlier previews when the
 active version is a preview. An exact version can be selected instead.
-Clone defaults to the current Workspace, including self, or can be narrowed
-to another retained Package.
+
+The current prototype also renders a Package-specific Clone selector. It is a
+temporary target placeholder: the shared
+[Structural Clone Search Scope](../../docs/design/structural-clone-search-scope.md)
+contract replaces it with independent breadth (`Self`, `Self + registered
+ecosystems`, or `Everything`) and candidate discovery (`Similar names` or
+`All`), defaulting to `Everything` plus `Similar names`. The Browser adoption
+stage will remove the Package-specific state and selector.
 
 Subject navigation preserves these settings. Replacing or removing the Package
 resets its settings; removing an explicit Clone target leaves that choice
@@ -840,7 +852,9 @@ platform inputs.
 
 These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
-[Browser comparison targets](../../docs/design/inspect-web-comparison-targets.md).
+[Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
+Diff baseline and Structural Clone Search Scope for the replacement Clone
+breadth and candidate discovery.
 
 ## Method Body Diff
 
@@ -1047,6 +1061,12 @@ compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
+PR CI uses `--fast-check` for ordinary browser changes. It keeps the complete
+artifact inventory and per-root generation comparison while deferring the
+second, product-versioned regeneration to the daily Deep Inspect `inspect-web`
+lane. Changes to the generator or its owning contracts select `--check` in PR
+CI as well.
+
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
 retained readiness promise. It calls the host module's `createRuntime()` once,
 then passes that same narrow runtime handle while the seven generated modules
@@ -1145,6 +1165,11 @@ or dropped managed invocation. This canary does not split the production engine
 binding or expose raw `ILInspector` APIs; that production partition remains
 [#4497].
 
+Ordinary browser PRs use the canary's `--fast` mode: one generated-contract
+check and one Mono runtime execution. The complete mutation set and both
+runtimes run daily in the Deep Inspect `inspect-web` lane and on PRs that
+change the generator or canary owners.
+
 The purpose-built `managed-operation-bridge-canary` directly drives the product
 `BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
 controlled feature bodies expose synchronous progress, keyed cancellation, and
@@ -1168,6 +1193,10 @@ Promises, and callback sequences witness the release boundaries. Six producers
 and eight waiters must finish with no remaining entries or subscriptions.
 Additional negative controls reject a split producer, premature physical
 finalization, and an omitted final-waiter scenario.
+
+Its `--fast` mode retains the generated-contract check and Mono execution for
+ordinary browser PRs. Deep Inspect and direct owner changes run the complete
+mutation and dual-runtime form.
 
 An explicit epoch-work phase exercises the real managed reporter and final-waiter
 handoff: five physical producers, seven waiters, and three registrations.
