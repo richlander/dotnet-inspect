@@ -19,6 +19,9 @@ Authority is intentionally distributed:
   workspace, query, acquisition, join, cache, and safety target.
 - [Inspection layers](design/inspection-layers.md) owns the L1/L2/L3 consumer
   boundaries.
+- [Library family boundaries](design/library-family-boundaries.md) owns the
+  meaning of project and namespace roots independently from consumer layer and
+  component role.
 - Focused documents under [`docs/design/`](design/) own their component
   contracts.
 - [CLI host architecture](cli-architecture.md) describes command-host
@@ -64,7 +67,7 @@ the source-neutral artifact and compiled-domain seams is incremental:
 
 | Stage | Responsibility | Typical implementation |
 | ----- | -------------- | ---------------------- |
-| 1. Admit sources | Interpret explicit package, platform, project, local-file, or in-memory input and authorize any network or source-content work. | Host adapters, `DotnetInspector.Packages`, `DotnetInspector.Services` |
+| 1. Admit sources | Interpret explicit package, platform, project, local-file, or in-memory input and authorize any network or source-content work. | Host adapters, `NuGetFetch`, target `SourceFetch`, `DotnetInspector.Packages`, transitional `DotnetInspector.Services` |
 | 2. Form a workspace | Retain content and binding-consistent participant contexts for the operation lifetime. | `AssemblySet`, query workspaces, assembly context groups; artifact-session canaries |
 | 3. Resolve intent | Turn host gestures into typed subjects, lenses, sections, row plans, and capabilities. | CLI options and resolvers, section catalogs, output projections |
 | 4. Plan producers | Lower direct section and host demand through an immutable typed-query catalog. | `InspectionQueryCatalog<TContext>`; Diff's compiled domain and lens |
@@ -115,18 +118,22 @@ alphabetically.
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `DotnetInspector.Artifacts` | Contract floor | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, and guarded content access. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
-| `DotnetInspector.Core` | Runtime floor | Cache roots, cache publication, network policy, telemetry, and hardened readers. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md) |
-| `DotnetInspector.Artifacts.Workspaces` | Workspace composition | Bounded immutable contribution composition and workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
-| `DotnetInspector.Artifacts.Local` | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `DotnetInspector.Artifacts` (target `Inspector.Artifacts`) | Contract floor | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, and guarded content access. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
+| `DotnetInspector.Core` (transitional) | Runtime floor | Cache roots, cache publication, network policy, telemetry, and hardened readers pending subject-based decomposition. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md), [#6334](https://github.com/richlander/dotnet-inspect/issues/6334) |
+| `DotnetInspector.Artifacts.Workspaces` (target `Inspector.Artifacts.Workspaces`) | Workspace composition | Bounded immutable contribution composition and workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
+| `DotnetInspector.Artifacts.Local` (target `Inspector.Artifacts.Local`) | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
 | `NuGetFetch` | Protocol adapter | NuGet feeds, downloads, authentication, and protocol behavior. | [NuGet authentication](design/nuget-authentication.md) |
+| Target `SourceFetch` | Transport adapter | Bounded host-authorized source-byte retrieval, redirect and origin enforcement, content-store integration, and typed transport outcomes. | [PDB acquisition](pdb-acquisition.md), [library family boundaries](design/library-family-boundaries.md), [#6335](https://github.com/richlander/dotnet-inspect/issues/6335) |
 | `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
-| `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
+| `DotnetInspector.Services` (transitional) | Shared services | Reusable acquisition and resolution services over explicit host policy pending decomposition into subject owners. | The focused acquisition, package, platform, PDB, and source designs; [#6335](https://github.com/richlander/dotnet-inspect/issues/6335) |
 
 Within Services, `LocalRepoSourceAcquisition` owns [local repository source
 acquisition](design/local-repository-source-acquisition.md): checksum-backed
 substitution of Git blob bytes for one PDB source request. PDB acquisition
-retains the surrounding source-selection and fallback policy.
+retains the surrounding source-selection, checksum, and fallback policy.
+The existing `SourceFetch` implementation targets the independent transport
+root rather than the PDB owner: it retrieves authorized source bytes, while
+`PdbSourceHouse` decides when and how those bytes satisfy a PDB document.
 
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
@@ -159,10 +166,10 @@ interpretation and Decompiler reconstruction stay with their respective owners.
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `ILInspector.Findings` | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
+| `ILInspector.Findings` (target `Inspector.Findings`) | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md), [library family boundaries](design/library-family-boundaries.md) |
 | `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
-| `ILInspector.Text` | Text producer | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
+| `ILInspector.Text` (target `Inspector.Text`) | Text producer | Exact ordered line inspection, generic text comparison, and deterministic LF construction. | [Finding producers](design/finding-producers.md), [library family boundaries](design/library-family-boundaries.md) |
 | `ILInspector.Analysis` | IL evidence producer | SRM-based whole-assembly and targeted IL evidence, including calls, allocations, safety, leverage, and resource analysis. | Focused Analysis designs, [Finding adoption](design/finding-adoption.md) |
 | `ILInspector.Decompiler` | IR producer | Per-method IR, structuring, typing, C# projection, and annotated IL. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | `ILInspector.ILDiff` | Comparison producer | Canonical IL-body and assembly comparison with typed failures and Finding projection. | [Implementation diff](design/implementation-diff.md) |
