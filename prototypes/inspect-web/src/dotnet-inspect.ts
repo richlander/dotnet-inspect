@@ -390,7 +390,7 @@ import {
 import { renderBrand } from "./brand.ts";
 import {
   DEFAULT_PLATFORM_FRAMEWORK, loadPlatformIndex, parsePlatformCatalogTarget,
-  type PlatformIndex, type PlatformCatalogTarget,
+  type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
   bindPlatformSubject, renderPlatformSubject, platformInventory, platformLibraryKey,
@@ -1452,6 +1452,9 @@ function captureView(): WorkspaceView | null {
     packageLens: state.packageLens,
     libraryLens: state.libraryLens,
     libraryScope: captureLibraryScope(state.libraryScope),
+    platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
+      ? selectedLibraryShareKey() || null
+      : null,
   };
 }
 
@@ -1514,9 +1517,28 @@ function applyView(view: WorkspaceView) {
     render();
     return true;
   }
+  if (view.rootKind === "platform" && view.platform && view.platformLibrary) {
+    const target = state.platformIndex?.target(
+      view.platform.tfm,
+      view.platform.version);
+    const row = target?.rows.find(candidate =>
+      platformLibraryKey(candidate) === view.platformLibrary);
+    if (!target || !row) return false;
+    const resident = runtimePackageForTarget(target);
+    if (!resident?.assemblies.some(descriptor =>
+      platformLibraryMatchesDescriptor(row, descriptor))) {
+      const navigationSeq = navigationSequence.current();
+      observeAsync(
+        restorePlatformHistoryView(view, row, navigationSeq),
+        "Restoring a Platform Library from navigation history");
+      return true;
+    }
+  }
   const pkg = packageForView(state.packages, view)
     ?? (view.rootKind === "platform" && view.platform ? runtimePackageForTarget(view.platform) : null);
   if (!pkg) return false;
+  if (view.rootKind === "platform" && !state.packages.includes(pkg))
+    retainPackageModel(pkg);
   invalidateMemberDestinationWork(state);
   activatePackage(pkg);
   state.rootKind = view.rootKind ?? (pkg.source.kind === "platform" ? "platform" : "package");
@@ -1638,6 +1660,30 @@ function applyView(view: WorkspaceView) {
     render();
   }
   return true;
+}
+
+async function restorePlatformHistoryView(
+  view: WorkspaceView,
+  row: PlatformAssemblyRow,
+  navigationSeq: number,
+) {
+  const opened = await openPlatformLibrary(
+    platformLibraryKey(row),
+    row.pack,
+    {
+      scopeOnly: true,
+      navigationSeq,
+      tfm: view.platform?.tfm,
+      version: view.platform?.version,
+      retryAction: () =>
+        restorePlatformHistoryView(view, row, navigationSeq),
+    });
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!opened) {
+    render();
+    return;
+  }
+  applyView(view);
 }
 
 const navigationHistory = createNavigationHistory({
@@ -4471,8 +4517,8 @@ function libraryLensBody() {
 
 function packageDependenciesSignature() {
   const pkg = currentPackage();
-  const library = selectedLibrary();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${library?.id ?? pkg.assemblyId}`;
+  const library = selectedLibraryShareKey();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${library || pkg.assemblyId}`;
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
@@ -4819,7 +4865,7 @@ function workspaceDependencyErrorHtml() {
 
 function packageIntegrationsSignature() {
   const pkg = currentPackage();
-  const lib = selectedLibraryRequest();
+  const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
@@ -4862,7 +4908,7 @@ function maybeAutoLoadPackageIntegrations() {
 
 function packageScopeSignature() {
   const pkg = currentPackage();
-  const lib = selectedLibraryRequest();
+  const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 

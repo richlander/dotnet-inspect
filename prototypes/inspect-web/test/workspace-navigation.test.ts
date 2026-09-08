@@ -1133,6 +1133,15 @@ test("history signatures distinguish captured library scope", () => {
     workspaceViewSignature(workspaceView({
       libraryScope: ["System.Text.Json"],
     })));
+  assert.notEqual(
+    workspaceViewSignature(workspaceView({
+      rootKind: "platform",
+      platformLibrary: '["netcore.app","System.Text.Json.dll"]',
+    })),
+    workspaceViewSignature(workspaceView({
+      rootKind: "platform",
+      platformLibrary: '["aspnetcore.app","System.Text.Json.dll"]',
+    })));
 });
 
 test("history signatures distinguish Workspace from Package", () => {

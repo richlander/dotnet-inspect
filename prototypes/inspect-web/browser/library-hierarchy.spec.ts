@@ -539,6 +539,14 @@ test("history-restored cached Platform Libraries remain usable through Spotlight
   const libraryLocation = page.url();
   await page.locator(".type-browser .nav-back-row").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version")).toHaveValue(alternatePlatformVersion);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page.locator("#platform-version")).toHaveValue(alternatePlatformVersion);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
   await expect(page).toHaveURL(libraryLocation);
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
@@ -678,17 +686,33 @@ test("Sequential same-named Platform Libraries replace the prior family and reta
   await page.getByRole("button", { name: /System.Text.Json Implementation netcore.app/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
+  const netCoreLibraryLocation = page.url();
   await page.locator(".type-browser .nav-back-row").click();
   await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  const platformLocation = page.url();
   await page.getByRole("button", { name: /System.Text.Json Implementation aspnetcore.app/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "aspnetcore.app", "System.Text.Json.dll"]));
+  const aspNetLibraryLocation = page.url();
   await page.locator('[data-library-lens="metadata"]').click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
     JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "aspnetcore.app"]));
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(aspNetLibraryLocation);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(platformLocation);
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page).toHaveURL(netCoreLibraryLocation);
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await page.locator('[data-library-lens="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
-    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "aspnetcore.app"]));
+    JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
 });
 
 test("Runtime-only CoreLib in the native asset directory uses the same exact Library inspector", async ({ page }) => {

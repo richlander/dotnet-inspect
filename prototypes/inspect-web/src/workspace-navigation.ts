@@ -51,6 +51,7 @@ export interface WorkspaceView {
   packageLens: PackageLens;
   libraryLens: LibraryLens;
   libraryScope: string[] | null;
+  platformLibrary?: string | null;
 }
 
 export function workspaceViewSignature(view: WorkspaceView): string {
@@ -76,6 +77,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     pl: view.packageLens,
     ll: view.libraryLens,
     ls: view.libraryScope,
+    platformLibrary: view.platformLibrary ?? null,
   });
 }
 
