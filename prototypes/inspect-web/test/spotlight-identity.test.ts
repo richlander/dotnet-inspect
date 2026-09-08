@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { parseSync, visitorKeys } from "oxc-parser";
 import type {
@@ -3798,6 +3800,89 @@ test("spotlight cache signature changes when a coordinate is replaced", () => {
   assert.notEqual(
     oldSignature,
     spotlightCandidateSignature(newFramework, [newFramework]));
+});
+
+test("spotlight cache signature changes when an equal-count surface is replaced", () => {
+  const packageModel = {
+    ...packageAt("1.0.0", "net8.0", 1),
+    surfaceRevision: 0,
+  };
+  const original = spotlightCandidateSignature(packageModel, [packageModel]);
+  packageModel.surfaceRevision++;
+
+  assert.notEqual(
+    original,
+    spotlightCandidateSignature(packageModel, [packageModel]));
+});
+
+test("cached Platform roots re-enter Workspace membership before activation", () => {
+  const retainTarget =
+    appSource.match(/function retainPlatformPackageForTarget[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const installTarget =
+    appSource.match(/function installPlatformTarget[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const applyViewNode = parsedAppSource.program.body.find(node =>
+    node.type === "FunctionDeclaration" && node.id?.name === "applyView");
+  assert.ok(applyViewNode);
+  const applyView = appSource.slice(applyViewNode.start, applyViewNode.end);
+  const cached = {
+    ...packageAt("11.0.0", "net11.0"),
+    source: { kind: "platform" },
+  };
+  const state = {
+    packages: [] as typeof cached[],
+    package: null as typeof cached | null,
+    platformSelection: null,
+    platformIndex: {
+      target: () => ({ tfm: "net11.0", version: "11.0.0" }),
+    },
+  };
+  const retained: typeof cached[] = [];
+  const context = {
+    state,
+    cached,
+    target: { tfm: "net11.0", version: "11.0.0" },
+    runtimePackageForTarget: () => cached,
+    retainPackageModel: (packageModel: typeof cached) => {
+      retained.push(packageModel);
+      state.packages = [packageModel];
+    },
+    platformCoordinateCapacityError: () => "",
+    resetMemberSectionState: () => {},
+    invalidateMemberDestinationWork: () => {},
+    navigationHistory: { normalizeCurrent: () => {} },
+    render: () => {},
+    showToast: () => {},
+  };
+
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget(target);`),
+    context);
+  assert.equal(state.package, cached);
+  assert.deepEqual(retained, [cached]);
+
+  state.packages = [];
+  state.package = null;
+  state.platformSelection = null;
+  retained.length = 0;
+  assert.equal(
+    runInNewContext(
+      stripTypeScriptTypes(`${retainTarget}\n${applyView}\napplyView({
+        rootKind: "platform",
+        platform: {
+          tfm: "net11.0",
+          version: "11.0.0",
+          includeAllLibraries: false,
+          filter: "",
+        },
+        atPackageRoot: true,
+        workspaceSubjectOpen: false,
+      });`),
+      context),
+    true);
+  assert.equal(state.package, cached);
+  assert.deepEqual(retained, [cached]);
 });
 
 test("member cache signatures use the same complete coordinates", () => {

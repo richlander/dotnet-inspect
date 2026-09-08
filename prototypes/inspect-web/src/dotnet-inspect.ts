@@ -1508,7 +1508,7 @@ function applyView(view: WorkspaceView) {
     invalidateMemberDestinationWork(state);
     state.rootKind = "platform";
     state.platformSelection = { ...view.platform };
-    state.package = runtimePackageForTarget(target);
+    state.package = retainPlatformPackageForTarget(target);
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
     state.workspaceSubjectOpen = view.workspaceSubjectOpen;
@@ -7475,6 +7475,15 @@ function runtimePackageForTarget(target: { tfm: string; version: string }): AppP
     ?? platformPackages.get(platformTargetKey(target)) ?? null;
 }
 
+function retainPlatformPackageForTarget(
+  target: { tfm: string; version: string },
+): AppPackage | null {
+  const packageModel = runtimePackageForTarget(target);
+  if (packageModel && !state.packages.includes(packageModel))
+    retainPackageModel(packageModel);
+  return packageModel;
+}
+
 async function ensurePlatformCatalog(tfm: string, version?: string): Promise<PlatformCatalogTarget> {
   state.platformIndex ??= await loadPlatformIndex();
   if (!state.platformIndex) throw new Error("The Platform catalog could not be loaded.");
@@ -7491,6 +7500,7 @@ async function ensurePlatformCatalog(tfm: string, version?: string): Promise<Pla
 function installPlatformTarget(target: PlatformCatalogTarget) {
   const capacityError = platformCoordinateCapacityError();
   if (capacityError) throw new Error(capacityError);
+  const packageModel = retainPlatformPackageForTarget(target);
   const previous = state.platformSelection;
   state.rootKind = "platform";
   state.platformSelection = {
@@ -7498,7 +7508,7 @@ function installPlatformTarget(target: PlatformCatalogTarget) {
     includeAllLibraries: previous?.includeAllLibraries ?? false,
     filter: previous?.filter ?? "",
   };
-  state.package = runtimePackageForTarget(target);
+  state.package = packageModel;
   state.workspaceShareBasis = null;
   state.workspaceSubjectOpen = false;
   state.atPackageRoot = true;

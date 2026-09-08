@@ -554,6 +554,7 @@ export function spotlightCandidateKey(pkg: PackageIdentity, typeId: string): str
 
 export interface SpotlightSignaturePackage extends PackageIdentity {
   types?: readonly unknown[];
+  surfaceRevision?: number;
 }
 
 export function spotlightCandidateSignature(
@@ -561,7 +562,7 @@ export function spotlightCandidateSignature(
   packages: readonly SpotlightSignaturePackage[],
 ): string {
   return `${packageIdentityKey(activePackage)}#${packages
-    .map(pkg => `${packageIdentityKey(pkg)}:${pkg.types?.length ?? 0}`)
+    .map(pkg => `${packageIdentityKey(pkg)}:${pkg.types?.length ?? 0}:${pkg.surfaceRevision ?? 0}`)
     .join("|")}`;
 }
 

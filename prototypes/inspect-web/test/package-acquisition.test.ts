@@ -1270,6 +1270,7 @@ test("a same-named assembly from another platform family replaces its Browser su
     [["Shared.CommonType", "aspnetcore.app"]]);
   assert.equal(resident.accessibility[0]?.count, 1);
   assert.equal(resident.totalMembers, 2);
+  assert.equal(resident.surfaceRevision, 1);
 });
 
 test("runtime pack acquisition fills the core family after an ASP.NET-first load", async () => {

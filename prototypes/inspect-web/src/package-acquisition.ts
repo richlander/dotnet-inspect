@@ -138,6 +138,7 @@ export interface AppPackage {
   inspectionErrors?: string[];
   inspectionError?: string;
   isRuntimePack: boolean;
+  surfaceRevision?: number;
 }
 
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
@@ -327,6 +328,7 @@ export function createNuGetPackageModel(
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: false,
+    surfaceRevision: 0,
   };
 }
 
@@ -383,6 +385,7 @@ function createRuntimePackageModelForAssembly(
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: true,
+    surfaceRevision: 0,
   };
 }
 
@@ -520,6 +523,7 @@ export function mergeRuntimePackageSurface(
       ?? (existing.inspectionError ? [existing.inspectionError] : []),
     surfaceInspectionErrors(result));
   existing.inspectionError = renderInspectionErrors(existing.inspectionErrors);
+  existing.surfaceRevision = (existing.surfaceRevision ?? 0) + 1;
   return existing;
 }
 
