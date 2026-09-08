@@ -8,8 +8,12 @@ originally established under
 under [#6289](https://github.com/richlander/dotnet-inspect/issues/6289), within
 the Diff, Clone, and immersive-viewer experience tracked by
 [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
-It is **not implemented**; the target behavior and acceptance scenarios below
-remain **unverified**.
+Stage 2 below is implemented under
+[#6303](https://github.com/richlander/dotnet-inspect/issues/6303) by the
+Queries-owned `WorkspaceStructuralCloneSearchQuery` and gated by its focused
+Release suite.
+Stages 3 through 7 are **not implemented**, so the host-facing acceptance
+scenarios below remain **unverified**.
 
 Clone separates two request dimensions:
 
@@ -96,6 +100,20 @@ The selected subject supplies the seed population:
 | Library | Every MethodDef in the selected exact library |
 | Type | Every MethodDef declared by the selected exact type |
 | Member | Every exact method body occupied by the selected Member subject; an exact overload or accessor selection narrows this to one body |
+
+A Member subject is a logical member, so a property or event supplies the
+bodies its accessors occupy — getter and setter, adder, remover, and raiser,
+and any other associated accessor. An indexer is a property that overloads on
+its index parameters, so those parameters are part of its exact identity and a
+selected overload supplies only its own accessors. An explicit accessor
+selection is itself an exact member identity and stays one body. A selected
+member that occupies no method body — a property or event with no accessor, and
+every field — selects an empty seed population and is reported as that typed
+outcome; it is neither a missing member nor an arbitrary body. The search reads
+the physical accessor association and the member identities from their metadata
+owner rather than re-deriving either from accessor name conventions, and an
+accessor association naming a method a different type declares is malformed
+metadata rather than a body of the selected member.
 
 The selected subject retains its owner-issued exact identity. The search does
 not recover a Library, Type, or Member from display text.
@@ -193,9 +211,23 @@ Both conditions are required for the same seed-candidate pair. An exact
 ordinal-ignore-case name match has similarity `1.0`. Other comparisons
 case-fold invariantly before using
 `ILInspector.MetadataPrimitives.StringDistance.Similarity`.
+
+Invariant case folding here is the mapping `StringComparison.OrdinalIgnoreCase`
+itself uses, so the two rules agree by construction. Lowercasing is not that
+mapping: Greek capital sigma lowercases to the medial sigma while the final
+sigma lowercases to itself, so a lowercased comparison would exclude a peer the
+first rule promises to score `1.0`. The same equivalence governs how the search
+indexes and memoizes seed and candidate names, so two spellings of one name
+never admit different candidates.
 Declaring-type names follow the existing Metadata type-suggestion convention:
 use the innermost simple name and remove canonical generic arity. Method names
 use the decoded metadata method name.
+
+The qualifying seed-candidate pair is also the unit of evaluation. Admission is
+not a participant-wide candidate-population property: a candidate admitted by
+seed A is ranked against seed A, and is ranked against seed B only when B
+independently clears both thresholds against it. The name scores reported with
+a result row are that row's own pair's scores, never the best unrelated seed's.
 
 The fixed `0.6` threshold follows the existing default of
 `TypeMatcher.FindClosest`. It is returned with the request and result so the
@@ -211,6 +243,14 @@ filter.
 Name decode failure, name-work exhaustion, or a candidate library that cannot
 be inspected remains visible candidate-coverage evidence. The search does not
 silently discard that library and report a complete result.
+
+A candidate body Analysis could not produce is the same kind of evidence and
+belongs to the participant whose candidate it was. A library carries the
+Analysis-issued blockers that omitted its candidate methods, aggregated over
+every seed and every unit of retrieval work run against it, and is incomplete
+while it carries one. A blocker that reports the seed itself could not be
+produced stays with that seed: it omits no candidate of any one participant,
+and the seed's own coverage already makes the result incomplete.
 
 ### All
 
@@ -238,6 +278,27 @@ MVIDs from different retained contents do not establish pair identity.
 Endpoint identity retains the exact library/content association required by
 the Workspace and Analysis owners.
 
+An endpoint identifies its library through the opaque per-participant identity
+its bound snapshot issues, not through a public enumeration position. The
+snapshot owns a deterministic snapshot-local endpoint identity order: it
+captures its entry order once as part of its exact identity, validates that the
+order contains no repeated participant and no repeated acquisition
+registration, and issues one identity per entry. Two entries that carry equal
+MVIDs, equal tokens, and equal retained content under distinct registrations
+therefore remain distinct endpoints, and an identity carries no meaning outside
+its snapshot.
+
+A snapshot retains its entries' assembly context groups rather than their
+immutable images, so its issuer owns two obligations the search cannot check:
+that each group came from the Workspace that issued the bound revisions, and
+that each group and participant stays alive for the whole execution the
+snapshot is passed to. Both remain **unverified** until the concrete Workspace
+and registration producer lands and can own association and lifetime. Until
+then premature release is made visible rather than allowed to change results
+silently: a released containing library returns a typed failed result, and a
+released candidate becomes that library's incomplete coverage beside the
+evidence already ranked.
+
 ## Global ranking and bounded work
 
 A multi-seed search produces one globally ranked pair population. It must not
@@ -255,11 +316,51 @@ Global ties resolve deterministically by:
 2. left exact method identity; and
 3. right exact method identity.
 
+Exact method identity here is the snapshot-issued participant identity plus the
+physical method address. Both endpoints of one search come from the same bound
+snapshot, so that snapshot's owner-issued order is a total order over its
+distinct registrations and supplies the tie-break.
+
+Name-work bounds are accounted logically, not by execution. Any memoization the
+search uses is a pure optimization: the same logical comparison work is charged
+whether a score is recomputed or reused, so changing memoization capacity alone
+cannot change the discovered methods, the retrieval pairs, the ranked rows, or
+the reported coverage of an otherwise identical request.
+
 The product result limit applies after global ranking. Per-seed candidate,
 body-production, name-work, byte, and operation limits remain independently
 visible. Reaching one of those limits cannot become a complete top-N result;
 the result distinguishes an intentional returned-row limit from incomplete
 candidate coverage.
+
+Per-library bounds alone do not bound the search. A request also binds:
+
+- the greatest number of breadth-admitted participants one search evaluates;
+  and
+- the greatest total seed-by-candidate retrieval population it submits to
+  Analysis, summed over every participant and seed.
+
+Both are whole-unit bounds, discovered at different points. The participant
+bound is preflight: it is decided over the snapshot's exact entry order before
+any candidate image is opened. The retrieval-pair bound is a whole-participant
+admission bound: under similar-name discovery a participant's pair population
+is only known while its per-seed candidate groups are being formed, so
+admission stops mid-formation and abandons that participant, and only the
+latched exhausted state that follows excludes later participants without
+opening them. Either way a participant is evaluated completely or excluded
+completely with a visible failure, so a bounded run never presents a partial
+pair population as a complete global top N. Every whole-unit exclusion makes
+candidate coverage incomplete. That remains separate from the intentional
+returned-row limit, which suppresses rows over complete evidence.
+
+A seed's admitted candidate group is submitted to Analysis in bounded
+consecutive chunks so cancellation is observed between units of retrieval work
+rather than after one whole-population call. Chunking is a scheduling decision
+only: every chunk requests its complete ranked population, the search merges
+every chunk into the same global ranking, each pair keeps its own name
+evidence, and the aggregate retrieval-pair charge is unchanged. The chunk size
+therefore moves only cancellation granularity and the seed body-production
+count.
 
 The Browser may choose a small useful default N. The CLI may expose additional
 work and result controls. Those host choices do not alter breadth or discovery
@@ -303,7 +404,8 @@ The host-neutral result carries:
 - fixed name threshold and qualifying name scores where applicable;
 - global result and work bounds;
 - ordered pair identities and Analysis-issued retrieval evidence;
-- per-seed and per-library coverage;
+- per-seed and per-library coverage, including the Analysis-issued blockers
+  that omitted a participant's candidate methods;
 - intentional row suppression; and
 - typed acquisition, metadata, name-selection, and Analysis failures.
 
@@ -381,7 +483,10 @@ The counted production-adoption path under #5083 has seven stages:
 1. Lock this contract and transfer Clone candidate-scope ownership from the
    Browser Package target design.
 2. Add the host-neutral Workspace clone-search query and globally ranked,
-   bounded result over existing Analysis retrieval evidence.
+   bounded result over existing Analysis retrieval evidence. Landed as
+   `WorkspaceStructuralCloneSearchQuery`; breadth membership arrives with the
+   caller-supplied participant snapshot until stage 4 or a Workspace
+   registration slice supplies the concrete producer.
 3. Add the host-neutral portable clone result and presentation adapter.
 4. Adopt the shared request and result in the CLI over an explicit Workspace
    scope.
@@ -408,6 +513,9 @@ The following future outcome-level scenarios are required:
 | Scenario | Required observation |
 | --- | --- |
 | Open Library, Type, and Member Clone without changing target settings | Each subject supplies its own seed population; all use `Everything` plus `SimilarNames` |
+| Open Clone on a property or event | The seed population is every accessor body that member occupies; selecting one accessor seeds only that body |
+| Open Clone on one overloaded indexer | The seed population is that overload's own accessor bodies, not the other overload's and not both |
+| Open Clone on a field | The typed bodyless outcome, distinct from a member the type does not declare |
 | Run one Member seed at all three breadths with `All` | `Self` stays in the containing library, the middle breadth adds registered ecosystems, and `Everything` admits every available Workspace participant |
 | Run all six breadth/discovery combinations | Breadth changes only the Workspace population and discovery changes only method admission inside that population |
 | Run a Library search | Results are one global ranking across all admitted seeds, not N rows per method or library |
@@ -418,11 +526,19 @@ The following future outcome-level scenarios are required:
 | Exhaust name, metadata, body, or candidate work | Existing ranked evidence remains usable and incomplete coverage is visible |
 | Edit the Workspace while a search runs | The result retains its starting revision and exact effective participant snapshot; a later search binds the new revision |
 | Remove a result endpoint's library | The exact result identity remains; navigation reports current unavailability rather than retargeting |
+| Release a snapshot entry's assembly context group before the search runs | A released containing library is a typed failed result and a released candidate is visible incomplete coverage, never an escaping exception |
 
 Shared owner suites run in Release and gate request defaults, starting/effective
 revision and participant-snapshot association, breadth and discovery
-admission, name-threshold behavior, duplicate suppression, global ranking, and
-coverage. CLI tests gate shared presentation and structured output. Browser
+admission, name-threshold behavior, per-pair name admission, snapshot-local
+endpoint identity order, aggregate participant and retrieval work bounds,
+memoization-independent admission, chunked retrieval equivalence,
+released-group containment, duplicate suppression, global ranking, per-library
+Analysis coverage, logical-member seed expansion over ordinary compiled
+property and event accessors, overloaded-indexer selection, the field bodyless
+outcome, and cross-type accessor association;
+`WorkspaceStructuralCloneSearchQueryTests` supplies that gate. CLI tests gate
+shared presentation and structured output. Browser
 original-host and Firefox suites gate the breadth and discovery controls,
 subject narrowing, stale-result exclusion, master/detail navigation, and
 retirement of the Package-specific selector. The design remains unverified
