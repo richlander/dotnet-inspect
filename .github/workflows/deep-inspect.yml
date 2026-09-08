@@ -279,7 +279,7 @@ jobs:
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
 
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
