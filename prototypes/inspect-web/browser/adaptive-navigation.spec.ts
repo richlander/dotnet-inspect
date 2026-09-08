@@ -54,6 +54,11 @@ test("adaptive navigation preserves complete inventories and manual activation",
   await expect(type).toBeFocused();
   await expect(type).toHaveAttribute("aria-selected", "false");
   await expect(member).toHaveAttribute("aria-selected", "true");
+  await member.click();
+  await expect(member).toBeFocused();
+  await expect(member).toHaveAttribute("tabindex", "0");
+  await expect(type).toHaveAttribute("tabindex", "-1");
+  await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("Enter");
   await expect(type).toHaveAttribute("aria-selected", "true");
   await expect(type).toBeFocused();
@@ -336,6 +341,45 @@ test("committed subject keeps focus when activation changes its form", async ({
   const trigger = page.locator("[data-navigation-trigger='subject']");
   await expect(trigger).toBeFocused();
   await expect(trigger).toHaveAccessibleName("Library");
+});
+
+test("Chooser commit after resize focuses the activated destination", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("[data-navigation-trigger='subject']").click();
+  const type = page.getByRole("menuitemradio", {
+    name: "Type",
+    exact: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await type.click();
+
+  const typeTab = page.getByRole("tab", { name: "Type", exact: true });
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(typeTab).toHaveAttribute("tabindex", "0");
+  await expect(typeTab).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Member", exact: true }))
+    .toHaveAttribute("tabindex", "-1");
+});
+
+test("open Chooser remains bounded after a height-only resize", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("[data-navigation-trigger='inspector']").click();
+  const menu = page.getByRole("menu", { name: "Member lenses" });
+  await page.setViewportSize({ width: 390, height: 130 });
+  await expect.poll(async () => {
+    const box = await menu.boundingBox();
+    return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(130);
+  expect(await menu.evaluate(element =>
+    element.scrollHeight > element.clientHeight)).toBe(true);
 });
 
 test("inspector content keeps an installed accessible-name owner", async ({

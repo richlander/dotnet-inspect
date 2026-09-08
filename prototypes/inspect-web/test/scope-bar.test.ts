@@ -35,6 +35,7 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+    this.dispatch("focus");
   }
 
   click() {

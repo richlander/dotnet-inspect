@@ -362,7 +362,12 @@ export function restoreScopeBarFocus(
 }
 
 function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
-  tabs.forEach((tab, index) =>
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("focus", () => {
+      tabs.forEach(candidate => {
+        candidate.tabIndex = candidate === tab ? 0 : -1;
+      });
+    });
     tab.addEventListener("keydown", event => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -390,11 +395,9 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
       const target = tabs[targetIndex];
       if (!target) return;
       event.preventDefault();
-      tabs.forEach(candidate => {
-        candidate.tabIndex = candidate === target ? 0 : -1;
-      });
       target.focus();
-    }));
+    });
+  });
 }
 
 function bindItemActions(
@@ -958,6 +961,9 @@ class ScopeBarController implements ScopeBarBinding {
       || group.menu.contains(target)) return;
     this.closeMenu(group, false);
   };
+  private readonly handleViewportResize = () => {
+    this.positionOpenMenu();
+  };
 
   static create(
     root: ParentNode,
@@ -988,6 +994,15 @@ class ScopeBarController implements ScopeBarBinding {
       "pointerdown",
       this.handleDocumentPointerDown,
       true);
+    navigation.ownerDocument.defaultView?.addEventListener(
+      "resize",
+      this.handleViewportResize);
+    navigation.ownerDocument.defaultView?.visualViewport?.addEventListener(
+      "resize",
+      this.handleViewportResize);
+    navigation.ownerDocument.defaultView?.visualViewport?.addEventListener(
+      "scroll",
+      this.handleViewportResize);
     this.bindGroup(this.subject);
     this.bindGroup(this.inspector);
     this.layout();
@@ -1020,6 +1035,13 @@ class ScopeBarController implements ScopeBarBinding {
       "pointerdown",
       this.handleDocumentPointerDown,
       true);
+    this.navigation.ownerDocument.defaultView?.removeEventListener(
+      "resize",
+      this.handleViewportResize);
+    this.navigation.ownerDocument.defaultView?.visualViewport
+      ?.removeEventListener("resize", this.handleViewportResize);
+    this.navigation.ownerDocument.defaultView?.visualViewport
+      ?.removeEventListener("scroll", this.handleViewportResize);
     if (this.subject) hidePopover(this.subject.menu);
     if (this.inspector) hidePopover(this.inspector.menu);
   }
@@ -1067,7 +1089,20 @@ class ScopeBarController implements ScopeBarBinding {
         group.state.focusedId = groupItemId(item);
       });
       item.addEventListener("click", () => {
-        this.closeMenu(group, true);
+        const activates = item.dataset.navigationCurrent !== "true"
+          && !item.disabled
+          && item.getAttribute("aria-disabled") !== "true";
+        this.closeMenu(group, !activates);
+        if (!activates) return;
+        const id = groupItemId(item);
+        const target = id
+          ? group.tabItems.find(tab => groupItemId(tab) === id)
+          : null;
+        if (group.form === "tabs" && target) {
+          target.focus({ preventScroll: true });
+        } else {
+          group.trigger.focus({ preventScroll: true });
+        }
       });
       item.addEventListener("keydown", event => {
         this.handleMenuKey(group, item, event);
@@ -1340,23 +1375,34 @@ class ScopeBarController implements ScopeBarBinding {
 
   private positionMenu(group: AdaptiveNavigationGroup): void {
     const bounds = group.trigger.getBoundingClientRect();
-    const viewport = group.trigger.ownerDocument.documentElement;
+    const document = group.trigger.ownerDocument;
+    const documentViewport = document.documentElement;
+    const visualViewport = document.defaultView?.visualViewport;
+    const viewportLeft = visualViewport?.offsetLeft ?? 0;
+    const viewportTop = visualViewport?.offsetTop ?? 0;
+    const viewportWidth = visualViewport?.width ?? documentViewport.clientWidth;
+    const viewportHeight =
+      visualViewport?.height ?? documentViewport.clientHeight;
     const margin = 8;
     const availableMenuWidth = Math.max(
       0,
-      viewport.clientWidth - margin * 2);
+      viewportWidth - margin * 2);
     const menuWidth = Math.min(
       Math.max(bounds.width, 180),
       availableMenuWidth);
     const maxLeft = Math.max(
-      margin,
-      viewport.clientWidth - margin - menuWidth);
-    const left = Math.min(Math.max(margin, bounds.left), maxLeft);
+      viewportLeft + margin,
+      viewportLeft + viewportWidth - margin - menuWidth);
+    const left = Math.min(
+      Math.max(viewportLeft + margin, bounds.left),
+      maxLeft);
     group.menu.style.left = `${left}px`;
     group.menu.style.top = `${bounds.bottom + 4}px`;
     group.menu.style.width = `${menuWidth}px`;
     group.menu.style.maxWidth = `${availableMenuWidth}px`;
     group.menu.style.maxHeight =
-      `${Math.max(0, viewport.clientHeight - bounds.bottom - margin)}px`;
+      `${Math.max(
+        0,
+        viewportTop + viewportHeight - bounds.bottom - margin)}px`;
   }
 }
