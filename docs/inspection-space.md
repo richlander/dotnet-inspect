@@ -1161,9 +1161,13 @@ the distinct Analysis blockers that omitted its candidates, aggregated over
 every seed and chunk, and is incomplete while it holds one, so a candidate body
 Analysis could not produce can never leave that library reporting complete
 coverage. A seed-side blocker stays with its seed: it omits no candidate of any
-one participant and is already visible as that seed's coverage. Cross-image rank remains
-retrieval evidence: the query establishes no checked clone relation and
-produces no comparison document.
+one participant and is already visible as that seed's coverage. Cross-image
+rank remains retrieval evidence: the query establishes no checked clone
+relation and produces no comparison document. Presentation projects the
+complete Query result into the resource-free
+[`CloneCandidateDocument`](design/clone-candidate-presentation.md), preserving
+the global ranking, exact snapshot-relative endpoint addresses, coverage,
+failures, and receipts without changing that evidence boundary.
 `WorkspaceStructuralCloneSearchQueryTests` gates the request defaults, all six
 breadth and discovery combinations, seed expansion including property and
 event accessor bodies, overloaded-indexer selection, the field bodyless
