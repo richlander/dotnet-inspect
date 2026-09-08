@@ -1495,6 +1495,13 @@ function normalizeCurrentNavEntry() {
 }
 
 function applyView(view: WorkspaceView) {
+  const capacityError = view.rootKind === "platform" && view.platform
+    ? platformCoordinateCapacityError()
+    : "";
+  if (capacityError) {
+    showToast(capacityError);
+    return false;
+  }
   if (view.rootKind === "platform" && view.platform && view.atPackageRoot) {
     const target = state.platformIndex?.target(view.platform.tfm, view.platform.version);
     if (!target) return false;
@@ -2396,6 +2403,12 @@ function selectedLibraryShareKey() {
   return platformLibraryKey(platformLibraryForRequest(currentPackage(), library.id));
 }
 
+function selectedTypeMetadataLibraryIdentity() {
+  return state.rootKind === "platform"
+    ? selectedLibraryShareKey()
+    : "";
+}
+
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot = Boolean(pkg.assemblyId);
@@ -2552,10 +2565,16 @@ function releasePackageModelCaches(packageModel: AppPackage) {
 }
 
 function activateAfterPackageRemoval(next: AppPackage | null): void {
-  if (next) activatePackage(next, { resetAccessibility: true });
-  else state.package = null;
+  if (next) {
+    activatePackage(next, { resetAccessibility: true });
+    state.rootKind = next.source.kind === "platform" ? "platform" : "package";
+  } else {
+    state.package = null;
+    state.rootKind = state.platformSelection ? "platform" : "package";
+  }
   state.dependenciesGroupIndex = null;
   state.atPackageRoot = true;
+  state.atLibraryRoot = false;
   state.selectedTypeId = "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -2583,7 +2602,7 @@ function finishPackageRemoval(removed: AppPackage): void {
   navigationSequence.begin();
   invalidateWorkspaceMembershipViews();
   releasePackageModelCaches(removed);
-  if (!state.package && !state.home) {
+  if (!state.package && !state.platformSelection && !state.home) {
     state.workspaceSubjectOpen = true;
     workspaceLocation.replace("/demos", history.state);
   }
@@ -4091,7 +4110,10 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(type, currentPackage());
+  const signature = typeMetadataSignature(
+    type,
+    currentPackage(),
+    selectedTypeMetadataLibraryIdentity());
   if (state.typeMetadataKey === signature) {
     if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1)
       observeAsync(renderTypeGraph(), "Rendering the type graph");
@@ -5602,6 +5624,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   return renderTypeMetadata({
     item,
     packageContext: currentPackage(),
+    libraryIdentity: selectedTypeMetadataLibraryIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
     escapeHtml,
@@ -10515,7 +10538,11 @@ async function loadSelectedTypeMetadata() {
     return;
   }
   const pkg = currentPackage();
-  const signature = typeMetadataSignature(type, pkg);
+  const metadataLibraryIdentity = selectedTypeMetadataLibraryIdentity();
+  const signature = typeMetadataSignature(
+    type,
+    pkg,
+    metadataLibraryIdentity);
   return metadataInspection.loadTypeMetadata({
     signature,
     packageId: pkg.id,
@@ -10536,7 +10563,10 @@ async function loadSelectedTypeMetadata() {
       && !state.atPackageRoot
       && !state.atLibraryRoot
       && currentType != null
-      && typeMetadataSignature(currentType, pkg) === signature;
+      && typeMetadataSignature(
+        currentType,
+        pkg,
+        selectedTypeMetadataLibraryIdentity()) === signature;
     },
   });
 }
@@ -11349,7 +11379,10 @@ function dependencyGraphAvailable() {
 function typeGraphAvailable() {
   const type = selectedType();
   return Boolean(type && state.package
-    && state.typeMetadataKey === typeMetadataSignature(type, state.package)
+    && state.typeMetadataKey === typeMetadataSignature(
+      type,
+      state.package,
+      selectedTypeMetadataLibraryIdentity())
     && !state.typeMetadataLoading
     && !state.typeMetadataError
     && state.typeMetadata && state.typeMetadata.graphNodes.length > 1);
@@ -11365,7 +11398,10 @@ function graphExplorerKey(): string | null {
   }
   const type = selectedType();
   if (scope() === "type" && state.lens === "metadata" && type && state.package) {
-    const signature = typeMetadataSignature(type, state.package);
+    const signature = typeMetadataSignature(
+      type,
+      state.package,
+      selectedTypeMetadataLibraryIdentity());
     const metadata = state.typeMetadataKey === signature ? state.typeMetadata : null;
     if (metadata && metadata.graphNodes.length < 2) return null;
     return JSON.stringify(["type", signature]);

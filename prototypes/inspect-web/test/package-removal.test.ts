@@ -209,6 +209,56 @@ for (const home of [true, false]) {
   });
 }
 
+test("last package removal selects a remaining catalog-only Platform", () => {
+  const state = {
+    ...graphInspectionState(),
+    home: false, packages: [alpha], package: alpha as typeof alpha | null,
+    rootKind: "package" as "package" | "platform",
+    platformSelection: {
+      tfm: "net11.0", version: "11.0.6",
+      includeAllLibraries: false, filter: "",
+    },
+    platformSlot: 0,
+    workspaceSubjectOpen: true, atPackageRoot: false, atLibraryRoot: true,
+    dependenciesGroupIndex: 2, selectedTypeId: "Old.Type",
+    selectedMemberKey: "Old.Member", selectedOverloadIndex: 3,
+    memberBrowseTypeId: "Old.Type", accessibilityFilter: new Set<string>(),
+    workspaceShareBasis: { previous: true },
+  };
+  const locations: string[] = [];
+  const context = {
+    state, packageIdentityKey, removed: alpha,
+    spotlightCache: {}, spotlightMemberCache: {},
+    resetLocationFilters: () => {},
+    resetMemberFilters: () => {},
+    resetMemberSectionState: () => {},
+    navigationSequence: { begin: () => {} },
+    invalidateGraphMemberNavigation: () => {},
+    invalidateMemberCallGraphWork,
+    clearWorkspaceOccurrenceView: () => {},
+    packageInspection: { invalidatePackageResults: () => {} },
+    releasePackageModelCaches: () => {},
+    history: { state: null },
+    workspaceLocation: {
+      replace: (url: string) => locations.push(url),
+    },
+    render: () => {},
+  };
+
+  runInNewContext(stripTypeScriptTypes(`${hostDeclarations}
+    state.packages = [];
+    activateAfterPackageRemoval(null);
+    finishPackageRemoval(removed);
+  `), context);
+
+  assert.equal(state.package, null);
+  assert.equal(state.rootKind, "platform");
+  assert.equal(state.atPackageRoot, true);
+  assert.equal(state.atLibraryRoot, false);
+  assert.equal(state.workspaceSubjectOpen, true);
+  assert.deepEqual(locations, []);
+});
+
 function graphInspectionState(): CallGraphInspectionState {
   return {
     memberCallGraph: null,
