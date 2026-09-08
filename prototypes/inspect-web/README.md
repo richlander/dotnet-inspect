@@ -1236,6 +1236,16 @@ not a globally exhaustive or exact top-N result; provider totals are estimates.
 The route keeps request and result state in the current session rather than in
 the URL; a direct load starts with empty search text.
 
+The **Assembly patterns** disclosure is a separate explicit mode. Select
+**IL string literal contains**, enter one to five exact `ID@VERSION` packages,
+an unchanged literal operand, and a framework group. The shared evaluator
+searches only each selector-issued primary implementation assembly, not every
+assembly or the raw string heap. Semantic misses, unavailable roles, and
+failures remain distinct. **Open in workspace** passes the owner's exact Root
+request and reacquires under current source authorization; it does not retain
+the query candidate in the Workspace cache. RID selection and ecosystem-wide
+candidate discovery are outside this first assembly-pattern gesture.
+
 The Gallery scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.
 Deterministic search responses cover blank tool/template browse, text search,
@@ -1244,6 +1254,12 @@ source ordering, metadata-only acquisition, and bounded completion. Set
 `eng/test-inspect-web-package-adoption-gate.sh` to include the opt-in live Gallery
 CORS observation and capture the tool-browse page. Live provider availability
 is point-in-time evidence, not a permanent guarantee.
+
+The same harness's **Assembly Package Query website over real Wasm** scenario
+uses the cataloged `analysis.string-literals` fixture to exercise all four
+dispositions and exact reopening from the real `/query` page. Run just that
+scenario with
+`eng/test-inspect-web-package-adoption-gate.sh --grep 'Assembly Package Query website'`.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
