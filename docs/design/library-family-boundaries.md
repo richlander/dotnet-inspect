@@ -4,10 +4,11 @@ This document owns the meaning of the repository's project and namespace
 families. A name starts with what a library processes, inspects, or acts on.
 Dependency depth and component role are separate decisions.
 
-The end-to-end adoption tracker is [#6315](https://github.com/richlander/dotnet-inspect/issues/6315).
-Its two steps are this contract and migration of the CLI host out of the
-reusable `DotnetInspector` namespace. The browser host already uses its own
-`InspectWeb` namespace.
+The end-to-end adoption tracker is
+[#6315](https://github.com/richlander/dotnet-inspect/issues/6315). Its three
+steps are this contract, migration of the CLI host out of the reusable
+`DotnetInspector` namespace, and migration of the web host from its prototype
+namespace.
 
 ## Claim
 
@@ -22,7 +23,7 @@ Placement considers four questions:
 | --- | --- | --- |
 | What does it do? | Process, inspect, or act on a subject. | SRM processes metadata; Metadata inspects it; the Decompiler acts on IL. |
 | What is the subject? | The thing whose meaning the component exposes or changes. | IL and PDB evidence, NuGet packages, C# text |
-| Is it a host? | Commands, options, interaction, and host-native presentation name the product surface. | `DotnetInspect.Cli`, `InspectWeb.*` |
+| Is it a host? | Commands, options, interaction, and host-native presentation name the product surface. | `DotnetInspect.Cli`, `DotnetInspect.Web` |
 | What is its role? | A role suffix describes reach or operation only after the subject is clear. | Fetch, Service, House, query, renderer |
 
 Dependency depth alone does not select a family, and a role such as Service
@@ -130,7 +131,8 @@ Hosts name themselves rather than claiming a reusable library family.
 | Host | Namespace boundary |
 | --- | --- |
 | `dotnet-inspect` CLI | Target `DotnetInspect.Cli` |
-| Inspect Web managed host | Existing `InspectWeb.*` |
+| Inspect Web | Target `DotnetInspect.Web` |
+| Inspect Web JavaScript export boundary | Target `DotnetInspect.Web.Interop` |
 | Focused tools and harnesses | Tool- or harness-specific root |
 
 The CLI currently uses `DotnetInspector` and nested namespaces such as
@@ -140,6 +142,20 @@ views, and mutable compatibility models appear to be peers of reusable
 `DotnetInspector.Presentation`. The CLI migration in #6315 removes that
 collision. It does not rename the executable, tool package, or reusable
 libraries.
+
+The web host currently uses `InspectWeb.Engine` and facet-specific
+`InspectWeb.Engine.*Facade` namespaces. `DotnetInspect.Web` names the product
+host rather than its current Wasm runtime or managed-engine implementation.
+`DotnetInspect.Web.Interop` is its one architectural child: it owns JavaScript
+export contracts, wire projections, and exported entry points. Domain suffixes
+such as Source or Packages may organize those exports beneath `Interop` without
+becoming new architectural layers.
+
+The CLI's current suffixes, including Commands, Options, Output, Views,
+Sections, Inspectors, Services, and Planning, may move mechanically beneath
+`DotnetInspect.Cli`. They remain code-organization names rather than
+architecture defined by this document. The same rule applies to test
+namespaces.
 
 ## Carrier does not decide ownership
 
@@ -214,7 +230,7 @@ inventory.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation` |
 | Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText` |
-| Product hosts | `DotnetInspect.Cli`, `InspectWeb.*` |
+| Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 Several existing names deserve focused classification work rather than a
 conclusion in this document:
@@ -240,10 +256,17 @@ contract.
 
 ## Adoption and evidence
 
-The first adoption is the CLI namespace migration tracked by #6315. It proves
-that reusable `DotnetInspector.*` libraries and the product host can be named
-distinctly without changing command behavior. The browser already demonstrates
-the intended host separation through `InspectWeb.*`.
+The three-step adoption tracked by #6315 is:
+
+1. Land this naming contract.
+2. Move the CLI host to `DotnetInspect.Cli`.
+3. Move the web host to `DotnetInspect.Web`, with JavaScript export contracts,
+   wire projections, and entry points under `DotnetInspect.Web.Interop`.
+
+Together, the host migrations prove that reusable `DotnetInspector.*`
+libraries and both product hosts can be named distinctly without changing
+behavior. `Web` names the product surface; neither its current Wasm runtime nor
+its JavaScript export mechanism defines the host.
 
 Future moves must preserve dependency direction and public behavior. Their
 focused gates are compilation, existing owner tests, dependency-policy
@@ -256,5 +279,7 @@ changes. This naming contract adds no runtime safety or correctness claim.
 - A lower dependency does not automatically belong to `ILInspector`.
 - PDB carriage does not make acquisition policy an `ILInspector` concern.
 - `DotnetInspector.*` does not mean CLI-only or necessarily high-level.
+- `Web` does not promise a particular runtime, and `Interop` does not name the
+  whole web host.
 - Independent roots are not preferred over an existing coherent family.
 - This document does not settle the candidate projects listed above.
