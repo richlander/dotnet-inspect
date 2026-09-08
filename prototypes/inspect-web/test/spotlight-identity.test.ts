@@ -3362,7 +3362,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function runPackageQuery\(text: string\) \{\s*const request = preparePackageQueryRequest\(text, "package"\);\s*submitPackageQueryRequest\(request\)/);
   assert.match(
     appSource,
-    /function discoverPackages\(\) \{\s*const request = preparePackageQueryRequest\("", "gallery"\);\s*submitPackageQueryRequest\(request\)/);
+    /function searchPackages\(text: string\) \{\s*const request = preparePackageQueryRequest\(text, "gallery"\);\s*submitPackageQueryRequest\(request\)/);
   assert.match(
     appSource,
     /state\.packageQueryState\.request\?\.inputKind === "gallery"[\s\S]*return state\.packageQueryState\.request/);

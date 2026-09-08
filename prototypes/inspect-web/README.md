@@ -1226,10 +1226,13 @@ routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
 Search also exposes a `Package query` action that opens the routed `/query`
-surface. Leave search text empty to browse, then select a package type or
-source order from NuGetFetch's Gallery catalog. Basic discovery uses search
-metadata only; the separate inspection facets explicitly add manifest or
-bounded package-content evaluation. Browser Wasm streams shared product rows
+surface. **Inspect** treats the editor as an exact package ID or terminal-star
+literal prefix. **Search packages** sends nonempty text to NuGet Gallery
+relevance search, or explicitly browses popular packages when the editor is
+blank; package type and source order come from NuGetFetch's Gallery catalog.
+Basic discovery uses search metadata only; the separate inspection facets
+explicitly add manifest or bounded package-content evaluation. Browser Wasm
+streams shared product rows
 and visible failures, then hands an exact result coordinate to the normal
 Workspace package-opening path. Results disclose one bounded Gallery response,
 not a globally exhaustive or exact top-N result; provider totals are estimates.

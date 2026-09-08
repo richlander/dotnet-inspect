@@ -17,7 +17,8 @@ browser front end for that one product surface.
 end-to-end latency and Browser-pressure work.
 
 **What is enforced.** The production integration supplies the `/query` page,
-exact package and terminal-star prefix input, explicit Gallery discovery,
+exact package and terminal-star prefix input, explicit termful Gallery search
+and blank Gallery browse,
 source-owned type/order catalog, product-issued inspection facets, streaming
 Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
@@ -86,9 +87,10 @@ selected opaque inspection facets, and independent candidate and match limits.
 The normal Run action interprets an exact package ID or one terminal-star
 literal prefix through the shared
 [Package Query input selection](package-query-input-selection.md) contract.
-Blank package input stays idle. **Feeling lucky** explicitly selects a finite,
-termless Gallery response; package type and order apply only while that input
-kind remains selected. The source controls project
+Blank package input stays idle. **Search packages** explicitly selects a finite
+Gallery response using the editor text, or a termless browse response when the
+editor is blank; package type and order apply only while that input kind
+remains selected. The source controls project
 `NuGetGalleryDiscoveryCatalog`, while the shared Package Query input contract
 owns composition with local selection. The user approved ordinary shared
 acquisition before Source Delegation for [#6019](https://github.com/richlander/dotnet-inspect/issues/6019);
@@ -147,7 +149,7 @@ and
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Package ID/prefix [ Microsoft.Extensions.* ] [Run] [Feeling lucky]            │
+│ Package ID, prefix, or terms [ JSON serializer ] [Inspect] [Search packages]  │
 ├───────────────┬────────────────────────────────────────────────────────────--┤
 │ Facets         │  Microsoft.Extensions.Hosting           nuspec              │
 │                │    Verified source · Has dependencies                       │
@@ -161,10 +163,12 @@ and
 └───────────────┴────────────────────────────────────────────────────────────--┘
 ```
 
-- **Query bar**: exact package ID or one terminal-star literal prefix plus Run
-  and, while streaming, Cancel. Blank text stays idle. **Feeling lucky** is a
-  separate explicit action that acquires a bounded termless Gallery response
-  with the same selected inspection facets.
+- **Query bar**: **Inspect** treats the editor as an exact package ID or one
+  terminal-star literal prefix and, while streaming, exposes Cancel. Blank
+  text stays idle. **Search packages** is a separate explicit action that
+  acquires a bounded Gallery response with the editor text as source-owned
+  search terms; blank text explicitly browses popular packages. Both actions
+  retain the same selected inspection facets.
 - **Gallery filters**: catalog-driven package-type and source-order controls,
   available only while Gallery discovery remains selected. All types and
   automatic ordering mean omitted source selections, not invented provider
@@ -522,13 +526,16 @@ and browser-history and focus-return outcomes are proved by
    to 20 candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content facet and confirm the default returns to 200.
-10. Select **Feeling lucky**, then select tools and templates from the source
-    catalog. Confirm source and facet changes preserve Gallery mode, use the
+10. Enter natural search terms and select **Search packages**. Confirm the
+    unchanged text reaches Gallery relevance search. Then clear the editor and
+    select **Search packages** to browse with the source-owned most-downloaded
+    default. Select tools and templates from the source catalog. Confirm source
+    and facet changes preserve Gallery mode and the executed text, use the
     source-owned order defaults or explicit override, and acquire no manifests
-    or archives without inspection facets. Confirm the normal Run action
-    switches back to package input, Gallery type/order do not constrain exact
-    or prefix acquisition, and lifetime-download counts, unavailable metadata,
-    and estimated totals remain distinct.
+    or archives without inspection facets. Confirm **Inspect** switches back to
+    package input, Gallery type/order do not constrain exact or prefix
+    acquisition, and lifetime-download counts, unavailable metadata, and
+    estimated totals remain distinct.
 11. Confirm that the assembly control is absent when the engine returns no
    descriptors. With the first descriptor present, run one to five exact
    `ID@VERSION` packages using the unchanged literal operand, `net10.0`

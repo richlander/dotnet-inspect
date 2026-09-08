@@ -403,7 +403,7 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
 }
 
 test.describe("Package Query website over real Wasm", () => {
-  test("requires explicit discovery before browsing by source type", async ({
+  test("keeps Gallery relevance search and blank browse explicit", async ({
     page,
     context,
   }) => {
@@ -456,9 +456,20 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(page.locator("#package-query-type")).toHaveCount(0);
     expect(requests).toHaveLength(0);
 
-    await page.locator("#package-query-discover").click();
+    const input = page.locator("#package-query-prefix");
+    await input.fill("json serializer");
+    await page.locator("#package-query-search").click();
     await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
     await expect(page.locator("#package-query-type")).toBeVisible();
+    expect(requests.at(-1)?.searchParams.get("q")).toBe("json serializer");
+    expect(requests.at(-1)?.searchParams.get("sortBy")).toBe("relevance");
+
+    await input.fill("");
+    await page.locator("#package-query-search").click();
+    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
+    expect(requests.at(-1)?.searchParams.get("q")).toBeFalsy();
+    expect(requests.at(-1)?.searchParams.get("sortBy")).toBe("totalDownloads-desc");
+
     await page.locator("#package-query-type").selectOption({ label: ".NET tools" });
     await expect(page.locator(".query-row")).toHaveCount(20);
     await expect(page.locator(".query-row h2")).toContainText(["Contoso.ToolA", "Contoso.ToolB"]);
@@ -481,7 +492,6 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
     await page.locator("#package-query-order").selectOption("");
     await expect.poll(() => requests.at(-1)?.searchParams.get("sortBy")).toBe("totalDownloads-desc");
-    expect(requests.every(request => !request.searchParams.get("q"))).toBe(true);
     expect(requests.every(request => request.searchParams.get("take") === "200")).toBe(true);
     expect(enrichment).toEqual([]);
   });
@@ -572,8 +582,8 @@ test.describe("Package Query website over real Wasm", () => {
   test("live Gallery tool browse uses the production page and CORS path", async ({ page }) => {
     test.skip(process.env.INSPECT_WEB_GALLERY_LIVE !== "1", "Opt-in live provider observation.");
     await page.goto("/query");
-    await expect(page.locator("#package-query-discover")).toBeVisible({ timeout: 120_000 });
-    await page.locator("#package-query-discover").click();
+    await expect(page.locator("#package-query-search")).toBeVisible({ timeout: 120_000 });
+    await page.locator("#package-query-search").click();
     await expect(page.locator("#package-query-type")).toBeVisible();
     await page.locator("#package-query-type").selectOption({ label: ".NET tools" });
     await expect(page.locator(".query-row").first()).toBeVisible({ timeout: 60_000 });

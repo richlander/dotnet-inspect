@@ -102,6 +102,7 @@ test("Browser source dispatches package and explicit Gallery input with unchange
     ["Newtonsoft.Json", "package", false],
     ["Newtonsoft.*", "package", false],
     [`${"a".repeat(100)}*`, "package", false],
+    ["json serializer", "gallery", true],
     ["", "gallery", true],
   ] as const) {
     for (const matchLimit of [100, 7]) {
@@ -139,6 +140,7 @@ test("Browser source dispatches package and explicit Gallery input with unchange
 test("Browser source leaves automatic source selections unresolved in either mode", async () => {
   for (const [searchText, inputKind, discovery] of [
     ["Newtonsoft.Json", "package", false],
+    ["json serializer", "gallery", true],
     ["", "gallery", true],
   ] as const) {
     const engine: BrowserPackageQueryEngine = {

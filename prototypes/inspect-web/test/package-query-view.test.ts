@@ -143,9 +143,10 @@ test("an unstarted query renders the composing empty state", () => {
   });
 
   assert.match(html, /Select package input/);
-  assert.match(html, /Package ID or prefix/);
-  assert.match(html, /Feeling lucky/);
-  assert.match(html, /terminal <code>\*<\/code>/);
+  assert.match(html, /Package ID, prefix, or search terms/);
+  assert.match(html, /Search packages/);
+  assert.match(html, /popular packages when blank/);
+  assert.match(html, /terminal-star prefix/);
   assert.doesNotMatch(html, /maxlength=/);
 });
 
@@ -171,7 +172,7 @@ test("prerelease remains available while Gallery controls require explicit disco
     escapeHtml,
   });
   assert.match(packageHtml, /<h2>Package options<\/h2>/);
-  assert.match(packageHtml, /Feeling lucky/);
+  assert.match(packageHtml, /Search packages/);
   assert.match(packageHtml, /id="package-query-prerelease"/);
   assert.doesNotMatch(packageHtml, /id="package-query-(type|order)"/);
 
@@ -194,7 +195,7 @@ test("prerelease remains available while Gallery controls require explicit disco
   assert.match(html, /value="Producer.Tool">Producer tools<\/option>/);
   assert.match(html, /value="producer.order.second" title="Second producer ordering description.">Producer second order<\/option>/);
   assert.match(html, /id="package-query-prerelease" type="checkbox" \/>/);
-  assert.match(html, /Gallery discovery is a separate explicit action/);
+  assert.match(html, /Search packages uses Gallery relevance/);
   assert.match(html, /manifests and package content are acquired only with inspection facets/);
   assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facets</h2>"));
 });
@@ -1110,9 +1111,9 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({}, "package-query-discover"),
-      selector: "#package-query-discover",
-      replacement: new FakeElement({}, "package-query-discover"),
+      active: new FakeElement({}, "package-query-search"),
+      selector: "#package-query-search",
+      replacement: new FakeElement({}, "package-query-search"),
     },
     {
       active: new FakeElement({}, "package-query-product"),
@@ -1282,10 +1283,13 @@ test("query prefix focus preserves its selection across a full render", () => {
   assert.deepEqual(replacement.selectionRange, [3, 8]);
 });
 
-test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", () => {
+test("bindPackageQueryView wires back, Gallery search, row-open, facet, and cancel", () => {
   const root = new FakeRoot();
   const [back] = root.add("#package-query-back", new FakeElement());
-  const [discover] = root.add("#package-query-discover", new FakeElement());
+  const input = new FakeElement({}, "package-query-prefix");
+  input.value = "json serializer";
+  const [search] = root.add("#package-query-search", new FakeElement());
+  root.add("#package-query-prefix", input);
   const [open] = root.add("[data-query-row-open]", new FakeElement({ queryRowOpen: "A", queryRowVersion: "1.0.0" }));
   const [facet] = root.add("[data-query-facet]", new FakeElement({ queryFacet: "tfm-out-of-support" }));
   const [cancel] = root.add("[data-query-cancel]", new FakeElement());
@@ -1294,7 +1298,7 @@ test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", 
   const actions: PackageQueryBindingActions = {
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
-    onDiscover: () => calls.push("discover"),
+    onGallerySearch: text => calls.push(`search:${text}`),
     onFacetToggle: key => calls.push(`facet:${key}`),
     onPrefixInput: () => {},
     onResultPressure: () => calls.push("pressure"),
@@ -1306,14 +1310,14 @@ test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", 
   bindPackageQueryView(fakeDom.parentNode(root), actions);
 
   back?.dispatch("click");
-  discover?.dispatch("click");
+  search?.dispatch("click");
   open?.dispatch("click");
   facet?.dispatch("click");
   cancel?.dispatch("click");
 
   assert.deepEqual(calls, [
     "back",
-    "discover",
+    "search:json serializer",
     "open:A:1.0.0",
     "facet:tfm-out-of-support",
     "cancel",
@@ -1347,7 +1351,7 @@ test("bindPackageQueryView clears corrected assembly input and preserves the ope
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
+    onGallerySearch: () => {},
     onAssemblyRun: request => requests.push(request),
     onFacetToggle: () => {},
     onPrefixInput: () => {},
@@ -1396,7 +1400,7 @@ test("assembly row binding forwards the exact opaque Root request", () => {
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
+    onGallerySearch: () => {},
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1430,7 +1434,7 @@ test("source control changes forward the complete selection and current unmodifi
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
+    onGallerySearch: () => {},
     onFacetToggle: () => assert.fail("source controls are not inspection facets"),
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1479,20 +1483,20 @@ test("source control changes forward the complete selection and current unmodifi
   ]);
 });
 
-test("query form submits package text while Feeling lucky is a separate action", () => {
+test("query form inspects package input while Search packages submits Gallery text", () => {
   const root = new FakeRoot();
   const form = new FakeElement({}, "package-query-form");
   const input = new FakeElement({}, "package-query-prefix");
-  const discover = new FakeElement({}, "package-query-discover");
+  const search = new FakeElement({}, "package-query-search");
   root.add("#package-query-form", form);
   root.add("#package-query-prefix", input);
-  root.add("#package-query-discover", discover);
+  root.add("#package-query-search", search);
   const calls: string[] = [];
   let prevented = 0;
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => calls.push("gallery:"),
+    onGallerySearch: text => calls.push(`gallery:${text}`),
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1506,12 +1510,16 @@ test("query form submits package text while Feeling lucky is a separate action",
       preventDefault() { prevented++; },
     }));
   }
-  discover.dispatch("click");
+  for (const text of ["json serializer", ""]) {
+    input.value = text;
+    search.dispatch("click");
+  }
 
   assert.deepEqual(calls, [
     "",
     " hosting libraries ",
     "System.*",
+    "gallery:json serializer",
     "gallery:",
   ]);
   assert.equal(prevented, 3);
@@ -1540,7 +1548,7 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   const binding = bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
+    onGallerySearch: () => {},
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
@@ -1583,7 +1591,7 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
     {
       onBack: () => {},
       onCancel: () => {},
-      onDiscover: () => {},
+      onGallerySearch: () => {},
       onFacetToggle: () => {},
       onPrefixInput: () => {},
       onResultPressure: () => { pressure++; },

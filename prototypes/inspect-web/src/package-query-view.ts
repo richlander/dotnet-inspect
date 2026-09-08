@@ -21,7 +21,7 @@ const MAX_ASSEMBLY_QUERY_PACKAGES = 5;
 export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
-  onDiscover: () => void;
+  onGallerySearch: (searchText: string) => void;
   onAssemblyRun?: (request: QueryRequest) => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
@@ -47,7 +47,7 @@ export type PackageQueryFocusSnapshot =
   | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
-  | { kind: "discover" }
+  | { kind: "search" }
   | { kind: "type" | "order" | "prerelease" }
   | {
       kind: "assembly";
@@ -106,7 +106,7 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
-  if (active.id === "package-query-discover") return { kind: "discover" };
+  if (active.id === "package-query-search") return { kind: "search" };
   if (active.id === "package-query-type") return { kind: "type" };
   if (active.id === "package-query-order") return { kind: "order" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
@@ -152,8 +152,8 @@ export function restorePackageQueryFocus(
     case "run":
       target = root.querySelector("#package-query-run");
       break;
-    case "discover":
-      target = root.querySelector("#package-query-discover");
+    case "search":
+      target = root.querySelector("#package-query-search");
       break;
     case "type":
     case "order":
@@ -227,8 +227,9 @@ export function bindPackageQueryView(
       event.preventDefault();
       actions.onRun(prefixInput()?.value ?? "");
     });
-  root.querySelector("#package-query-discover")
-    ?.addEventListener("click", actions.onDiscover);
+  root.querySelector("#package-query-search")
+    ?.addEventListener("click", () =>
+      actions.onGallerySearch(prefixInput()?.value ?? ""));
   prefixInput()?.addEventListener("input", event => {
     const input = event.currentTarget;
     if (input instanceof HTMLInputElement) actions.onPrefixInput(input.value);
@@ -661,7 +662,7 @@ function renderSourceControls(
       </label>
       <p id="package-query-order-description">${escapeHtml(orderSummary)}</p>`
     : request.inputKind === "package"
-      ? "<p>Gallery package type and order apply only after Feeling lucky.</p>"
+      ? "<p>Gallery package type and order apply only after Search packages.</p>"
       : "";
   return `
     <div class="query-source-controls" role="group" aria-label="Package query options">
@@ -753,7 +754,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">⌕</span>
         <h2>Select package input</h2>
-        <p>Enter an exact package ID or add one terminal <code>*</code> for a literal prefix. Feeling lucky explicitly browses one bounded Gallery response.</p>
+        <p>Inspect an exact package ID or one terminal-star prefix. Search packages uses Gallery relevance for text, or browses popular packages when blank.</p>
       </section>`;
   }
   if (completion.kind === "idle") {
@@ -761,7 +762,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">⌕</span>
         <h2>Ready to query</h2>
-        <p>Enter a package ID or terminal-star prefix, or use Feeling lucky for explicit Gallery discovery. Selected inspection facets remain configured.</p>
+        <p>Inspect an exact package ID or terminal-star prefix, or explicitly search Gallery with natural terms. Selected inspection facets remain configured.</p>
       </section>`;
   }
   if (completion.kind === "cancelled") {
@@ -810,7 +811,7 @@ function renderEmptyState(
     <section class="query-empty">
       <span class="large-glyph">◇</span>
       <h2>No matches</h2>
-      <p>Try a broader explicit prefix, choose Feeling lucky, or select fewer inspection facets.</p>
+      <p>Try a broader explicit prefix, search Gallery with different terms, or select fewer inspection facets.</p>
     </section>`;
 }
 
@@ -929,16 +930,16 @@ export function renderPackageQueryView(
       </header>
       <main class="query-main">
         <div class="query-heading">
-          <p class="query-kicker">Exact package + literal prefix + explicit Gallery discovery · nuget.org</p>
+          <p class="query-kicker">Exact package + literal prefix + Gallery search · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
-          <p>Select an exact package ID or literal prefix. Gallery discovery is a separate explicit action; manifests and package content are acquired only with inspection facets.</p>
+          <p>Inspect treats the editor as an exact package ID or literal prefix. Search packages uses Gallery relevance for text, or popular-package browse when blank; manifests and package content are acquired only with inspection facets.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
-          <label for="package-query-prefix">Package ID or prefix</label>
-          <input id="package-query-prefix" name="search" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Newtonsoft.Json or Newtonsoft.*" />
+          <label for="package-query-prefix">Package ID, prefix, or search terms</label>
+          <input id="package-query-prefix" name="search" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Newtonsoft.Json, Newtonsoft.*, or JSON serializer" />
           <span>
-            <button id="package-query-run" type="submit">Run query</button>
-            <button id="package-query-discover" type="button">Feeling lucky</button>
+            <button id="package-query-run" type="submit">Inspect</button>
+            <button id="package-query-search" type="button">Search packages</button>
           </span>
           <span id="package-query-cancel-region">${renderStreamingCancel(state)}</span>
         </form>

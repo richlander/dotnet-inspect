@@ -62,9 +62,11 @@ owner's identity rules rather than changing the spelling into another search.
 An absent exact result stays absent; it does not fall back to prefix or
 keyword discovery.
 
-Gallery discovery is selected by an explicit host action, separately from the
-package editor. It supplies the existing Gallery request as candidate input,
-then uses the same requested inspections. An empty editor is not that action.
+Gallery discovery is selected by an explicit host action, separately from
+exact/prefix submission. That action supplies the editor text as the existing
+Gallery request's optional search text, then uses the same requested
+inspections. Nonempty text uses Gallery search semantics; empty text browses.
+An empty editor alone is not that action and starts no work.
 Source controls retain their Gallery meaning when discovery is selected; they
 must not silently constrain or reinterpret an exact-ID or prefix input.
 
@@ -111,8 +113,9 @@ The production path has three steps:
    package/prefix intent or accepts explicit Gallery input, and acquires the
    corresponding candidates.
 2. The Browser Query consumer uses that shared choice. Blank input remains
-   idle; a separate discovery gesture replaces implicit blank-input browsing.
-   The existing operation feedback and demand-credit adapter are retained.
+   idle until the explicit Gallery action; the same action sends nonempty
+   editor text as Gallery search and blank text as browse. The existing
+   operation feedback and demand-credit adapter are retained.
 3. CLI package/prefix consumers and the planned CLI query binding use the same
    source distinction. An explicitly named `--package-prefix` remains prefix
    intent; the new editor convention does not turn that option into exact-ID
@@ -139,8 +142,9 @@ behavior is described as supported:
   exact-ID miss.
 - `Newtonsoft.*` excludes a neighboring `NewtonsoftOther` ID, whereas
   `Newtonsoft*` permits it.
-- Invalid spellings cause no acquisition. An empty Browser editor stays idle;
-  only the explicit discovery action submits a Gallery request.
+- Invalid package spellings cause no package acquisition. An empty Browser
+  editor stays idle until the explicit Gallery action submits a browse request;
+  nonempty Gallery text is not parsed as package spelling.
 - Exact selection respects stable/prerelease and authoritative listing
   evidence, distinguishing no eligible candidate from failed acquisition.
 - Basic rows avoid unnecessary manifest/content work; selected inspection
@@ -164,6 +168,7 @@ generation check gates the changed interop signature and declarations.
 
 The real-Wasm `browser/package-adoption.spec.ts` scenarios run against the
 Release-published website in `eng/test-inspect-web-package-adoption-gate.sh`.
-They gate initially idle input, explicit Gallery discovery, exact-ID resource
-selection, neighboring literal-prefix results, missing-ID non-fallback, and
-metadata-only acquisition through the actual Browser application.
+They gate initially idle input, explicit termful Gallery relevance search,
+explicit blank Gallery browse, exact-ID resource selection, neighboring
+literal-prefix results, missing-ID non-fallback, and metadata-only acquisition
+through the actual Browser application.

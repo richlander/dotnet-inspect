@@ -9702,8 +9702,8 @@ function runPackageQuery(text: string) {
   submitPackageQueryRequest(request);
 }
 
-function discoverPackages() {
-  const request = preparePackageQueryRequest("", "gallery");
+function searchPackages(text: string) {
+  const request = preparePackageQueryRequest(text, "gallery");
   submitPackageQueryRequest(request);
 }
 
@@ -9791,7 +9791,7 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
-  onDiscover: discoverPackages,
+  onGallerySearch: searchPackages,
   onAssemblyRun: request => {
     state.packageQueryNavigationError = "";
     packageQueryLiveAnnouncer.reset();
