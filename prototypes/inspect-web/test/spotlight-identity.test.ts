@@ -1463,7 +1463,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
   assert.equal(
     [...callGraphBinding.matchAll(
-      /const owner = captureViewOperation\(state\.memberCallGraphSeq\);[\s\S]{0,500}?\(\) => ownsViewOperation\(owner, state\.memberCallGraphSeq\)/g)]
+      /let owner = captureViewOperation\(state\.memberCallGraphSeq\);[\s\S]{0,500}?\(\) => ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]{0,200}?owner = captureViewOperation\(state\.memberCallGraphSeq\)/g)]
       .length,
     2);
   assert.match(
@@ -2628,7 +2628,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     ?? "";
   assert.match(
     platformNavigation,
-    /const owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimePackAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /let owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimePackAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
@@ -3850,6 +3850,7 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
   const retained: typeof cached[] = [];
   const released: typeof cached[] = [];
   let invalidations = 0;
+  let resolvedTabs: unknown[] = [];
   let cachedTarget: typeof cached | null = cached;
   const context = {
     state,
@@ -3865,9 +3866,10 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     },
     invalidateWorkspaceMembershipViews: () => {
       invalidations++;
+      state.workspaceShareBasis = null;
     },
     platformCoordinateCapacityError: () => "",
-    resolvedWorkspaceShareTabs: () => state.workspaceShareBasis?.tabs ?? [],
+    resolvedWorkspaceShareTabs: () => resolvedTabs,
     workspaceShareTabsMatchResolved: (
       requested: unknown[],
       resolved: unknown[],
@@ -3886,7 +3888,9 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
   assert.deepEqual(retained, [cached]);
   assert.equal(invalidations, 1);
 
-  const preservedBasis = { tabs: [{ source: ":Platform" }] };
+  resolvedTabs = [{ source: ":Platform" }];
+  const preservedBasis = { tabs: resolvedTabs };
+  state.packages = [];
   state.workspaceShareBasis = preservedBasis;
   runInNewContext(
     stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget(target);`),
@@ -3921,7 +3925,7 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
   state.packages = [previous];
   state.package = previous;
   state.workspaceShareBasis = preservedBasis;
-  context.resolvedWorkspaceShareTabs = () => [];
+  resolvedTabs = [];
   retained.length = 0;
   invalidations = 0;
   runInNewContext(
@@ -5203,7 +5207,7 @@ test("runtime graph identities restore through exact resident candidates", () =>
     /resolveRuntimeGraphTargetCandidate\(\s*pkg,\s*deep\.graphTarget\)/);
 });
 
-test("runtime graph member activation requires the matching exact catalog", () => {
+test("runtime graph member activation requires the matching exact catalog", async () => {
   const navigation =
     appSource.match(/async function openRuntimeMemberFromGraph[\s\S]*?\n\}/)?.[0]
     ?? "";
@@ -5224,6 +5228,9 @@ test("runtime graph member activation requires the matching exact catalog", () =
     /retainPlatformPackageForTarget\(target\) !== pack[\s\S]*matching Platform runtime model is unavailable/);
   assert.match(
     navigation,
+    /const alreadyRetained = state\.packages\.includes\(pack\);[\s\S]*if \(!alreadyRetained\) renewNavigationOwnership\(\);[\s\S]*if \(!navigationIsCurrent\(\)\) return;[\s\S]*navigateToRuntimeMember\(/);
+  assert.match(
+    navigation,
     /catch \(error\) \{[\s\S]*showPlatformTargetError\([\s\S]*exact Platform target is unavailable[\s\S]*return;[\s\S]*navigateToRuntimeMember\(/);
   assert.match(
     navigation,
@@ -5237,6 +5244,38 @@ test("runtime graph member activation requires the matching exact catalog", () =
   assert.match(
     appSource,
     /async function pickSpotlight\([\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*activatePackage\(pkg\)/);
+
+  const pack = { source: { kind: "platform" } };
+  const target = {};
+  const events: string[] = [];
+  let current = true;
+  const context = {
+    exactPlatformCatalogForType: async () => target,
+    navigationIsCurrent: () => current,
+    renewNavigationOwnership: () => {
+      current = true;
+      events.push("renew");
+    },
+    retainPlatformPackageForTarget: () => {
+      current = false;
+      events.push("retain");
+      return pack;
+    },
+    state: { packages: [] as (typeof pack)[] },
+    navigateToRuntimeMember: () => events.push("navigate"),
+    showPlatformTargetError: async () => {},
+    errorMessage: (error: unknown) => String(error),
+    pack,
+  };
+  await runInNewContext(
+    stripTypeScriptTypes(`(async () => {
+      ${navigation}
+      await openRuntimeMemberFromGraph(
+        pack, {}, {}, 0, {}, "overview",
+        navigationIsCurrent, renewNavigationOwnership, "call-graph");
+    })()`),
+    context);
+  assert.deepEqual(events, ["retain", "renew", "navigate"]);
 });
 
 test("home navigation invalidates pending graph work", () => {
@@ -5333,7 +5372,7 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /assemblyResident = runtimeGraphTargetAssemblyIsResident\(pack, node\)[\s\S]*?candidate\.status === "missing" && assemblyResident[\s\S]*?drillPlatformNode\(node, navigationIsCurrent\)/);
   assert.match(
     navigation,
-    /const owner = captureViewOperation\(seq\);\s*const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\)/);
+    /let owner = captureViewOperation\(seq\);\s*const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\)/);
   assert.match(
     navigation,
     /const discardIfStale = \(\s*preservedFocus: MemberFocusSnapshot \| null = null,\s*\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?if \(preservedFocus\) renderPreservingMemberFocus\(preservedFocus\);\s*else render\(\)/);
@@ -5845,7 +5884,7 @@ test("async graph work uses one source-view ownership contract", () => {
     /owner\.sequence === currentSequence[\s\S]*?owner\.navigationSequence === navigationSequence\.current\(\)[\s\S]*?owner\.sourceView === viewSignature\(\)/);
   assert.equal(
     appSource.match(/captureViewOperation\(/g)?.length,
-    7);
+    10);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

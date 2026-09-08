@@ -7529,12 +7529,12 @@ function installPlatformTarget(target: PlatformCatalogTarget) {
     filter: previous?.filter ?? "",
   };
   state.package = packageModel;
-  if (basis
-    && !workspaceShareTabsMatchResolved(
+  state.workspaceShareBasis = basis
+    && workspaceShareTabsMatchResolved(
       basis.tabs,
-      resolvedWorkspaceShareTabs())) {
-    state.workspaceShareBasis = null;
-  }
+      resolvedWorkspaceShareTabs())
+      ? basis
+      : null;
   state.workspaceSubjectOpen = false;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
@@ -11253,7 +11253,7 @@ function callGraphTargetBinding(
       onSelect: () => {
         if (disposition === "member" && pack && resident) {
           navigationSequence.begin();
-          const owner = captureViewOperation(state.memberCallGraphSeq);
+          let owner = captureViewOperation(state.memberCallGraphSeq);
           observeAsync(
             openRuntimeMemberFromGraph(
               pack,
@@ -11263,6 +11263,9 @@ function callGraphTargetBinding(
               target,
               runtimeSection,
               () => ownsViewOperation(owner, state.memberCallGraphSeq),
+              () => {
+                owner = captureViewOperation(state.memberCallGraphSeq);
+              },
               failureSurface),
             "Opening a platform call-graph member");
         } else if (disposition === "lookup") {
@@ -11387,7 +11390,7 @@ function callGraphTargetBinding(
       } else if (disposition === "resident") {
         if (pack && resident) {
           navigationSequence.begin();
-          const owner = captureViewOperation(state.memberCallGraphSeq);
+          let owner = captureViewOperation(state.memberCallGraphSeq);
           observeAsync(
             openRuntimeMemberFromGraph(
               pack,
@@ -11397,6 +11400,9 @@ function callGraphTargetBinding(
               target,
               runtimeSection,
               () => ownsViewOperation(owner, state.memberCallGraphSeq),
+              () => {
+                owner = captureViewOperation(state.memberCallGraphSeq);
+              },
               failureSurface),
             "Opening a resident platform call-graph member");
         } else {
@@ -12028,7 +12034,7 @@ async function navigateOrDrillPlatform(
 ) {
   invalidateGraphMemberNavigation();
   const seq = ++state.memberCallGraphSeq;
-  const owner = captureViewOperation(seq);
+  let owner = captureViewOperation(seq);
   const navigationIsCurrent = () =>
     ownsViewOperation(owner, state.memberCallGraphSeq);
   const discardIfStale = (
@@ -12211,6 +12217,9 @@ async function navigateOrDrillPlatform(
     node,
     section,
     navigationIsCurrent,
+    () => {
+      owner = captureViewOperation(state.memberCallGraphSeq);
+    },
     failureSurface);
 }
 
@@ -12222,15 +12231,18 @@ async function openRuntimeMemberFromGraph(
   node: InspectedCallGraphTarget,
   section: "overview" | "call-graph",
   navigationIsCurrent: () => boolean,
+  renewNavigationOwnership: () => void,
   failureSurface: GraphNavigationFailureSurface,
 ): Promise<void> {
   try {
     const target = await exactPlatformCatalogForType(pack, type);
     if (!navigationIsCurrent()) return;
+    const alreadyRetained = state.packages.includes(pack);
     if (retainPlatformPackageForTarget(target) !== pack) {
       throw new Error(
         "The matching Platform runtime model is unavailable.");
     }
+    if (!alreadyRetained) renewNavigationOwnership();
   } catch (error) {
     if (!navigationIsCurrent()) return;
     if (pack.source.kind === "platform" && state.packages.includes(pack)) {
