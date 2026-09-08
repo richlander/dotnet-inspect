@@ -11,7 +11,7 @@ owner through the bounded one-donor transfer allowed by
 [Design scope and composition](../design-scope.md#one-owner-per-focused-design).
 The donor is
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
-That owner retains runtime Workspace identity, artifact realization, admission
+That owner retains `InspectionWorkspace` instance identity, artifact realization, admission
 and query authorization, assembly-context construction, physical publication,
 budgets, and resource lifetime. Its existing concepts table assigns logical
 Workspace composition to that owner. This effort transfers that one cohesive
@@ -156,7 +156,7 @@ sections are historical design context, not an implementation claim.
 ## Authority and exact claim
 
 Workspace Scope and Expansion is the product authority for the committed
-logical inspection scope of one exact runtime Workspace.
+logical inspection scope of one exact `InspectionWorkspace` instance.
 
 It owns:
 
@@ -173,7 +173,7 @@ It owns:
 
 It does not own:
 
-- runtime Workspace identity construction, close, or resource lifetime;
+- `InspectionWorkspace` instance identity construction, close, or resource lifetime;
 - package, platform, project, local, or embedded coordinate construction;
 - source authorization, package resolution, acquisition, caching, or
   realization;
@@ -299,7 +299,7 @@ owners.
 
 ## One live Workspace
 
-Inspect Web holds exactly one live runtime Workspace. Activating a demo, share
+Inspect Web holds exactly one live `InspectionWorkspace` instance. Activating a demo, share
 packet, imported definition, saved definition, or ordinary **Open** request
 means replacing the scope in that Workspace; none creates a second live
 Workspace object. An ordinary scope-only **Open** can perform that replacement
@@ -308,15 +308,16 @@ state remains blocked on the focused complete-restoration participant described
 below.
 
 This component exposes no Workspace collection, switcher, name, or
-cross-Workspace operation. Each runtime Workspace has one current scope
+cross-Workspace operation. Each `InspectionWorkspace` instance has one current scope
 revision. A host may retain portable definitions or browser-history entries as
 data, but activating one prepares a replacement revision rather than reviving a
 simultaneously live instance. A packet is serialization input and output, not a
 user-visible packet Workspace.
 
-The CLI normally creates one ephemeral runtime Workspace for one invocation.
-Future service hosts may independently create runtime Workspaces for separate
-requests, but this owner does not compose, compare, or present them together.
+The CLI normally creates one ephemeral `InspectionWorkspace` instance for one
+invocation. Future service hosts may independently create instances for
+separate requests, but this owner does not compose, compare, or present them
+together.
 
 ## Analogous designs
 
@@ -359,7 +360,7 @@ InspectionWorkspaceIdentity              artifact owner
               Optional preparation
 ```
 
-### Runtime Workspace identity
+### `InspectionWorkspace` instance identity
 
 The artifact owner issues the exact process-local
 `InspectionWorkspaceIdentity` and decides whether its runtime is accepting
@@ -368,7 +369,7 @@ serialize, reopen, or prolong that identity.
 
 Every scope revision carries that exact identity. Equal definitions, package
 coordinates, context addresses, URLs, labels, or member sequences do not make
-two runtime Workspaces equal.
+two `InspectionWorkspace` instances equal.
 
 User-facing **closed** and **selectively open** describe dependency-expansion
 eligibility. They do not rename or replace the artifact owner's runtime
@@ -516,7 +517,7 @@ published current scope snapshot refreshes each occurrence through
 `GetCurrentRootScopeProjection` or consumes a projection returned atomically by
 the adjacent operation.
 
-A current snapshot read observes the shared runtime composition gate and
+A current snapshot read observes the shared Workspace composition gate and
 compares the snapshot's physical-composition identity with
 `GetCurrentArtifactRootCompositionGeneration`. Equal identity permits the
 already complete snapshot. Different identity requires one complete projection
@@ -775,7 +776,7 @@ state or Artifact publication.
 
 Every operation carries:
 
-- the exact runtime Workspace identity;
+- the exact `InspectionWorkspace` instance identity;
 - the exact current base revision identity;
 - one operation identity;
 - one complete requested effect;
@@ -797,7 +798,8 @@ WorkspaceScopeOperationResult
 
 Every arm other than `Unavailable` carries the complete current scope snapshot
 observed when the result settles. `Unavailable` is returned only when Artifact
-Acquisition reports the exact runtime Workspace absent, closing, or closed. It
+Acquisition reports the exact `InspectionWorkspace` instance absent, closing,
+or closed. It
 may carry the last retained resource-free snapshot as historical diagnostic
 evidence, explicitly not as current authority. No result requires Navigation
 or a host to reconstruct membership from an effect delta.
@@ -974,7 +976,7 @@ Clear commits one empty revision:
 - no Roots;
 - no expansion scopes;
 - `ClosedBoundary` with empty observed and producer-bound evidence; and
-- the same exact runtime Workspace identity.
+- the same exact `InspectionWorkspace` instance identity.
 
 Clear supersedes pending preparation. Physical generations are retired and
 drain under Artifact Acquisition's lifetime contract; Clear does not wait for
@@ -1318,7 +1320,7 @@ Wider Scope profiles require their own implementation and evidence.
 
 #### Complete candidate and exact association
 
-Scope consumes one exact accepting runtime Workspace, the expected current
+Scope consumes one exact accepting `InspectionWorkspace` instance, the expected current
 Scope revision, a finite deadline, cancellation, and the complete owner-resolved
 replacement request. It carries the coordinator's opaque Navigation-issued
 attempt token unchanged. That token correlates the participant with the complete
@@ -1477,7 +1479,7 @@ CLI packet/full-URL idea #6150 does not change this contract.
 Before implementation, a focused TLA+ model under
 `docs/design/models/workspace-scope-revisions/` must check:
 
-- one current revision per accepting runtime Workspace;
+- one current revision per accepting `InspectionWorkspace` instance;
 - one current closure observation over that revision and its evaluated
   physical bindings;
 - one fresh process-lifetime non-reused Scope publication base per current
@@ -1578,7 +1580,7 @@ or artifact evidence later claimed by those owners.
 
 | Gate | Property |
 | --- | --- |
-| `InitialSnapshot_IsEmptyClosedAndBoundToExactWorkspace` | One exact runtime Workspace starts with one empty revision and closed observation, and no portable or display identity aliases it. |
+| `InitialSnapshot_IsEmptyClosedAndBoundToExactWorkspace` | One exact `InspectionWorkspace` instance starts with one empty revision and closed observation, and no portable or display identity aliases it. |
 | `LogicalRevision_IsCompleteImmutableAndDistinct` | Every logical membership or expansion-policy publication returns one immutable complete revision with a fresh revision identity. |
 | `ScopePublicationBase_IsFreshDistinctAndNonReusable` | Initial state and every current-snapshot pointer swap issue one fresh process-lifetime non-reused base; refused candidate bases never become current or reusable. |
 | `ClosureObservation_IsExactAndDistinct` | Every closure publication or invalidation carries a fresh identity, exact source revision, and exact evaluated Artifact Root generation references. |
@@ -1623,8 +1625,8 @@ or artifact evidence later claimed by those owners.
 | `ExpansionRetry_IsStateIdempotent` | A retry after committed closure movement is stale, while an unchanged current batch after `NoEffect` may repeat only the same state-based `NoEffect`. |
 | `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The resolved current package-set membership fits the 64-Root profile and no existing Root is evicted. |
 | `RootCapacity_RejectionPreservesCurrentRevision` | A sixty-fifth distinct Root fails visibly without truncation or replacement. |
-| `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's runtime Workspace lifetime. |
-| `RuntimeUnavailable_DoesNotFabricateCurrentScope` | Absent, closing, or closed Artifact runtime state rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
+| `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's `InspectionWorkspace` instance lifetime. |
+| `RuntimeUnavailable_DoesNotFabricateCurrentScope` | An absent, closing, or closed `InspectionWorkspace` instance rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
 | `ScopePublication_UsesArtifactRootPublicationPlan` | Membership, policy, and closure evaluation publication supplies one complete parent-owned physical plan and sealed Scope participant carrying exact current and fresh candidate Scope bases; the parent gate changes both current states or neither. Observation of an already-published physical epoch instead uses the complete Scope-only refresh under the Artifact read lease and does not submit a physical plan. |
 | `EveryOperationResultCarriesCompleteCurrentSnapshot` | Committed, no-effect, rejected, failed, cancelled, and superseded results require no host reconstruction; Unavailable is explicitly historical and carries no current authority. |
 | `CurrentSnapshot_BindsOnePhysicalCompositionEpoch` | One returned current snapshot carries the owner-issued composition identity and complete Root projections from that epoch; physical movement causes complete refresh or typed refusal, never a mixed-epoch view. |

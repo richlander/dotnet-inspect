@@ -219,8 +219,9 @@ The owner returns:
 ### Adjacent owners
 
 [Artifact acquisition and workspace
-composition](artifact-acquisition-and-workspaces.md) owns runtime Workspace
-identity, including the #5508 construction and close contract, isolation,
+composition](artifact-acquisition-and-workspaces.md) owns
+`InspectionWorkspace` instance identity, including the #5508 construction and
+close contract, isolation,
 admitted artifacts and contexts, query authorization, and lifetime. [Workspace
 Scope and
 Expansion](workspace-scope-and-expansion.md) owns retained-coordinate
@@ -333,10 +334,11 @@ The conceptual subject identity family is:
 
 Identity equality never uses display text, filename, list position, metadata
 token alone, portable package coordinate alone, browser cache key, or backend
-arrival order. Runtime Workspace and retained-coordinate occurrence identities
-are process-local and never serialized. Artifact Acquisition issues the runtime
-identity under #5508; Workspace Scope and Expansion constructs and retires the
-occurrence identity under that live runtime authority.
+arrival order. `InspectionWorkspace` instance and retained-coordinate
+occurrence identities are process-local and never serialized. Artifact
+Acquisition issues the instance identity under #5508; Workspace Scope and
+Expansion constructs and retires the occurrence identity under that live
+instance authority.
 
 The current coordinate-rooted `StructuralSubjectIdentity` implementation is
 replaced in place rather than retained as a parallel identity family. Its

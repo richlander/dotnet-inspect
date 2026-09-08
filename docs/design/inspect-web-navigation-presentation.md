@@ -416,7 +416,7 @@ realize them. A packet composes its Workspace, navigation, and initial view as
 defined by [Workspace Definitions](workspace-definitions.md); two packets remain
 separately selectable when they reuse the same underlying Workspace. The first
 browser adoption retains resolved product demo scenarios for the current
-session. Inspect Web has exactly one live runtime Workspace. The home page
+session. Inspect Web has exactly one live `InspectionWorkspace` instance. The home page
 exposes one **Demos** entry that opens this subject; it does not expose one
 button per demo or create a Workspace switcher.
 
@@ -438,7 +438,7 @@ matching coordinates. Categories, filtering, and separate Aspire or
 performance-demo entry points are residual; the first adoption lists every
 current demo.
 
-The same content pane separately lists the runtime Workspace's loaded
+The same content pane separately lists the `InspectionWorkspace` instance's loaded
 coordinates with:
 
 - coordinate identity and acquisition kind;
