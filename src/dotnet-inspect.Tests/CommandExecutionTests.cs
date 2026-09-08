@@ -15471,7 +15471,7 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// A failed acquisition of the selected row must stay visible rather than degrade into
-    /// success-shaped output. Only the transport is substituted, so the real SourceFetcher
+    /// success-shaped output. Only the transport is substituted, so the real SourceFetch
     /// still applies scheme restriction, caching, and status handling.
     /// </summary>
     [Fact]

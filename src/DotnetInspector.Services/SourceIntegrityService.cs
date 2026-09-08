@@ -111,7 +111,7 @@ public static class SourceIntegrityService
                                 log: null,
                                 cancellationToken: ct,
                                 trafficKind: NetworkTrafficKind.SourceIntegrity,
-                                maxDownloadSize: SourceFetcher.MaxSourceDownloadSize)
+                                maxDownloadSize: SourceFetch.MaxSourceDownloadSize)
                                 .ConfigureAwait(false);
                         if (fetch.Status
                             == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)

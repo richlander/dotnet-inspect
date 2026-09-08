@@ -1282,7 +1282,7 @@ static class SourceOracleCandidateLedger
 
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
 
         var scanned = new List<ScannedAssembly>();
         var members = new List<CensusMember>();
@@ -1362,7 +1362,7 @@ static class SourceOracleCandidateLedger
     static async Task<bool> ScanAssemblyAsync(
         string assemblyPath,
         HttpClient httpClient,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         IReadOnlyList<string>? repositoryPaths,
         List<ScannedAssembly> scanned,
         List<CensusMember> members,
