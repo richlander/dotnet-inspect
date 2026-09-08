@@ -3842,6 +3842,7 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     packages: [] as typeof cached[],
     package: null as typeof cached | null,
     platformSelection: null,
+    workspaceShareBasis: null as { tabs: unknown[] } | null,
     platformIndex: {
       target: () => ({ tfm: "net11.0", version: "11.0.0" }),
     },
@@ -3866,6 +3867,11 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
       invalidations++;
     },
     platformCoordinateCapacityError: () => "",
+    resolvedWorkspaceShareTabs: () => state.workspaceShareBasis?.tabs ?? [],
+    workspaceShareTabsMatchResolved: (
+      requested: unknown[],
+      resolved: unknown[],
+    ) => requested === resolved,
     resetMemberSectionState: () => {},
     invalidateMemberDestinationWork: () => {},
     navigationHistory: { normalizeCurrent: () => {} },
@@ -3880,9 +3886,17 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
   assert.deepEqual(retained, [cached]);
   assert.equal(invalidations, 1);
 
+  const preservedBasis = { tabs: [{ source: ":Platform" }] };
+  state.workspaceShareBasis = preservedBasis;
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget(target);`),
+    context);
+  assert.equal(state.workspaceShareBasis, preservedBasis);
+
   state.packages = [];
   state.package = null;
   state.platformSelection = null;
+  state.workspaceShareBasis = null;
   retained.length = 0;
   assert.equal(
     runInNewContext(
@@ -3906,6 +3920,8 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
   cachedTarget = null;
   state.packages = [previous];
   state.package = previous;
+  state.workspaceShareBasis = preservedBasis;
+  context.resolvedWorkspaceShareTabs = () => [];
   retained.length = 0;
   invalidations = 0;
   runInNewContext(
@@ -3915,6 +3931,7 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     });`),
     context);
   assert.equal(state.package, null);
+  assert.equal(state.workspaceShareBasis, null);
   assert.deepEqual(state.packages, []);
   assert.deepEqual(released, [previous]);
   assert.equal(invalidations, 1);

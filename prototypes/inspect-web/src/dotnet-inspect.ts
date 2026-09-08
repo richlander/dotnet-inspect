@@ -7519,6 +7519,7 @@ async function ensurePlatformCatalog(tfm: string, version?: string): Promise<Pla
 function installPlatformTarget(target: PlatformCatalogTarget) {
   const capacityError = platformCoordinateCapacityError();
   if (capacityError) throw new Error(capacityError);
+  const basis = state.workspaceShareBasis;
   const packageModel = retainPlatformPackageForTarget(target);
   const previous = state.platformSelection;
   state.rootKind = "platform";
@@ -7528,7 +7529,12 @@ function installPlatformTarget(target: PlatformCatalogTarget) {
     filter: previous?.filter ?? "",
   };
   state.package = packageModel;
-  state.workspaceShareBasis = null;
+  if (basis
+    && !workspaceShareTabsMatchResolved(
+      basis.tabs,
+      resolvedWorkspaceShareTabs())) {
+    state.workspaceShareBasis = null;
+  }
   state.workspaceSubjectOpen = false;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
