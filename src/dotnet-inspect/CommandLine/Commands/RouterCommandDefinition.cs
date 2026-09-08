@@ -177,7 +177,7 @@ public static class RouterCommandDefinition
                 ParseResult analysisParseResult = rootCommand.Parse([MemberCommand.Name, .. tokens]);
                 OptionError? analysisError = SharedParsers.GetOptionParseError(analysisParseResult);
                 analysisError ??= SharedParsers.ParseAnalysisQueryOptions(
-                    analysisParseResult, opts, typeScoped: false, typeName: null, out _, out _);
+                    analysisParseResult, opts, typeScoped: false, typeName: null, out _, out _, out _);
                 analysisError ??= MemberOptionsParser.GetMermaidOptionError(analysisParseResult, opts);
                 if (analysisError is not null)
                 {
