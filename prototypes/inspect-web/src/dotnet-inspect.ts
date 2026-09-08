@@ -1502,6 +1502,13 @@ function applyView(view: WorkspaceView) {
     showToast(capacityError);
     return false;
   }
+  if (view.rootKind !== "platform" && view.platform) {
+    const target = state.platformIndex?.target(
+      view.platform.tfm,
+      view.platform.version);
+    if (!target) return false;
+    retainPlatformPackageForTarget(target);
+  }
   if (view.rootKind === "platform" && view.platform && view.atPackageRoot) {
     const target = state.platformIndex?.target(view.platform.tfm, view.platform.version);
     if (!target) return false;
@@ -11208,13 +11215,18 @@ function callGraphTargetBinding(
       platform: disposition === "lookup",
       onSelect: () => {
         if (disposition === "member" && pack && resident) {
-          navigateToRuntimeMember(
-            pack,
-            resident.type,
-            resident.group,
-            resident.overloadIndex,
-            target,
-            runtimeSection);
+          const navigationSeq = navigationSequence.begin();
+          observeAsync(
+            openRuntimeMemberFromGraph(
+              pack,
+              resident.type,
+              resident.group,
+              resident.overloadIndex,
+              target,
+              runtimeSection,
+              () => navigationSequence.isCurrent(navigationSeq),
+              failureSurface),
+            "Opening a platform call-graph member");
         } else if (disposition === "lookup") {
           observeAsync(
             navigateOrDrillPlatform(
@@ -11336,13 +11348,18 @@ function callGraphTargetBinding(
           "Opening a graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
-          navigateToRuntimeMember(
-            pack,
-            resident.type,
-            resident.group,
-            resident.overloadIndex,
-            target,
-            runtimeSection);
+          const navigationSeq = navigationSequence.begin();
+          observeAsync(
+            openRuntimeMemberFromGraph(
+              pack,
+              resident.type,
+              resident.group,
+              resident.overloadIndex,
+              target,
+              runtimeSection,
+              () => navigationSequence.isCurrent(navigationSeq),
+              failureSurface),
+            "Opening a resident platform call-graph member");
         } else {
           observeAsync(
             destination === "member"
@@ -12152,11 +12169,53 @@ async function navigateOrDrillPlatform(
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
-  navigateToRuntimeMember(
+  await openRuntimeMemberFromGraph(
     pack,
     selection.type,
     selection.group,
     selection.overloadIndex,
+    node,
+    section,
+    navigationIsCurrent,
+    failureSurface);
+}
+
+async function openRuntimeMemberFromGraph(
+  pack: AppPackage,
+  type: AppTypeSurface,
+  group: AppMemberGroup,
+  overloadIndex: number,
+  node: InspectedCallGraphTarget,
+  section: "overview" | "call-graph",
+  navigationIsCurrent: () => boolean,
+  failureSurface: GraphNavigationFailureSurface,
+): Promise<void> {
+  try {
+    const target = await ensurePlatformCatalog(
+      pack.activeFramework,
+      pack.version);
+    if (!navigationIsCurrent()) return;
+    const library = resolvePackageLibrary(pack.assemblies, libraryKey(type));
+    if (!library || !target.rows.some(row =>
+      row.hasImplementation
+      && platformLibraryMatchesDescriptor(row, library))) {
+      throw new Error(
+        "The matching Platform catalog does not contain the selected Library.");
+    }
+  } catch (error) {
+    if (!navigationIsCurrent()) return;
+    await showPlatformTargetError(
+      node,
+      `the matching Platform catalog is unavailable: ${errorMessage(error)}`,
+      failureSurface);
+    return;
+  }
+  if (!navigationIsCurrent()) return;
+  navigateToRuntimeMember(
+    pack,
+    type,
+    group,
+    overloadIndex,
     node,
     section);
 }

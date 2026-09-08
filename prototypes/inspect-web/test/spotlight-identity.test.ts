@@ -1460,7 +1460,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
-    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
+    /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -3550,6 +3550,9 @@ test("history validates saved type and member identity before restoring Member s
     /const capacityError = view\.platform\s*\? platformCoordinateCapacityError\(\)\s*:\s*"";\s*if \(capacityError\) \{\s*showToast\(capacityError\);\s*return false/);
   assert.match(
     applyView,
+    /if \(view\.rootKind !== "platform" && view\.platform\) \{[\s\S]*state\.platformIndex\?\.target\([\s\S]*if \(!target\) return false;\s*retainPlatformPackageForTarget\(target\);/);
+  assert.match(
+    applyView,
     /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
   assert.match(
     applyView,
@@ -5030,7 +5033,7 @@ test("platform graph borders reflect actual resident lookup", () => {
 
   assert.match(binding, /resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(binding, /platform: disposition === "lookup"/);
-  assert.match(binding, /if \(disposition === "member" && pack && resident\) \{\s*navigateToRuntimeMember\(/);
+  assert.match(binding, /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\(/);
   assert.match(binding, /else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
@@ -5040,7 +5043,7 @@ test("platform graph borders reflect actual resident lookup", () => {
     /const disposition = combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\);[\s\S]*?if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
-    /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
+    /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?openRuntimeMemberFromGraph\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     appSource,
     /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{[\s\S]*?await drillPlatformNode\(/);
@@ -5157,6 +5160,7 @@ test("runtime graph identities restore through exact resident candidates", () =>
     pkg: pack,
     type
   });
+
   assert.equal(runtimeGraphTargetAssemblyIsResident(pack, target), true);
   assert.equal(
     runtimeGraphTargetAssemblyIsResident({ ...pack, types: [] }, target),
@@ -5175,6 +5179,21 @@ test("runtime graph identities restore through exact resident candidates", () =>
   assert.match(
     appSource,
     /resolveRuntimeGraphTargetCandidate\(\s*pkg,\s*deep\.graphTarget\)/);
+});
+
+test("runtime graph member activation requires the matching exact catalog", () => {
+  const navigation =
+    appSource.match(/async function openRuntimeMemberFromGraph[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  assert.match(
+    navigation,
+    /await ensurePlatformCatalog\(\s*pack\.activeFramework,\s*pack\.version\)/);
+  assert.match(
+    navigation,
+    /target\.rows\.some\(row =>\s*row\.hasImplementation\s*&& platformLibraryMatchesDescriptor\(row, library\)\)/);
+  assert.match(
+    navigation,
+    /catch \(error\) \{[\s\S]*showPlatformTargetError\([\s\S]*matching Platform catalog is unavailable[\s\S]*return;[\s\S]*navigateToRuntimeMember\(/);
 });
 
 test("home navigation invalidates pending graph work", () => {
