@@ -2805,7 +2805,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /invalidateMemberDestinationWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
-    /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
+    /const \{ tabs, resolvedTabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*activeShareTabIndex\(tabs, resolvedTabs\)[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
   assert.match(
     appSource,
     /captured\.preservesBasis,[\s\S]*state\.memberSection === "call-graph"/);

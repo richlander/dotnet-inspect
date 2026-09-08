@@ -40,10 +40,12 @@ import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
 import {
+  browserCreatedCallGraphTabIds,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  selectedBrowserCallGraphPackageTabIds,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -55,6 +57,7 @@ assert.deepEqual(app.errors, []);
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
+  "selectedCallGraphWorkspacePackages",
   "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
@@ -357,7 +360,9 @@ function harness() {
         state.spotlightOpen = false;
       },
     },
-    typeLensesFor, workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
+    typeLensesFor, browserCreatedCallGraphTabIds,
+    selectedBrowserCallGraphPackageTabIds,
+    workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: decode,
     requestAnimationFrame: (action: () => void) => frames.push(action),
@@ -590,6 +595,46 @@ for (const platform of [false, true]) {
     assert.equal(h.writes.length, 0);
   });
 }
+
+test("floating packet coordinates resolve the active package and Call Graph context", () => {
+  const h = harness();
+  const exact = sharedState();
+  const basis: BrowserWorkspaceShareState = {
+    ...exact,
+    tabs: exact.tabs.map(tab => ({
+      ...tab,
+      version: null,
+      framework: null,
+    })),
+    activeTabId: "first",
+  };
+  h.state.packages = exact.tabs.map(tab => {
+    assert.ok(tab.version);
+    assert.ok(tab.framework);
+    return {
+      id: tab.source,
+      version: tab.version,
+      activeFramework: tab.framework,
+      types: [],
+      source: { kind: "nuget.org" as const },
+    };
+  });
+  h.state.package = h.state.packages[0]!;
+  h.state.workspaceShareBasis = basis;
+
+  h.capture();
+  assert.deepEqual(
+    h.encoded[0],
+    {
+      ...basis,
+      tabs: exact.tabs,
+    });
+  const selected: unknown = runInNewContext(
+    "selectedCallGraphWorkspacePackages()",
+    h.context);
+  assert.ok(Array.isArray(selected));
+  assert.deepEqual(selected, h.state.packages);
+});
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
   const h = harness();
@@ -1251,6 +1296,49 @@ test("ordinary package retention reserves the catalog-only Platform coordinate",
   assert.equal(h.state.packages.includes(sourcePackage), true);
   assert.equal(h.state.packages.includes(incoming), true);
   assert.equal(h.state.packages.some(pkg => pkg.id === "Resident.0"), false);
+  assert.equal(
+    runInNewContext("workspaceCoordinateCount()", h.context),
+    MAX_WORKSPACE_PACKAGES);
+});
+
+test("ordinary retention preserves the coordinate limit after evicting a realized Platform", () => {
+  const h = harness();
+  const platform = {
+    ...sourcePackage,
+    id: "Microsoft.NETCore.App",
+    version: "11.0.6",
+    activeFramework: "net11.0",
+    isRuntimePack: true,
+    source: { kind: "platform" as const },
+  };
+  const residents = Array.from(
+    { length: MAX_WORKSPACE_PACKAGES - 1 },
+    (_, index) => ({
+      ...sourcePackage,
+      id: `Resident.${index}`,
+    }));
+  const active = residents.at(-1);
+  assert.ok(active);
+  h.state.packages = [platform, ...residents];
+  h.state.package = active;
+  h.state.platformSelection = {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  };
+  const incoming = {
+    ...sourcePackage,
+    id: "Incoming.Package",
+    version: "2.0.0",
+  };
+
+  runInNewContext("retainPackageModel(incoming)", {
+    ...h.context,
+    incoming,
+  });
+
+  assert.equal(h.state.packages.length, MAX_WORKSPACE_PACKAGES - 1);
+  assert.equal(h.state.packages.some(pkg => pkg.source.kind === "platform"), false);
+  assert.equal(h.state.packages.includes(incoming), true);
   assert.equal(
     runInNewContext("workspaceCoordinateCount()", h.context),
     MAX_WORKSPACE_PACKAGES);

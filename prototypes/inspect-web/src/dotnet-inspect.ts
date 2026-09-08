@@ -2513,18 +2513,26 @@ function retainPackageModel(
     replacedPackage = state.packages.find(pkg => pkg.source.kind === "platform") ?? replacedPackage;
   }
   const activeWasReplaced = packageIdentityEquals(state.package, packageModel);
-  const retainedPackageCapacity =
-    packageModel.source.kind !== "platform"
-    && state.platformSelection
-    && !state.packages.some(pkg => pkg.source.kind === "platform")
-      ? MAX_WORKSPACE_PACKAGES - 1
-      : MAX_WORKSPACE_PACKAGES;
-  const retained = retainWorkspacePackage(
+  let retained = retainWorkspacePackage(
     state.packages,
     state.package,
     packageModel,
     replacedPackage,
-    retainedPackageCapacity);
+    MAX_WORKSPACE_PACKAGES);
+  if (packageModel.source.kind !== "platform"
+    && state.platformSelection
+    && !retained.packages.some(pkg => pkg.source.kind === "platform")) {
+    const platformAdjusted = retainWorkspacePackage(
+      retained.packages,
+      state.package,
+      packageModel,
+      null,
+      MAX_WORKSPACE_PACKAGES - 1);
+    retained = {
+      packages: platformAdjusted.packages,
+      evicted: [...retained.evicted, ...platformAdjusted.evicted],
+    };
+  }
   state.packages = retained.packages;
   if (activeWasReplaced)
     state.package = packageModel;
@@ -8605,7 +8613,7 @@ function capturedShareTabs() {
     preservesBasis && basis
       ? basis.tabs.map(tab => ({ ...tab }))
       : resolvedTabs;
-  return { tabs, preservesBasis };
+  return { tabs, resolvedTabs, preservesBasis };
 }
 
 function commitWorkspaceShareBasis(
@@ -8618,17 +8626,20 @@ function commitWorkspaceShareBasis(
 function selectedCallGraphWorkspacePackages(): AppPackage[] {
   if (state.package?.isRuntimePack) return [];
   const basis = state.workspaceShareBasis;
-  const { tabs, preservesBasis } = capturedShareTabs();
-  const activeIndex = activeShareTabIndex(tabs);
+  const { tabs, resolvedTabs, preservesBasis } = capturedShareTabs();
+  const activeIndex = activeShareTabIndex(tabs, resolvedTabs);
   const activeTab = tabs[activeIndex];
   if (!activeTab) {
     throw new Error(
       "The active package is no longer part of the Browser workspace.");
   }
   const packageForTabId = (id: string) => {
-    const tab = tabs.find(candidate => candidate.id === id);
-    return tab?.kind === "package" ? state.packages.find(pkg =>
-      pkg.id === tab.source && pkg.version === tab.version && pkg.activeFramework === tab.framework) ?? null : null;
+    const index = tabs.findIndex(candidate => candidate.id === id);
+    const resolved = resolvedTabs[index];
+    return resolved?.kind === "package" ? state.packages.find(pkg =>
+      pkg.id === resolved.source
+      && pkg.version === resolved.version
+      && pkg.activeFramework === resolved.framework) ?? null : null;
   };
   if (!preservesBasis || !basis) {
     return browserCreatedCallGraphTabIds(tabs, activeIndex)
@@ -8652,10 +8663,13 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
   });
 }
 
-function activeShareTabIndex(tabs: BrowserWorkspaceShareState["tabs"]) {
+function activeShareTabIndex(
+  tabs: BrowserWorkspaceShareState["tabs"],
+  resolvedTabs = tabs,
+) {
   return state.rootKind === "platform"
     ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
-    : tabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
+    : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
       && tab.version === state.package?.version && tab.framework === state.package?.activeFramework);
 }
 
@@ -8674,7 +8688,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
 
   const captured = capturedShareTabs();
   const tabs = captured.tabs;
-  const activeIndex = activeShareTabIndex(tabs);
+  const activeIndex = activeShareTabIndex(tabs, captured.resolvedTabs);
   const activeTab = tabs[activeIndex];
   if (!activeTab) return null;
 
