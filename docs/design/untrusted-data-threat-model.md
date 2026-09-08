@@ -1399,7 +1399,7 @@ and
 `HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
 Every product consumer that renders or derives output from fetched source now
-uses `PdbSourceAcquisition.FetchVerifiedSourceTextAsync`. PDB Source,
+uses `PdbSourceHouse.FetchVerifiedSourceTextAsync`. PDB Source,
 printed Source Files and Source Locations, IL-offset source lines, and
 documentation/sample enrichment all require the portable-PDB checksum before
 using network content. `SourceAvailabilityService` and

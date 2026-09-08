@@ -27,7 +27,7 @@ an absence Finding or a source-provenance receipt.
 | Supporting owner | Role in this contract |
 | --- | --- |
 | [PDB acquisition](../pdb-acquisition.md) | Owns acquisition ordering, PDB-recorded local-file reads, source decoding/slicing, and remote outcome interpretation. |
-| `PdbSourceAcquisition.VerifyChecksum` | Supplies the checksum-verification classification consumed by this adapter. |
+| `PdbSourceHouse.VerifyChecksum` | Supplies the checksum-verification classification consumed by this adapter. |
 | Metadata and SourceLink | Supply document/checksum observations and resolved source locators. |
 | SourceLink provenance and the host source fetcher | Own immutable-origin classification and remote destination admission; local lookup does not replace either. |
 | CLI | Accepts explicit clone paths and presents the acquired source through existing views. |
@@ -41,7 +41,7 @@ This is a consumed association, not a new PDB selection or identity contract.
 The production consumer is already shipped. Desktop `--repo` supplies clone
 paths to member PDB Source, printable type Source Files, printable member
 Source Locations, and implementation-diff PDB source. Reusable service paths
-reach the adapter through `PdbSourceAcquisition`; the CLI implementation-diff
+reach the adapter through `PdbSourceHouse`; the CLI implementation-diff
 source resolver also invokes it directly.
 
 This preserves the host split owned by [PDB acquisition](../pdb-acquisition.md):
@@ -171,7 +171,7 @@ This adapter uses the raw-content convention rather than recreating a checkout
 or borrowing working-tree conversion semantics. Git's object lookup supplies
 the candidate bytes, not their correspondence with a Portable PDB.
 
-The adjacent remote path in `PdbSourceAcquisition` likewise gates fetched bytes
+The adjacent remote path in `PdbSourceHouse` likewise gates fetched bytes
 through the shared verifier. Local lookup reuses that policy instead of
 inventing weaker checksum admission. Its deliberately different locator
 admission is justified by the distinction between a local content probe and a

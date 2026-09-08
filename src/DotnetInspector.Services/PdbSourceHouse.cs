@@ -75,10 +75,10 @@ public sealed record VerifiedSourceTextResult(
 }
 
 /// <summary>
-/// Acquires one PDB-mapped member source and verifies the portable-PDB checksum before exposing
-/// its text as evidence.
+/// Clearing house for PDB-mapped source acquisition: orders local and remote candidates,
+/// verifies the portable-PDB checksum, and exposes one settled source result as evidence.
 /// </summary>
-public static class PdbSourceAcquisition
+public static class PdbSourceHouse
 {
     internal const int MaxPdbSourceLineCount = 500_000;
 

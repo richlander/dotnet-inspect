@@ -463,7 +463,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.GitHubUrlResolver",
             "DotnetInspector.Services.LocalRepoSourceAcquisition",
             "DotnetInspector.Services.NuspecParser",
-            "DotnetInspector.Services.PdbSourceAcquisition",
+            "DotnetInspector.Services.PdbSourceHouse",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
             "ILInspector.Metadata.ApiSurface",

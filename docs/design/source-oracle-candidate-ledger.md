@@ -66,7 +66,7 @@ It does not own:
 - command-line argument policy; or
 - card and JSON presentation conventions.
 
-`ILInspector.Metadata` and `PdbSourceAcquisition` own mapping and acquisition.
+`ILInspector.Metadata` and `PdbSourceHouse` own mapping and acquisition.
 `AuthoredSourceHarvest` owns authored-source harvesting.
 `AuthoredCorpusSourceEvaluator` owns source-oracle evaluation.
 `PrinterSyntaxInventory` owns feature extraction.

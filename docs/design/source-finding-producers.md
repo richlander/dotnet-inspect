@@ -126,7 +126,7 @@ reachability and checksum statuses are operation results and presentation
 folds, not additional Findings.
 
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
-token. `PdbSourceAcquisition` consumes the same token-scoped mapping and
+token. `PdbSourceHouse` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
