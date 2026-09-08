@@ -6,7 +6,7 @@
 normative owner. This model addresses
 [#5796](https://github.com/richlander/dotnet-inspect/issues/5796):
 
-> For one exact accepting `InspectionWorkspace` instance, every current Scope snapshot
+> For one exact accepting Workspace, every current Scope snapshot
 > binds one complete logical revision to one parent-owned physical-composition
 > epoch; mutations either publish one complete old-to-new transition through
 > Artifact Acquisition or leave the prior logical state current and release

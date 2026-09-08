@@ -220,14 +220,14 @@ The owner returns:
 
 [Artifact acquisition and workspace
 composition](artifact-acquisition-and-workspaces.md) owns
-`InspectionWorkspace` instance identity, including the #5508 construction and
-close contract, isolation,
+Workspace identity, including the #5508 construction and close contract,
+isolation,
 admitted artifacts and contexts, query authorization, and lifetime. [Workspace
 Scope and
 Expansion](workspace-scope-and-expansion.md) owns retained-coordinate
 membership and order, Workspace-bound occurrence construction, retention, and
 retirement, selective dependency expansion, revisions, and scope-operation
-results. Navigation consumes the runtime identity, complete ordered occurrence
+results. Navigation consumes the Workspace identity, complete ordered occurrence
 descriptors, the scope result's requested active/replacement occurrence, and
 typed correspondence without defining identity construction, equality, scope
 policy, replacement policy, or closure. Scope-operation production is the
@@ -334,11 +334,11 @@ The conceptual subject identity family is:
 
 Identity equality never uses display text, filename, list position, metadata
 token alone, portable package coordinate alone, browser cache key, or backend
-arrival order. `InspectionWorkspace` instance and retained-coordinate
+arrival order. Workspace and retained-coordinate
 occurrence identities are process-local and never serialized. Artifact
-Acquisition issues the instance identity under #5508; Workspace Scope and
+Acquisition issues the Workspace identity under #5508; Workspace Scope and
 Expansion constructs and retires the occurrence identity under that live
-instance authority.
+Workspace authority.
 
 The current coordinate-rooted `StructuralSubjectIdentity` implementation is
 replaced in place rather than retained as a parallel identity family. Its

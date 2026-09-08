@@ -4,7 +4,7 @@
 owner model for
 [Artifact Root preparation and scope publication](../../artifact-acquisition-and-workspaces.md#artifact-root-preparation-and-scope-publication).
 It checks one complete prepared physical Root batch and one sealed Scope
-publication participant against one exact `InspectionWorkspace` instance.
+publication participant against one exact Workspace.
 
 `ArtifactRootPublicationModel.tla` supplies the finite model-checking bound and
 the deliberately broken transitions. Scenario selection and mutations remain
@@ -46,15 +46,15 @@ pointer projection would hide the stale-base race and is not used.
 
 ## Owner claim
 
-Given one exact `InspectionWorkspace` instance, one current physical Root composition, one
-complete prepared batch, and one sealed Scope publication participant,
+Given one exact Workspace, one current physical Root composition, one complete
+prepared batch, and one sealed Scope publication participant,
 publication changes the physical composition and opaque Scope pointer together
 exactly once, or preserves both old pointers and releases provisional
 authority.
 
 The model preserves these owner-issued join currencies:
 
-- exact `InspectionWorkspace` instance identity;
+- exact Workspace identity;
 - current, expected, and reserved physical-composition generations;
 - one preparation receipt and its `Prepared`, `Publishing`, `Published`, or
   `Released` state;

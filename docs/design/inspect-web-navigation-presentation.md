@@ -411,12 +411,12 @@ behavior; Surface Composition owns their row-one placement and pressure order.
 Workspace is the product-issued subject presented as the persistent
 application-scope entry point for workspace packet inspection and
 retained-coordinate management. The primary inventory is
-the set of product-issued packets, not the deduplicated runtime workspaces that
+the set of product-issued packets, not the deduplicated Workspace compositions that
 realize them. A packet composes its Workspace, navigation, and initial view as
 defined by [Workspace Definitions](workspace-definitions.md); two packets remain
 separately selectable when they reuse the same underlying Workspace. The first
 browser adoption retains resolved product demo scenarios for the current
-session. Inspect Web has exactly one live `InspectionWorkspace` instance. The home page
+session. Inspect Web has exactly one Workspace. The home page
 exposes one **Demos** entry that opens this subject; it does not expose one
 button per demo or create a Workspace switcher.
 
@@ -430,16 +430,16 @@ path to replace the sole live Workspace. A failed Open demo action keeps the
 catalog and prior Workspace available, surfaces a retryable failure there, and
 returns focus to the selected demo action.
 
-Available definitions and runtime state remain separate. A demo title does not
+Available definitions and loaded state remain separate. A demo title does not
 rename the Workspace, claim that the definition uniquely owns the loaded
 coordinates, or imply that its initial view is still active. The loaded
-Workspace section reports runtime state without inferring demo identity from
+Workspace section reports current state without inferring demo identity from
 matching coordinates. Categories, filtering, and separate Aspire or
 performance-demo entry points are residual; the first adoption lists every
 current demo.
 
-The same content pane separately lists the `InspectionWorkspace` instance's loaded
-coordinates with:
+The same content pane separately lists the Workspace's loaded coordinates
+with:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
