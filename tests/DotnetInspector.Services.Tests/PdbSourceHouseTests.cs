@@ -38,7 +38,7 @@ public class PdbSourceHouseTests
         var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
                 "DotnetInspector.Services.Tests",
-                [nameof(PdbSourceAcquisitionTests)]));
+                [nameof(PdbSourceHouseTests)]));
 
         PdbMemberSourceInspection member =
             await PdbSourceHouse.AcquireMemberAsync(
@@ -87,7 +87,7 @@ public class PdbSourceHouseTests
         var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
                 "DotnetInspector.Services.Tests",
-                [nameof(PdbSourceAcquisitionTests)]));
+                [nameof(PdbSourceHouseTests)]));
 
         PdbMemberSourceInspection member =
             await PdbSourceHouse.AcquireMemberAsync(
@@ -699,7 +699,7 @@ public class PdbSourceHouseTests
     static SourceLinkService OpenSourceNeedingPdb()
     {
         byte[] assemblyBytes = File.ReadAllBytes(
-            typeof(PdbSourceAcquisitionTests).Assembly.Location);
+            typeof(PdbSourceHouseTests).Assembly.Location);
         AssemblyReferenceIdentity identity;
         using (var stream = new MemoryStream(
                    assemblyBytes,

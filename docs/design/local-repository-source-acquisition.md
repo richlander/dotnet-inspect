@@ -193,7 +193,7 @@ a skipped case supplies no execution evidence.
 | A real committed blob is returned on checksum match and refused on mismatch | `LocalRepoSourceReadTests.ReadsBlob_WhenChecksumMatches`, `ReturnsNull_WhenChecksumMismatches` |
 | Missing selector/path or a non-repository directory supplies no bytes | `LocalRepoSourceReadTests.ReturnsNull_WhenCommitNotPresent`, `ReturnsNull_WhenPathNotPresent`, `ReturnsNull_WhenDirectoryIsNotAGitRepo` |
 | A missing object in the first clone does not hide the second clone's verified blob | `LocalRepoSourceReadTests.ReadsBlob_FromSecondRepo_WhenFirstLacksCommit` |
-| Shared verifier distinguishes accepted line-ending normalization | `PdbSourceAcquisitionTests.VerifyChecksum_AcceptsLineEndingNormalization` |
+| Shared verifier distinguishes accepted line-ending normalization | `PdbSourceHouseTests.VerifyChecksum_AcceptsLineEndingNormalization` |
 | Member, type, and printable-projection service paths use a clone when PDB-recorded local-file reads are disabled | `LocalRepoSourceAcquisitionIntegrationTests.ServiceLocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch` |
 | The CLI accepts and propagates `--repo` for printable type Source Files while its HTTP path is offline | `LocalRepoSourceProjectionTests.TypeSourceFilesPrint_AcceptsRepoAtCliBoundaryWhileOffline` |
 

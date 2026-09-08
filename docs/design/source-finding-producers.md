@@ -149,7 +149,7 @@ literal metadata character. This is gated by
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 PDB-source attempt so Decompiler fallback can run.
-`PdbSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceHouseTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from

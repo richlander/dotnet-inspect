@@ -1412,7 +1412,7 @@ Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
 identity and verify the PDB document path; path-only heuristic projections
 attach a checksum only when that path names one document row. This is gated by
-`PdbSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+`PdbSourceHouseTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
 `...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
 `MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
 
@@ -1422,7 +1422,7 @@ The fetch-origin grammar is gated by
 `...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
 exercises the response boundary, pre-fix cache invalidation, and the
 availability/integrity projections in
-`PdbSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
+`PdbSourceHouseTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
@@ -1463,7 +1463,7 @@ dispatch, omits credentials, and configures Fetch to reject redirects. A
 destination outside that set is a PDB-source acquisition limitation and may
 fall back to decompilation; it is never probed. The shared `SourceFetch`
 applies that host policy before its memory or content-store caches and before
-creating the request. `PdbSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
+creating the request. `PdbSourceHouseTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
 and
 `BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects`
 gate those rules.
@@ -1572,7 +1572,7 @@ Limit exhaustion is a visible extraction failure, not an absent declaration.
 token emission boundary, while
 `DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
 pre-allocation line boundary, and
-`PdbSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceHouseTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
 `CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.
