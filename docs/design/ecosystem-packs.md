@@ -640,7 +640,7 @@ core sequence, a curated set, or the presence of a pack identity.
 
 In particular, `ecosystem.platform` already groups product demos. It can retain
 that identity without pretending that its package-backed demos supply
-source-native Platform traversal. This slice neither creates a Platform
+platform-source-owned traversal. This slice neither creates a Platform
 package set nor substitutes a `System.*` package prefix for a platform target.
 The applicable source owner must issue its discovery/acquisition binding
 before the catalog can expose that separate capability.
@@ -943,8 +943,8 @@ add-on APIs rather than obsolete package versions of shared-framework
 fundamentals. Aspire starts with its hosting API. These choices are product
 preferences, not popularity rankings or complete ecosystem inventories.
 Platform deliberately contributes no package coordinate as a substitute for
-its future source-native discovery/acquisition binding. This metadata is not
-derived from package-set membership or demo records.
+its future platform-source-owned discovery/acquisition binding. This metadata
+is not derived from package-set membership or demo records.
 
 The initial Workspace projection is staged under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its

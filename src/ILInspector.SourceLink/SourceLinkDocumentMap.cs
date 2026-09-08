@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace SourceLinkFetch;
+namespace ILInspector.SourceLink;
 
 /// <summary>
 /// The result of matching a PDB document path against a SourceLink map.
@@ -32,7 +32,7 @@ namespace SourceLinkFetch;
 /// The length of the substituted run in <paramref name="Url"/>, or 0 when nothing was
 /// substituted.
 /// </param>
-public readonly record struct SourceLinkResolution(
+internal readonly record struct SourceLinkResolution(
     string Remainder,
     string Url,
     bool IsPrefixMatch,
@@ -40,7 +40,7 @@ public readonly record struct SourceLinkResolution(
     int SubstitutionLength);
 
 /// <summary>The document-specific outcome of applying a SourceLink map.</summary>
-public enum SourceLinkResolutionStatus
+internal enum SourceLinkResolutionStatus
 {
     Unmapped,
     Resolved,
@@ -52,7 +52,7 @@ public enum SourceLinkResolutionStatus
 /// <param name="Url">
 /// The decoded URL pattern, or null when the authored JSON value was not a string.
 /// </param>
-public sealed record SourceLinkDocumentMapping(string Document, string? Url);
+internal sealed record SourceLinkDocumentMapping(string Document, string? Url);
 
 /// <summary>
 /// Parses a SourceLink map and maps PDB document paths to source URLs.
@@ -103,7 +103,7 @@ public sealed record SourceLinkDocumentMapping(string Document, string? Url);
 ///   </item>
 /// </list>
 /// </remarks>
-public partial class SourceLinkResolver
+internal partial class SourceLinkDocumentMap
 {
     /// <summary>
     /// A single validated map entry, pre-split so that matching does no parsing.
@@ -172,10 +172,10 @@ public partial class SourceLinkResolver
     public bool IsEmpty => _entries.Length == 0;
 
     /// <summary>An empty map, which resolves nothing.</summary>
-    public static SourceLinkResolver Empty { get; } =
+    public static SourceLinkDocumentMap Empty { get; } =
         new([], [], [], parseError: null, mappingLimitExceeded: false);
 
-    private SourceLinkResolver(
+    private SourceLinkDocumentMap(
         Entry[] entries,
         string[] documentKeys,
         IReadOnlyList<string> rejectedKeys,
@@ -191,7 +191,7 @@ public partial class SourceLinkResolver
         MappingLimitExceeded = mappingLimitExceeded;
     }
 
-    internal SourceLinkResolver(Dictionary<string, string> documentMappings)
+    internal SourceLinkDocumentMap(Dictionary<string, string> documentMappings)
     {
         // Widened to a nullable value type because a map read from JSON may carry a non-string
         // value. That is a malformed entry, and the entry parser rejects it; this overload's
@@ -214,14 +214,14 @@ public partial class SourceLinkResolver
     /// Parses a SourceLink map. Never throws: an unreadable map yields a resolver that resolves
     /// nothing and reports why through <see cref="ParseError"/>.
     /// </summary>
-    public static SourceLinkResolver Parse(string? sourceLinkJson)
+    public static SourceLinkDocumentMap Parse(string? sourceLinkJson)
         => Parse(sourceLinkJson, int.MaxValue);
 
     /// <summary>
     /// Parses a SourceLink map without retaining more than <paramref name="maxMappings"/>
     /// document mappings.
     /// </summary>
-    public static SourceLinkResolver Parse(string? sourceLinkJson, int maxMappings)
+    public static SourceLinkDocumentMap Parse(string? sourceLinkJson, int maxMappings)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMappings);
 
@@ -241,7 +241,7 @@ public partial class SourceLinkResolver
                 out bool mappingLimitExceeded);
             if (mappingLimitExceeded)
             {
-                return new SourceLinkResolver(
+                return new SourceLinkDocumentMap(
                     [],
                     [],
                     [],
@@ -252,7 +252,7 @@ public partial class SourceLinkResolver
         catch (JsonException e)
         {
             // A map with more than one valid reading, or no valid reading, resolves nothing.
-            return new SourceLinkResolver(
+            return new SourceLinkDocumentMap(
                 [],
                 [],
                 [],
@@ -261,7 +261,7 @@ public partial class SourceLinkResolver
         }
 
         var entries = Build(mappings, out var rejected);
-        return new SourceLinkResolver(
+        return new SourceLinkDocumentMap(
             entries,
             [.. mappings.Keys],
             rejected,
@@ -597,7 +597,7 @@ public partial class SourceLinkResolver
     /// URL that would otherwise have resolved. The specification calls the value a URL "where the
     /// source file can be retrieved via http or https", so an entry that cannot produce one is
     /// non-conformant and is rejected individually into
-    /// <see cref="SourceLinkResolver.RejectedKeys"/> like any other non-conformant entry.
+    /// <see cref="SourceLinkDocumentMap.RejectedKeys"/> like any other non-conformant entry.
     /// </para>
     /// <para>
     /// Checking the URL text before the wildcard is not enough, and the claim that it was is the

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using ILInspector.Metadata;
-using SLF = SourceLinkFetch;
 
 namespace ILInspector.SourceLink;
 
@@ -10,7 +9,7 @@ namespace ILInspector.SourceLink;
 public sealed class SourceLinkResolver
 {
     readonly PdbContext _context;
-    readonly SLF.SourceLinkResolver? _map;
+    readonly SourceLinkDocumentMap? _map;
     IReadOnlyList<string>? _documentPaths;
     Dictionary<string, List<string>>? _docsByFirstSegment;
     Dictionary<int, PdbDocumentInfo>? _documentsByRowId;
@@ -21,7 +20,7 @@ public sealed class SourceLinkResolver
 
     internal SourceLinkResolver(
         PdbContext context,
-        SLF.SourceLinkResolver? map)
+        SourceLinkDocumentMap? map)
     {
         _context = context;
         _map = map;
@@ -287,7 +286,7 @@ public sealed class SourceLinkResolver
         return new PartialSourceFile(
             filePath,
             url,
-            SLF.SourceLinkProvenance.BrowseUrl(url),
+            SourceLinkProvenance.BrowseUrl(url),
             document?.Checksum,
             document?.ChecksumAlgorithm);
     }
@@ -306,7 +305,7 @@ public sealed class SourceLinkResolver
         return new PartialSourceFile(
             reference.FilePath,
             url,
-            SLF.SourceLinkProvenance.BrowseUrl(url),
+            SourceLinkProvenance.BrowseUrl(url),
             document?.Checksum,
             document?.ChecksumAlgorithm);
     }

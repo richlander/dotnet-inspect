@@ -10,7 +10,6 @@ public sealed class LayeringTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe",
         "ILInspector.Metadata",
         "ILInspector.SourceLink",
-        "SourceLinkFetch",
     ];
 
     [Fact]

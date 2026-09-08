@@ -335,7 +335,7 @@ static class AuthoredSourceHarvest
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await PdbSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 candidate.MetadataToken,
                 candidate.Method,

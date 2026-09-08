@@ -1412,7 +1412,7 @@ public class DiffCommand
                 foreach (var target in targets)
                 {
                     var subject = subjects[target.Subject.Id];
-                    var inspection = await PdbSourceAcquisition.AcquireMemberAsync(
+                    var inspection = await PdbSourceHouse.AcquireMemberAsync(
                         source,
                         target.Method.MetadataToken,
                         target.Method.Name,

@@ -1002,7 +1002,7 @@ static class SourceOracleCandidateLedger
     /// the portable PDB before any source is acquired.
     ///
     /// <para>Primary selection matches
-    /// <see cref="PdbSourceAcquisition.AcquireMemberAsync"/> exactly —
+    /// <see cref="PdbSourceHouse.AcquireMemberAsync"/> exactly —
     /// <c>IsPrimaryDocument</c> descending, then <c>DocumentRowId</c> — because a census
     /// that picked a different document than acquisition would attribute a member's
     /// result to a file the acquisition never read.</para>
@@ -1125,7 +1125,7 @@ static class SourceOracleCandidateLedger
     /// <summary>
     /// The single document a mapping points at, or <see langword="null"/> when the
     /// portable PDB does not identify one uniquely. Mirrors
-    /// <c>PdbSourceAcquisition.SelectMappedDocument</c>, which is internal to the
+    /// <c>PdbSourceHouse.SelectMappedDocument</c>, which is internal to the
     /// services assembly.
     /// </summary>
     static SourceDocumentObservation? SelectMappedDocument(
