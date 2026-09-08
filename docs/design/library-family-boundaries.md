@@ -1,10 +1,8 @@
 # Library family and host namespace boundaries
 
 This document owns the meaning of the repository's project and namespace
-families. It separates representation ownership, product composition,
-dependency depth, and component role so that a name communicates what a
-library is about without pretending that every library occupies the same
-architectural altitude.
+families. A name starts with what a library processes, inspects, or acts on.
+Dependency depth and component role are separate decisions.
 
 The end-to-end adoption tracker is [#6315](https://github.com/richlander/dotnet-inspect/issues/6315).
 Its two steps are this contract and migration of the CLI host out of the
@@ -13,50 +11,67 @@ reusable `DotnetInspector` namespace. The browser host already uses its own
 
 ## Claim
 
-A reusable project or namespace is named for the architectural plane whose
-identities and semantics it primarily owns. A host is named for the product
-surface it implements. Neither dependency depth nor the physical carrier of an
-input decides the family.
+A reusable project or namespace is named for the subject it inspects or acts
+on. A processor that supplies mechanics without owning inspection semantics may
+instead use the name of the format, protocol, or language it processes. A host
+is named for the product surface it implements.
 
-Placement considers three distinct questions:
+Placement considers four questions:
 
-| Axis | Question | Examples |
+| Question | Meaning | Examples |
 | --- | --- | --- |
-| Architectural plane | Does the component own representation evidence, product composition, a neutral domain, or a host? | `ILInspector`, `DotnetInspector`, `NuGetFetch`, `DotnetInspect.Cli` |
-| Composition altitude | Does it provide a primitive, producer, query, presentation, or host boundary? | Metadata primitive, Analysis producer, L1 query, CLI host |
-| Component role | What kind of operation or composition does it perform? | Fetch, Service, House, query, renderer |
+| What does it do? | Process, inspect, or act on a subject. | SRM processes metadata; Metadata inspects it; the Decompiler acts on IL. |
+| What is the subject? | The thing whose meaning the component exposes or changes. | IL and PDB evidence, NuGet packages, C# text |
+| Is it a host? | Commands, options, interaction, and host-native presentation name the product surface. | `DotnetInspect.Cli`, `InspectWeb.*` |
+| What is its role? | A role suffix describes reach or operation only after the subject is clear. | Fetch, Service, House, query, renderer |
 
-The answers interact, but they must not substitute mechanically for one
-another. Dependency depth alone does not select a family, and a role such as
-Service says nothing about the subject. Product query and presentation
-contracts do, however, belong to the product-composition plane even when one
-operation happens to inspect a single assembly.
-`ILInspector.SourceLink` is a relatively high composer inside the
-compiled-program family. `DotnetInspector.Artifacts` is a low contract floor
-inside the broader product composition. `House` describes reach and role; it
-does not select a subject family.
+Dependency depth alone does not select a family, and a role such as Service
+says nothing about the subject. `ILInspector.SourceLink` is a relatively high
+composer that still inspects PDB-associated program evidence.
+`DotnetInspector.Artifacts` is a low contract floor for broader .NET artifacts.
+`House` describes reach and role; it does not select either family.
 
-## `ILInspector`: compiled-program evidence
+## Process, inspect, or act on
 
-`ILInspector.*` is the representation and producer plane for a compiled .NET
-program and its directly associated debug information. Its admissible inputs
-include:
+**Process** means supplying mechanics for reading, parsing, normalizing, or
+transporting a representation without owning the product's inspection claim.
+`System.Reflection.Metadata` processes PE, metadata, and PDB structures. It is
+a dependency, not this repository's Metadata inspector. `CSharpText` processes
+C# and XML-documentation grammar so Metadata and other consumers can express
+.NET declarations with C# knowledge.
+
+**Inspect** means deriving named facts, evidence, Findings, or relationships
+about a subject. `ILInspector.Metadata` inspects the structures exposed by SRM.
+`ILInspector.Analysis` inspects method bodies. `DotnetInspector.Packages`
+inspects NuGet package contents and relationships.
+
+**Act on** means transforming, comparing, or composing an inspected subject
+while preserving its identities and semantics. `ILInspector.Decompiler` acts
+on IL and metadata to produce C#. `ILInspector.ILDiff` acts on decoded method
+bodies to compare implementations. `DotnetInspector.Queries` acts on
+producer-issued evidence and ecosystem contexts to execute product queries.
+
+A component may do more than one of these. Its family follows the primary
+subject of the public contract, not the lowest-level operation in its
+implementation.
+
+## `ILInspector`: IL and its associated program evidence
+
+`ILInspector.*` libraries inspect IL-bearing .NET programs or act on evidence
+from those programs. Their inputs and identities include:
 
 - PE and CLI metadata
 - portable PDB records and their assembly association
 - IL method bodies and exception regions
-- typed or textual projections whose semantics are derived from those
-  representations
+- typed or textual projections of those representations
 - correlations and Findings whose identity remains anchored to those
   representations
 
-Interpreting this family as only opcode processing would already exclude
-`ILInspector.Metadata`, `ILInspector.CSharp`, and other established owners. The
-explicit architectural decision is therefore to read the historical name as
-the compiled-program representation and producer family. Not every project
-must decode IL opcodes. Metadata, PDB correlations, control flow, C#
-reconstruction, and implementation comparison describe the inspected program
-from different representations.
+`ILInspector` does not mean `ILProcessor`. SRM supplies the low-level processing
+mechanics. The repository's libraries inspect the resulting metadata and IL or
+act on them. Metadata inspection, PDB correlation, control flow, C# projection,
+decompilation, and implementation comparison are all operations on the
+compiled program even when only the instruction decoder reads opcodes directly.
 
 An `ILInspector.*` component does not own:
 
@@ -69,12 +84,10 @@ An `ILInspector.*` component does not own:
 Those concerns may supply content to the compiled-program family, but they do
 not become compiled-program semantics.
 
-## `DotnetInspector`: ecosystem and reusable product composition
+## `DotnetInspector`: the broader .NET ecosystem
 
-`DotnetInspector.*` is the reusable product-composition plane. It owns
-inspection concepts that compose representation producers with ecosystem
-assets, workspace state, product query semantics, or shared presentation. Its
-subjects include:
+`DotnetInspector.*` libraries inspect or act on .NET ecosystem subjects beyond
+one compiled program. Their subjects include:
 
 - source-neutral artifacts and workspaces
 - NuGet packages and package relationships
@@ -83,10 +96,12 @@ subjects include:
 - cross-host queries, sections, row selection, and presentation
 - product-owned catalogs shared by more than one host
 
-The family is reusable product substrate. A query may inspect only one assembly
-and still belong here when it owns product-level capability, cost,
-prerequisite, or execution semantics rather than new Metadata or IL facts. The
-family is not the namespace of the `dotnet-inspect` command-line application.
+The family also contains reusable product composition over those subjects and
+the `ILInspector.*` results they contain. A query may inspect only one assembly
+and still belong here when its public contract is product query selection,
+capability, cost, prerequisite, or execution rather than a new fact about IL.
+The family is not the namespace of the `dotnet-inspect` command-line
+application.
 
 This distinction allows the CLI and browser to consume the same
 `DotnetInspector.*` libraries without making either host the architectural
@@ -140,12 +155,12 @@ not IL semantics:
    record and PDB document, checksum, sequence-point, and row identities.
 3. `ILInspector.SourceLink` interprets the map and correlates those identities
    with type, member, and IL-offset source evidence.
-4. The planned `PdbSourceHouse` composes authorized local, repository, and network
+4. `PdbSourceHouse` composes authorized local, repository, and network
    acquisition, verification, caching, and visible failure policy.
 5. `AssemblyContextSourceQuery` composes verified PDB source with the distinct
    decompiler fallback.
 
-`ILInspector.SourceLink` therefore remains in the compiled-program family
+`ILInspector.SourceLink` therefore remains in the IL inspection family
 because its primary contract is PDB document, type, member, and IL-offset
 correlation. Not every result carries assembly identity: standalone map audit
 and repository provenance are narrower subordinate contracts. They remain
@@ -166,21 +181,23 @@ implementation details of `ILInspector.SourceLink`.
 
 Classify a project or namespace in this order:
 
-1. **Name the owned plane.** Does the component produce new facts from a
-   compiled-program representation, compose product operations, implement a
-   neutral domain, or host the product?
-2. **Name the stable identities.** Are they metadata entities, PDB rows, and IL
-   locations; ecosystem artifacts and workspaces; or protocol/text concepts?
-3. **Identify policy dependencies.** Network authorization, package-source
+1. **Name the verb.** Does the component process, inspect, or act on its input?
+2. **Name the subject.** Is the public contract about IL and its associated
+   program evidence; packages, platforms, projects, or workspaces; or an
+   independent protocol or text grammar?
+3. **Separate helpers from the owner.** A parser or formatter used by an
+   inspector does not become the inspected subject. Keep a focused helper
+   neutral when it has an independent contract and consumers.
+4. **Identify policy dependencies.** Network authorization, package-source
    choice, ambient host state, and command behavior keep a component above the
-   compiled-program family.
-4. **Distinguish production from composition.** A product query or
+   IL inspection family.
+5. **Distinguish inspection from product composition.** A product query or
    presentation contract belongs to `DotnetInspector` even when its immediate
-   input is one assembly. A representation producer belongs to `ILInspector`
-   even when it composes several views of that assembly.
-5. **Identify the host boundary.** Command routing, options, interactive state,
+   input is one assembly. A producer belongs to `ILInspector` when its public
+   result remains evidence about that program.
+6. **Identify the host boundary.** Command routing, options, interactive state,
    and host-native rendering belong to a host-specific namespace.
-6. **Then name the role.** Apply `Fetch`, `Service`, `House`, query, rendering,
+7. **Then name the role.** Apply `Fetch`, `Service`, `House`, query, rendering,
    or another role only after the family is settled.
 
 If the answers disagree, split the responsibilities before choosing a name.
@@ -194,7 +211,7 @@ inventory.
 
 | Classification | Representative projects |
 | --- | --- |
-| Compiled-program inspection | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
+| IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation` |
 | Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText` |
 | Product hosts | `DotnetInspect.Cli`, `InspectWeb.*` |
