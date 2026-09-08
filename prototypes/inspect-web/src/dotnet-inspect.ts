@@ -2010,16 +2010,21 @@ function restoreContentFrameFocusAfterDismiss(
   if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
     if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
-    if (scopeBarBinding?.restoreOpenMenuFocus()) return;
-    if (contentFrameUsesPush() && contentFrameMedia.matches) {
-      if (contentFramePane === "navigation")
-        focusContentNavigation(document);
-      else
-        focusContentNavigationToggle(document);
-      return;
-    }
-    focusContentNavigation(document);
+    restoreOrdinaryModalDismissFocus(() => {
+      if (contentFrameUsesPush() && contentFrameMedia.matches) {
+        if (contentFramePane === "navigation")
+          focusContentNavigation(document);
+        else
+          focusContentNavigationToggle(document);
+        return;
+      }
+      focusContentNavigation(document);
+    });
   });
+}
+
+function restoreOrdinaryModalDismissFocus(fallback: () => void) {
+  if (!scopeBarBinding?.restoreOpenMenuFocus()) fallback();
 }
 
 function contentFrameUsesPush() {
@@ -11856,11 +11861,13 @@ function closeSettings() {
   reloadVisibleSource();
   render();
   requestAnimationFrame(() => {
-    const selector = state.settingsReturn === "workbench"
-      ? "#application-menu-button"
-      : "#home-settings";
-    document.querySelector<HTMLElement>(selector)
-      ?.focus({ preventScroll: true });
+    restoreOrdinaryModalDismissFocus(() => {
+      const selector = state.settingsReturn === "workbench"
+        ? "#application-menu-button"
+        : "#home-settings";
+      document.querySelector<HTMLElement>(selector)
+        ?.focus({ preventScroll: true });
+    });
   });
 }
 
@@ -11881,9 +11888,11 @@ function openKeyboardHelp() {
 function closeKeyboardHelp() {
   state.keyboardHelp = false;
   render();
-  requestAnimationFrame(() =>
-    document.querySelector<HTMLElement>("#application-menu-button")
-      ?.focus({ preventScroll: true }));
+  requestAnimationFrame(() => {
+    restoreOrdinaryModalDismissFocus(() =>
+      document.querySelector<HTMLElement>("#application-menu-button")
+        ?.focus({ preventScroll: true }));
+  });
 }
 
 function renderSettingsViewHtml() {
