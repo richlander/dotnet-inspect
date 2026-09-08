@@ -927,7 +927,10 @@ class ScopeBarController implements ScopeBarBinding {
   private readonly separator: HTMLElement | null;
   private readonly applicationScopeRegion: HTMLElement | null;
   private readonly observer: ResizeObserver | null;
+  private readonly modalObserver: MutationObserver | null;
+  private modalActive: boolean;
   private cancelDeferredPointerLayout: (() => void) | null = null;
+  private cancelDeferredModalRestore: (() => void) | null = null;
   private readonly handleDocumentKeyDown = (event: KeyboardEvent) => {
     const group = this.subject?.state.open
       ? this.subject
@@ -958,6 +961,8 @@ class ScopeBarController implements ScopeBarBinding {
   private readonly handleDocumentPointerDown = (event: PointerEvent) => {
     const target = event.target;
     if (!(target instanceof Node)) return;
+    if (target instanceof Element
+      && target.closest('[role="dialog"][aria-modal="true"]')) return;
     const group = this.subject?.state.open
       ? this.subject
       : this.inspector?.state.open
@@ -994,6 +999,7 @@ class ScopeBarController implements ScopeBarBinding {
     this.applicationScopeRegion = navigation.closest(".titlebar")
       ?.querySelector<HTMLElement>(".application-scope-region")
       ?? null;
+    this.modalActive = this.hasActiveModal();
     navigation.ownerDocument.addEventListener(
       "keydown",
       this.handleDocumentKeyDown,
@@ -1014,16 +1020,7 @@ class ScopeBarController implements ScopeBarBinding {
     this.bindGroup(this.subject);
     this.bindGroup(this.inspector);
     this.layout();
-    if (this.subject?.state.open) {
-      this.subject.trigger.setAttribute("aria-expanded", "true");
-      this.positionMenu(this.subject);
-      showPopover(this.subject.menu);
-    }
-    if (this.inspector?.state.open) {
-      this.inspector.trigger.setAttribute("aria-expanded", "true");
-      this.positionMenu(this.inspector);
-      showPopover(this.inspector.menu);
-    }
+    this.restoreOpenMenus();
     this.observer = typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(() => {
@@ -1031,12 +1028,30 @@ class ScopeBarController implements ScopeBarBinding {
           this.positionOpenMenu();
         });
     this.observer?.observe(navigation);
+    this.modalObserver = typeof MutationObserver === "undefined"
+      ? null
+      : new MutationObserver(() => {
+          const modalActive = this.hasActiveModal();
+          if (modalActive === this.modalActive) return;
+          this.modalActive = modalActive;
+          if (!modalActive) this.deferOpenMenuRestoration();
+        });
+    this.modalObserver?.observe(
+      navigation.ownerDocument.body
+        ?? navigation.ownerDocument.documentElement,
+      {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["hidden"],
+      });
     const fonts = navigation.ownerDocument.fonts;
     void fonts?.ready.then(() => this.layout());
   }
 
   disconnect(): void {
     this.observer?.disconnect();
+    this.modalObserver?.disconnect();
     this.navigation.ownerDocument.removeEventListener(
       "keydown",
       this.handleDocumentKeyDown,
@@ -1053,8 +1068,32 @@ class ScopeBarController implements ScopeBarBinding {
     this.navigation.ownerDocument.defaultView?.visualViewport
       ?.removeEventListener("scroll", this.handleViewportResize);
     this.cancelDeferredPointerLayout?.();
+    this.cancelDeferredModalRestore?.();
     if (this.subject) hidePopover(this.subject.menu);
     if (this.inspector) hidePopover(this.inspector.menu);
+  }
+
+  private hasActiveModal(): boolean {
+    return this.navigation.ownerDocument
+      .querySelector(':not([hidden]) > [role="dialog"][aria-modal="true"]')
+      !== null;
+  }
+
+  private deferOpenMenuRestoration(): void {
+    this.cancelDeferredModalRestore?.();
+    const view = this.navigation.ownerDocument.defaultView;
+    if (!view) {
+      this.restoreOpenMenus();
+      return;
+    }
+    const timer = view.setTimeout(() => {
+      this.cancelDeferredModalRestore = null;
+      if (!this.hasActiveModal()) this.restoreOpenMenus();
+    }, 0);
+    this.cancelDeferredModalRestore = () => {
+      view.clearTimeout(timer);
+      this.cancelDeferredModalRestore = null;
+    };
   }
 
   revealFocusTarget(target: ScopeBarFocusTarget): void {
@@ -1210,6 +1249,15 @@ class ScopeBarController implements ScopeBarBinding {
     document.addEventListener("pointerup", deferFinish, true);
     document.addEventListener("pointercancel", finish, true);
     this.cancelDeferredPointerLayout = cleanup;
+  }
+
+  private restoreOpenMenus(): void {
+    for (const group of [this.subject, this.inspector]) {
+      if (!group?.state.open) continue;
+      group.trigger.setAttribute("aria-expanded", "true");
+      this.positionMenu(group);
+      showPopover(group.menu);
+    }
   }
 
   private openMenu(

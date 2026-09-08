@@ -1223,9 +1223,22 @@ test("an open Chooser yields Spotlight keyboard ownership", async ({ page }) => 
   const trigger = page.locator("[data-navigation-trigger='inspector']");
   const menu = page.locator("#inspector-navigation-menu");
   await trigger.click();
+  const overview = inspectorTab(page, "data-library-lens", "overview");
+  const url = page.url();
   await page.keyboard.press("Control+k");
   const input = page.locator("#spotlight-input");
   await expect(input).toBeFocused();
+  await expect(menu).toBeHidden();
+  expect(await input.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const target = document.elementFromPoint(
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2);
+    return target === element || element.contains(target);
+  })).toBe(true);
+  await input.click();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
   await page.keyboard.press("Escape");
   await expect(input).toHaveCount(0);
   await expect(menu).toBeVisible();

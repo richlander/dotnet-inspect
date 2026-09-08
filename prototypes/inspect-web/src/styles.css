@@ -369,6 +369,11 @@ body {
 }
 .adaptive-navigation-menu:not(:popover-open) { display: none; }
 .adaptive-navigation-menu:popover-open { display: flex; }
+body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
+  .adaptive-navigation-menu:popover-open {
+  visibility: hidden;
+  pointer-events: none;
+}
 .adaptive-navigation-menu-item {
   flex: none;
   min-height: 32px;
