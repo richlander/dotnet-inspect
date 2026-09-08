@@ -56,8 +56,8 @@ layering boundary or creating a project cycle.
 
 Passing only `EcosystemPackId.Value` downward would avoid the project reference
 while losing the contract. A string does not carry issued correspondence,
-contribution completeness, source-native values, or the distinction between a
-known pack with no Workspace projection and an unknown pack.
+contribution completeness, owner-issued source values, or the distinction
+between a known pack with no Workspace projection and an unknown pack.
 
 Copying catalog metadata into each host is also invalid. It would create two
 default manifests, two identity maps, and host-specific decisions about which
@@ -189,9 +189,9 @@ WorkspaceEcosystemPopulationDeclaration
 ```
 
 The platform arm is a prerequisite owned by the platform source. It denotes a
-source-native family population such as the .NET runtime or ASP.NET Core
-shared framework. This document does not define its family grammar, target
-selection, library inventory, acquisition, realization, completion, or
+platform-source-owned library population such as the .NET runtime or ASP.NET
+Core shared framework. This document does not define its family grammar,
+target selection, library inventory, acquisition, realization, completion, or
 failure behavior.
 
 The package-prefix arm retains `PackagePrefixDeclaration`, not
@@ -363,11 +363,11 @@ call-graph consumer cannot form.
 
 ### Shared-framework and package overlap
 
-ASP.NET Core contributes both the source-native shared-framework population
-and `Microsoft.AspNetCore.` package-prefix intent. The handoff retains both.
-It neither deduplicates by namespace nor treats one as fallback for the other.
-The consumer and assembly-reference resolution owners decide request-relevant
-population and binding from their typed evidence.
+ASP.NET Core contributes both the platform-source-owned shared-framework
+population and `Microsoft.AspNetCore.` package-prefix intent. The handoff
+retains both. It neither deduplicates by namespace nor treats one as fallback
+for the other. The consumer and assembly-reference resolution owners decide
+request-relevant population and binding from their typed evidence.
 
 ### Prefix bound leakage
 
@@ -506,7 +506,7 @@ acquisition, or completion evidence.
 
 This design does not define:
 
-- exact-library registration identity or source-native coordinates;
+- exact-library registration identity or source-owner-issued coordinates;
 - platform family grammar, target selection, library inventory, or
   acquisition;
 - package-prefix query results, package limits, paging, source authorization,
