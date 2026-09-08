@@ -1340,6 +1340,40 @@ public sealed class NuGetCatalogAcquisitionTests
             handler.Requested);
     }
 
+    [Theory]
+    [InlineData("12:00:00Z")]
+    [InlineData("2026-01-02 00:00:00Z")]
+    [InlineData("2026-01-02T00:00:00.Z")]
+    [InlineData("2026-01-02T00:00:00z")]
+    [InlineData("2026-01-02T00:00:00-00:00")]
+    [InlineData("2026-01-02T00:00:00.12345678Z")]
+    public async Task IncompleteOrNoncanonicalTimestampRemainsTypedFailure(
+        string timestamp)
+    {
+        string index = $$"""
+            {"commitId":"index","commitTimeStamp":"{{timestamp}}",
+            "count":0,"items":[]}
+            """;
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(
+                ServiceDocument(
+                    $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""")),
+            [Catalog] = Json(index),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            Assert.Single(
+                await ReadAllAsync(
+                    source,
+                    new NuGetCatalogRequest(Day0, Day1))).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal([ServiceIndex, Catalog], handler.Requested);
+    }
+
     [Fact]
     public async Task CallerOwnedContextRemainsUsableAfterStreamCompletion()
     {

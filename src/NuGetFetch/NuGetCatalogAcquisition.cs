@@ -205,6 +205,8 @@ internal sealed class NuGetCatalogAcquisition
 {
     private const int MaxEquivalentCatalogEndpoints = 4;
     private const int TraversalCheckpointInterval = 128;
+    private const string UtcTimestampFormat =
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK";
 
     private static JsonDocumentOptions DocumentOptions =>
         new()
@@ -1091,14 +1093,14 @@ internal sealed class NuGetCatalogAcquisition
         string document)
     {
         string text = RequiredText(parent, name, document);
-        if (!DateTimeOffset.TryParse(
+        if (!HasCompleteUtcTimestampShape(text)
+            || !DateTimeOffset.TryParseExact(
                 text,
+                UtcTimestampFormat,
                 CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
+                DateTimeStyles.AssumeUniversal,
                 out DateTimeOffset value)
-            || value.Offset != TimeSpan.Zero
-            || text.AsSpan().Trim().Length != text.Length
-            || !HasExplicitUtcSuffix(text))
+            || value.Offset != TimeSpan.Zero)
         {
             throw Invalid(
                 $"The {document} contained an invalid UTC '{name}' timestamp.");
@@ -1107,9 +1109,40 @@ internal sealed class NuGetCatalogAcquisition
         return value.ToUniversalTime();
     }
 
-    private static bool HasExplicitUtcSuffix(string value) =>
-        value.EndsWith("Z", StringComparison.OrdinalIgnoreCase)
-        || value.EndsWith("+00:00", StringComparison.Ordinal);
+    private static bool HasCompleteUtcTimestampShape(string value)
+    {
+        int suffixStart;
+        if (value.EndsWith("Z", StringComparison.Ordinal))
+        {
+            suffixStart = value.Length - 1;
+        }
+        else if (value.EndsWith("+00:00", StringComparison.Ordinal))
+        {
+            suffixStart = value.Length - 6;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (suffixStart == 19)
+            return true;
+        if (suffixStart < 21
+            || suffixStart > 27
+            || value.Length <= 19
+            || value[19] != '.')
+        {
+            return false;
+        }
+
+        for (int index = 20; index < suffixStart; index++)
+        {
+            if (!char.IsAsciiDigit(value[index]))
+                return false;
+        }
+
+        return true;
+    }
 
     private static long RequiredNonNegativeInteger(
         JsonElement parent,
