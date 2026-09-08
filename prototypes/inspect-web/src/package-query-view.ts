@@ -297,6 +297,22 @@ function bindAssemblyQueryControls(
   const form = root.querySelector<HTMLFormElement>(
     "#package-query-assembly-form");
   if (!form) return;
+  const editableControls = [
+    root.querySelector<HTMLSelectElement>(
+      "#package-query-assembly-pattern"),
+    root.querySelector<HTMLTextAreaElement>(
+      "#package-query-assembly-packages"),
+    root.querySelector<HTMLInputElement>(
+      "#package-query-assembly-operand"),
+    root.querySelector<HTMLInputElement>(
+      "#package-query-assembly-tfm"),
+  ];
+  for (const control of editableControls) {
+    if (!control) continue;
+    const clearError = () => control.setCustomValidity("");
+    control.addEventListener("input", clearError);
+    control.addEventListener("change", clearError);
+  }
   form.addEventListener("submit", event => {
     event.preventDefault();
     const pattern = root.querySelector<HTMLSelectElement>(

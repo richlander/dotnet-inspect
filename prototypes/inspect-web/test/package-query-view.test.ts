@@ -1320,7 +1320,7 @@ test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", 
   ]);
 });
 
-test("bindPackageQueryView constructs an explicit assembly request without trimming the operand", () => {
+test("bindPackageQueryView clears corrected assembly input and preserves the operand", () => {
   const root = new FakeRoot();
   const form = new FakeElement({}, "package-query-assembly-form");
   const pattern = new FakeElement({}, "package-query-assembly-pattern");
@@ -1356,11 +1356,24 @@ test("bindPackageQueryView constructs an explicit assembly request without trimm
     onRun: () => {},
     onSourceChange: () => {},
   });
+  packages.value = "Contoso.Latest";
+  form.dispatch("submit", fakeDom.event({
+    preventDefault() { prevented++; },
+  }));
+  assert.equal(
+    packages.customValidity,
+    "Enter one exact ID@VERSION package per line.");
+  assert.equal(packages.validityReports, 1);
+  assert.equal(requests.length, 0);
+
+  packages.value = " Contoso.One@1.2.3 \nContoso.Two@4.5.6";
+  packages.dispatch("input");
+  assert.equal(packages.customValidity, "");
   form.dispatch("submit", fakeDom.event({
     preventDefault() { prevented++; },
   }));
 
-  assert.equal(prevented, 1);
+  assert.equal(prevented, 2);
   assert.deepEqual(requests[0]?.assemblyPattern, {
     patternId: ASSEMBLY_PATTERNS[0]!.id,
     operand: "  literal * [value]  ",

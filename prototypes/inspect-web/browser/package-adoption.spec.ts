@@ -593,10 +593,17 @@ test.describe("Assembly Package Query website over real Wasm", () => {
     await page.goto("/query");
     await expect(page.locator(".query-assembly-controls summary")).toBeVisible({ timeout: 120_000 });
     await page.locator(".query-assembly-controls summary").click();
-    await page.locator("#package-query-assembly-packages").fill(
-      literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
+    const packages = page.locator("#package-query-assembly-packages");
     await page.locator("#package-query-assembly-operand").fill("shared-literal-use-marker");
     await page.locator("#package-query-assembly-tfm").fill(fixtureFramework);
+    await packages.fill("System.Text.Json");
+    await page.locator("#package-query-assembly-run").click();
+    await expect(packages).toHaveJSProperty(
+      "validationMessage",
+      "Enter one exact ID@VERSION package per line.");
+    await packages.fill(
+      literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
+    await expect(packages).toHaveJSProperty("validationMessage", "");
     await page.locator("#package-query-assembly-run").click();
 
     await expect(page.locator(".query-row")).toHaveCount(1, { timeout: 60_000 });
