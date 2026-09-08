@@ -1060,6 +1060,12 @@ compares all 21 artifacts and rejects extra or missing files. The SDK
 declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
+PR CI uses `--fast-check` for ordinary browser changes. It keeps the complete
+artifact inventory and per-root generation comparison while deferring the
+second, product-versioned regeneration to the daily Deep Inspect `inspect-web`
+lane. Changes to the generator or its owning contracts select `--check` in PR
+CI as well.
+
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
 retained readiness promise. It calls the host module's `createRuntime()` once,
 then passes that same narrow runtime handle while the seven generated modules
@@ -1158,6 +1164,11 @@ or dropped managed invocation. This canary does not split the production engine
 binding or expose raw `ILInspector` APIs; that production partition remains
 [#4497].
 
+Ordinary browser PRs use the canary's `--fast` mode: one generated-contract
+check and one Mono runtime execution. The complete mutation set and both
+runtimes run daily in the Deep Inspect `inspect-web` lane and on PRs that
+change the generator or canary owners.
+
 The purpose-built `managed-operation-bridge-canary` directly drives the product
 `BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
 controlled feature bodies expose synchronous progress, keyed cancellation, and
@@ -1181,6 +1192,10 @@ Promises, and callback sequences witness the release boundaries. Six producers
 and eight waiters must finish with no remaining entries or subscriptions.
 Additional negative controls reject a split producer, premature physical
 finalization, and an omitted final-waiter scenario.
+
+Its `--fast` mode retains the generated-contract check and Mono execution for
+ordinary browser PRs. Deep Inspect and direct owner changes run the complete
+mutation and dual-runtime form.
 
 An explicit epoch-work phase exercises the real managed reporter and final-waiter
 handoff: five physical producers, seven waiters, and three registrations.
