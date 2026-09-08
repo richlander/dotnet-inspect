@@ -209,8 +209,9 @@ an extern extension projected onto an interface receiver. Whole-type printing
 of an enum or delegate remains unavailable independently of a projected
 extension member. A type-unit or whole-type request also retains its actual
 enclosing-type restrictions; it does not relocate an attached extension into
-the defining static class, so an extern extension cannot be emitted inside an
-interface receiver.
+the defining static class. Any attached extension selected through those paths
+is unavailable regardless of receiver kind or body policy; standalone member
+formatting remains the supported projection path.
 
 `safe` is illegal on an ordinary field when its enclosing layout is not
 emitted (CS9388), so the supported updated-rules explicit-layout path emits a

@@ -26,6 +26,12 @@ public sealed class CSharpMemorySafetySpellingCompileTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionDelegate";
     const string ExtensionInterfaceFixtureType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyExtensionInterface";
+    const string ExtensionClassFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionClass";
+    const string ExtensionStructFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionStruct";
+    const string ExtensionContainerFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReceiverExtensions";
 
     [Theory]
     [InlineData(CSharpMemorySafetyLanguage.Legacy, true)]
@@ -313,6 +319,86 @@ public sealed class CSharpMemorySafetySpellingCompileTests
         Assert.True(HasWord(delegateDeclaration, "unsafe"));
         Assert.True(HasWord(interfaceDeclaration, "safe"));
         Assert.True(HasWord(interfaceDeclaration, "extern"));
+    }
+
+    [Fact]
+    public void ProjectedExtensionsRefuseReceiverTypesAndCompileInDefiningStaticClass()
+    {
+        ApiType classReceiver = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExtensionClassFixtureType);
+        ApiType structReceiver = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExtensionStructFixtureType);
+        ApiType extensionContainer = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExtensionContainerFixtureType);
+        ApiMember classProjection = ProjectedExtension(classReceiver);
+        ApiMember structProjection = ProjectedExtension(structReceiver);
+
+        foreach ((ApiType receiver, ApiMember projection) in
+            new[] { (classReceiver, classProjection), (structReceiver, structProjection) })
+        {
+            var outcome = Assert.IsType<CSharpTypePrintOutcome.NotRendered>(
+                new CSharpTypePrinter().Print(
+                    new CSharpTypePrintRequest(
+                        receiver,
+                        CSharpBodyPolicy.Stub,
+                        [projection]),
+                    new CSharpTypePrintOptions
+                    {
+                        MemorySafetyLanguage =
+                            CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+                    }));
+
+            CSharpTypePrintDiagnostic failure =
+                Assert.Single(outcome.MemorySafetyFailures);
+            Assert.Contains("projected extension", failure.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("standalone", failure.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        HashSet<int> declarationTokens =
+        [
+            Assert.IsType<int>(classProjection.MetadataToken),
+            Assert.IsType<int>(structProjection.MetadataToken),
+        ];
+        ApiMember[] declarations = extensionContainer.Members
+            .Where(member => member.MetadataToken is int token
+                && declarationTokens.Contains(token))
+            .ToArray();
+        Assert.Equal(2, declarations.Length);
+        Assert.All(declarations, declaration =>
+        {
+            Assert.Equal("method", declaration.Kind);
+            Assert.True(declaration.IsExtension);
+        });
+
+        var printed = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().PrintBatch(
+                [
+                    new CSharpTypePrintRequest(
+                        classReceiver,
+                        CSharpBodyPolicy.Skeleton,
+                        []),
+                    new CSharpTypePrintRequest(
+                        structReceiver,
+                        CSharpBodyPolicy.Skeleton,
+                        []),
+                    new CSharpTypePrintRequest(
+                        extensionContainer,
+                        CSharpBodyPolicy.Stub,
+                        declarations),
+                ],
+                new CSharpTypePrintOptions
+                {
+                    MemorySafetyLanguage =
+                        CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+                })).Result;
+
+        using CompiledAssembly _ = CompileUnchanged(
+            printed.Source,
+            UpdatedParseOptions(),
+            "MemorySafetyProjectedExtensionsInDefiningStaticClass");
     }
 
     [Fact]

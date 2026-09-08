@@ -65,6 +65,14 @@ public interface IMemorySafetyExtensionInterface
 {
 }
 
+public sealed class MemorySafetyExtensionClass
+{
+}
+
+public struct MemorySafetyExtensionStruct
+{
+}
+
 public static class MemorySafetyReceiverExtensions
 {
     public static unsafe int Examine(
@@ -76,4 +84,10 @@ public static class MemorySafetyReceiverExtensions
     [DllImport("__dotnet_inspect_memory_safety_extension_fixture__")]
     public static safe extern int Examine(
         this IMemorySafetyExtensionInterface value);
+
+    public static unsafe int Examine(
+        this MemorySafetyExtensionClass value) => 42;
+
+    public static unsafe int Examine(
+        this MemorySafetyExtensionStruct value) => 42;
 }

@@ -1263,6 +1263,69 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Theory]
+    [InlineData("class")]
+    [InlineData("struct")]
+    public void WholeTypeProjectedExtensionsAreUnavailable(
+        string receiverKind)
+    {
+        ApiType receiver = Type(
+            MemorySafetyRulesState.Updated,
+            kind: receiverKind);
+        ApiMember extension = Method(
+            "Examine",
+            MemorySafetyRulesState.Updated,
+            ContractKind.Explicit,
+            MemorySafetyPointerEvidence.Absent,
+            kind: "extension-method");
+        extension.IsExtension = true;
+        extension.Signature =
+            $"int Examine({receiver.FullName} value)";
+        extension.SignatureModel!.Parameters =
+        [
+            new ApiParameter
+            {
+                Modifier = "this",
+                Type = receiver.FullName,
+                Name = "value",
+            },
+        ];
+        receiver.Members = [extension];
+
+        string standalone = Format(
+            receiver,
+            extension,
+            CSharpMemorySafetyLanguage.UpdatedCallerContracts);
+        Assert.True(HasWord(standalone, "unsafe"));
+
+        var outcome = Assert.IsType<CSharpTypePrintOutcome.NotRendered>(
+            new CSharpTypePrinter().Print(
+                new CSharpTypePrintRequest(
+                    receiver,
+                    CSharpBodyPolicy.Stub,
+                    [extension]),
+                Options(
+                    CSharpMemorySafetyLanguage.UpdatedCallerContracts)));
+
+        CSharpTypePrintDiagnostic failure =
+            Assert.Single(outcome.MemorySafetyFailures);
+        Assert.Contains("projected extension", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("standalone", failure.Message, StringComparison.OrdinalIgnoreCase);
+
+        NotSupportedException unitException =
+            Assert.Throws<NotSupportedException>(
+                () => new CSharpFormatter(new CSharpFormatOptions
+                {
+                    MemorySafetyLanguage =
+                        CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+                }).FormatTypeUnit(
+                    receiver,
+                    [extension]));
+
+        Assert.Contains("projected extension", unitException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("standalone", unitException.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData(ApiMethodSemanticsKind.PropertyGetter)]
     [InlineData(ApiMethodSemanticsKind.PropertySetter)]
     [InlineData(ApiMethodSemanticsKind.PropertyOther)]

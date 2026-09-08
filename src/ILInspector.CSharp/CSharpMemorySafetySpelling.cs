@@ -105,6 +105,11 @@ internal static class CSharpMemorySafetySpelling
         }
         if (language is not { } selectedLanguage)
             return new(member.IsUnsafe || requiresUnsafeContext ? "unsafe" : null, null);
+        if (member.Kind == "extension-method" && !isStandaloneMember)
+        {
+            return Refuse(
+                "a projected extension can be rendered only as a standalone member of its defining static type.");
+        }
 
         string? typeFailure = isStandaloneMember
                 && member.Kind == "extension-method"
