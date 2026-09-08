@@ -113,7 +113,11 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution.
+  resolution. Its
+  [platform package supply policy](design/platform-package-supply-policy.md)
+  owns the host-neutral decision from a Packages-owned coordinate and an
+  independently owned target-bound prune inventory to preserved supply
+  evidence and conservative platform delegation.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Host adapter
