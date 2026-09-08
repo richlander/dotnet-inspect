@@ -86,11 +86,11 @@ or an acquired package.
 
 The ecosystem arm is not `DotnetInspector.Ecosystems.EcosystemPackId`.
 Ecosystem Packs is an application catalog above Queries and browser Core, so
-its type cannot flow into reusable Workspace state. A focused prerequisite
-must define a lower-layer-consumable ecosystem-registration declaration and a
-catalog projection from one selected pack onto that declaration. Scope retains
-the projected declaration without referencing or rediscovering the application
-catalog.
+its type cannot flow into reusable Workspace state. The
+[Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+defines the lower-layer-consumable declaration and explicit catalog projection
+from one selected pack. Scope retains the projected declaration without
+referencing or rediscovering the application catalog.
 
 ### Exact library
 
@@ -348,6 +348,7 @@ and per-operation bounds keep that broader model explicit.
 | --- | --- |
 | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Committed Root membership, registration revision, complete snapshots, and scope-operation results |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, product default manifest, static contributions, and projection onto a lower registration declaration; not reusable Workspace state or call-graph scope |
+| [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Lower ecosystem declaration, explicit pack correspondence, projection outcomes, and product-default validation |
 | Source and resolution owners | Exact library, package-prefix, platform, and package-derived candidate outcomes |
 | [Inspection Graph Modes](inspection-graph-modes.md) | Single-seed versus induced-set request meaning, focus roles, endpoint admission, and disconnected-input retention |
 | [Call Graph projection](call-graph-projection.md) and Queries | Focal-length request, participant population, call traversal or induction, bounds, completeness, and typed graph result |
@@ -362,9 +363,10 @@ There are nine counted production-adoption stages, tracked by #6012:
 2. Land the owner-issued assembly-reference resolution ladder and finite
    per-operation acquisition-budget contract tracked by #6228.
 3. Define the lower-layer ecosystem-registration declaration and Ecosystem
-   Packs projection, then extend catalog and source owners with the exact typed
-   contributions and one product default manifest for Platform, ASP.NET Core,
-   Microsoft.Extensions, exact libraries, and package prefixes.
+   Packs projection under #6307, then extend catalog and source owners with the
+   exact typed platform, exact-library, and package-prefix contributions and
+   one product default manifest for Platform, ASP.NET Core, and
+   Microsoft.Extensions.
 4. Revise Workspace Scope from expansion permission to inert registration,
    including the shared three-ecosystem fresh-construction default.
 5. Add the three typed focal lengths to the host-neutral call-graph request and
