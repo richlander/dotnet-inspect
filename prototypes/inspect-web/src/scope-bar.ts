@@ -107,6 +107,7 @@ export interface ScopeBarState {
 export interface ScopeBarBinding {
   disconnect(): void;
   revealFocusTarget(target: ScopeBarFocusTarget): void;
+  restoreOpenMenuFocus(): boolean;
 }
 
 interface AdaptiveNavigationGroup {
@@ -465,6 +466,9 @@ export function bindScopeBar(
     },
     revealFocusTarget(target) {
       controller?.revealFocusTarget(target);
+    },
+    restoreOpenMenuFocus() {
+      return controller?.restoreOpenMenuFocus() ?? false;
     },
   };
 }
@@ -1118,6 +1122,27 @@ class ScopeBarController implements ScopeBarBinding {
       this.layout();
       this.openMenu(group, false);
     }
+  }
+
+  restoreOpenMenuFocus(): boolean {
+    if (this.hasActiveModal()) return false;
+    const group = this.subject?.state.open
+      ? this.subject
+      : this.inspector?.state.open
+        ? this.inspector
+        : null;
+    if (!group) return false;
+    if (!group.menu.matches(":popover-open")) {
+      showPopover(group.menu);
+      this.positionMenu(group);
+    }
+    const target = group.state.focusedId
+      ? group.menuItems.find(item =>
+          groupItemId(item) === group.state.focusedId)
+      : committedOrFirst(group, group.menuItems);
+    if (!target) return false;
+    target.focus({ preventScroll: true });
+    return group.menu.ownerDocument.activeElement === target;
   }
 
   private bindGroup(group: AdaptiveNavigationGroup | null): void {

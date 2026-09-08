@@ -2010,6 +2010,7 @@ function restoreContentFrameFocusAfterDismiss(
   if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
     if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
+    if (scopeBarBinding?.restoreOpenMenuFocus()) return;
     if (contentFrameUsesPush() && contentFrameMedia.matches) {
       if (contentFramePane === "navigation")
         focusContentNavigation(document);

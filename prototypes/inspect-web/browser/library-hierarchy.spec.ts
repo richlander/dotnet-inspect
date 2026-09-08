@@ -1224,6 +1224,9 @@ test("an open Chooser yields Spotlight keyboard ownership", async ({ page }) => 
   const menu = page.locator("#inspector-navigation-menu");
   await trigger.click();
   const overview = inspectorTab(page, "data-library-lens", "overview");
+  const references = menu.getByRole("menuitemradio", { name: "References" });
+  await references.focus();
+  await expect(references).toBeFocused();
   const url = page.url();
   await page.keyboard.press("Control+k");
   const input = page.locator("#spotlight-input");
@@ -1243,6 +1246,12 @@ test("an open Chooser yields Spotlight keyboard ownership", async ({ page }) => 
   await expect(input).toHaveCount(0);
   await expect(menu).toBeVisible();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(references).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
 
   if (await menu.isHidden()) await trigger.click();
   await page.keyboard.press("Control+k");
