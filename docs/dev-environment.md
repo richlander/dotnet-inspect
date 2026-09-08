@@ -140,6 +140,23 @@ inspected through its own assembly. Keep this suite distinct from the model-free
 `tests/CSharpText.Tests` suite. See
 [repository layout](fixture-governance.md#repository-layout).
 
+### Analysis tests
+
+Build the solution before running the analysis suite so every FixtureCatalog
+binary is available, and always use Release because compiler-generated IL is
+part of the evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Required PR lanes exclude
+`Speed=Slow` after `--`; Deep Inspect runs the complete suite. Compiler-produced
+runtime-async specimens remain inside the test assembly, while independently
+compiled analysis inputs remain under `fixtures/analysis/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ### Inspection query tests
 
 Build the solution before running the inspection-query suite so every

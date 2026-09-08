@@ -89,7 +89,6 @@ src/DotnetInspector.Sections
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
-src/ILInspector.Analysis.Tests
 src/ILInspector.JsExportSurface
 src/ILInspector.Research.Tests
 src/ILInspector.TypeScriptGeneration
@@ -120,6 +119,7 @@ tests/DotnetInspector.Services.Tests
 tests/DotnetInspector.SourceDelegation.Tests
 tests/DotnetInspector.SourceSelection.Tests
 tests/HarnessReportDiff.Tests
+tests/ILInspector.Analysis.Tests
 tests/ILInspector.CSharp.Tests
 tests/ILInspector.ILDiff.Tests
 tests/ILInspector.Instructions.Tests
