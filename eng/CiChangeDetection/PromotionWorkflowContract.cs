@@ -599,8 +599,8 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(setup, "with", "production setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] =
+                    WorkflowContract.RepositoryDotNetSdkVersion,
             },
             "production setup step.with");
 
@@ -2193,8 +2193,8 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(setup, "with", "resolution setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] =
+                    WorkflowContract.RepositoryDotNetSdkVersion,
             },
             "resolution setup step.with");
 

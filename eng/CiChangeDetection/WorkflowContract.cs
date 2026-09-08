@@ -5,6 +5,9 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
+    internal const string RepositoryDotNetSdkVersion =
+        "11.0.100-preview.7.26381.103";
+
     private static readonly string[] InspectWebLeafJobs =
     [
         "inspect-web-platform",
@@ -282,15 +285,12 @@ internal static partial class WorkflowContract
                 webSdkSteps[0],
                 "with",
                 $"jobs.{jobName} setup-dotnet");
-            RequireScalarValue(
+            RequireExactScalarValues(
                 webSdkWith,
-                "dotnet-version",
-                "11.0.x",
-                $"jobs.{jobName} setup-dotnet.with");
-            RequireScalarValue(
-                webSdkWith,
-                "dotnet-quality",
-                "preview",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["dotnet-version"] = RepositoryDotNetSdkVersion,
+                },
                 $"jobs.{jobName} setup-dotnet.with");
         }
     }
@@ -647,7 +647,7 @@ internal static partial class WorkflowContract
                 "jobs.changes .NET setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
+                ["dotnet-version"] = RepositoryDotNetSdkVersion,
             },
             "jobs.changes .NET setup step.with");
     }
