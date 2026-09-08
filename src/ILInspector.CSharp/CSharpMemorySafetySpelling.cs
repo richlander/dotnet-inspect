@@ -36,20 +36,9 @@ internal static class CSharpMemorySafetySpelling
             return $"Type '{type.FullName}': model-aware primary-constructor spelling is not supported; "
                 + "supply the selected explicit fields and ordinary constructor.";
         }
-        if (type.MemorySafety is null)
-            return $"Type '{type.FullName}': module memory-safety facts are unavailable.";
-        if (type.MemorySafety.Rules is not MemorySafetyRulesResult.Available
-            {
-                State: MemorySafetyRulesState.Legacy or MemorySafetyRulesState.Updated
-            } rules)
-        {
-            return $"Type '{type.FullName}': module memory-safety rules are unavailable or unrecognized.";
-        }
-        if (rules.State == MemorySafetyRulesState.Updated
-            && language != CSharpMemorySafetyLanguage.UpdatedCallerContracts)
-        {
-            return $"Type '{type.FullName}': the selected language cannot replay updated caller contracts.";
-        }
+        if (ModuleFailure(type, language) is { } moduleFailure)
+            return moduleFailure;
+        var rules = (MemorySafetyRulesResult.Available)type.MemorySafety!.Rules;
         if (rules.State == MemorySafetyRulesState.Updated
             && type.Layout == ApiTypeLayout.Extended)
         {
@@ -76,14 +65,38 @@ internal static class CSharpMemorySafetySpelling
         return null;
     }
 
+    static string? ModuleFailure(
+        ApiType type,
+        CSharpMemorySafetyLanguage language)
+    {
+        if (type.MemorySafety is null)
+            return $"Type '{type.FullName}': module memory-safety facts are unavailable.";
+        if (type.MemorySafety.Rules is not MemorySafetyRulesResult.Available
+            {
+                State: MemorySafetyRulesState.Legacy or MemorySafetyRulesState.Updated
+            } rules)
+        {
+            return $"Type '{type.FullName}': module memory-safety rules are unavailable or unrecognized.";
+        }
+        if (rules.State == MemorySafetyRulesState.Updated
+            && language != CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+        {
+            return $"Type '{type.FullName}': the selected language cannot replay updated caller contracts.";
+        }
+        return null;
+    }
+
     internal static CSharpMemorySafetyDecision Member(
         ApiType type,
         ApiMember member,
         CSharpMemorySafetyLanguage? language,
         bool isExtern = false,
-        bool requiresUnsafeContext = false)
+        bool requiresUnsafeContext = false,
+        bool isStandaloneMember = false)
     {
-        if (isExtern && (type.Kind == "interface"
+        if (isExtern && ((type.Kind == "interface"
+                && !(isStandaloneMember
+                    && member.Kind == "extension-method"))
             || member.Kind is not ("method" or "extension-method" or "explicit-interface-implementation" or "constructor")
             || member.SignatureModel?.Accessors is { Count: > 0 }
             || member.IsAbstract || member.IsAsync || member.IsFinalizer || member.Name == ".cctor"))
@@ -93,7 +106,11 @@ internal static class CSharpMemorySafetySpelling
         if (language is not { } selectedLanguage)
             return new(member.IsUnsafe || requiresUnsafeContext ? "unsafe" : null, null);
 
-        if (TypeFailure(type, selectedLanguage) is { } typeFailure)
+        string? typeFailure = isStandaloneMember
+                && member.Kind == "extension-method"
+            ? ModuleFailure(type, selectedLanguage)
+            : TypeFailure(type, selectedLanguage);
+        if (typeFailure is not null)
             return Refuse(typeFailure);
         if (member.Kind is not ("method" or "extension-method" or "explicit-interface-implementation" or "constructor" or "finalizer" or "field")
             || member.SignatureModel?.Accessors is { Count: > 0 })

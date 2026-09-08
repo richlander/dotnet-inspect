@@ -53,3 +53,27 @@ public sealed class MemorySafetyExplicitAccessorFixture
 {
     unsafe int IMemorySafetyAccessorContract.Value => 42;
 }
+
+public enum MemorySafetyExtensionEnum
+{
+    Value,
+}
+
+public delegate void MemorySafetyExtensionDelegate();
+
+public interface IMemorySafetyExtensionInterface
+{
+}
+
+public static class MemorySafetyReceiverExtensions
+{
+    public static unsafe int Examine(
+        this MemorySafetyExtensionEnum value) => 42;
+
+    public static unsafe int Examine(
+        this MemorySafetyExtensionDelegate value) => 42;
+
+    [DllImport("__dotnet_inspect_memory_safety_extension_fixture__")]
+    public static safe extern int Examine(
+        this IMemorySafetyExtensionInterface value);
+}

@@ -108,7 +108,12 @@ internal static class CSharpDeclarationWriter
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
             synthesizedAttributeReferences);
-        var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
+        var declaration = RenderMemberDeclarationCore(
+            type,
+            member,
+            options,
+            methodParameters,
+            isStandaloneMember: true);
         declaration = plan.Apply(declaration);
 
         if (options.TerminateMemberDeclaration && NeedsTerminator(declaration))
@@ -165,7 +170,8 @@ internal static class CSharpDeclarationWriter
             member,
             options,
             methodParameters,
-            parameterNames);
+            parameterNames,
+            isStandaloneMember: true);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
             ? declaration + ";"
@@ -1061,10 +1067,16 @@ internal static class CSharpDeclarationWriter
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null,
-        IReadOnlyList<string>? parameterNames = null)
+        IReadOnlyList<string>? parameterNames = null,
+        bool isStandaloneMember = false)
     {
         var safety = CSharpMemorySafetySpelling.Member(
-            type, member, options.MemorySafetyLanguage, options.IsExtern, options.ForceUnsafe);
+            type,
+            member,
+            options.MemorySafetyLanguage,
+            options.IsExtern,
+            options.ForceUnsafe,
+            isStandaloneMember);
         if (safety.Failure is { } failure)
             throw new NotSupportedException(failure);
 

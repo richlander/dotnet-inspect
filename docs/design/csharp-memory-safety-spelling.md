@@ -199,6 +199,19 @@ an ordinary method. This distinction follows the MethodSemantics relationship
 and does not infer accessor shape from a qualified MethodDef name,
 `SpecialName`, or an empty declaration-accessor collection.
 
+An attached extension method is rendered as its defining static declaration,
+not as a declaration of the receiver type that carries the projection. Direct
+member formatting therefore applies the receiver's module rules and exact
+member association but does not apply whole-type enum, delegate, primary-
+constructor, or layout admission to that receiver. The extension declaration's
+own method form still controls ordinary and affirmative extern policy, including
+an extern extension projected onto an interface receiver. Whole-type printing
+of an enum or delegate remains unavailable independently of a projected
+extension member. A type-unit or whole-type request also retains its actual
+enclosing-type restrictions; it does not relocate an attached extension into
+the defining static class, so an extern extension cannot be emitted inside an
+interface receiver.
+
 `safe` is illegal on an ordinary field when its enclosing layout is not
 emitted (CS9388), so the supported updated-rules explicit-layout path emits a
 `StructLayoutAttribute(LayoutKind.Explicit, ...)` on the type and a

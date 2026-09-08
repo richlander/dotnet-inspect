@@ -1130,6 +1130,139 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Theory]
+    [InlineData("enum", ApiTypeLayout.Auto)]
+    [InlineData("delegate", ApiTypeLayout.Auto)]
+    [InlineData("struct", ApiTypeLayout.Extended)]
+    public void ProjectedExtensionsUseModuleRatherThanReceiverTypeAdmission(
+        string receiverKind,
+        ApiTypeLayout layout)
+    {
+        ApiType receiver = Type(
+            MemorySafetyRulesState.Updated,
+            layout: layout,
+            kind: receiverKind);
+        ApiMember extension = Method(
+            "Examine",
+            MemorySafetyRulesState.Updated,
+            ContractKind.Explicit,
+            MemorySafetyPointerEvidence.Absent,
+            kind: "extension-method");
+        extension.IsExtension = true;
+        extension.Signature =
+            $"int Examine({receiver.FullName} value)";
+        extension.SignatureModel!.Parameters =
+        [
+            new ApiParameter
+            {
+                Modifier = "this",
+                Type = receiver.FullName,
+                Name = "value",
+            },
+        ];
+
+        string declaration = Format(
+            receiver,
+            extension,
+            CSharpMemorySafetyLanguage.UpdatedCallerContracts);
+
+        Assert.True(HasWord(declaration, "unsafe"));
+        Assert.Contains("Examine", declaration, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProjectedExternExtensionUsesDeclarationRatherThanInterfaceReceiver()
+    {
+        ApiType receiver = Type(
+            MemorySafetyRulesState.Updated,
+            kind: "interface");
+        ApiMember extension = Method(
+            "Examine",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            kind: "extension-method");
+        extension.IsExtension = true;
+        extension.Signature =
+            $"int Examine({receiver.FullName} value)";
+        extension.SignatureModel!.Parameters =
+        [
+            new ApiParameter
+            {
+                Modifier = "this",
+                Type = receiver.FullName,
+                Name = "value",
+            },
+        ];
+
+        string declaration = Format(
+            receiver,
+            extension,
+            CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+            isExtern: true);
+
+        Assert.True(HasWord(declaration, "safe"));
+        Assert.True(HasWord(declaration, "extern"));
+    }
+
+    [Fact]
+    public void WholeTypeExternExtensionRetainsInterfaceReceiverRestriction()
+    {
+        ApiType receiver = Type(
+            MemorySafetyRulesState.Updated,
+            kind: "interface");
+        ApiMember extension = Method(
+            "Examine",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            kind: "extension-method");
+        extension.IsExtension = true;
+        extension.Signature =
+            $"int Examine({receiver.FullName} value)";
+        extension.SignatureModel!.Parameters =
+        [
+            new ApiParameter
+            {
+                Modifier = "this",
+                Type = receiver.FullName,
+                Name = "value",
+            },
+        ];
+        receiver.Members = [extension];
+
+        NotSupportedException exception =
+            Assert.Throws<NotSupportedException>(
+                () => new CSharpTypePrinter().Print(
+                    new CSharpTypePrintRequest(
+                        receiver,
+                        members: [extension],
+                        memberPolicyOverrides:
+                        [
+                            new CSharpMemberPolicy(
+                                extension,
+                                CSharpBodyPolicy.Extern),
+                        ]),
+                    Options(
+                        CSharpMemorySafetyLanguage.UpdatedCallerContracts)));
+
+        Assert.Contains("extern", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cannot", exception.Message, StringComparison.OrdinalIgnoreCase);
+        NotSupportedException unitException =
+            Assert.Throws<NotSupportedException>(
+                () => new CSharpFormatter(new CSharpFormatOptions
+                {
+                    IsExtern = true,
+                    MemorySafetyLanguage =
+                        CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+                }).FormatTypeUnit(
+                    receiver,
+                    [extension]));
+
+        Assert.Contains("extern", unitException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cannot", unitException.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData(ApiMethodSemanticsKind.PropertyGetter)]
     [InlineData(ApiMethodSemanticsKind.PropertySetter)]
     [InlineData(ApiMethodSemanticsKind.PropertyOther)]

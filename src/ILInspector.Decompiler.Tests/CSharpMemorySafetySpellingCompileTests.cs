@@ -20,6 +20,12 @@ public sealed class CSharpMemorySafetySpellingCompileTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
     const string ExplicitAccessorFixtureType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitAccessorFixture";
+    const string ExtensionEnumFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
+    const string ExtensionDelegateFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionDelegate";
+    const string ExtensionInterfaceFixtureType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyExtensionInterface";
 
     [Theory]
     [InlineData(CSharpMemorySafetyLanguage.Legacy, true)]
@@ -268,6 +274,48 @@ public sealed class CSharpMemorySafetySpellingCompileTests
     }
 
     [Fact]
+    public void ProjectedExtensionsUseDeclaringTypeAdmission()
+    {
+        ApiType enumReceiver = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExtensionEnumFixtureType);
+        ApiType delegateReceiver = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExtensionDelegateFixtureType);
+        ApiType interfaceReceiver = ExtractType(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            ExtensionInterfaceFixtureType);
+        ApiMember enumExtension = ProjectedExtension(enumReceiver);
+        ApiMember delegateExtension = ProjectedExtension(delegateReceiver);
+        ApiMember interfaceExtension = ProjectedExtension(interfaceReceiver);
+
+        Assert.Equal(ApiMethodSemanticsKind.None, enumExtension.MethodSemantics);
+        Assert.Equal(ApiMethodSemanticsKind.None, delegateExtension.MethodSemantics);
+        Assert.Equal(ApiMethodSemanticsKind.None, interfaceExtension.MethodSemantics);
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            MemorySafetyLanguage =
+                CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+        });
+        string enumDeclaration =
+            formatter.FormatMember(enumReceiver, enumExtension);
+        string delegateDeclaration =
+            formatter.FormatMember(delegateReceiver, delegateExtension);
+        string interfaceDeclaration = new CSharpFormatter(
+            new CSharpFormatOptions
+            {
+                IsExtern = true,
+                MemorySafetyLanguage =
+                    CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+            }).FormatMember(interfaceReceiver, interfaceExtension);
+
+        Assert.True(HasWord(enumDeclaration, "unsafe"));
+        Assert.True(HasWord(delegateDeclaration, "unsafe"));
+        Assert.True(HasWord(interfaceDeclaration, "safe"));
+        Assert.True(HasWord(interfaceDeclaration, "extern"));
+    }
+
+    [Fact]
     public void UpdatedUnsafeConstructorRoundTripsAsOrdinaryAndExplicitExtern()
     {
         ApiType original = ExtractType(
@@ -359,6 +407,12 @@ public sealed class CSharpMemorySafetySpellingCompileTests
 
     static ApiMember Member(ApiType type, string name)
         => Assert.Single(type.Members, member => member.Name == name);
+
+    static ApiMember ProjectedExtension(ApiType type)
+        => Assert.Single(
+            type.Members,
+            member => member.Kind == "extension-method"
+                && member.Name == "Examine");
 
     static void AssertRules(ApiType type, MemorySafetyRulesState expected)
     {
