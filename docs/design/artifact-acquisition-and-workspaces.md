@@ -3613,18 +3613,7 @@ package Root current. Making it current early is incorrect: a later Navigation,
 query, or Definitions failure would leave the user with package membership
 from the failed restoration instead of the previous usable Workspace.
 
-`NETStandard.Library` is deliberately not the added package in this example.
-In an ordinary Platform-backed Workspace, the
-[platform/package pruning](platform-package-pruning.md) contract subsumes that
-package request. The .NET Standard API surface is supplied by Platform
-reference assemblies; the
-[`netstandard` Platform family](platform-assemblies.md#framework-mappings) is
-reference-only and resolves through type forwarders to platform
-implementations. No new package Root remains for this candidate to inspect.
-Explicit inspection of the NuGet package and a Workspace with no registered
-Platform are separate scenarios.
-
-The required behavior is therefore:
+Restoration therefore must:
 
 1. prepare the exact future physical package composition privately;
 2. let restoration participants inspect that private composition;
@@ -3639,6 +3628,30 @@ restoration commits.
 Ordinary Scope publication already stages a complete physical composition
 privately and publishes it atomically with Scope. It does not expose that
 staged composition for inspection before publication.
+
+##### Counterexample: a Platform-supplied package
+
+Now change only the requested addition: the saved definition asks for
+`Newtonsoft.Json` plus `NETStandard.Library@2.0.3`, with an API exposed through
+`netstandard.dll` selected. In an ordinary Platform-backed Workspace, the
+registered target's
+[platform/package pruning](platform-package-pruning.md) inventory subsumes
+that package version before the restoration candidate is formed.
+
+The .NET Standard reference surface is already supplied by the
+[`netstandard` Platform family](platform-assemblies.md#framework-mappings).
+That family is reference-only; its type forwarders resolve API identities to
+Platform implementation assemblies. The desired package composition therefore
+still contains only `Newtonsoft.Json`. Restoration may resolve the selected API
+through Platform, but it has no `NETStandard.Library` package Root to prepare,
+inspect, publish, or release.
+
+This contrast establishes the candidate rule: only package requests that
+survive Platform/package pruning contribute physical candidate Roots.
+`Humanizer.Core` survives and requires private preparation;
+`NETStandard.Library@2.0.3` is pruned and contributes no Root. Explicitly
+inspecting the NuGet package, or restoring in a Workspace with no registered
+Platform, supplies different inputs and is not this counterexample.
 
 ##### Terms
 
