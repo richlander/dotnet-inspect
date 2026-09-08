@@ -3893,6 +3893,13 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
   state.packages = [];
   state.workspaceShareBasis = preservedBasis;
   runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\nretainPlatformPackageForTarget(target);`),
+    context);
+  assert.equal(state.workspaceShareBasis, preservedBasis);
+
+  state.packages = [];
+  state.workspaceShareBasis = preservedBasis;
+  runInNewContext(
     stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget(target);`),
     context);
   assert.equal(state.workspaceShareBasis, preservedBasis);

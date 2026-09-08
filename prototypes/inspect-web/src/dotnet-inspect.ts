@@ -7485,6 +7485,7 @@ function runtimePackageForTarget(target: { tfm: string; version: string }): AppP
 function retainPlatformPackageForTarget(
   target: { tfm: string; version: string },
 ): AppPackage | null {
+  const basis = state.workspaceShareBasis;
   const packageModel = runtimePackageForTarget(target);
   const previousPackages = state.packages;
   if (packageModel) {
@@ -7498,8 +7499,15 @@ function retainPlatformPackageForTarget(
         releasePackageModelCaches(previous);
     }
   }
-  if (state.packages !== previousPackages)
+  if (state.packages !== previousPackages) {
     invalidateWorkspaceMembershipViews();
+    if (basis
+      && workspaceShareTabsMatchResolved(
+        basis.tabs,
+        resolvedWorkspaceShareTabs())) {
+      state.workspaceShareBasis = basis;
+    }
+  }
   return packageModel;
 }
 
