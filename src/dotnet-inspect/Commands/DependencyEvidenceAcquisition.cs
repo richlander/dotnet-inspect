@@ -383,7 +383,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .ProducerContract,
                     label));
@@ -400,7 +400,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .SourceUnavailable,
                     label));
@@ -424,7 +424,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .SourceUnavailable,
                     label));
@@ -442,7 +442,7 @@ internal static class DependencyEvidenceAcquisition
             // states absence.
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     resolution is PackageCoordinateResolution.Invalid
                         ? PackageDependencyEvidenceAcquisitionFailureReason
                             .ProducerContract
@@ -463,7 +463,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .ProducerContract,
                     label));
@@ -713,7 +713,7 @@ internal static class DependencyEvidenceAcquisition
             roots.Add(
                 PackageDependencyEvidenceQuery.CreatePackageInput(
                     ((PackageManifestFactsResult.Available)facts).Value,
-                    PackageDependencyEvidenceSourceKind
+                    PackageDependencyEvidenceAcquisitionForm
                         .PackageSourceManifest,
                     targetFramework,
                     label,
@@ -724,12 +724,12 @@ internal static class DependencyEvidenceAcquisition
         failures.Add(
             manifestFailure is { } terminal
                 ? new PackageDependencyEvidenceRootFailure.Package(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     coordinate,
                     terminal,
                     label)
                 : Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     !attempted
                         ? PackageDependencyEvidenceAcquisitionFailureReason
                             .SourceUnavailable
@@ -759,7 +759,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageArchive,
+                    PackageDependencyEvidenceAcquisitionForm.PackageArchive,
                     File.Exists(path)
                         ? PackageDependencyEvidenceAcquisitionFailureReason
                             .AcquisitionFailed
@@ -778,7 +778,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageArchive,
+                    PackageDependencyEvidenceAcquisitionForm.PackageArchive,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .ProducerContract,
                     label));
@@ -804,7 +804,7 @@ internal static class DependencyEvidenceAcquisition
             {
                 failures.Add(
                     Acquisition(
-                        PackageDependencyEvidenceSourceKind.PackageArchive,
+                        PackageDependencyEvidenceAcquisitionForm.PackageArchive,
                         PackageDependencyEvidenceAcquisitionFailureReason
                             .AcquisitionFailed,
                         label));
@@ -825,7 +825,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.PackageArchive,
+                    PackageDependencyEvidenceAcquisitionForm.PackageArchive,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .AcquisitionFailed,
                     label));
@@ -834,7 +834,7 @@ internal static class DependencyEvidenceAcquisition
 
         AddManifestRoot(
             manifestBytes,
-            PackageDependencyEvidenceSourceKind.PackageArchive,
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive,
             targetFramework,
             label,
             roots,
@@ -853,7 +853,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.DirectNuspec,
+                    PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .ProducerContract,
                     label));
@@ -868,7 +868,7 @@ internal static class DependencyEvidenceAcquisition
         {
             failures.Add(
                 Acquisition(
-                    PackageDependencyEvidenceSourceKind.DirectNuspec,
+                    PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
                     File.Exists(path)
                         ? PackageDependencyEvidenceAcquisitionFailureReason
                             .AcquisitionFailed
@@ -880,7 +880,7 @@ internal static class DependencyEvidenceAcquisition
 
         AddManifestRoot(
             manifestBytes,
-            PackageDependencyEvidenceSourceKind.DirectNuspec,
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
             targetFramework,
             label,
             roots,
@@ -896,9 +896,9 @@ internal static class DependencyEvidenceAcquisition
     {
         InertString label = Label(path);
         bool isDirectAssets = IsDirectAssetsPath(path);
-        PackageDependencyEvidenceSourceKind sourceKind = isDirectAssets
-            ? PackageDependencyEvidenceSourceKind.ProjectAssets
-            : PackageDependencyEvidenceSourceKind.ProjectLocator;
+        PackageDependencyEvidenceAcquisitionForm sourceKind = isDirectAssets
+            ? PackageDependencyEvidenceAcquisitionForm.ProjectAssets
+            : PackageDependencyEvidenceAcquisitionForm.ProjectLocator;
 
         if (IsBlankPath(path))
         {
@@ -993,7 +993,7 @@ internal static class DependencyEvidenceAcquisition
 
     private static void AddManifestRoot(
         byte[] manifestBytes,
-        PackageDependencyEvidenceSourceKind sourceKind,
+        PackageDependencyEvidenceAcquisitionForm sourceKind,
         string? targetFramework,
         InertString label,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
@@ -1101,7 +1101,7 @@ internal static class DependencyEvidenceAcquisition
         string.IsNullOrWhiteSpace(path);
 
     private static PackageDependencyEvidenceRootFailure.Acquisition Acquisition(
-        PackageDependencyEvidenceSourceKind sourceKind,
+        PackageDependencyEvidenceAcquisitionForm sourceKind,
         PackageDependencyEvidenceAcquisitionFailureReason reason,
         InertString label,
         PackageSourceCoordinate? coordinate = null) =>

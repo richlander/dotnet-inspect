@@ -7,21 +7,41 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The declaration-facts owner that supplied one normalized root.</summary>
-public enum PackageDependencyEvidenceRootOwner
+/// <summary>The semantic altitude of one admitted package input.</summary>
+public enum PackageDependencyEvidenceInputKind
 {
-    PackageManifest,
-    RestoredProject,
+    PackageManifest = 0,
+    RestoredProject = 1,
+    AuthoredProject = 2,
+    RuntimeDependencyManifest = 3,
 }
 
 /// <summary>How one root's already-acquired facts reached this composition query.</summary>
-public enum PackageDependencyEvidenceSourceKind
+public enum PackageDependencyEvidenceAcquisitionForm
 {
     PackageArchive,
     DirectNuspec,
     PackageSourceManifest,
     ProjectAssets,
     ProjectLocator,
+}
+
+/// <summary>The fidelity basis claimed by one root's declaration phase.</summary>
+public enum PackageDependencyEvidenceDeclarationBasis
+{
+    PackageManifest,
+    AuthoredProjectSyntax,
+    EvaluatedProject,
+    RestoredProject,
+    NotApplicable,
+}
+
+/// <summary>Who authored the declaration associated with one evidence row.</summary>
+public enum PackageDependencyEvidenceAuthorship
+{
+    ApplicationAuthored,
+    LibraryDeclared,
+    Unattributed,
 }
 
 /// <summary>Whether every fact exposed by one phase was projected.</summary>
@@ -49,7 +69,7 @@ public abstract record PackageDependencyEvidenceInput
     public sealed record Package(
         PackageManifestFacts Manifest,
         PackageDependencyGroups Groups,
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         InertString? SourceLabel = null,
         PackageSourceResultIdentity? Source = null) :
         PackageDependencyEvidenceInput;
@@ -57,7 +77,7 @@ public abstract record PackageDependencyEvidenceInput
     /// <summary>Restored-project declaration and graph facts.</summary>
     public sealed record RestoredProject(
         RestoredProjectDependencyFacts Facts,
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         InertString? SourceLabel = null) : PackageDependencyEvidenceInput;
 }
 
@@ -69,13 +89,13 @@ public abstract record PackageDependencyEvidenceRootFailure
     }
 
     public sealed record Package(
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         PackageSourceCoordinate? Coordinate,
         PackageManifestFailure Failure,
         InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
 
     public sealed record RestoredProject(
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         RestoredProjectDependencyFailure Failure,
         InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
 
@@ -89,7 +109,7 @@ public abstract record PackageDependencyEvidenceRootFailure
         InertString Message) : PackageDependencyEvidenceRootFailure;
 
     public sealed record Acquisition(
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         PackageDependencyEvidenceAcquisitionFailureReason Reason,
         PackageSourceCoordinate? Coordinate = null,
         InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
@@ -210,31 +230,22 @@ public abstract record PackageDependencyEvidenceRootProvenance
     {
     }
 
-    public abstract PackageDependencyEvidenceRootOwner Owner { get; }
-
-    public abstract PackageDependencyEvidenceSourceKind SourceKind { get; init; }
+    public abstract PackageDependencyEvidenceAcquisitionForm AcquisitionForm
+        { get; init; }
 
     public abstract InertString? SourceLabel { get; init; }
 
     public sealed record Package(
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         PackageManifestIdentityProvenance IdentityProvenance,
         InertString? SourceLabel,
         PackageSourceResultIdentity? Source) :
-        PackageDependencyEvidenceRootProvenance
-    {
-        public override PackageDependencyEvidenceRootOwner Owner =>
-            PackageDependencyEvidenceRootOwner.PackageManifest;
-    }
+        PackageDependencyEvidenceRootProvenance;
 
     public sealed record RestoredProject(
-        PackageDependencyEvidenceSourceKind SourceKind,
+        PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         RestoredProjectContentProvenance ContentProvenance,
-        InertString? SourceLabel) : PackageDependencyEvidenceRootProvenance
-    {
-        public override PackageDependencyEvidenceRootOwner Owner =>
-            PackageDependencyEvidenceRootOwner.RestoredProject;
-    }
+        InertString? SourceLabel) : PackageDependencyEvidenceRootProvenance;
 }
 
 /// <summary>The semantic framework scope of one logical declaration group.</summary>
@@ -340,7 +351,8 @@ public sealed record PackageDependencyEvidenceDeclaration(
     string CanonicalVersionConstraint,
     InertString SourcePackageIdSpelling,
     InertString SourceVersionConstraintSpelling,
-    int SourceOccurrenceCount)
+    int SourceOccurrenceCount,
+    PackageDependencyEvidenceAuthorship Authorship)
 {
     public int SourceOccurrenceCount { get; } = SourceOccurrenceCount >= 1
         ? SourceOccurrenceCount
@@ -424,6 +436,9 @@ public abstract record PackageDependencyEvidenceDeclarationResult
             Completion == PackageDependencyEvidencePhaseCompletion.Complete;
     }
 
+    public sealed record NotApplicable :
+        PackageDependencyEvidenceDeclarationResult;
+
     public sealed record Unavailable : PackageDependencyEvidenceDeclarationResult;
 
     public sealed record Failed(
@@ -448,21 +463,98 @@ public sealed record PackageDependencyEvidenceSelection(
     InertString? RequestedFramework,
     InertString? SelectedFramework);
 
-/// <summary>The additive restored-graph state for one normalized root.</summary>
-public abstract record PackageDependencyEvidenceGraphResult
+/// <summary>Stable provider-issued identity for one resolved package node.</summary>
+public abstract record PackageDependencyEvidencePackageIdentity
 {
-    private PackageDependencyEvidenceGraphResult()
+    private PackageDependencyEvidencePackageIdentity()
     {
     }
 
-    public sealed record NotApplicable : PackageDependencyEvidenceGraphResult;
+    public sealed record RestoredProject(
+        RestoredProjectPackageNodeIdentity Identity) :
+        PackageDependencyEvidencePackageIdentity;
+}
 
-    public sealed record Available : PackageDependencyEvidenceGraphResult
+/// <summary>The closed parent identity of one produced package relationship.</summary>
+public abstract record PackageDependencyEvidenceRelationshipParentIdentity
+{
+    private PackageDependencyEvidenceRelationshipParentIdentity()
+    {
+    }
+
+    public sealed record Root(PackageDependencyEvidenceRootIdentity Identity) :
+        PackageDependencyEvidenceRelationshipParentIdentity;
+
+    public sealed record Package(PackageDependencyEvidencePackageIdentity Identity) :
+        PackageDependencyEvidenceRelationshipParentIdentity;
+
+    public sealed record Project(RestoredProjectProjectNodeIdentity Identity) :
+        PackageDependencyEvidenceRelationshipParentIdentity;
+}
+
+/// <summary>Stable provider-issued identity for one produced relationship.</summary>
+public abstract record PackageDependencyEvidenceRelationshipIdentity
+{
+    private PackageDependencyEvidenceRelationshipIdentity()
+    {
+    }
+
+    public sealed record RestoredProject(RestoredProjectEdgeIdentity Identity) :
+        PackageDependencyEvidenceRelationshipIdentity;
+}
+
+/// <summary>A provider-owned direct or transitive role for one produced relationship.</summary>
+public enum PackageDependencyEvidenceRelationshipRole
+{
+    Direct,
+    Transitive,
+}
+
+/// <summary>One normalized resolved package node retained by a relationship phase.</summary>
+public sealed record PackageDependencyEvidenceResolvedPackage(
+    PackageDependencyEvidencePackageIdentity Identity,
+    PackageSourceCoordinate Coordinate,
+    PackageDependencyEvidenceRelationshipRole? Role);
+
+/// <summary>One normalized produced package relationship.</summary>
+public sealed record PackageDependencyEvidenceRelationship(
+    PackageDependencyEvidenceRelationshipIdentity Identity,
+    PackageDependencyEvidenceRelationshipParentIdentity Parent,
+    PackageDependencyEvidencePackageIdentity Dependency,
+    string? CanonicalRequestedConstraint,
+    InertString? SourceRequestedConstraintSpelling,
+    PackageSourceCoordinate ResolvedCoordinate,
+    PackageDependencyEvidenceRelationshipRole? Role,
+    PackageDependencyEvidenceAuthorship Authorship,
+    PackageDependencyEvidenceDeclarationIdentity? DeclarationAssociation);
+
+/// <summary>A typed provider failure retained by the relationship phase.</summary>
+public abstract record PackageDependencyEvidenceRelationshipFailure
+{
+    private PackageDependencyEvidenceRelationshipFailure()
+    {
+    }
+
+    public sealed record RestoredProject(RestoredProjectGraphFailure Failure) :
+        PackageDependencyEvidenceRelationshipFailure;
+}
+
+/// <summary>The additive produced-relationship state for one normalized root.</summary>
+public abstract record PackageDependencyEvidenceRelationshipResult
+{
+    private PackageDependencyEvidenceRelationshipResult()
+    {
+    }
+
+    public sealed record NotApplicable :
+        PackageDependencyEvidenceRelationshipResult;
+
+    public sealed record Available : PackageDependencyEvidenceRelationshipResult
     {
         public Available(
-            ImmutableArray<RestoredProjectPackageNode> packages,
-            ImmutableArray<RestoredProjectGraphEdge> edges,
-            ImmutableArray<RestoredProjectGraphFailure> failures,
+            ImmutableArray<PackageDependencyEvidenceResolvedPackage> packages,
+            ImmutableArray<PackageDependencyEvidenceRelationship> relationships,
+            ImmutableArray<PackageDependencyEvidenceRelationshipFailure> failures,
             PackageDependencyEvidencePhaseCompletion completion)
         {
             if (failures.IsDefaultOrEmpty
@@ -474,16 +566,19 @@ public abstract record PackageDependencyEvidenceGraphResult
             }
 
             Packages = packages.IsDefault ? [] : packages;
-            Edges = edges.IsDefault ? [] : edges;
+            Relationships = relationships.IsDefault ? [] : relationships;
             Failures = failures.IsDefault ? [] : failures;
             Completion = completion;
         }
 
-        public ImmutableArray<RestoredProjectPackageNode> Packages { get; }
+        public ImmutableArray<PackageDependencyEvidenceResolvedPackage> Packages
+            { get; }
 
-        public ImmutableArray<RestoredProjectGraphEdge> Edges { get; }
+        public ImmutableArray<PackageDependencyEvidenceRelationship> Relationships
+            { get; }
 
-        public ImmutableArray<RestoredProjectGraphFailure> Failures { get; }
+        public ImmutableArray<PackageDependencyEvidenceRelationshipFailure> Failures
+            { get; }
 
         public PackageDependencyEvidencePhaseCompletion Completion { get; }
 
@@ -491,10 +586,79 @@ public abstract record PackageDependencyEvidenceGraphResult
             Completion == PackageDependencyEvidencePhaseCompletion.Complete;
     }
 
-    public sealed record Unavailable : PackageDependencyEvidenceGraphResult;
+    public sealed record Unavailable :
+        PackageDependencyEvidenceRelationshipResult;
 
-    public sealed record Failed(RestoredProjectGraphFailure Failure) :
-        PackageDependencyEvidenceGraphResult;
+    public sealed record Failed(PackageDependencyEvidenceRelationshipFailure Failure) :
+        PackageDependencyEvidenceRelationshipResult;
+}
+
+/// <summary>One positively evidenced upstream processing semantic.</summary>
+public enum PackageDependencyEvidenceProcessingObservation
+{
+    RestoreResolution,
+    PackagePruningEvaluation,
+    RuntimeDependencyProjection,
+}
+
+/// <summary>A typed failure to associate processing evidence with its input and target.</summary>
+public abstract record PackageDependencyEvidenceProcessingFailure
+{
+    private PackageDependencyEvidenceProcessingFailure()
+    {
+    }
+
+    public sealed record Association(
+        PackageDependencyEvidenceProcessingObservation Observation) :
+        PackageDependencyEvidenceProcessingFailure;
+}
+
+/// <summary>The positive processing-evidence state for one normalized root.</summary>
+public abstract record PackageDependencyEvidenceProcessingResult
+{
+    private PackageDependencyEvidenceProcessingResult()
+    {
+    }
+
+    public sealed record NotApplicable : PackageDependencyEvidenceProcessingResult;
+
+    public sealed record Available : PackageDependencyEvidenceProcessingResult
+    {
+        public Available(
+            ImmutableArray<PackageDependencyEvidenceProcessingObservation>
+                observations,
+            ImmutableArray<PackageDependencyEvidenceProcessingFailure> failures,
+            PackageDependencyEvidencePhaseCompletion completion)
+        {
+            if (failures.IsDefaultOrEmpty
+                != (completion == PackageDependencyEvidencePhaseCompletion.Complete))
+            {
+                throw new ArgumentException(
+                    "A complete processing projection carries no failures and an incomplete projection carries at least one.",
+                    nameof(completion));
+            }
+
+            Observations = observations.IsDefault ? [] : observations;
+            Failures = failures.IsDefault ? [] : failures;
+            Completion = completion;
+        }
+
+        public ImmutableArray<PackageDependencyEvidenceProcessingObservation>
+            Observations { get; }
+
+        public ImmutableArray<PackageDependencyEvidenceProcessingFailure> Failures
+            { get; }
+
+        public PackageDependencyEvidencePhaseCompletion Completion { get; }
+
+        public bool IsComplete =>
+            Completion == PackageDependencyEvidencePhaseCompletion.Complete;
+    }
+
+    public sealed record Unavailable : PackageDependencyEvidenceProcessingResult;
+
+    public sealed record Failed(PackageDependencyEvidenceProcessingFailure Failure) :
+        PackageDependencyEvidenceProcessingResult;
 }
 
 /// <summary>One admitted normalized root.</summary>
@@ -505,7 +669,54 @@ public sealed record PackageDependencyEvidenceRoot(
     PackageDependencyEvidenceDeclarationResult Declaration,
     PackageDependencyEvidenceSelection Selection,
     RestoredProjectSelectedTarget? RestoredTarget,
-    PackageDependencyEvidenceGraphResult Graph);
+    PackageDependencyEvidenceRelationshipResult Relationships,
+    PackageDependencyEvidenceProcessingResult Processing)
+{
+    public PackageDependencyEvidenceRootIdentity Identity { get; } =
+        Identity ?? throw new ArgumentNullException(nameof(Identity));
+
+    public PackageDependencyEvidenceRootProvenance Provenance { get; } =
+        (Identity, Provenance) switch
+        {
+            (PackageDependencyEvidenceRootIdentity.Package _,
+                PackageDependencyEvidenceRootProvenance.Package _) =>
+                    Provenance,
+            (PackageDependencyEvidenceRootIdentity.RestoredProject _,
+                PackageDependencyEvidenceRootProvenance.RestoredProject _) =>
+                    Provenance,
+            _ => throw new ArgumentException(
+                "Root identity and provenance must describe the same semantic input.",
+                nameof(Provenance)),
+        };
+
+    public PackageDependencyEvidenceInputKind InputKind { get; } =
+        (Identity, Provenance) switch
+        {
+            (PackageDependencyEvidenceRootIdentity.Package _,
+                PackageDependencyEvidenceRootProvenance.Package _) =>
+                    PackageDependencyEvidenceInputKind.PackageManifest,
+            (PackageDependencyEvidenceRootIdentity.RestoredProject _,
+                PackageDependencyEvidenceRootProvenance.RestoredProject _) =>
+                    PackageDependencyEvidenceInputKind.RestoredProject,
+            _ => throw new ArgumentException(
+                "Root identity and provenance must describe the same semantic input kind.",
+                nameof(Provenance)),
+        };
+
+    public PackageDependencyEvidenceDeclarationBasis DeclarationBasis { get; } =
+        (Identity, Provenance) switch
+        {
+            (PackageDependencyEvidenceRootIdentity.Package _,
+                PackageDependencyEvidenceRootProvenance.Package _) =>
+                    PackageDependencyEvidenceDeclarationBasis.PackageManifest,
+            (PackageDependencyEvidenceRootIdentity.RestoredProject _,
+                PackageDependencyEvidenceRootProvenance.RestoredProject _) =>
+                    PackageDependencyEvidenceDeclarationBasis.RestoredProject,
+            _ => throw new ArgumentException(
+                "Root identity and provenance must describe the same declaration basis.",
+                nameof(Provenance)),
+        };
+}
 
 /// <summary>Root-set admission accounting kept independent from per-root phase completion.</summary>
 public sealed record PackageDependencyEvidenceRootSetSummary(
@@ -517,17 +728,19 @@ public sealed record PackageDependencyEvidenceRootSetSummary(
     PackageDependencyEvidencePackagePrefixCompletion?
         PackagePrefixCompletion);
 
-/// <summary>Aggregate per-root declaration and graph state counts.</summary>
+/// <summary>Aggregate counts for one independently completed evidence phase.</summary>
+public sealed record PackageDependencyEvidencePhaseCounts(
+    int NotApplicable,
+    int Complete,
+    int Incomplete,
+    int Unavailable,
+    int Failed);
+
+/// <summary>Aggregate per-root declaration, relationship, and processing states.</summary>
 public sealed record PackageDependencyEvidencePhaseSummary(
-    int CompleteDeclarations,
-    int IncompleteDeclarations,
-    int UnavailableDeclarations,
-    int FailedDeclarations,
-    int NotApplicableGraphs,
-    int CompleteGraphs,
-    int IncompleteGraphs,
-    int UnavailableGraphs,
-    int FailedGraphs);
+    PackageDependencyEvidencePhaseCounts Declarations,
+    PackageDependencyEvidencePhaseCounts Relationships,
+    PackageDependencyEvidencePhaseCounts Processing);
 
 /// <summary>The immutable normalized dependency evidence for one supplied root set.</summary>
 public sealed record PackageDependencyEvidenceOutcome(
@@ -582,13 +795,13 @@ public static class PackageDependencyEvidenceQuery
     /// </summary>
     public static PackageDependencyEvidenceInput.Package CreatePackageInput(
         PackageManifestFacts manifest,
-        PackageDependencyEvidenceSourceKind sourceKind,
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm,
         string? requestedTargetFramework = null,
         InertString? sourceLabel = null,
         PackageSourceResultIdentity? source = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        RequirePackageSource(sourceKind, source);
+        RequirePackageAcquisitionForm(acquisitionForm, source);
         string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
             ? null
             : requestedTargetFramework;
@@ -597,7 +810,7 @@ public static class PackageDependencyEvidenceQuery
             PackageDependencyGroupsQuery.ProjectDependencyGroups(
                 manifest,
                 requested),
-            sourceKind,
+            acquisitionForm,
             sourceLabel,
             source);
     }
@@ -620,7 +833,7 @@ public static class PackageDependencyEvidenceQuery
 
         return CreatePackageInput(
             match.Manifest,
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
             requestedTargetFramework,
             sourceLabel,
             match.Source);
@@ -630,14 +843,14 @@ public static class PackageDependencyEvidenceQuery
     public static PackageDependencyEvidenceInput.RestoredProject
         CreateRestoredProjectInput(
             RestoredProjectDependencyFacts facts,
-            PackageDependencyEvidenceSourceKind sourceKind,
+            PackageDependencyEvidenceAcquisitionForm acquisitionForm,
             InertString? sourceLabel = null)
     {
         ArgumentNullException.ThrowIfNull(facts);
-        RequireRestoredSource(sourceKind);
+        RequireRestoredAcquisitionForm(acquisitionForm);
         return new PackageDependencyEvidenceInput.RestoredProject(
             facts,
-            sourceKind,
+            acquisitionForm,
             sourceLabel);
     }
 
@@ -714,11 +927,11 @@ public static class PackageDependencyEvidenceQuery
             switch (failure)
             {
                 case PackageDependencyEvidenceRootFailure.Package package:
-                    RequirePackageSource(package.SourceKind);
+                    RequirePackageAcquisitionForm(package.AcquisitionForm);
                     ArgumentNullException.ThrowIfNull(package.Failure);
                     break;
                 case PackageDependencyEvidenceRootFailure.RestoredProject restored:
-                    RequireRestoredSource(restored.SourceKind);
+                    RequireRestoredAcquisitionForm(restored.AcquisitionForm);
                     ArgumentNullException.ThrowIfNull(restored.Failure);
                     break;
                 case PackageDependencyEvidenceRootFailure.PackageProfile profile:
@@ -732,7 +945,7 @@ public static class PackageDependencyEvidenceQuery
                     }
                     break;
                 case PackageDependencyEvidenceRootFailure.Acquisition acquisition:
-                    RequireKnownSource(acquisition.SourceKind);
+                    RequireKnownAcquisitionForm(acquisition.AcquisitionForm);
                     break;
                 default:
                     throw new InvalidOperationException(
@@ -789,9 +1002,9 @@ public static class PackageDependencyEvidenceQuery
             CompareCore(leftDeclaration.Groups, rightDeclaration.Groups);
         PackageDependencyEvidenceComparisonResult scoped =
             CompareScoped(
-                left.Provenance.Owner,
+                left.InputKind,
                 leftDeclaration.Groups,
-                right.Provenance.Owner,
+                right.InputKind,
                 rightDeclaration.Groups);
         (PackageDependencyEvidenceComparisonResult selectedCore,
             PackageDependencyEvidenceComparisonResult selectedScoped) =
@@ -820,7 +1033,7 @@ public static class PackageDependencyEvidenceQuery
     {
         ArgumentNullException.ThrowIfNull(input.Manifest);
         ArgumentNullException.ThrowIfNull(input.Groups);
-        RequirePackageSource(input.SourceKind, input.Source);
+        RequirePackageAcquisitionForm(input.AcquisitionForm, input.Source);
         RequireMatchingPackageFacts(input.Manifest, input.Groups);
 
         var rootIdentity = new PackageDependencyEvidenceRootIdentity.Package(
@@ -832,7 +1045,7 @@ public static class PackageDependencyEvidenceQuery
         return new PackageDependencyEvidenceRoot(
             rootIdentity,
             new PackageDependencyEvidenceRootProvenance.Package(
-                input.SourceKind,
+                input.AcquisitionForm,
                 input.Manifest.IdentityProvenance,
                 input.SourceLabel,
                 input.Source),
@@ -843,14 +1056,15 @@ public static class PackageDependencyEvidenceQuery
             declaration,
             selection,
             null,
-            new PackageDependencyEvidenceGraphResult.NotApplicable());
+            new PackageDependencyEvidenceRelationshipResult.NotApplicable(),
+            new PackageDependencyEvidenceProcessingResult.NotApplicable());
     }
 
     private static PackageDependencyEvidenceRoot ProjectRestoredProject(
         PackageDependencyEvidenceInput.RestoredProject input)
     {
         ArgumentNullException.ThrowIfNull(input.Facts);
-        RequireRestoredSource(input.SourceKind);
+        RequireRestoredAcquisitionForm(input.AcquisitionForm);
 
         var rootIdentity =
             new PackageDependencyEvidenceRootIdentity.RestoredProject(
@@ -858,7 +1072,7 @@ public static class PackageDependencyEvidenceQuery
         return new PackageDependencyEvidenceRoot(
             rootIdentity,
             new PackageDependencyEvidenceRootProvenance.RestoredProject(
-                input.SourceKind,
+                input.AcquisitionForm,
                 input.Facts.ContentProvenance,
                 input.SourceLabel),
             input.SourceLabel
@@ -871,7 +1085,8 @@ public static class PackageDependencyEvidenceQuery
                 null,
                 null),
             input.Facts.SelectedTarget,
-            ProjectRestoredGraph(input.Facts));
+            ProjectRestoredRelationships(rootIdentity, input.Facts),
+            ProjectRestoredProcessing(input.Facts));
     }
 
     private static PackageDependencyEvidenceDeclarationResult.Available
@@ -1041,7 +1256,8 @@ public static class PackageDependencyEvidenceQuery
                         TextPolicy.Field,
                         rawConstraint,
                         PackageManifestFactsQuery.MaxScalarCharacters),
-                    values.Count));
+                    values.Count,
+                    PackageDependencyEvidenceAuthorship.LibraryDeclared));
         }
 
         return declarations.ToImmutable();
@@ -1154,7 +1370,9 @@ public static class PackageDependencyEvidenceQuery
                             package.CanonicalVersionConstraint,
                             package.SourcePackageIdSpelling,
                             package.SourceVersionConstraintSpelling,
-                            package.SourceOccurrenceCount))
+                            package.SourceOccurrenceCount,
+                            PackageDependencyEvidenceAuthorship
+                                .ApplicationAuthored))
                     .OrderBy(
                         package => package.CanonicalPackageId,
                         StringComparer.Ordinal)
@@ -1190,26 +1408,132 @@ public static class PackageDependencyEvidenceQuery
                 : PackageDependencyEvidencePhaseCompletion.Incomplete);
     }
 
-    private static PackageDependencyEvidenceGraphResult ProjectRestoredGraph(
-        RestoredProjectDependencyFacts facts) =>
+    private static PackageDependencyEvidenceRelationshipResult
+        ProjectRestoredRelationships(
+            PackageDependencyEvidenceRootIdentity.RestoredProject root,
+            RestoredProjectDependencyFacts facts) =>
         facts.Graph switch
         {
             RestoredProjectGraphResult.Available available =>
-                new PackageDependencyEvidenceGraphResult.Available(
-                    available.Packages,
-                    available.Edges,
-                    available.Failures,
+                new PackageDependencyEvidenceRelationshipResult.Available(
+                    [
+                        .. available.Packages.Select(package =>
+                            new PackageDependencyEvidenceResolvedPackage(
+                                new PackageDependencyEvidencePackageIdentity
+                                    .RestoredProject(package.Identity),
+                                package.Identity.Coordinate,
+                                ProjectRelationshipRole(package.Role))),
+                    ],
+                    [
+                        .. available.Edges.Select(edge =>
+                        {
+                            PackageDependencyEvidenceDeclarationIdentity?
+                                declarationAssociation =
+                                    edge.DeclarationAssociation is { } association
+                                        ? new PackageDependencyEvidenceDeclarationIdentity(
+                                            new PackageDependencyEvidenceGroupIdentity
+                                                .RestoredProject(association),
+                                            edge.Dependency.Coordinate.PackageId)
+                                        : null;
+                            return new PackageDependencyEvidenceRelationship(
+                                new PackageDependencyEvidenceRelationshipIdentity
+                                    .RestoredProject(edge.Identity),
+                                ProjectRelationshipParent(root, edge.Parent),
+                                new PackageDependencyEvidencePackageIdentity
+                                    .RestoredProject(edge.Dependency),
+                                edge.CanonicalVersionConstraint,
+                                edge.SourceVersionConstraintSpelling,
+                                edge.Dependency.Coordinate,
+                                ProjectRelationshipRole(edge.Role),
+                                ProjectRelationshipAuthorship(
+                                    edge.Parent,
+                                    declarationAssociation),
+                                declarationAssociation);
+                        }),
+                    ],
+                    [
+                        .. available.Failures.Select(failure =>
+                            new PackageDependencyEvidenceRelationshipFailure
+                                .RestoredProject(failure)),
+                    ],
                     available.IsComplete
                         ? PackageDependencyEvidencePhaseCompletion.Complete
                         : PackageDependencyEvidencePhaseCompletion.Incomplete),
             RestoredProjectGraphResult.Unavailable =>
-                new PackageDependencyEvidenceGraphResult.Unavailable(),
+                new PackageDependencyEvidenceRelationshipResult.Unavailable(),
             RestoredProjectGraphResult.Failed failed =>
-                new PackageDependencyEvidenceGraphResult.Failed(
-                    failed.Failure),
+                new PackageDependencyEvidenceRelationshipResult.Failed(
+                    new PackageDependencyEvidenceRelationshipFailure
+                        .RestoredProject(failed.Failure)),
             _ => throw new InvalidOperationException(
                 "Unknown restored-project graph result."),
         };
+
+    private static PackageDependencyEvidenceRelationshipParentIdentity
+        ProjectRelationshipParent(
+            PackageDependencyEvidenceRootIdentity.RestoredProject root,
+            RestoredProjectGraphParentIdentity parent) =>
+        parent switch
+        {
+            RestoredProjectGraphParentIdentity.Root =>
+                new PackageDependencyEvidenceRelationshipParentIdentity.Root(
+                    root),
+            RestoredProjectGraphParentIdentity.Package package =>
+                new PackageDependencyEvidenceRelationshipParentIdentity.Package(
+                    new PackageDependencyEvidencePackageIdentity.RestoredProject(
+                        package.Identity)),
+            RestoredProjectGraphParentIdentity.Project project =>
+                new PackageDependencyEvidenceRelationshipParentIdentity.Project(
+                    project.Identity),
+            _ => throw new InvalidOperationException(
+                "Unknown restored-project relationship parent."),
+        };
+
+    private static PackageDependencyEvidenceRelationshipRole
+        ProjectRelationshipRole(RestoredProjectDependencyRole role) =>
+        role switch
+        {
+            RestoredProjectDependencyRole.Direct =>
+                PackageDependencyEvidenceRelationshipRole.Direct,
+            RestoredProjectDependencyRole.Transitive =>
+                PackageDependencyEvidenceRelationshipRole.Transitive,
+            _ => throw new InvalidOperationException(
+                "Unknown restored-project dependency role."),
+        };
+
+    private static PackageDependencyEvidenceAuthorship
+        ProjectRelationshipAuthorship(
+            RestoredProjectGraphParentIdentity parent,
+            PackageDependencyEvidenceDeclarationIdentity?
+                declarationAssociation) =>
+        parent switch
+        {
+            RestoredProjectGraphParentIdentity.Root
+                when declarationAssociation.HasValue =>
+                PackageDependencyEvidenceAuthorship.ApplicationAuthored,
+            RestoredProjectGraphParentIdentity.Package
+                when declarationAssociation is null =>
+                PackageDependencyEvidenceAuthorship.LibraryDeclared,
+            RestoredProjectGraphParentIdentity.Project
+                when declarationAssociation is null =>
+                PackageDependencyEvidenceAuthorship.Unattributed,
+            RestoredProjectGraphParentIdentity.Root =>
+                PackageDependencyEvidenceAuthorship.Unattributed,
+            _ => throw new InvalidOperationException(
+                "A non-root relationship cannot carry a root declaration association."),
+        };
+
+    private static PackageDependencyEvidenceProcessingResult
+        ProjectRestoredProcessing(RestoredProjectDependencyFacts facts) =>
+        facts.SelectedTarget is not null
+            ? new PackageDependencyEvidenceProcessingResult.Available(
+                [
+                    PackageDependencyEvidenceProcessingObservation
+                        .RestoreResolution,
+                ],
+                [],
+                PackageDependencyEvidencePhaseCompletion.Complete)
+            : new PackageDependencyEvidenceProcessingResult.Unavailable();
 
     private static PackageDependencyFrameworkScopeIdentity
         CreatePackageFrameworkScope(
@@ -1361,21 +1685,22 @@ public static class PackageDependencyEvidenceQuery
         }
     }
 
-    private static void RequirePackageSource(
-        PackageDependencyEvidenceSourceKind sourceKind,
+    private static void RequirePackageAcquisitionForm(
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm,
         PackageSourceResultIdentity? source = null)
     {
-        if (sourceKind is not (
-            PackageDependencyEvidenceSourceKind.PackageArchive
-            or PackageDependencyEvidenceSourceKind.DirectNuspec
-            or PackageDependencyEvidenceSourceKind.PackageSourceManifest))
+        if (acquisitionForm is not (
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive
+            or PackageDependencyEvidenceAcquisitionForm.DirectNuspec
+            or PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest))
         {
             throw new ArgumentException(
                 "A package-manifest root requires package or package-source provenance.",
-                nameof(sourceKind));
+                nameof(acquisitionForm));
         }
 
-        if (sourceKind == PackageDependencyEvidenceSourceKind.PackageSourceManifest
+        if (acquisitionForm
+                == PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest
             && source is null)
         {
             throw new ArgumentException(
@@ -1384,28 +1709,28 @@ public static class PackageDependencyEvidenceQuery
         }
     }
 
-    private static void RequireRestoredSource(
-        PackageDependencyEvidenceSourceKind sourceKind)
+    private static void RequireRestoredAcquisitionForm(
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm)
     {
-        if (sourceKind is not (
-            PackageDependencyEvidenceSourceKind.ProjectAssets
-            or PackageDependencyEvidenceSourceKind.ProjectLocator))
+        if (acquisitionForm is not (
+            PackageDependencyEvidenceAcquisitionForm.ProjectAssets
+            or PackageDependencyEvidenceAcquisitionForm.ProjectLocator))
         {
             throw new ArgumentException(
                 "A restored-project root requires direct-assets or project-locator provenance.",
-                nameof(sourceKind));
+                nameof(acquisitionForm));
         }
     }
 
-    private static void RequireKnownSource(
-        PackageDependencyEvidenceSourceKind sourceKind)
+    private static void RequireKnownAcquisitionForm(
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm)
     {
-        if (!Enum.IsDefined(sourceKind))
+        if (!Enum.IsDefined(acquisitionForm))
         {
             throw new ArgumentOutOfRangeException(
-                nameof(sourceKind),
-                sourceKind,
-                "Unknown package dependency evidence source kind.");
+                nameof(acquisitionForm),
+                acquisitionForm,
+                "Unknown package dependency evidence acquisition form.");
         }
     }
 
@@ -1449,19 +1774,28 @@ public static class PackageDependencyEvidenceQuery
     private static PackageDependencyEvidencePhaseSummary SummarizePhases(
         ImmutableArray<PackageDependencyEvidenceRoot> roots)
     {
+        int notApplicableDeclarations = 0;
         int completeDeclarations = 0;
         int incompleteDeclarations = 0;
         int unavailableDeclarations = 0;
         int failedDeclarations = 0;
-        int notApplicableGraphs = 0;
-        int completeGraphs = 0;
-        int incompleteGraphs = 0;
-        int unavailableGraphs = 0;
-        int failedGraphs = 0;
+        int notApplicableRelationships = 0;
+        int completeRelationships = 0;
+        int incompleteRelationships = 0;
+        int unavailableRelationships = 0;
+        int failedRelationships = 0;
+        int notApplicableProcessing = 0;
+        int completeProcessing = 0;
+        int incompleteProcessing = 0;
+        int unavailableProcessing = 0;
+        int failedProcessing = 0;
         foreach (PackageDependencyEvidenceRoot root in roots)
         {
             switch (root.Declaration)
             {
+                case PackageDependencyEvidenceDeclarationResult.NotApplicable:
+                    notApplicableDeclarations++;
+                    break;
                 case PackageDependencyEvidenceDeclarationResult.Available
                     { IsComplete: true }:
                     completeDeclarations++;
@@ -1475,39 +1809,77 @@ public static class PackageDependencyEvidenceQuery
                 case PackageDependencyEvidenceDeclarationResult.Failed:
                     failedDeclarations++;
                     break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown package dependency declaration result.");
             }
 
-            switch (root.Graph)
+            switch (root.Relationships)
             {
-                case PackageDependencyEvidenceGraphResult.NotApplicable:
-                    notApplicableGraphs++;
+                case PackageDependencyEvidenceRelationshipResult.NotApplicable:
+                    notApplicableRelationships++;
                     break;
-                case PackageDependencyEvidenceGraphResult.Available
+                case PackageDependencyEvidenceRelationshipResult.Available
                     { IsComplete: true }:
-                    completeGraphs++;
+                    completeRelationships++;
                     break;
-                case PackageDependencyEvidenceGraphResult.Available:
-                    incompleteGraphs++;
+                case PackageDependencyEvidenceRelationshipResult.Available:
+                    incompleteRelationships++;
                     break;
-                case PackageDependencyEvidenceGraphResult.Unavailable:
-                    unavailableGraphs++;
+                case PackageDependencyEvidenceRelationshipResult.Unavailable:
+                    unavailableRelationships++;
                     break;
-                case PackageDependencyEvidenceGraphResult.Failed:
-                    failedGraphs++;
+                case PackageDependencyEvidenceRelationshipResult.Failed:
+                    failedRelationships++;
                     break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown package dependency relationship result.");
+            }
+
+            switch (root.Processing)
+            {
+                case PackageDependencyEvidenceProcessingResult.NotApplicable:
+                    notApplicableProcessing++;
+                    break;
+                case PackageDependencyEvidenceProcessingResult.Available
+                    { IsComplete: true }:
+                    completeProcessing++;
+                    break;
+                case PackageDependencyEvidenceProcessingResult.Available:
+                    incompleteProcessing++;
+                    break;
+                case PackageDependencyEvidenceProcessingResult.Unavailable:
+                    unavailableProcessing++;
+                    break;
+                case PackageDependencyEvidenceProcessingResult.Failed:
+                    failedProcessing++;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown package dependency processing result.");
             }
         }
 
         return new PackageDependencyEvidencePhaseSummary(
-            completeDeclarations,
-            incompleteDeclarations,
-            unavailableDeclarations,
-            failedDeclarations,
-            notApplicableGraphs,
-            completeGraphs,
-            incompleteGraphs,
-            unavailableGraphs,
-            failedGraphs);
+            new PackageDependencyEvidencePhaseCounts(
+                notApplicableDeclarations,
+                completeDeclarations,
+                incompleteDeclarations,
+                unavailableDeclarations,
+                failedDeclarations),
+            new PackageDependencyEvidencePhaseCounts(
+                notApplicableRelationships,
+                completeRelationships,
+                incompleteRelationships,
+                unavailableRelationships,
+                failedRelationships),
+            new PackageDependencyEvidencePhaseCounts(
+                notApplicableProcessing,
+                completeProcessing,
+                incompleteProcessing,
+                unavailableProcessing,
+                failedProcessing));
     }
 
     private static PackageDependencyEvidenceComparisonResult CompareCore(
@@ -1520,12 +1892,12 @@ public static class PackageDependencyEvidenceQuery
             : new PackageDependencyEvidenceComparisonResult.Unequal();
 
     private static PackageDependencyEvidenceComparisonResult CompareScoped(
-        PackageDependencyEvidenceRootOwner leftOwner,
+        PackageDependencyEvidenceInputKind leftKind,
         ImmutableArray<PackageDependencyEvidenceGroup> left,
-        PackageDependencyEvidenceRootOwner rightOwner,
+        PackageDependencyEvidenceInputKind rightKind,
         ImmutableArray<PackageDependencyEvidenceGroup> right)
     {
-        if (!ScopesAreComparable(leftOwner, left, rightOwner, right))
+        if (!ScopesAreComparable(leftKind, left, rightKind, right))
         {
             return new PackageDependencyEvidenceComparisonResult.NotComparable(
                 PackageDependencyEvidenceNotComparableReason.FrameworkScope);
@@ -1578,9 +1950,9 @@ public static class PackageDependencyEvidenceQuery
         return (
             CompareCore([leftGroup], [rightGroup]),
             CompareScoped(
-                left.Provenance.Owner,
+                left.InputKind,
                 [leftGroup],
-                right.Provenance.Owner,
+                right.InputKind,
                 [rightGroup]));
     }
 
@@ -1596,9 +1968,9 @@ public static class PackageDependencyEvidenceQuery
     }
 
     private static bool ScopesAreComparable(
-        PackageDependencyEvidenceRootOwner leftOwner,
+        PackageDependencyEvidenceInputKind leftKind,
         ImmutableArray<PackageDependencyEvidenceGroup> left,
-        PackageDependencyEvidenceRootOwner rightOwner,
+        PackageDependencyEvidenceInputKind rightKind,
         ImmutableArray<PackageDependencyEvidenceGroup> right)
     {
         ImmutableArray<string> leftOpaque = OpaqueScopeIdentities(left);
@@ -1606,7 +1978,7 @@ public static class PackageDependencyEvidenceQuery
         if (leftOpaque.IsEmpty && rightOpaque.IsEmpty)
             return true;
 
-        return leftOwner == rightOwner
+        return leftKind == rightKind
             && leftOpaque.SequenceEqual(rightOpaque, StringComparer.Ordinal);
     }
 
