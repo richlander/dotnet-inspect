@@ -204,6 +204,15 @@ non-excluded top-level source root for legacy package-source identity. This
 does not broaden the ordinary `test` lane for documentation-only or
 inspect-web-only candidates.
 
+`inspectWeb` selects the fast, parallel Browser/Wasm PR topology.
+`inspectWebComprehensive` is a narrower pre-merge selection for changes to the
+generated-facade tooling, multi-facade canary, managed-operation bridge canary,
+or their direct owners. It implies `inspectWeb` and selects the same complete
+version-invariance, mutation, and Mono/CoreCLR modes that run in the daily Deep
+Inspect `inspect-web` lane. Push events retain the fast post-merge backstop;
+scheduled comprehensive evidence is owned by Deep Inspect rather than inferred
+from a push change set.
+
 Two conservative inventory policies are current and named. When
 `eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
 change broadens to the Browser/Wasm lane. When

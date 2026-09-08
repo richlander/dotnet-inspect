@@ -139,6 +139,14 @@ public static class ApiMemberAccessors
             Kind = isExplicitImplementation
                 ? "explicit-interface-implementation"
                 : "method",
+            MethodSemantics = accessorKind switch
+            {
+                "get" => ApiMethodSemanticsKind.PropertyGetter,
+                "set" or "init" => ApiMethodSemanticsKind.PropertySetter,
+                "add" => ApiMethodSemanticsKind.EventAdder,
+                "remove" => ApiMethodSemanticsKind.EventRemover,
+                _ => null,
+            },
             MetadataToken = token,
             DeclaringType = declaringType,
             ReturnType = returnType,

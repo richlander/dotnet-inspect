@@ -141,8 +141,7 @@ and query workspaces while migration continues.
 | `ILInspector.MetadataPrimitives` | Primitive floor | Dependency-free SRM mechanics and neutral metadata-name operations. | [Metadata primitives](metadata-primitives.md) |
 | `CSharpText` | Text grammar floor | Model-free C# and XML-documentation grammars, names, signatures, and conservative text ranges. | [Inspection layers](design/inspection-layers.md) |
 | `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
-| `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
-| `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
+| `ILInspector.SourceLink` | Source interpreter and composer | SourceLink map matching, provenance grammar, extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |
 
 Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
@@ -150,10 +149,11 @@ CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that
 depends on typed models.
 
 [C# memory-safety declaration spelling](design/csharp-memory-safety-spelling.md)
-owns the proposed CSharp policy for consuming independent caller-contract,
-pointer, and declaration-shape facts. Its adoption and production-host gates
-remain pending; Metadata interpretation and Decompiler reconstruction stay
-with their respective owners.
+owns the CSharp policy for consuming independent caller-contract, pointer,
+declaration-shape, and layout facts. The opt-in method/field implementation
+includes explicit-layout source lowering; compatibility remains the default.
+Other declaration forms and production-host adoption remain pending. Metadata
+interpretation and Decompiler reconstruction stay with their respective owners.
 
 ### Evidence and comparison engines
 
@@ -334,7 +334,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md), [semantic row selection](design/semantic-row-selection.md) | `DotnetInspector.RowSelection`, `DotnetInspector.Sections`, `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
 | Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |
 | Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
-| Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
+| Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, Services |
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
 | Decompilation or implementation comparison | [Decompiler architecture](decompiler-architecture.md), [decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | CLI command or output behavior | [CLI host architecture](cli-architecture.md), [progressive disclosure](design/progressive-disclosure.md), [output shapes](design/output-shapes.md) | `src/dotnet-inspect` |

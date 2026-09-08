@@ -19,6 +19,9 @@ fixtures/analysis/ILInspector.Analysis.SpoofRuntimeFixtures
 fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures
 fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures
 fixtures/analysis/ILInspector.Analysis.UnoptimizedAsyncFixtures
+fixtures/cli/DotnetInspector.CallerBinding.Caller
+fixtures/cli/DotnetInspector.CallerBinding.Contract
+fixtures/cli/DotnetInspector.CallerBinding.Facade
 fixtures/cli/DotnetInspector.HostileNameFixtures
 fixtures/cli/DotnetInspector.InstallScriptFixture
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic
@@ -30,6 +33,8 @@ fixtures/diff/DiffAsmFixtures.LibA
 fixtures/diff/DiffAsmFixtures.LibB
 fixtures/diff/DiffAsmFixtures.Target
 fixtures/inspect-web/InspectWeb.MethodBodyFixtures
+fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1
+fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
 fixtures/js-export/ILInspector.JsExportSurface.Fixtures
 fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures
@@ -55,6 +60,9 @@ fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
+fixtures/presentation/LibraryApiDiff.V1
+fixtures/presentation/LibraryApiDiff.V2
+fixtures/queries/DotnetInspector.CloneSearchFixtures
 fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures
 fixtures/queries/DotnetInspector.RestoredProjectFixtures
 fixtures/queries/DotnetInspector.SourceDiff.V1
@@ -78,7 +86,6 @@ src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
-src/DotnetInspector.Services.Tests
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
@@ -109,6 +116,7 @@ tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests
 tests/DotnetInspector.RuntimeFlavorProbe
 tests/DotnetInspector.Sections.Tests
+tests/DotnetInspector.Services.Tests
 tests/DotnetInspector.SourceDelegation.Tests
 tests/DotnetInspector.SourceSelection.Tests
 tests/HarnessReportDiff.Tests

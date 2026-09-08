@@ -608,6 +608,19 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+test("shared HTML escaping covers text and attribute delimiters", () => {
+  const helper = sourceText(functionDeclaration("escapeHtml"));
+  assert.deepEqual(
+    helper.match(/\.replaceAll\([^)]*\)/g),
+    [
+      `.replaceAll("&", "&amp;")`,
+      `.replaceAll("<", "&lt;")`,
+      `.replaceAll(">", "&gt;")`,
+      `.replaceAll('"', "&quot;")`,
+      `.replaceAll("'", "&#39;")`,
+    ]);
+});
+
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
@@ -3001,7 +3014,7 @@ test("foreground package reload resets filters before selecting its first type",
     ?? "";
   assert.match(
     loadPackage,
-    /if \(deep && \(deep\.type \|\| deep\.member\)\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);/);
+    /if \(deep\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);/);
 });
 
 test("home demos restore the complete parsed location", () => {
@@ -3027,12 +3040,15 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
   assert.match(callGraphDemo, /result = await inspectRunHomeDemo\(demoId\)/);
   assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
+  assert.match(
+    callGraphDemo,
+    /const activation = result\.activation;\s*if \(activation\.focusKind !== "package"\) \{[\s\S]*return;\s*\}\s*const packages = result\.packages\.map\(createNuGetPackageModel\)/);
   assert.match(
     callGraphDemo,
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
@@ -3242,7 +3258,13 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
-    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{\s*navigationSeq,\s*\.\.\.\(rootRequest === undefined \? \{\} : \{ rootRequest \}\)\s*\}\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+  assert.match(
+    appSource,
+    /queryPackageRoot: rootRequest =>\s*inspectOpenPackageAssemblyQueryResult\(rootRequest\)/);
+  assert.match(
+    appSource,
+    /runAssembly: \([\s\S]*?\) => inspectRunPackageAssemblyQuery\([\s\S]*?eventSink\)/);
   assert.match(
     syncUrl,
     /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
@@ -3331,6 +3353,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     1);
   assert.match(
     appSource,
+    /onAssemblyRun: request => \{\s*state\.packageQueryNavigationError = "";\s*packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run\(request\)/);
+  assert.match(
+    appSource,
     /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
   assert.match(
     appSource,
@@ -3344,6 +3369,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     appSource,
     /state\.packageQueryCatalogError =\s*`Package-query catalogs are unavailable/);
+  assert.match(
+    appSource,
+    /try \{\s*state\.packageQueryFacets =[\s\S]*state\.packageQuerySourceCatalog =\s*await engineClient\.package\.listGalleryDiscoveryCatalog\(\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
   assert.match(
     appSource,
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);
@@ -6399,7 +6427,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /loadPackage\(state\.package\.id, state\.package\.version, (?:button\.dataset\.frameworkChip|argument)\)/);
   assert.match(
     appSource,
-    /deepLink: deep,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
+    /location: loc,\s+navigationSeq,\s+queryNotice: state\.queryNotice/);
   assert.match(
     appSource,
     /clearWorkspacePackages\(\);\s+render\(\);/);

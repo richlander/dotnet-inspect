@@ -38,15 +38,40 @@ public class MemberCanonicalSignatureTests
     }
 
     [Theory]
-    [InlineData("P", "P:System.String.Length")]
     [InlineData("F", "F:System.String.Empty")]
     [InlineData("E", "E:System.AppDomain.ProcessExit")]
-    public void Build_PropertyFieldEvent_HasNoParameterList(string kind, string expected)
+    public void Build_FieldAndEvent_HaveNoParameterList(string kind, string expected)
     {
-        var memberName = kind switch { "P" => "Length", "F" => "Empty", _ => "ProcessExit" };
+        var memberName = kind == "F" ? "Empty" : "ProcessExit";
         var typeName = kind == "E" ? "System.AppDomain" : "System.String";
-        // Parameter list is ignored for P/F/E even if provided.
+        // Parameter list is ignored for F/E even if provided: neither can be
+        // overloaded, so neither identity can carry one.
         Assert.Equal(expected, MemberCanonicalSignature.Build(kind, typeName, memberName, ["System.Int32"]));
+    }
+
+    [Fact]
+    public void Build_OrdinaryProperty_HasNoParameterList()
+    {
+        Assert.Equal(
+            "P:System.String.Length",
+            MemberCanonicalSignature.Build("P", "System.String", "Length", []));
+    }
+
+    [Fact]
+    public void Build_Indexer_IncludesIndexParameters()
+    {
+        // An indexer overloads on its index parameters, so they are part of
+        // property identity; two overloads must not collide on "P:Type.Item".
+        Assert.Equal(
+            "P:System.Collections.Generic.List<T>.Item(System.Int32)",
+            MemberCanonicalSignature.Build(
+                "P",
+                "System.Collections.Generic.List<T>",
+                "Item",
+                ["System.Int32"]));
+        Assert.NotEqual(
+            MemberCanonicalSignature.Build("P", "N.C", "Item", ["System.Int32"]),
+            MemberCanonicalSignature.Build("P", "N.C", "Item", ["System.String"]));
     }
 
     [Fact]

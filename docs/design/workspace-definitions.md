@@ -794,7 +794,18 @@ and complete view composition. `ecosystem.platform` is application grouping,
 not workspace-coordinate inference: the current System.Text.Json demos retain
 their exact package pins even when the ecosystem catalog groups them as basic
 Platform demos. Platform-coordinate workspaces remain a product capability but
-are not admitted as home demos by this slice.
+the shipped home demos do not adopt them in this slice. Browser run-plan and
+engine execution do admit exact, assembly-scoped Platform coordinates so the
+coordinate migration can occur without fabricating package inputs. A Browser
+home-demo context is source-homogeneous; a Platform context uses only the
+supported `runtime` and `aspnetcore` families, one exact Platform version and
+target framework that agrees with the context-wide framework constraint, and
+distinct case-insensitive family/assembly coordinates.
+Execution projects requests in declared order, binds activation to the realized
+focus coordinate and scope framework, and joins the focused Platform surface by
+`activation.focusAssembly == surface.defaultAssemblyId`. It then releases the
+projection lease before a Call Graph run opens and progressively expands its
+own lease over the same cumulative per-target Platform workspace.
 
 A schema-version-2 home demo persists only `ViewState.Facet` and version-2
 query records. The resolved facet and query owners reach their ordinary
@@ -813,7 +824,12 @@ Workspace Definitions execution remains unchanged. `RunHomeDemo` accepts both
 type-only `Methods` and member-bound
 `Call Graph` presets: the engine resolves the workspace, focus, section, and
 optional member anchor, opens one aggregate browser workspace, and returns its
-package surfaces plus exact activation identity. The focused
+ordinary browsable surfaces plus exact source-owner-issued activation identity.
+Package runs retain package identity; Platform runs retain family, assembly,
+version, and target-framework identity while using the shared Platform
+workspace, API-surface projection, and progressively acquired Call Graph path.
+Mixed package/Platform contexts remain unsupported until a product demo needs
+that composition. The focused
 `BrowserTypeSurface.Api` rows are the browser's ordinary Methods-section
 output; a member-bound run additionally returns the ordinary Call Graph
 projection. The engine rejects other product sections,
@@ -823,12 +839,22 @@ bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
+`ToRunPlan_PlatformCoordinatePreservesSourceNativeFocus`,
+`ToRunPlan_RejectsMixedPackageAndPlatformWorkspace`,
+`ToRunPlan_RejectsUnsupportedPlatformFamily`,
+`ToRunPlan_RejectsNonUniformPlatformTarget`,
+`ToRunPlan_RejectsPlatformFrameworkConflictingWithContext`,
+`ToRunPlan_RejectsFloatingPlatformVersion`,
+`ToRunPlan_RejectsCaseInsensitivePlatformDuplicates`,
+`ToRunPlan_PlatformWorkspacePreservesNonFirstFocus`,
 `ToRunPlan_RejectsUnsupportedBrowserSection`,
 `ToRunPlan_RejectsLibraryScopedView`,
 `ToRunPlan_RejectsRuntimeIdentifierScopes`,
 `ToRunPlan_RejectsFocusOutsideSelectedContext`,
-`HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`, and
-`HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`.
+`HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`,
+`HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`,
+`PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
+`PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
 
 This engine capability does not yet change the home buttons. The current
 TypeScript still restores STJ through a share deep link built from the resolved
@@ -840,7 +866,9 @@ the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
 future platform members) from
 `prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
 current Call Graph result without parsing definition member keys or
-reconstructing package/query inputs.
+reconstructing package/query inputs. Until that native Platform navigation
+adoption lands, the frontend rejects a Platform activation explicitly; no
+shipped demo emits one yet.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.

@@ -5,6 +5,34 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
+    private static readonly string[] InspectWebLeafJobs =
+    [
+        "inspect-web-platform",
+        "inspect-web-frontend",
+        "inspect-web-facades",
+        "inspect-web-multi-facade",
+        "inspect-web-managed-bridge",
+        "inspect-web-ts-jsexport",
+        "inspect-web-managed-tests",
+        "inspect-web-msdl-tests",
+        "inspect-web-browser",
+        "inspect-web-published",
+        "inspect-web-published-api",
+    ];
+
+    private static readonly string[] InspectWebDotnetJobs =
+    [
+        "inspect-web-platform",
+        "inspect-web-facades",
+        "inspect-web-multi-facade",
+        "inspect-web-managed-bridge",
+        "inspect-web-ts-jsexport",
+        "inspect-web-managed-tests",
+        "inspect-web-msdl-tests",
+        "inspect-web-published",
+        "inspect-web-published-api",
+    ];
+
     internal static WorkflowContractResult Load(
         string repository,
         string workflowText,
@@ -43,6 +71,9 @@ internal static partial class WorkflowContract
         RequireAbsent(changes, "defaults", "jobs.changes");
         RequireAbsent(changes, "env", "jobs.changes");
 
+        ValidateInspectWebTopology(jobs);
+        ValidateInspectWebBrowser(jobs);
+        ValidateInspectWebPublishedApplication(jobs);
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
         ValidateTlaJob(jobs);
@@ -84,53 +115,184 @@ internal static partial class WorkflowContract
             provenancePin);
     }
 
-    private static void ValidateInspectWebSdk(YamlMappingNode jobs)
+    private static void ValidateInspectWebTopology(YamlMappingNode jobs)
     {
-        YamlMappingNode inspectWeb =
+        const string Selection =
+            "fromJSON(needs.changes.outputs.plan).validations.inspectWeb";
+        foreach (string jobName in InspectWebLeafJobs)
+        {
+            YamlMappingNode job = GetRequiredMapping(jobs, jobName, "jobs");
+            RequireScalarValue(job, "needs", "changes", $"jobs.{jobName}");
+            RequireScalarValue(job, "if", Selection, $"jobs.{jobName}");
+        }
+
+        YamlMappingNode aggregate =
             GetRequiredMapping(jobs, "inspect-web", "jobs");
-        RequireAbsent(
-            inspectWeb,
-            "continue-on-error",
+        RequireScalarValue(
+            aggregate,
+            "if",
+            $"always() && {Selection}",
             "jobs.inspect-web");
-        RequireAbsent(
-            inspectWeb,
-            "defaults",
+        YamlSequenceNode needs = GetRequiredSequence(
+            aggregate,
+            "needs",
             "jobs.inspect-web");
-        YamlSequenceNode inspectWebSteps = GetRequiredSequence(
-            inspectWeb,
+        HashSet<string> actual = needs.Children
+            .Select(node => RequireScalar(node, "jobs.inspect-web need"))
+            .ToHashSet(StringComparer.Ordinal);
+        HashSet<string> expected =
+            InspectWebLeafJobs.Append("changes")
+                .ToHashSet(StringComparer.Ordinal);
+        if (!actual.SetEquals(expected))
+        {
+            throw new InvalidOperationException(
+                "jobs.inspect-web.needs must contain changes and every " +
+                "inspect-web leaf job exactly once.");
+        }
+    }
+
+    private static void ValidateInspectWebBrowser(YamlMappingNode jobs)
+    {
+        YamlMappingNode browser =
+            GetRequiredMapping(jobs, "inspect-web-browser", "jobs");
+        YamlSequenceNode steps = GetRequiredSequence(
+            browser,
             "steps",
-            "jobs.inspect-web");
-        List<YamlMappingNode> webSdkSteps = [];
-        foreach (YamlNode stepNode in inspectWebSteps.Children)
+            "jobs.inspect-web-browser");
+        List<YamlMappingNode> buildSteps = [];
+        List<YamlMappingNode> testSteps = [];
+        foreach (YamlNode stepNode in steps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
-                "jobs.inspect-web step");
-            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
+                "jobs.inspect-web-browser step");
+            switch (GetOptionalScalar(step, "name"))
             {
-                webSdkSteps.Add(step);
+                case "Build browser frontend and install dependencies":
+                    buildSteps.Add(step);
+                    break;
+                case "Test browser UI in Firefox":
+                    testSteps.Add(step);
+                    break;
             }
         }
-        if (webSdkSteps.Count != 1)
+
+        if (buildSteps.Count != 1)
         {
             throw new InvalidOperationException(
-                $"Expected one inspect-web setup-dotnet step, " +
-                $"found {webSdkSteps.Count}.");
+                "Expected one self-contained jobs.inspect-web-browser build step.");
         }
-        YamlMappingNode webSdkWith = GetRequiredMapping(
-            webSdkSteps[0],
-            "with",
-            "jobs.inspect-web setup-dotnet");
         RequireScalarValue(
-            webSdkWith,
-            "dotnet-version",
-            "11.0.x",
-            "jobs.inspect-web setup-dotnet.with");
+            buildSteps[0],
+            "working-directory",
+            "prototypes/inspect-web",
+            "jobs.inspect-web-browser build step");
         RequireScalarValue(
-            webSdkWith,
-            "dotnet-quality",
-            "preview",
-            "jobs.inspect-web setup-dotnet.with");
+            buildSteps[0],
+            "run",
+            "npm ci\nnpm run build\nnpx playwright install --with-deps firefox\n",
+            "jobs.inspect-web-browser build step");
+
+        if (testSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.inspect-web-browser test step.");
+        }
+        RequireScalarValue(
+            testSteps[0],
+            "working-directory",
+            "prototypes/inspect-web",
+            "jobs.inspect-web-browser test step");
+        RequireScalarValue(
+            testSteps[0],
+            "run",
+            "npm run test:browser -- --shard=${{ matrix.shard }}/2",
+            "jobs.inspect-web-browser test step");
+    }
+
+    private static void ValidateInspectWebPublishedApplication(
+        YamlMappingNode jobs)
+    {
+        YamlMappingNode published =
+            GetRequiredMapping(jobs, "inspect-web-published", "jobs");
+        YamlSequenceNode steps = GetRequiredSequence(
+            published,
+            "steps",
+            "jobs.inspect-web-published");
+        List<YamlMappingNode> testSteps = [];
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(
+                stepNode,
+                "jobs.inspect-web-published step");
+            if (GetOptionalScalar(step, "name") ==
+                "Test published browser application")
+            {
+                testSteps.Add(step);
+            }
+        }
+
+        if (testSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.inspect-web-published application test step.");
+        }
+        RequireScalarValue(
+            testSteps[0],
+            "run",
+            "eng/test-inspect-web-published-application.sh",
+            "jobs.inspect-web-published application test step");
+    }
+
+    private static void ValidateInspectWebSdk(YamlMappingNode jobs)
+    {
+        foreach (string jobName in InspectWebDotnetJobs)
+        {
+            YamlMappingNode job = GetRequiredMapping(jobs, jobName, "jobs");
+            RequireAbsent(
+                job,
+                "continue-on-error",
+                $"jobs.{jobName}");
+            RequireAbsent(
+                job,
+                "defaults",
+                $"jobs.{jobName}");
+            YamlSequenceNode steps = GetRequiredSequence(
+                job,
+                "steps",
+                $"jobs.{jobName}");
+            List<YamlMappingNode> webSdkSteps = [];
+            foreach (YamlNode stepNode in steps.Children)
+            {
+                YamlMappingNode step = RequireMapping(
+                    stepNode,
+                    $"jobs.{jobName} step");
+                if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
+                {
+                    webSdkSteps.Add(step);
+                }
+            }
+            if (webSdkSteps.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Expected one {jobName} setup-dotnet step, " +
+                    $"found {webSdkSteps.Count}.");
+            }
+            YamlMappingNode webSdkWith = GetRequiredMapping(
+                webSdkSteps[0],
+                "with",
+                $"jobs.{jobName} setup-dotnet");
+            RequireScalarValue(
+                webSdkWith,
+                "dotnet-version",
+                "11.0.x",
+                $"jobs.{jobName} setup-dotnet.with");
+            RequireScalarValue(
+                webSdkWith,
+                "dotnet-quality",
+                "preview",
+                $"jobs.{jobName} setup-dotnet.with");
+        }
     }
 
     private static void ValidatePackageManifestVerifierBuild(

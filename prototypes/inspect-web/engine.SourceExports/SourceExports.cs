@@ -306,7 +306,7 @@ public static partial class SourceExports
             BrowserPackageWorkspace.NetworkClient,
             new InMemoryPdbStore(maxRetainedBytes: 24 * MiB),
             BrowserPackageWorkspace.PackageSourceAuthorization,
-            new SourceFetcher(
+            new SourceFetch(
                 BrowserPackageWorkspace.NetworkClient,
                 sourceStore,
                 BrowserSourceFetchPolicy.Instance))

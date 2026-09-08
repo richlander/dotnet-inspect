@@ -149,6 +149,16 @@ older or declaration-only models that did not retain the relationship, rather
 than a negative metadata result. Only those unknown values retain the prior
 name-based projection fallback; a known negative classification is authoritative.
 
+Full extraction also retains `ApiMember.MethodSemantics` for MethodDefs as a
+typed flag set containing any property-getter, property-setter,
+property-other, event-adder, event-remover, event-raiser, or event-other roles,
+or a positive `None` result. Multiple relationships are retained together;
+enumeration order does not erase an accessor role. Null means that the
+MethodSemantics relationship was not retained or the module association scan
+did not complete successfully. Consumers that must distinguish an ordinary
+method from an accessor use this fact rather than parsing the MethodDef name or
+treating an empty declaration-accessor collection as negative evidence.
+
 ### API memory-safety facts
 
 `ApiMember.MemorySafety` retains two independent facts: the caller contract
