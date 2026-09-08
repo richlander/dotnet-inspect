@@ -989,8 +989,8 @@ jobs:
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
-      - name: Run CSharp snapshot preservation tests
-        run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release -- -method '*SnapshotTypeForRendering_*'
+      - name: Run CSharp tests
+        run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release
 
       - name: Run artifact contract tests
         run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
@@ -1068,7 +1068,7 @@ jobs:
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run analysis tests (fast)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # The runtime-async compiler switch changes IL lowering without changing
       # whether the fixture builds. Run the focused owner gates so CI proves
