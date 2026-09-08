@@ -75,7 +75,7 @@ The version-1 registration vocabulary is a closed typed union:
 
 ```text
 WorkspaceRegistration
-  = ExactLibrary(owner-issued source-native library coordinate)
+  = ExactLibrary(source-owner-issued library coordinate)
   | PackagePrefix(owner-issued validated package-prefix declaration)
   | Ecosystem(owner-issued Workspace ecosystem declaration)
 ```
@@ -94,9 +94,9 @@ referencing or rediscovering the application catalog.
 
 ### Exact library
 
-An exact-library registration names one source-native library coordinate. It
-may identify a platform or package-origin library without converting either
-into the other's identity model.
+An exact-library registration names one source-owner-issued library
+coordinate. It may identify a platform or package-origin library without
+converting either into the other's identity model.
 
 A package Root may contribute one or more admitted libraries, but package
 membership and exact-library registration remain distinct. Opening or
