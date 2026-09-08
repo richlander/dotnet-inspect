@@ -30,6 +30,11 @@ public static class RouterCommandDefinition
     internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
         value == DeferredTypeOrMemberCapability;
 
+    internal static bool IsAcquisitionFreePackageRoute(string[] tokens, RootCommand rootCommand) =>
+        RouterTokenRewriter.TryRewriteAcquisitionFree(
+            tokens, rootCommand, structuralSchema: false, out string[] rewritten)
+        && rewritten.SequenceEqual(new[] { PackageCommand.Name }.Concat(tokens));
+
     public static Command Create(
         RootCommand rootCommand,
         SharedOptions opts,
@@ -903,6 +908,20 @@ public static class RouterCommandDefinition
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
+            }
+
+            if (ContainsOption(tokens, "--versions")
+                || ContainsOption(tokens, "--versions-with-feed"))
+            {
+                ParseResult packageParse = rootCommand.Parse([PackageCommand.Name, .. tokens]);
+                if (CommandLineBuilder.HasParsedOption(packageParse, "--versions")
+                    || CommandLineBuilder.HasParsedOption(packageParse, "--versions-with-feed"))
+                {
+                    // A plural package lens owns its positional capacity; an extra
+                    // package must not become an implicit type target.
+                    rewritten = [PackageCommand.Name, .. tokens];
+                    return true;
+                }
             }
 
             if (TryFindPositionalIndex(

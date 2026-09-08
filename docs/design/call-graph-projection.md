@@ -573,7 +573,7 @@ renderable but intentionally carry no navigable definition identity. Property
 and event accessors resolve through their opaque body selector when no physical
 method token survives projection.
 
-Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
+Coverage lives in `tests/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
 (edge direction and inversion, duplicates/cycles, node-kind precedence,
 deterministic ids and ordering, loop annotations across collapse and inversion,
 cross-assembly / generic-recursion-collapse / return-type identity behavior, the

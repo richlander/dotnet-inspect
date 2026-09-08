@@ -8,6 +8,12 @@
   Column projection remains presentational; summary row limits select groups
   without truncating their counts. Type `--member` filters now bound both
   summary and occurrence evidence before rendering (#6186).
+- **Breaking:** Zero-arity CLI options now consistently reject supplied
+  values, including attached Boolean forms previously accepted by the parser.
+  For example, `package System.CommandLine --versions 2` reports
+  `--versions does not accept a value`; use `--versions -n 2` instead.
+  Valid positional arguments after flags and optional-valued Boolean options
+  keep their existing behavior (#6173).
 - Online single-package inspection now selects latest and wildcard versions
   from configured local and HTTP authorities, including `--preview`.
   Selection requires fresh, complete discovery and acquires only from sources
