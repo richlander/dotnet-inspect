@@ -15,6 +15,7 @@ internal readonly record struct RoutingSelections(
     bool Packaging,
     bool Shipped,
     bool Web,
+    bool WebComprehensive,
     bool Skills,
     bool Tla)
 {
@@ -23,7 +24,7 @@ internal readonly record struct RoutingSelections(
     /// </summary>
     internal static RoutingSelections All { get; } = new(
         true, true, true, true, true, true,
-        true, true, true, true, true);
+        true, true, true, true, true, true);
 }
 
 /// <summary>
@@ -44,6 +45,7 @@ internal sealed class ValidationSelections
         bool pack,
         bool buildNet10,
         bool inspectWeb,
+        bool inspectWebComprehensive,
         bool skillGate,
         bool tla)
     {
@@ -52,6 +54,13 @@ internal sealed class ValidationSelections
             throw new PlanRefusalException(
                 PlanRefusalCategory.PlanSerialization,
                 "ilRoundTrip requires test");
+        }
+
+        if (inspectWebComprehensive && !inspectWeb)
+        {
+            throw new PlanRefusalException(
+                PlanRefusalCategory.PlanSerialization,
+                "inspectWebComprehensive requires inspectWeb");
         }
 
         Test = test;
@@ -65,6 +74,7 @@ internal sealed class ValidationSelections
         Pack = pack;
         BuildNet10 = buildNet10;
         InspectWeb = inspectWeb;
+        InspectWebComprehensive = inspectWebComprehensive;
         SkillGate = skillGate;
         Tla = tla;
     }
@@ -90,6 +100,8 @@ internal sealed class ValidationSelections
     internal bool BuildNet10 { get; }
 
     internal bool InspectWeb { get; }
+
+    internal bool InspectWebComprehensive { get; }
 
     internal bool SkillGate { get; }
 
@@ -123,6 +135,8 @@ internal sealed class ValidationSelections
             pack: selections.Packaging && preMerge,
             buildNet10: selections.Shipped && preMerge,
             inspectWeb: selections.Web,
+            inspectWebComprehensive:
+                selections.Web && selections.WebComprehensive && preMerge,
             skillGate: selections.Skills && preMerge,
             tla: selections.Tla);
     }
