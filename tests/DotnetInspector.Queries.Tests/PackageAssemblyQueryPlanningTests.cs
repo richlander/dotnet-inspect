@@ -1,5 +1,10 @@
+using System.IO.Compression;
+
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
+using InertText;
 using ILInspector.Analysis;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -120,5 +125,121 @@ public sealed class PackageAssemblyQueryPlanningTests
             new PackageAssemblyEvaluationBudget(16, 32, semantic, Timeout.InfiniteTimeSpan));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new PackageAssemblyEvaluationBudget(16, 32, semantic, TimeSpan.FromMinutes(6)));
+    }
+
+    [Fact]
+    public async Task Execute_DelegatesBoundedCandidateAcquisitionWithoutSourceIdentity()
+    {
+        PackageAssemblyQueryPlan plan = PackageAssemblyQuery.Plan(
+            PackageAssemblyPatterns.StringLiteralContains,
+            "Json",
+            ["First.Package@1.0.0", "Second.Package@2.0.0"],
+            "net10.0");
+        var provider = new RecordingPayloadProvider();
+        var events = new List<PackageAssemblyQueryEvent>();
+
+        await foreach (PackageAssemblyQueryEvent queryEvent in
+            PackageAssemblyQuery.ExecuteAsync(
+                provider,
+                plan,
+                TestContext.Current.CancellationToken))
+        {
+            events.Add(queryEvent);
+        }
+
+        Assert.Equal(plan.Coordinates, provider.Coordinates);
+        Assert.All(provider.Limits, limits =>
+        {
+            Assert.Equal(32L * 1024 * 1024, limits.MaxArchiveBytes);
+            Assert.Equal(256L * 1024 * 1024, limits.MaxExpandedBytes);
+        });
+        PackageAssemblyQueryEvent.AcquisitionFailed[] failures =
+            [.. events.OfType<PackageAssemblyQueryEvent.AcquisitionFailed>()];
+        Assert.Equal(2, failures.Length);
+        Assert.All(failures, failure =>
+        {
+            Assert.Equal("configured-test-source", failure.Value.Producer.ToString());
+            Assert.Equal("fixture acquisition refused", failure.Value.Message.ToString());
+            Assert.Equal(
+                PackageSourceFailureKind.NotFound,
+                failure.Value.SourceFailureKind);
+        });
+        Assert.Equal(
+            new PackageAssemblyQuerySummary(2, 0, 0, 0, 2),
+            Assert.Single(
+                events.OfType<PackageAssemblyQueryEvent.Completed>()).Value);
+    }
+
+    [Fact]
+    public void ModernProducerKey_RoundTripsAnExactRootRebinding()
+    {
+        string producer = PackageProducerIdentity.NuGetOrg.Key;
+        using var archive = new MemoryStream();
+        using (var zip = new ZipArchive(
+            archive,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            zip.CreateEntry("fixture.nuspec");
+        }
+        var content = new InMemoryPackageContent(
+            archive.ToArray(),
+            fromCache: false,
+            producer);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(
+                "Modern.Producer.Package",
+                "1.0.0"),
+            content,
+            producer,
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSource(
+                payload,
+                "net10.0");
+        PackageRootReacquisitionRequest request =
+            initial.CreateReacquisitionRequest();
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        PackageRootRebindingOutcome rebound =
+            PackageRootAcquisition.BindReacquired(
+                decoded,
+                payload);
+
+        PackageRootBinding binding =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                rebound).Binding;
+        Assert.Equal(request, binding.CreateReacquisitionRequest());
+        Assert.Equal(producer, binding.Coordinate.Producer);
+    }
+
+    sealed class RecordingPayloadProvider
+        : IPackageRootPayloadProvider
+    {
+        internal List<PackageSourceCoordinate> Coordinates { get; } = [];
+        internal List<PackagePayloadLimits> Limits { get; } = [];
+
+        public ValueTask<PackageRootPayloadResult> GetPayloadAsync(
+            PackageSourceCoordinate coordinate,
+            string? requiredProducerKey,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Null(requiredProducerKey);
+            Coordinates.Add(coordinate);
+            Limits.Add(limits);
+            return ValueTask.FromResult<PackageRootPayloadResult>(
+                new PackageRootPayloadResult.Unavailable(
+                    new InertString(
+                        TextPolicy.Field,
+                        "configured-test-source"),
+                    "fixture acquisition refused",
+                    PackageRootAcquisitionFailureKind.PackageUnavailable,
+                    PackageSourceFailureKind.NotFound));
+        }
     }
 }

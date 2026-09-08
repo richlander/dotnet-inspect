@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using InspectWeb.Engine;
 using InspectWeb.Engine.PackageFacade;
@@ -175,8 +176,7 @@ namespace InspectWeb.Engine.PackageFacade
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null) =>
             PumpAsync(
                 PackageAssemblyQuery.ExecuteAsync(
-                    BrowserPackageWorkspace.Gallery,
-                    BrowserPackageWorkspace.GallerySourceIdentity,
+                    AssemblyQueryPayloadProvider.Instance,
                     plan,
                     cancellationToken),
                 queryEvent => ProjectAssembly(plan, queryEvent),
@@ -184,6 +184,24 @@ namespace InspectWeb.Engine.PackageFacade
                 emit,
                 cancellationToken,
                 deadline);
+
+        sealed class AssemblyQueryPayloadProvider
+            : IPackageRootPayloadProvider
+        {
+            internal static AssemblyQueryPayloadProvider Instance { get; } =
+                new();
+
+            public ValueTask<PackageRootPayloadResult> GetPayloadAsync(
+                PackageSourceCoordinate coordinate,
+                string? requiredProducerKey,
+                PackagePayloadLimits limits,
+                CancellationToken cancellationToken) =>
+                BrowserPackageWorkspace.AcquirePackageAssemblyQueryPayloadAsync(
+                    coordinate,
+                    requiredProducerKey,
+                    limits,
+                    cancellationToken);
+        }
 
         internal static BrowserPackageQueryEvent ProjectAssembly(
             PackageAssemblyQueryPlan plan,

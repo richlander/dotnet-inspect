@@ -7,6 +7,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Views;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -14,18 +15,46 @@ public static class WorkspaceCommand
 {
     public const string Name = "workspace";
 
-    public static Task<int> ExecuteAsync(
+    public static async Task<int> ExecuteAsync(
         WorkspaceOptions options,
-        CancellationToken cancellationToken = default) =>
-        ExecuteAsync(
-            options,
-            CreateLoadOptions(options),
-            cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        WorkspaceContextLoadOptions loadOptions = CreateLoadOptions(options);
+        if (options.RootRequest is null)
+        {
+            return await ExecuteCoreAsync(
+                options,
+                loadOptions,
+                payloadProvider: null,
+                cancellationToken).ConfigureAwait(false);
+        }
 
-    internal static async Task<int> ExecuteAsync(
+        await using var payloadProvider =
+            new ConfiguredPackageRootPayloadProvider(
+                HttpClientFactory.Shared.Timeout,
+                options.SourceOptions);
+        return await ExecuteCoreAsync(
+            options,
+            loadOptions,
+            payloadProvider,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static Task<int> ExecuteAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            options,
+            loadOptions,
+            payloadProvider: null,
+            cancellationToken);
+
+    static async Task<int> ExecuteCoreAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageRootPayloadProvider? payloadProvider,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
@@ -49,6 +78,7 @@ public static class WorkspaceCommand
                 workspace,
                 snapshot,
                 loadOptions,
+                payloadProvider,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -167,6 +197,7 @@ public static class WorkspaceCommand
         InspectionWorkspace workspace,
         WorkspaceScopeSnapshot snapshot,
         WorkspaceContextLoadOptions loadOptions,
+        IPackageRootPayloadProvider? payloadProvider,
         CancellationToken cancellationToken)
     {
         if (options.Packages.Length > 0 || options.Tfm is not null)
@@ -190,24 +221,52 @@ public static class WorkspaceCommand
             return 1;
         }
 
-        PackageRootAcquisitionOutcome outcome =
-            await PackageRootAcquisition.AcquireAsync(
-                request,
-                loadOptions,
-                cancellationToken).ConfigureAwait(false);
-        if (outcome is PackageRootAcquisitionOutcome.Failed failed)
+        PackageRootBinding binding;
+        PackagePayloadOrigin origin;
+        if (payloadProvider is null)
         {
-            CommandError.Write(
-                $"The package Root named by --root-request could not be reopened: {request}.",
-                [$"{failed.Kind}: {failed.Message}"]);
-            return 1;
+            PackageRootAcquisitionOutcome outcome =
+                await PackageRootAcquisition.AcquireAsync(
+                    request,
+                    loadOptions,
+                    cancellationToken).ConfigureAwait(false);
+            if (outcome is PackageRootAcquisitionOutcome.Failed failed)
+            {
+                return Failure(failed.Kind, failed.Message);
+            }
+
+            var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
+            binding = acquired.Binding;
+            origin = acquired.Payload.Origin;
+        }
+        else
+        {
+            PackageRootPayloadResult payload =
+                await payloadProvider.GetPayloadAsync(
+                    PackageSourceCoordinate.Create(
+                        request.Coordinate.PackageId,
+                        request.Coordinate.Version),
+                    request.Coordinate.Producer,
+                    loadOptions.PayloadLimits,
+                    cancellationToken).ConfigureAwait(false);
+            if (payload is PackageRootPayloadResult.Unavailable unavailable)
+                return Failure(unavailable.FailureKind, unavailable.Message);
+
+            var available = (PackageRootPayloadResult.Available)payload;
+            PackageRootRebindingOutcome rebound =
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    available.Payload);
+            if (rebound is PackageRootRebindingOutcome.Failed failed)
+                return Failure(failed.Kind, failed.Message);
+
+            binding = ((PackageRootRebindingOutcome.Bound)rebound).Binding;
+            origin = available.Payload.Origin;
         }
 
-        var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
-        PackageRootBinding binding = acquired.Binding;
         loadOptions.Log?.Invoke(
             $"Reopened {binding.Coordinate.PackageId}@{binding.Coordinate.Version} "
-            + $"from producer '{binding.Root.ProducerKey}' ({acquired.Payload.Origin}); "
+            + $"from producer '{binding.Root.ProducerKey}' ({origin}); "
             + $"selection {request.SelectionTargetFramework ?? "(none)"} "
             + $"resolved {binding.Root.AssetSelection.Status}.");
 
@@ -225,6 +284,16 @@ public static class WorkspaceCommand
 
         Write(committed, options);
         return 0;
+
+        int Failure(
+            PackageRootAcquisitionFailureKind kind,
+            string message)
+        {
+            CommandError.Write(
+                $"The package Root named by --root-request could not be reopened: {request}.",
+                [$"{kind}: {message}"]);
+            return 1;
+        }
     }
 
     internal static void Write(

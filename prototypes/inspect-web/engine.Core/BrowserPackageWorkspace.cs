@@ -153,8 +153,6 @@ internal static class BrowserPackageWorkspace
     static long _clock;
 
     internal static HttpClient NetworkClient => Http;
-    internal static PackageSourceIdentity GallerySourceIdentity =>
-        ConfiguredSourceIdentityFor(Gallery);
     internal static void ConfigureMsdlProxy(string origin) =>
         MsdlProxyHandler.Configure(origin);
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
@@ -456,28 +454,42 @@ internal static class BrowserPackageWorkspace
         // the cache entry, so the reopened package stays associated with the
         // source client that produced it (#6132) instead of a default namespace.
         BrowserSessionPackageStore store = Store;
-        PackageRootAcquisitionOutcome result = await PackageRootAcquisition.AcquireAsync(
-            request,
-            new WorkspaceContextLoadOptions
-            {
-                HttpClient = NetworkClient,
-                SourceAuthorization = PackageSourceAuthorization,
-                PackageStore = store,
-                PayloadLimits = PackageLimits,
-                PackageTransferPolicy = PackageTransferPolicy,
-            },
-            cancellationToken).ConfigureAwait(false);
-        if (result is PackageRootAcquisitionOutcome.Failed failed)
-            throw new InvalidOperationException($"Exact package Root reopening failed ({failed.Kind}): {failed.Message}");
-        if (result is not PackageRootAcquisitionOutcome.Acquired acquired)
-            throw new InvalidOperationException("Unknown package Root acquisition outcome.");
+        PackageRootPayloadResult payload =
+            await AcquirePackageRootPayloadAsync(
+                PackageSourceCoordinate.Create(
+                    request.Coordinate.PackageId,
+                    request.Coordinate.Version),
+                request.Coordinate.Producer,
+                store,
+                PackageLimits,
+                cancellationToken,
+                PackageTransferPolicy).ConfigureAwait(false);
+        if (payload is PackageRootPayloadResult.Unavailable unavailable)
+        {
+            throw new InvalidOperationException(
+                $"Exact package Root reopening failed ({unavailable.FailureKind}): "
+                + unavailable.Message);
+        }
+
+        var available = (PackageRootPayloadResult.Available)payload;
+        PackageRootRebindingOutcome rebound =
+            PackageRootAcquisition.BindReacquired(
+                request,
+                available.Payload);
+        if (rebound is PackageRootRebindingOutcome.Failed failed)
+        {
+            throw new InvalidOperationException(
+                $"Exact package Root reopening failed ({failed.Kind}): {failed.Message}");
+        }
+        PackageRootBinding binding =
+            ((PackageRootRebindingOutcome.Bound)rebound).Binding;
 
         string key = store.PackageKey(
-            acquired.Payload.Coordinate.PackageId,
-            acquired.Payload.Coordinate.Version);
+            available.Payload.Coordinate.PackageId,
+            available.Payload.Coordinate.Version);
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !cached.ProducerKey.Equals(acquired.Payload.ProducerKey, StringComparison.Ordinal)
-            || !ReferenceEquals(cached.Content.GenerationIdentity, acquired.Payload.Content.GenerationIdentity))
+            || !cached.ProducerKey.Equals(available.Payload.ProducerKey, StringComparison.Ordinal)
+            || !ReferenceEquals(cached.Content.GenerationIdentity, available.Payload.Content.GenerationIdentity))
         {
             throw new InvalidOperationException(
                 "Exact Root reacquisition did not publish the acquired generation in the Browser cache.");
@@ -485,8 +497,12 @@ internal static class BrowserPackageWorkspace
 
         Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackageCoordinate(
-            new BrowserPackage(acquired.Payload, cached.Bytes, store),
-            acquired.Binding);
+            new BrowserPackage(
+                request.Coordinate.PackageId,
+                available.Payload,
+                cached.Bytes,
+                store),
+            binding);
     }
     internal static Task<BrowserPackageCoordinate> ResolveAsync(
         string packageId,
@@ -1367,6 +1383,71 @@ internal static class BrowserPackageWorkspace
             PackageSourcePayloadResult.Failed failed =>
                 new PackageQueryContentResult.Unavailable(
                     failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
+    }
+
+    internal static ValueTask<PackageRootPayloadResult>
+        AcquirePackageAssemblyQueryPayloadAsync(
+            PackageSourceCoordinate coordinate,
+            string? requiredProducerKey,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken) =>
+        AcquirePackageRootPayloadAsync(
+            coordinate,
+            requiredProducerKey,
+            new InMemoryPackageStore(),
+            limits,
+            cancellationToken);
+
+    static async ValueTask<PackageRootPayloadResult>
+        AcquirePackageRootPayloadAsync(
+            PackageSourceCoordinate coordinate,
+            string? requiredProducerKey,
+            IPackageStore store,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken,
+            IPackagePayloadTransferPolicy? transferPolicy = null)
+    {
+        if (requiredProducerKey is not null
+            && !NuGetCache.GetSourceKey(
+                    PackageSource.NuGetOrg.Url)
+                .Equals(
+                requiredProducerKey,
+                StringComparison.Ordinal))
+        {
+            return new PackageRootPayloadResult.Unavailable(
+                Gallery.Source.Producer.Display,
+                "The producer required by the exact package request is not authorized by this Browser host.",
+                PackageRootAcquisitionFailureKind.ProducerNotAuthorized);
+        }
+
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                Gallery,
+                ConfiguredSourceIdentityFor(Gallery),
+                coordinate,
+                store,
+                limits: limits,
+                cancellationToken: cancellationToken,
+                transferPolicy: transferPolicy).ConfigureAwait(false);
+        return result switch
+        {
+            PackageSourcePayloadResult.Acquired acquired =>
+                new PackageRootPayloadResult.Available(
+                    acquired.Payload),
+            PackageSourcePayloadResult.Unavailable unavailable =>
+                new PackageRootPayloadResult.Unavailable(
+                    Gallery.Source.Producer.Display,
+                    unavailable.Message,
+                    PackageRootAcquisitionFailureKind.PackageUnavailable),
+            PackageSourcePayloadResult.Failed failed =>
+                new PackageRootPayloadResult.Unavailable(
+                    failed.Failure.Source.Producer.Display,
+                    failed.Failure.Message,
+                    PackageRootAcquisitionFailureKind.PackageUnavailable,
+                    failed.Failure.Kind),
             _ => throw new InvalidOperationException(
                 "Package payload acquisition returned an unknown outcome."),
         };

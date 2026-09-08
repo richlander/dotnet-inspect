@@ -140,13 +140,11 @@ public static class PackageAssemblyQuery
     }
 
     public static async IAsyncEnumerable<PackageAssemblyQueryEvent> ExecuteAsync(
-        IPackageSourceClient source,
-        PackageSourceIdentity configuredSourceIdentity,
+        IPackageRootPayloadProvider payloadProvider,
         PackageAssemblyQueryPlan plan,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
+        ArgumentNullException.ThrowIfNull(payloadProvider);
         ArgumentNullException.ThrowIfNull(plan);
 
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -166,8 +164,7 @@ public static class PackageAssemblyQuery
         {
             ObserveCancellation();
             PackageAssemblyQueryEvent item = await AcquireAndEvaluateAsync(
-                source,
-                configuredSourceIdentity,
+                payloadProvider,
                 coordinate,
                 plan,
                 operation.Token).ConfigureAwait(false);
@@ -222,24 +219,20 @@ public static class PackageAssemblyQuery
     }
 
     static async Task<PackageAssemblyQueryEvent> AcquireAndEvaluateAsync(
-        IPackageSourceClient source,
-        PackageSourceIdentity configuredSourceIdentity,
+        IPackageRootPayloadProvider payloadProvider,
         PackageSourceCoordinate coordinate,
         PackageAssemblyQueryPlan plan,
         CancellationToken cancellationToken)
     {
-        // A candidate's archive is never placed in a host's long-lived package cache.
-        var store = new InMemoryPackageStore();
-        PackageSourcePayloadResult acquired = await PackagePayloadAcquisition.AcquireAsync(
-            source,
-            configuredSourceIdentity,
+        PackageRootPayloadResult acquired =
+            await payloadProvider.GetPayloadAsync(
             coordinate,
-            store,
-            limits: PayloadLimits,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            requiredProducerKey: null,
+            PayloadLimits,
+            cancellationToken).ConfigureAwait(false);
         switch (acquired)
         {
-            case PackageSourcePayloadResult.Acquired available:
+            case PackageRootPayloadResult.Available available:
                 PackageRootBinding binding = PackageRootBinding.CreateFromSource(
                     available.Payload,
                     plan.TargetFramework,
@@ -250,23 +243,16 @@ public static class PackageAssemblyQuery
                         plan.Pattern,
                         plan.Budget,
                         cancellationToken).ConfigureAwait(false));
-            case PackageSourcePayloadResult.Unavailable unavailable:
-                return Failure(unavailable.Message);
-            case PackageSourcePayloadResult.Failed failed:
-                return Failure(failed.Failure.Message, failed.Failure.Kind);
+            case PackageRootPayloadResult.Unavailable unavailable:
+                return new PackageAssemblyQueryEvent.AcquisitionFailed(
+                    new(
+                        coordinate,
+                        unavailable.Producer,
+                        new InertString(TextPolicy.Prose, unavailable.Message),
+                        unavailable.SourceFailureKind));
             default:
                 throw new InvalidOperationException(
-                    "Unknown package payload acquisition outcome.");
+                    "Unknown package assembly-query payload outcome.");
         }
-
-        PackageAssemblyQueryEvent Failure(
-            string message,
-            PackageSourceFailureKind? sourceFailureKind = null) =>
-            new PackageAssemblyQueryEvent.AcquisitionFailed(
-                new(
-                    coordinate,
-                    source.Source.Producer.Display,
-                    new InertString(TextPolicy.Prose, message),
-                    sourceFailureKind));
     }
 }

@@ -5,6 +5,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Views;
@@ -247,23 +248,20 @@ public class FindCommand
             return 1;
         }
 
-        NuGetFetchOptions fetchOptions =
-            NuGetFetchOptions.FromRequestTimeout(
-                context.HttpClient.Timeout);
-        using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(
-                PackageSourceAssociation.Create(),
-                DotnetInspector.Core.HttpClientFactory
-                    .CreateCredentialFreeHandler(),
-                fetchOptions);
+        await using var payloadProvider =
+            new ConfiguredPackageRootPayloadProvider(
+                context.HttpClient.Timeout,
+                new NuGetSourceOptions
+                {
+                    Sources = [PackageSource.NuGetOrg.Url],
+                });
 
         var events = new List<PackageAssemblyQueryEvent>();
         try
         {
             await foreach (PackageAssemblyQueryEvent queryEvent
                 in PackageAssemblyQuery.ExecuteAsync(
-                        source,
-                        PackageSourceIdentity.NuGetOrg,
+                        payloadProvider,
                         plan,
                         cancellationToken)
                     .ConfigureAwait(false))

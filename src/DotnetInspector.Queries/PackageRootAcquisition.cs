@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 using DotnetInspector.Packages;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
@@ -438,6 +439,53 @@ public enum PackageRootAcquisitionFailureKind
     SelectionRequestNotReproduced,
 }
 
+/// <summary>The result of acquiring one exact package Root payload.</summary>
+public abstract record PackageRootPayloadResult
+{
+    private PackageRootPayloadResult()
+    {
+    }
+
+    public sealed record Available(AcquiredPackageSourcePayload Payload)
+        : PackageRootPayloadResult;
+
+    public sealed record Unavailable(
+        InertString Producer,
+        string Message,
+        PackageRootAcquisitionFailureKind FailureKind,
+        PackageSourceFailureKind? SourceFailureKind = null)
+        : PackageRootPayloadResult;
+}
+
+/// <summary>
+/// Host capability for acquiring one exact package payload through current
+/// source authorization.
+/// </summary>
+public interface IPackageRootPayloadProvider
+{
+    ValueTask<PackageRootPayloadResult> GetPayloadAsync(
+        PackageSourceCoordinate coordinate,
+        string? requiredProducerKey,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>The result of binding reacquired content to an exact Root request.</summary>
+public abstract record PackageRootRebindingOutcome
+{
+    private PackageRootRebindingOutcome()
+    {
+    }
+
+    public sealed record Bound(PackageRootBinding Binding)
+        : PackageRootRebindingOutcome;
+
+    public sealed record Failed(
+        PackageRootAcquisitionFailureKind Kind,
+        string Message)
+        : PackageRootRebindingOutcome;
+}
+
 /// <summary>The typed result of one package Root acquisition.</summary>
 /// <remarks>
 /// Cancellation is not an outcome arm; it propagates with the caller's token.
@@ -548,6 +596,49 @@ public abstract class PackageRootAcquisitionOutcome
 /// </remarks>
 public static class PackageRootAcquisition
 {
+    /// <summary>
+    /// Binds an exact source payload only when it reproduces the request's
+    /// coordinate, producer, and selection intent.
+    /// </summary>
+    public static PackageRootRebindingOutcome BindReacquired(
+        PackageRootReacquisitionRequest request,
+        AcquiredPackageSourcePayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(payload);
+        RealizedMemberCoordinate.Package coordinate = request.Coordinate;
+        if (!payload.Coordinate.PackageId.Equals(
+                coordinate.PackageId,
+                StringComparison.Ordinal)
+            || !payload.Coordinate.Version.Equals(
+                coordinate.Version,
+                StringComparison.Ordinal))
+        {
+            return new PackageRootRebindingOutcome.Failed(
+                PackageRootAcquisitionFailureKind.InvalidCoordinate,
+                "The reacquired payload does not match the package coordinate named by the Root request.");
+        }
+        if (!payload.ProducerKey.Equals(
+                coordinate.Producer,
+                StringComparison.Ordinal))
+        {
+            return new PackageRootRebindingOutcome.Failed(
+                PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
+                "The reacquired payload was served by a producer other than the one named by the Root request.");
+        }
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromReacquiredSource(
+                payload,
+                request);
+        return request.Equals(binding.CreateReacquisitionRequest())
+            ? new PackageRootRebindingOutcome.Bound(binding)
+            : new PackageRootRebindingOutcome.Failed(
+                PackageRootAcquisitionFailureKind
+                    .SelectionRequestNotReproduced,
+                "The reacquired payload produced a different exact Root request.");
+    }
+
     /// <summary>Acquires a Root for one explicit, exact coordinate.</summary>
     public static Task<PackageRootAcquisitionOutcome> AcquireAsync(
         PackageRootAcquisitionRequest request,
