@@ -57,20 +57,18 @@ public class PlatformPrunePolicyTests
     }
 
     [Fact]
-    public void UnansweredComparisonDoesNotDelegate()
+    public void UnansweredComparisonKeepsTheEntryButDoesNotDelegate()
     {
         PlatformPruneInventory inventory = Net11();
 
         // An omitted coordinate version floats to latest rather than meaning "none", so it is
         // not comparable until something resolves it.
-        Assert.False(PlatformPrunePolicy.Decide(inventory, At("System.Text.Json"))
-            .DelegatesToPlatform);
-        // A floating request is not a version.
-        Assert.False(PlatformPrunePolicy.Decide(inventory, At("System.Text.Json", "*"))
-            .DelegatesToPlatform);
-        Assert.Equal(
-            PlatformSubsumption.NotComparable,
-            PlatformPrunePolicy.Decide(inventory, At("System.Text.Json", "*")).Subsumption);
+        PlatformSupply unresolved =
+            PlatformPrunePolicy.Decide(inventory, At("System.Text.Json"));
+        Assert.Equal(PlatformSubsumption.NotComparable, unresolved.Subsumption);
+        Assert.False(unresolved.DelegatesToPlatform);
+        Assert.Equal("Microsoft.NETCore.App", unresolved.Family);
+        Assert.Equal(Net11Pack, unresolved.SuppliedVersion);
     }
 
     [Fact]
@@ -95,33 +93,12 @@ public class PlatformPrunePolicyTests
     }
 
     [Fact]
-    public void PlatformLibraryComesFromTheInjectedCatalogOrNotAtAll()
+    public void InvalidCoordinateFailsBeforePolicy()
     {
-        PlatformPruneInventory inventory = Net11();
-
-        // With a lookup, the supplying library is reported.
-        PlatformSupply named = PlatformPrunePolicy.Decide(inventory, At("System.Text.Json", "9.0.0"), id => id + ".dll");
-        Assert.Equal("System.Text.Json.dll", named.PlatformLibrary);
-
-        // Without one it is unknown, not absent. The policy never derives a library name from the
-        // package id, which is the heuristic this design replaces.
-        Assert.Null(PlatformPrunePolicy.Decide(inventory, At("System.Text.Json", "9.0.0"))
-            .PlatformLibrary);
-
-        // A subsumed identity can legitimately have no library of that name, and the lookup is
-        // what says so. NETStandard.Library is the shape.
-        PlatformSupply noLibrary = PlatformPrunePolicy.Decide(inventory, At("NETStandard.Library", "2.0.3"), _ => null);
-        Assert.True(noLibrary.DelegatesToPlatform);
-        Assert.Null(noLibrary.PlatformLibrary);
-    }
-
-    [Fact]
-    public void LookupIsNotConsultedForAnUnknownIdentity()
-    {
-        // Nothing is subsumed, so there is no supplying library to ask about.
-        var asked = new List<string>();
-        PlatformPrunePolicy.Decide(Net11(), At("Newtonsoft.Json", "13.0.3"), id => { asked.Add(id); return id; });
-        Assert.Empty(asked);
+        Assert.Throws<ArgumentException>(() =>
+            PlatformPrunePolicy.Decide(Net11(), At("System.Text.Json", "*")));
+        Assert.Throws<ArgumentException>(() =>
+            PlatformPrunePolicy.Decide(Net11(), At("../System.Text.Json", "9.0.0")));
     }
 
     [Fact]

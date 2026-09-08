@@ -13,16 +13,10 @@ namespace DotnetInspector.Packages;
 /// <param name="SuppliedVersion">
 /// The version the target supplies. Null when the target has no entry for the identity.
 /// </param>
-/// <param name="PlatformLibrary">
-/// The platform library that supplies the API, when a catalog lookup was provided and answered.
-/// Null otherwise, including when the identity is subsumed without a library of that name —
-/// <c>NETStandard.Library</c> is the shape. Absence means unknown, never "no library".
-/// </param>
 public sealed record PlatformSupply(
     PlatformSubsumption Subsumption,
     string? Family,
-    NuGetVersion? SuppliedVersion,
-    string? PlatformLibrary)
+    NuGetVersion? SuppliedVersion)
 {
     /// <summary>Whether a consumer should resolve this identity to the platform.</summary>
     /// <remarks>
@@ -35,7 +29,7 @@ public sealed record PlatformSupply(
 
     /// <summary>A target with no entry for the identity supplies nothing for it.</summary>
     public static PlatformSupply None { get; } =
-        new(PlatformSubsumption.NotSubsumed, null, null, null);
+        new(PlatformSubsumption.NotSubsumed, null, null);
 }
 
 /// <summary>
@@ -44,16 +38,9 @@ public sealed record PlatformSupply(
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is policy over the <see cref="PlatformPruneInventory"/> fact rather than part of it. It
-/// performs no I/O, holds no state, and reaches no catalog of its own: a caller that wants the
-/// supplying library name passes a lookup, and one that does not gets the subsumption answer
-/// alone.
-/// </para>
-/// <para>
-/// The lookup is injected rather than resolved here because assembly identity belongs to the
-/// platform library catalog, a separate owner. Deriving a library name from the package id would
-/// reintroduce exactly the name heuristic this design replaces: `System.Text.Json` happens to
-/// match, `NETStandard.Library` has no library at all, and neither fact is legible from the id.
+/// This is policy over the <see cref="PlatformPruneInventory"/> fact rather than part of it.
+/// It performs no I/O, holds no state, and does not infer package-to-library correspondence.
+/// The contract is owned by <c>platform-package-supply-policy.md</c>.
 /// </para>
 /// <para>
 /// Placement is settled by the input owner rather than provisional.
@@ -76,20 +63,20 @@ public static class PlatformPrunePolicy
     /// `net8.0` question from a `net11.0` inventory would be a different question quietly
     /// answered. Its runtime identifier is ignored, because pruning is RID-independent.
     /// </param>
-    /// <param name="platformLibrary">
-    /// Optional catalog lookup from package identity to the platform library supplying it.
-    /// </param>
     /// <exception cref="ArgumentException">
     /// The coordinate names a different target framework than the inventory describes.
     /// </exception>
     public static PlatformSupply Decide(
         PlatformPruneInventory inventory,
-        PackageCoordinate coordinate,
-        Func<string, string?>? platformLibrary = null)
+        PackageCoordinate coordinate)
     {
         ArgumentNullException.ThrowIfNull(inventory);
         ArgumentNullException.ThrowIfNull(coordinate);
-        ArgumentException.ThrowIfNullOrWhiteSpace(coordinate.PackageId);
+
+        if (PackageCoordinateResolver.Validate(coordinate) is { } invalid)
+        {
+            throw new ArgumentException(invalid.Message, nameof(coordinate));
+        }
 
         if (coordinate.Framework is { Length: > 0 } framework
             && !string.Equals(framework, inventory.TargetFramework, StringComparison.OrdinalIgnoreCase))
@@ -115,7 +102,6 @@ public static class PlatformPrunePolicy
         return new PlatformSupply(
             subsumption,
             entry.Family,
-            entry.SuppliedVersion,
-            platformLibrary?.Invoke(entry.PackageId));
+            entry.SuppliedVersion);
     }
 }
