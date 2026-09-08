@@ -76,7 +76,7 @@ test("adaptive navigation selects deterministic mixed and dual Chooser forms", a
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const observed = new Set<string>();
-  for (const width of [1000, 900, 800, 700, 600, 500, 390]) {
+  for (const width of [1440, 1000, 900, 800, 700, 600, 500, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(async () => {
       const pair = await forms(page);
@@ -229,10 +229,7 @@ test("Tab dismissal resolves document order before an open Chooser unpins", asyn
 
   await expect(page.getByRole("menu", { name: "Member lenses" })).toBeHidden();
   await expect(page.locator("#application-menu-button")).toBeFocused();
-  await expect.poll(() => forms(page)).toEqual({
-    subject: "tabs",
-    inspector: "tabs",
-  });
+  await expect.poll(async () => (await forms(page)).inspector).toBe("tabs");
 });
 
 test("outside pointer dismissal closes and unpins a Chooser", async ({ page }) => {

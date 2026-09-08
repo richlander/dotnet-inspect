@@ -1337,8 +1337,10 @@ test("keyboard tab activation preserves adaptive focus across shell replacement"
   await expect(metadata).toBeFocused();
 
   const type = page.getByRole("tab", { name: "Type" });
-  const librarySubject = page.getByRole("tab", { name: "Library" });
-  const packageSubject = page.getByRole("tab", { name: "Package" });
+  const librarySubject = page.locator(
+    "[data-subject-tab][data-scope='library']");
+  const packageSubject = page.locator(
+    "[data-subject-tab][data-scope='package']");
   await type.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(librarySubject).toBeFocused();
