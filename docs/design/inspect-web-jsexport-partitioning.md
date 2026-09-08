@@ -802,18 +802,14 @@ summary but does not establish graph equality. Their lowering counts remain the
 expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
 
-CoreCLR staging follows only the highest-run-number successful `main`/`push`
-run of the compiler-async staging workflow. A successful completion is a
-wakeup, not deployment authority: after entering one static job-level
-concurrency group, the atomic build-and-deploy job resolves the current highest
-successful run and uses that run's exact artifact and head SHA. It checks the
-selected identity again immediately before deployment. A later rerun of an
-older successful staging run may restart the job, but the restarted job still
-builds and deploys the current highest successful run instead of the older
-wakeup. A newer failed, cancelled, or in-progress run does not make older
-successful evidence false; its later successful completion supplies the
-superseding wakeup. Failed, cancelled, manual, and non-`main` completions do
-not enter the group.
+CoreCLR staging follows production promotion rather than every compiler-async
+staging build. After production deploys successfully, the promotion workflow
+calls the CoreCLR workflow with the exact validated product SHA, staging run
+ID, and staged artifact ID that it promoted. The CoreCLR build checks out that
+SHA and compares against that exact compiler-async artifact; it never resolves
+a newer staging run independently. The promotion concurrency group serializes
+the production and CoreCLR deployments, and the CoreCLR deployment does not
+start before production succeeds.
 
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes
