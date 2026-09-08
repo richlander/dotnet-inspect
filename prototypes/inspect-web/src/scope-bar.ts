@@ -1255,8 +1255,8 @@ class ScopeBarController implements ScopeBarBinding {
     for (const group of [this.subject, this.inspector]) {
       if (!group?.state.open) continue;
       group.trigger.setAttribute("aria-expanded", "true");
-      this.positionMenu(group);
       showPopover(group.menu);
+      this.positionMenu(group);
     }
   }
 
@@ -1270,8 +1270,8 @@ class ScopeBarController implements ScopeBarBinding {
     group.state.open = true;
     group.trigger.setAttribute("aria-expanded", "true");
     this.layout();
-    this.positionMenu(group);
     showPopover(group.menu);
+    this.positionMenu(group);
     if (!focusItem) return;
     const target = group.state.focusedId
       ? group.menuItems.find(item =>
@@ -1474,6 +1474,11 @@ class ScopeBarController implements ScopeBarBinding {
     const viewportHeight =
       visualViewport?.height ?? documentViewport.clientHeight;
     const margin = 8;
+    const gap = 4;
+    const usableTop = viewportTop + margin;
+    const usableBottom = Math.max(
+      usableTop,
+      viewportTop + viewportHeight - margin);
     const availableMenuWidth = Math.max(
       0,
       viewportWidth - margin * 2);
@@ -1486,13 +1491,29 @@ class ScopeBarController implements ScopeBarBinding {
     const left = Math.min(
       Math.max(viewportLeft + margin, bounds.left),
       maxLeft);
+    const belowTop = Math.min(
+      Math.max(bounds.bottom + gap, usableTop),
+      usableBottom);
+    const aboveBottom = Math.min(
+      Math.max(bounds.top - gap, usableTop),
+      usableBottom);
+    const availableBelow = Math.max(0, usableBottom - belowTop);
+    const availableAbove = Math.max(0, aboveBottom - usableTop);
+    const naturalMenuHeight = group.menu.scrollHeight;
+    const placeBelow = availableBelow >= naturalMenuHeight
+      || (availableAbove < naturalMenuHeight
+        && availableBelow >= availableAbove);
+    const availableHeight = placeBelow ? availableBelow : availableAbove;
     group.menu.style.left = `${left}px`;
-    group.menu.style.top = `${bounds.bottom + 4}px`;
     group.menu.style.width = `${menuWidth}px`;
     group.menu.style.maxWidth = `${availableMenuWidth}px`;
-    group.menu.style.maxHeight =
-      `${Math.max(
-        0,
-        viewportTop + viewportHeight - bounds.bottom - margin)}px`;
+    group.menu.style.maxHeight = `${availableHeight}px`;
+    const menuHeight = group.menu.offsetHeight;
+    const desiredTop = placeBelow ? belowTop : aboveBottom - menuHeight;
+    const maximumTop = Math.max(usableTop, usableBottom - menuHeight);
+    const top = Math.min(
+      Math.max(desiredTop, usableTop),
+      maximumTop);
+    group.menu.style.top = `${top}px`;
   }
 }

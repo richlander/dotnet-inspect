@@ -398,6 +398,46 @@ test("open Chooser remains bounded after a height-only resize", async ({
     element.scrollHeight > element.clientHeight)).toBe(true);
 });
 
+test("open Chooser remains bounded after visual viewport panning", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 520 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("[data-navigation-trigger='inspector']").click();
+  const menu = page.getByRole("menu", { name: "Member lenses" });
+  const bounds = await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) throw new Error("Visual viewport is unavailable.");
+    for (const [property, value] of [
+      ["height", 120],
+      ["width", 120],
+      ["offsetTop", 80],
+      ["offsetLeft", 40],
+    ] as const) {
+      Object.defineProperty(
+        viewport,
+        property,
+        { configurable: true, value });
+    }
+    viewport.dispatchEvent(new Event("scroll"));
+    return {
+      bottom: viewport.offsetTop + viewport.height - 8,
+      top: viewport.offsetTop + 8,
+    };
+  });
+
+  await expect.poll(async () => (await menu.boundingBox())?.y)
+    .toBeGreaterThanOrEqual(bounds.top);
+  await expect.poll(async () => {
+    const box = await menu.boundingBox();
+    return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(bounds.bottom);
+  const overview = menu.getByRole("menuitemradio", { name: "Overview" });
+  await expect.poll(async () => (await overview.boundingBox())?.y)
+    .toBeGreaterThanOrEqual(bounds.top);
+});
+
 test("inspector content keeps an installed accessible-name owner", async ({
   page,
 }) => {
