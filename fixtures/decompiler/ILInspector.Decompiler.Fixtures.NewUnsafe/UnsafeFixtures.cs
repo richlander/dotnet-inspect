@@ -712,8 +712,8 @@ public static class UnsafeFixtures
 
 public sealed class AccessorContractFixtures
 {
-    public int Property
+    public unsafe int Property
     {
-        unsafe get => 42;
+        get => 42;
     }
 }

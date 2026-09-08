@@ -14,6 +14,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using LegacyDynamicStackallocFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
+using NewAccessorFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.AccessorContractFixtures;
 using NewDynamicStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures;
 using NewStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
@@ -32,6 +33,20 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class UnsafeEmitterTests
 {
+    [Fact]
+    public void UpdatedRules_PropertyUnsafe_PreservesGetterContract()
+    {
+        using var source =
+            MetadataSource.Open(typeof(NewAccessorFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(NewAccessorFixtures).FullName!,
+            "get_Property");
+
+        Assert.NotNull(function);
+        Assert.True(function.RequiresUnsafeContract);
+    }
+
     static DecompilerResult DecompileResult(string assemblyPath, string typeFullName, string method)
     {
         var source = MetadataSource.Open(assemblyPath);
