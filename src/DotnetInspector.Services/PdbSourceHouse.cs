@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 using CSharpText;
-using DotnetInspector.CSharpBodySlicer;
+using CSharpText.MemberSlicing;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Text;
@@ -670,7 +670,7 @@ public static class PdbSourceHouse
         try
         {
             string sourceText = DecodeSourceText(content);
-            string? memberText = BodySlicer.ExtractMethodBody(
+            string? memberText = MemberTextSlicer.ExtractMemberText(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
@@ -711,7 +711,7 @@ public static class PdbSourceHouse
                 document,
                 verification);
         }
-        catch (InvalidSequencePointCoordinatesException ex)
+        catch (InvalidMemberTextCoordinatesException ex)
         {
             return Failed(
                 subject,

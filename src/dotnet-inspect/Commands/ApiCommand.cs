@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspector.CommandLine;
-using DotnetInspector.CSharpBodySlicer;
+using CSharpText.MemberSlicing;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -2404,7 +2404,7 @@ public class ApiCommand
     {
         try
         {
-            string? sourceCode = BodySlicer.ExtractMethodBody(
+            string? sourceCode = MemberTextSlicer.ExtractMemberText(
                 content,
                 startLine,
                 endLine,
@@ -2434,7 +2434,7 @@ public class ApiCommand
                 pdbPath,
                 MemberSourceTooComplex: true);
         }
-        catch (InvalidSequencePointCoordinatesException)
+        catch (InvalidMemberTextCoordinatesException)
         {
             return new ResolvedMethodSource(
                 null,
