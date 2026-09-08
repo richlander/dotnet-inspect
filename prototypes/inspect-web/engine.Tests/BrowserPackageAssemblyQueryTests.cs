@@ -11,6 +11,12 @@ using NuGetFetch;
 
 namespace InspectWeb.Engine.Tests;
 
+[CollectionDefinition(
+    "Browser package assembly query operations",
+    DisableParallelization = true)]
+public sealed class BrowserPackageAssemblyQueryOperationCollection;
+
+[Collection("Browser package assembly query operations")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageAssemblyQueryTests
 {
