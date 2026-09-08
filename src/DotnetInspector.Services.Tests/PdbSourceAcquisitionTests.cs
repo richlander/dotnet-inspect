@@ -32,7 +32,7 @@ public class PdbSourceAcquisitionTests
     {
         using SourceLinkService source = OpenSourceNeedingPdb();
         using var client = new HttpClient(new QueueHandler());
-        var fetcher = new SourceFetcher(
+        var fetcher = new SourceFetch(
             client,
             new InMemorySourceContentStore());
         var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -81,7 +81,7 @@ public class PdbSourceAcquisitionTests
             writable: false));
         Assert.True(source.Context.WindowsPdbDetected);
         using var client = new HttpClient(new QueueHandler());
-        var fetcher = new SourceFetcher(
+        var fetcher = new SourceFetch(
             client,
             new InMemorySourceContentStore());
         var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -365,7 +365,7 @@ public class PdbSourceAcquisitionTests
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
         var handler = new QueueHandler(actual);
         using var client = new HttpClient(handler);
-        var fetcher = new SourceFetcher(
+        var fetcher = new SourceFetch(
             client,
             new InMemorySourceContentStore());
 
@@ -434,7 +434,7 @@ public class PdbSourceAcquisitionTests
         try
         {
             var cancellationToken = TestContext.Current.CancellationToken;
-            var fetcher = new SourceFetcher(client);
+            var fetcher = new SourceFetch(client);
             var repaired = await fetcher.FetchVerifiedSourceBytesAsync(
                 Url,
                 bytes => bytes.Span.SequenceEqual(expected),
@@ -443,7 +443,7 @@ public class PdbSourceAcquisitionTests
             Assert.Equal(expected, repaired);
             Assert.Equal(1, handler.RequestCount);
 
-            var cached = await new SourceFetcher(client).FetchVerifiedSourceBytesAsync(
+            var cached = await new SourceFetch(client).FetchVerifiedSourceBytesAsync(
                 Url,
                 bytes => bytes.Span.SequenceEqual(expected),
                 cancellationToken);
@@ -471,7 +471,7 @@ public class PdbSourceAcquisitionTests
             content,
             "https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com");
         using var client = new HttpClient(handler);
-        var fetcher = new SourceFetcher(client);
+        var fetcher = new SourceFetch(client);
         const string Url =
             "https://dev.azure.com/org/project/_apis/git/repositories/repo/items"
             + "?api-version=7.1&versionType=commit"
@@ -501,7 +501,7 @@ public class PdbSourceAcquisitionTests
         var handler = new QueueHandler(Encoding.UTF8.GetBytes(Source));
         using var client = new HttpClient(handler);
         var policy = new RejectingSourceFetchPolicy();
-        var fetcher = new SourceFetcher(
+        var fetcher = new SourceFetch(
             client,
             new InMemorySourceContentStore(),
             policy);
@@ -536,7 +536,7 @@ public class PdbSourceAcquisitionTests
 
         try
         {
-            var fetcher = new SourceFetcher(client);
+            var fetcher = new SourceFetch(client);
             byte[]? result = await fetcher.FetchVerifiedSourceBytesAsync(
                 Url,
                 bytes => bytes.Span.SequenceEqual(expected),

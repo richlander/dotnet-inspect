@@ -113,7 +113,7 @@ public static class PdbSourceAcquisition
         SourceLinkService source,
         MetadataTypeDefinitionName type,
         FindingSubject subject,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         IReadOnlyList<string>? repositoryPaths = null,
         CancellationToken cancellationToken = default,
         bool allowLocalSource = true)
@@ -287,7 +287,7 @@ public static class PdbSourceAcquisition
         int metadataToken,
         string methodName,
         FindingSubject subject,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         IReadOnlyList<string>? repositoryPaths = null,
         CancellationToken cancellationToken = default,
         bool allowLocalSource = true)
@@ -527,7 +527,7 @@ public static class PdbSourceAcquisition
     }
 
     public static async Task<VerifiedSourceTextResult> FetchVerifiedSourceTextAsync(
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         string url,
         string? checksumAlgorithm,
         byte[]? checksum,
@@ -585,7 +585,7 @@ public static class PdbSourceAcquisition
     }
 
     public static async Task<VerifiedSourceTextResult> AcquireVerifiedSourceTextAsync(
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         string? localPath,
         string url,
         string? checksumAlgorithm,

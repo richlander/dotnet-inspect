@@ -133,7 +133,7 @@ static class AuthoredSourceHarvest
 
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
 
         var libraries = new List<LibraryState>();
         try
@@ -293,7 +293,7 @@ static class AuthoredSourceHarvest
     static async Task<HarvestAttempt> TryHarvestAsync(
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         bool evil,
         IReadOnlyList<string>? repositoryPaths)
         => await TryHarvestAsync(
@@ -319,7 +319,7 @@ static class AuthoredSourceHarvest
         SourceLinkService source,
         HarvestIdentity identity,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         bool evil,
         IReadOnlyList<string>? repositoryPaths)
     {

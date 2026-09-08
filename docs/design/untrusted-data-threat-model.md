@@ -1460,7 +1460,7 @@ Browser-Wasm cannot perform the DNS-level checks that
 `ISourceFetchPolicy` that authorizes a narrow set of HTTPS source hosts before
 dispatch, omits credentials, and configures Fetch to reject redirects. A
 destination outside that set is a PDB-source acquisition limitation and may
-fall back to decompilation; it is never probed. The shared `SourceFetcher`
+fall back to decompilation; it is never probed. The shared `SourceFetch`
 applies that host policy before its memory or content-store caches and before
 creating the request. `PdbSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
 and
