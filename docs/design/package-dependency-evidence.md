@@ -13,8 +13,9 @@ package-prefix admission, and failure core is implemented under #5533 as
 input-kind, declaration-basis, authorship, produced-relationship, positive
 processing, and independent phase-count vocabulary for package-manifest and
 restored-project inputs. Authored-project and runtime-dependency providers,
-typed pruning observations, policy composition, and host adoption remain
-staged work. Optional owner observations remain dependent on #5315.
+policy composition, and host adoption remain staged work. Restored-project
+inputs now consume typed pruning-processing evidence from their artifact
+owner. Optional owner observations remain dependent on #5315.
 
 ## Owner
 
@@ -73,7 +74,8 @@ steps are:
 2. Add input kind, declaration basis, authorship, normalized produced
    relationships, processing evidence, and independent phase counts to the
    immutable result (implemented by the current query).
-3. Add typed pruning-processing evidence to restored-project facts.
+3. Add typed pruning-processing evidence to restored-project facts
+   (implemented by the current query).
 4. Add a typed authored-project declaration provider.
 5. Add a typed runtime-dependency provider for `.deps.json`.
 6. Adopt the shape in package-pruning policy.
@@ -593,7 +595,7 @@ initial semantic vocabulary is:
 
 | Semantic | Positive evidence |
 | --- | --- |
-| Restore resolution | A selected restored target graph |
+| Restore resolution | A selected restored target |
 | Package-pruning evaluation | The restored target's typed `packagesToPrune` evidence |
 | Runtime dependency projection | A typed runtime target graph |
 
@@ -612,6 +614,14 @@ Prunable and processed are independent. Declaration authorship and the
 consuming policy determine whether an edge may receive a transformation or
 exemption; processing observations state which semantics already ran. This
 owner therefore defines no `IsPruned` or `IsPrunable` bit.
+
+The restored-project provider associates its pruning evidence with the exact
+selected declaration-group identity. A valid empty `packagesToPrune` object is
+positive evidence. An absent member remains unavailable, while malformed,
+ambiguous, or over-limit evidence becomes a typed provider failure. The
+normalized result preserves restore resolution independently: provider failure
+makes processing available but incomplete, with the owner-issued failure
+retained and no pruning observation manufactured.
 
 Processing retains the same closed state as the other phases:
 
@@ -1050,7 +1060,9 @@ and current larger-shape properties are gated in Release by
 `PackageDependencyEvidenceQueryTests`. The current larger-shape gates are:
 
 - `Execute_CurrentInputKindsAndDeclarationBasesAreExplicit`;
-- `Execute_RestoredGraphProvidesPositiveRestoreResolutionObservation`;
+- `PackageInput_AssetsPruningObservationRequiresTypedPackagesToPruneEvidence`;
+- `PackageInput_AssetsWithoutPruneEvidenceRemainProcessingUnknown`;
+- `PackageInput_InvalidPruneEvidencePreservesRestoreAsIncompleteProcessing`;
 - `Execute_PreservesSelectedRestoredTargetWhenGraphIsUnavailable`;
 - `PackageInput_InputKindAndBasisRequireMatchingIdentityAndProvenance`;
 - `PackageInput_RequestedConstraintAndResolvedCoordinateRemainIndependent`;
@@ -1060,13 +1072,10 @@ and current larger-shape properties are gated in Release by
 - `PackageInput_NotApplicableIsNotUnavailableOrCompleteEmpty`.
 
 Owner-enrichment behavior remains `unverified` until #5315 supplies its typed
-input and focused gates. The remaining authored-project, pruning-processing,
-runtime-dependency, and cross-host properties remain `unverified` until these
-Release gates land:
+input and focused gates. The remaining authored-project, runtime-dependency,
+and cross-host properties remain `unverified` until these Release gates land:
 
 - `PackageInput_AuthoredSyntaxAndEvaluatedBasisRemainDistinct`;
-- `PackageInput_AssetsPruningObservationRequiresTypedPackagesToPruneEvidence`;
-- `PackageInput_AssetsWithoutPruneEvidenceRemainProcessingUnknown`;
 - `PackageInput_DepsAbsenceNeverBecomesPruningEvidence`;
 - `PackageInput_CliAndBrowserConsumeTheSameTypedSnapshot`.
 
