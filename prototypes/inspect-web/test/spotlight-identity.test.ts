@@ -3839,14 +3839,23 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     },
   };
   const retained: typeof cached[] = [];
+  const released: typeof cached[] = [];
+  let invalidations = 0;
+  let cachedTarget: typeof cached | null = cached;
   const context = {
     state,
     cached,
     target: { tfm: "net11.0", version: "11.0.0" },
-    runtimePackageForTarget: () => cached,
+    runtimePackageForTarget: () => cachedTarget,
     retainPackageModel: (packageModel: typeof cached) => {
       retained.push(packageModel);
       state.packages = [packageModel];
+    },
+    releasePackageModelCaches: (packageModel: typeof cached) => {
+      released.push(packageModel);
+    },
+    invalidateWorkspaceMembershipViews: () => {
+      invalidations++;
     },
     platformCoordinateCapacityError: () => "",
     resetMemberSectionState: () => {},
@@ -3861,6 +3870,7 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     context);
   assert.equal(state.package, cached);
   assert.deepEqual(retained, [cached]);
+  assert.equal(invalidations, 1);
 
   state.packages = [];
   state.package = null;
@@ -3883,6 +3893,44 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     true);
   assert.equal(state.package, cached);
   assert.deepEqual(retained, [cached]);
+
+  const previous = cached;
+  cachedTarget = null;
+  state.packages = [previous];
+  state.package = previous;
+  retained.length = 0;
+  invalidations = 0;
+  runInNewContext(
+    stripTypeScriptTypes(`${retainTarget}\n${installTarget}\ninstallPlatformTarget({
+      tfm: "net12.0",
+      version: "12.0.0",
+    });`),
+    context);
+  assert.equal(state.package, null);
+  assert.deepEqual(state.packages, []);
+  assert.deepEqual(released, [previous]);
+  assert.equal(invalidations, 1);
+});
+
+test("Platform Library entry from demos stages URL commitment and restores failure", () => {
+  const openLibrary =
+    appSource.match(/async function openPlatformLibrary[\s\S]*?(?=\nfunction pickSpotlightLoadedPackage)/)?.[0]
+    ?? "";
+  assert.match(
+    openLibrary,
+    /const catalogSnapshot = !scopeOnly && isProductHomeDemosPath\(location\.pathname\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot\(\)/);
+  assert.match(
+    openLibrary,
+    /catalogSnapshot\s*\? beginDemoNavigation\(location\.href\)\s*:\s*navigationSequence\.begin\(\)/);
+  assert.match(
+    openLibrary,
+    /render\(\);\s*await loadSelectionData\(\);\s*if \(catalogSnapshot\) \{\s*stageDemoNavigation\(navigationSeq, buildStateUrl\(\)\.toString\(\)\);\s*if \(!commitDemoNavigation\(navigationSeq\)\) return undefined;/);
+  assert.match(
+    openLibrary,
+    /if \(catalogSnapshot\) \{\s*failWorkspaceCatalogAction\([\s\S]*catalogSnapshot,[\s\S]*focusWorkbenchSearchOrHeading\);\s*return undefined;/);
+  assert.match(
+    openLibrary,
+    /finally \{\s*if \(catalogSnapshot\)\s*cancelDemoNavigation\(navigationSeq\);/);
 });
 
 test("member cache signatures use the same complete coordinates", () => {

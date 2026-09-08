@@ -647,6 +647,9 @@ test("missing Platform reacquisition retains only an aligned canonical pin", () 
     retainedMissingPlatformTarget(basis, [packageTab], "net10.0"),
     { tabIndex: 1, version: "10.0.10" });
   assert.deepEqual(
+    retainedMissingPlatformTarget(basis, basis, "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
     retainedMissingPlatformTarget(
       [{ ...platformTab, version: null }, packageTab],
       [packageTab],

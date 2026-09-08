@@ -554,7 +554,9 @@ export function retainedMissingPlatformTarget(
   resolvedTabs: readonly BrowserWorkspaceShareTab[],
   framework: string,
 ): RetainedMissingPlatformTarget | null {
-  if (!basisTabs || basisTabs.length !== resolvedTabs.length + 1) return null;
+  if (!basisTabs
+    || (basisTabs.length !== resolvedTabs.length
+      && basisTabs.length !== resolvedTabs.length + 1)) return null;
   const matches = basisTabs
     .map((tab, index) => ({ tab, index }))
     .filter(({ tab }) =>
@@ -567,6 +569,13 @@ export function retainedMissingPlatformTarget(
   if (matches.length !== 1) return null;
 
   const { tab, index } = matches[0]!;
+  if (basisTabs.length === resolvedTabs.length) {
+    if (!workspaceShareTabsMatchResolved(basisTabs, resolvedTabs)) return null;
+    return {
+      tabIndex: index,
+      version: tab.version ?? "",
+    };
+  }
   const remaining = basisTabs.filter((_, candidate) => candidate !== index);
   if (!workspaceShareTabsMatchResolved(remaining, resolvedTabs)) return null;
   return {

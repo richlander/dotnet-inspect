@@ -7479,8 +7479,20 @@ function retainPlatformPackageForTarget(
   target: { tfm: string; version: string },
 ): AppPackage | null {
   const packageModel = runtimePackageForTarget(target);
-  if (packageModel && !state.packages.includes(packageModel))
-    retainPackageModel(packageModel);
+  const previousPackages = state.packages;
+  if (packageModel) {
+    if (!state.packages.includes(packageModel))
+      retainPackageModel(packageModel);
+  } else {
+    const discarded = state.packages.filter(pkg => pkg.source.kind === "platform");
+    if (discarded.length > 0) {
+      state.packages = state.packages.filter(pkg => pkg.source.kind !== "platform");
+      for (const previous of discarded)
+        releasePackageModelCaches(previous);
+    }
+  }
+  if (state.packages !== previousPackages)
+    invalidateWorkspaceMembershipViews();
   return packageModel;
 }
 
@@ -8276,7 +8288,13 @@ async function openPlatformLibrary(
   const scopeOnly = options.scopeOnly === true;
   const navigationGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
-  const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
+  const catalogSnapshot = !scopeOnly && isProductHomeDemosPath(location.pathname)
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
+  const navigationSeq = options.navigationSeq
+    ?? (catalogSnapshot
+      ? beginDemoNavigation(location.href)
+      : navigationSequence.begin());
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
   spotlight.reset();
   const tfm = options.tfm ?? platformScopeTfm();
@@ -8326,11 +8344,23 @@ async function openPlatformLibrary(
     resetMemberFilters();
     render();
     await loadSelectionData();
+    if (catalogSnapshot) {
+      stageDemoNavigation(navigationSeq, buildStateUrl().toString());
+      if (!commitDemoNavigation(navigationSeq)) return undefined;
+    }
     if (navigationGeneration != null)
       focusTypeList(navigationGeneration, focusGeneration);
     return pkg;
   } catch (error) {
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+    if (catalogSnapshot) {
+      failWorkspaceCatalogAction(
+        `Could not open Platform Library: ${errorMessage(error)}`,
+        catalogSnapshot,
+        () => openPlatformLibrary(assembly, pack, options),
+        focusWorkbenchSearchOrHeading);
+      return undefined;
+    }
     state.loading = false;
     state.platformOpeningStatus = { loading: false, error: `Could not open Platform Library: ${errorMessage(error)}` };
     platformLibraryRetry = options.retryAction ?? (() => openPlatformLibrary(assembly, pack, options));
@@ -8349,6 +8379,9 @@ async function openPlatformLibrary(
       render();
     }
     return undefined;
+  } finally {
+    if (catalogSnapshot)
+      cancelDemoNavigation(navigationSeq);
   }
 }
 
