@@ -77,9 +77,10 @@ substrates, and inspection producers that will extend that space.
   The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
-  `Self`, `SelfAndSimilarNames`, and `Everything` candidate focal lengths. It
-  composes exact Workspace revision and Metadata name evidence without
-  redefining Analysis retrieval.
+  `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
+  independently from `SimilarNames` or `All` candidate discovery. It composes
+  exact Workspace revision and Metadata name evidence without redefining
+  Analysis retrieval.
   The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,

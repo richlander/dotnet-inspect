@@ -839,8 +839,9 @@ active version is a preview. An exact version can be selected instead.
 The current prototype also renders a Package-specific Clone selector. It is a
 temporary target placeholder: the shared
 [Structural Clone Search Scope](../../docs/design/structural-clone-search-scope.md)
-contract replaces it with `Self`, `Self + similar names`, and
-`Everything in scope`, using the middle mode by default. The Browser adoption
+contract replaces it with independent breadth (`Self`, `Self + registered
+ecosystems`, or `Everything`) and candidate discovery (`Similar names` or
+`All`), defaulting to `Everything` plus `Similar names`. The Browser adoption
 stage will remove the Package-specific state and selector.
 
 Subject navigation preserves these settings. Replacing or removing the Package
@@ -853,7 +854,7 @@ These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
 [Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
 Diff baseline and Structural Clone Search Scope for the replacement Clone
-focal length.
+breadth and candidate discovery.
 
 ## Method Body Diff
 
