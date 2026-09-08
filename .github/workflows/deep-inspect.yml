@@ -14,6 +14,7 @@ on:
           - package-sweep
           - authored-corpus
           - platform-test
+          - inspect-web
           - nightly
           - all
   schedule:
@@ -362,6 +363,50 @@ jobs:
             exit 1
           fi
           echo "Release certification passed for $GITHUB_SHA"
+
+  inspect-web:
+    name: Inspect Web comprehensive
+    # Complete mutation and dual-runtime evidence runs daily and on demand.
+    # Ordinary PRs retain fast boundary coverage; direct changes to these
+    # harnesses or their owners select the same comprehensive modes in CI.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'inspect-web' ||
+      inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: prototypes/inspect-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check complete generated facade contract
+        run: eng/generate-inspect-web-engine-facade.sh --check
+
+      - name: Test complete shared-runtime multi-facade canary
+        run: eng/test-inspect-web-multi-facade-canary.sh
+
+      - name: Test complete managed-operation bridge canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
 
   census:
     name: Census lane
@@ -784,6 +829,7 @@ jobs:
       - platform-test
       - decompiler-corpus
       - release-certification
+      - inspect-web
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04

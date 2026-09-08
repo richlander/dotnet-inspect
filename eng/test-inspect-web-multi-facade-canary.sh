@@ -11,6 +11,23 @@ dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
 
+mode=comprehensive
+case "${1:-}" in
+  "")
+    ;;
+  --fast)
+    if [[ "$#" != 1 ]]; then
+      echo "Usage: $0 [--fast]" >&2
+      exit 1
+    fi
+    mode=fast
+    ;;
+  *)
+    echo "Usage: $0 [--fast]" >&2
+    exit 1
+    ;;
+esac
+
 expect_failure() {
   local name=$1
   local expected=$2
@@ -32,32 +49,34 @@ expect_failure() {
 DOTNET="$dotnet" NODE="$node" TSC="$tsc" \
   "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" --check
 
-mkdir -p "$scratch/stale-facades" "$scratch/missing-facade"
-cp "$canary/facades/"*.ts "$scratch/stale-facades/"
-printf '\n// stale\n' >> "$scratch/stale-facades/alpha.ts"
-expect_failure \
-  stale-alpha-facade \
-  "alpha.ts is stale" \
-  env \
-  CANARY_FACADE_OUTPUT_DIR="$scratch/stale-facades" \
-  DOTNET="$dotnet" \
-  NODE="$node" \
-  TSC="$tsc" \
-  "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
-  --check
-cp "$canary/facades/alpha.ts" "$scratch/missing-facade/"
-expect_failure \
-  missing-beta-facade \
-  "beta.ts is stale" \
-  env \
-  CANARY_FACADE_OUTPUT_DIR="$scratch/missing-facade" \
-  DOTNET="$dotnet" \
-  NODE="$node" \
-  TSC="$tsc" \
-  "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
-  --check
+if [[ "$mode" == comprehensive ]]; then
+  mkdir -p "$scratch/stale-facades" "$scratch/missing-facade"
+  cp "$canary/facades/"*.ts "$scratch/stale-facades/"
+  printf '\n// stale\n' >> "$scratch/stale-facades/alpha.ts"
+  expect_failure \
+    stale-alpha-facade \
+    "alpha.ts is stale" \
+    env \
+    CANARY_FACADE_OUTPUT_DIR="$scratch/stale-facades" \
+    DOTNET="$dotnet" \
+    NODE="$node" \
+    TSC="$tsc" \
+    "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
+    --check
+  cp "$canary/facades/alpha.ts" "$scratch/missing-facade/"
+  expect_failure \
+    missing-beta-facade \
+    "beta.ts is stale" \
+    env \
+    CANARY_FACADE_OUTPUT_DIR="$scratch/missing-facade" \
+    DOTNET="$dotnet" \
+    NODE="$node" \
+    TSC="$tsc" \
+    "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
+    --check
 
-echo "Independent Alpha-stale and Beta-missing facade drift mutations were rejected."
+  echo "Independent Alpha-stale and Beta-missing facade drift mutations were rejected."
+fi
 
 runtime_pack_directory=$(
   "$dotnet" msbuild \
@@ -137,7 +156,7 @@ publish_canary() {
     --output "$output" \
     -p:CanaryModulesDir="$scratch/modules" \
     -p:UseMonoRuntime="$use_mono_runtime" \
-    "${runtime_properties[@]}" \
+    ${runtime_properties[@]+"${runtime_properties[@]}"} \
     --nologo
   published_site="$output/wwwroot"
   dotnet_module=$(
@@ -169,13 +188,19 @@ publish_canary() {
 published_site=
 publish_canary mono true
 mono_site=$published_site
+if [[ "$mode" == fast ]]; then
+  echo "ts-jsexport multi-facade fast Browser/Wasm gate passed."
+  exit 0
+fi
+
 publish_canary coreclr false
 site=$mono_site
 
 cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
-sed -i \
+sed -i.bak \
   's/](operationId, eventCallback)/](operationId, (_kind, _value) => undefined)/' \
   "$site/facades/alpha.js"
+rm "$site/facades/alpha.js.bak"
 if ! grep -Fq \
     '](operationId, (_kind, _value) => undefined)' \
     "$site/facades/alpha.js"; then
@@ -188,9 +213,10 @@ expect_failure \
   "$node" "$verifier" "$site" baseline
 
 cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
-sed -i \
+sed -i.bak \
   's/TsJsExport\.MultiFacade\.Alpha/TsJsExport.MultiFacade.Beta/' \
   "$site/facades/alpha.js"
+rm "$site/facades/alpha.js.bak"
 expect_failure \
   wrong-assembly-root \
   "Alpha primary identity returned beta:primary" \
@@ -198,12 +224,14 @@ expect_failure \
 
 cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
 cp "$scratch/modules/facades/beta.js" "$site/facades/beta.js"
-sed -i \
+sed -i.bak \
   's#../_framework/dotnet\.js#../_framework/dotnet.js?duplicate-runtime#' \
   "$site/facades/beta.js"
-sed -i \
+rm "$site/facades/beta.js.bak"
+sed -i.bak \
   's/await initializeBeta(runtime);/await initializeBeta();/' \
   "$site/coordinator.js"
+rm "$site/coordinator.js.bak"
 expect_failure \
   duplicate-runtime-module \
   "Expected exactly one live SDK runtime" \
@@ -211,9 +239,10 @@ expect_failure \
 
 cp "$scratch/modules/coordinator.js" "$site/coordinator.js"
 cp "$scratch/modules/facades/beta.js" "$site/facades/beta.js"
-sed -i \
+sed -i.bak \
   's#import \* as beta from "./facades/beta\.js"#import * as beta from "./facades/alpha.js"#' \
   "$site/exercise.js"
+rm "$site/exercise.js.bak"
 expect_failure \
   cross-root-routing \
   "Beta primary identity returned alpha:primary" \
