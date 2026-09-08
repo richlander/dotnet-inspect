@@ -1196,6 +1196,7 @@ public static class ApiMemberIdentity
                         declared,
                         text => workBudget.ChargeProjection(text.Length),
                         workBudget.ChargeProjection)
+                    .Select(XmlDocumentationNotation.NormalizeDynamicToObject)
                     .Select(NormalizeCanonicalCommas),
             ];
             EnsureAnchorSignatureBudget("", parameterTypes);

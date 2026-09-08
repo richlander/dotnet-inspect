@@ -386,6 +386,7 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
     [InlineData("Cases.GenericLookup")]
     [InlineData("Cases.TupleLookup")]
     [InlineData("Cases.ParamsLookup")]
+    [InlineData("Cases.DynamicLookup")]
     public async Task Execute_SurfaceIndexerAnchorResolvesOrdinaryParameterForms(
         string typeFullName)
     {

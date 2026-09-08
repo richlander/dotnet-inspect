@@ -103,3 +103,9 @@ public sealed class ParamsLookup
 {
     public int this[params long[] values] => values.Length;
 }
+
+/// <summary>Dynamic indexer identity canonicalizes to object.</summary>
+public sealed class DynamicLookup
+{
+    public int this[dynamic key] => key.GetHashCode();
+}

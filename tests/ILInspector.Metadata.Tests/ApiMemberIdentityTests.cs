@@ -644,7 +644,7 @@ public class ApiMemberIdentityTests
                 metadataAnchor);
         }
 
-        Assert.Equal(4, typeDefinition.GetProperties().Count);
+        Assert.Equal(5, typeDefinition.GetProperties().Count);
     }
 
     [Fact]
@@ -1319,6 +1319,8 @@ public class ApiMemberIdentityTests
             key.Count + key.Name.Length;
 
         public int this[params long[] values] => values.Length;
+
+        public int this[dynamic key] => key.GetHashCode();
     }
 
     sealed class AttributedParameterFixture
