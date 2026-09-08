@@ -9,9 +9,12 @@ without making transport or policy learn each artifact format.
 [#6266](https://github.com/richlander/dotnet-inspect/issues/6266). The
 package-manifest and restored-project declaration, comparison, graph,
 package-prefix admission, and failure core is implemented under #5533 as
-`PackageDependencyEvidenceQuery`. Authorship, processing evidence,
-authored-project input, runtime-dependency input, and the larger package shape
-remain unimplemented. Optional owner observations remain dependent on #5315.
+`PackageDependencyEvidenceQuery`. The current query also implements the larger
+input-kind, declaration-basis, authorship, produced-relationship, positive
+processing, and independent phase-count vocabulary for package-manifest and
+restored-project inputs. Authored-project and runtime-dependency providers,
+typed pruning observations, policy composition, and host adoption remain
+staged work. Optional owner observations remain dependent on #5315.
 
 ## Owner
 
@@ -66,9 +69,10 @@ inventory. It does not move pruning policy into this owner.
 Issue #6266 is the end-to-end tracker for the larger shape. Its eight delivery
 steps are:
 
-1. Lock this evolution of the existing owner.
-2. Add input kind, declaration basis, authorship, and processing evidence to
-   the immutable result.
+1. Lock this evolution of the existing owner (complete in #6270).
+2. Add input kind, declaration basis, authorship, normalized produced
+   relationships, processing evidence, and independent phase counts to the
+   immutable result (implemented by the current query).
 3. Add typed pruning-processing evidence to restored-project facts.
 4. Add a typed authored-project declaration provider.
 5. Add a typed runtime-dependency provider for `.deps.json`.
@@ -202,6 +206,19 @@ return their own unknown or not-applicable result.
 Input kind and declaration basis are owner-issued structural currency. They are
 not reconstructed from a path extension, source label, or the presence of a
 particular output row.
+
+The implemented CLR vocabulary keeps one `PackageDependencyEvidence*` family:
+`PackageDependencyEvidenceInputKind`,
+`PackageDependencyEvidenceAcquisitionForm`,
+`PackageDependencyEvidenceDeclarationBasis`,
+`PackageDependencyEvidenceAuthorship`,
+`PackageDependencyEvidenceRelationship`,
+`PackageDependencyEvidenceRelationshipResult`,
+`PackageDependencyEvidenceProcessingObservation`,
+`PackageDependencyEvidenceProcessingResult`, and
+`PackageDependencyEvidencePhaseCounts`. Input kind and declaration basis are
+derived from matching root identity and provenance rather than independently
+settable discriminators.
 
 ### Package manifest
 
@@ -1028,22 +1045,29 @@ Implementation must establish:
   framework identity at a sink; and
 - visible root, declaration, and enrichment failures.
 
-The declaration, comparison, graph, package-profile, root-failure, and
-containment properties are gated in Release by
-`PackageDependencyEvidenceQueryTests`. Owner-enrichment behavior remains
-`unverified` until #5315 supplies its typed input and focused gates. The larger
-input-kind, basis, authorship, relationship, and processing properties remain
-`unverified` until these Release gates land:
+The declaration, comparison, graph, package-profile, root-failure, containment,
+and current larger-shape properties are gated in Release by
+`PackageDependencyEvidenceQueryTests`. The current larger-shape gates are:
 
+- `Execute_CurrentInputKindsAndDeclarationBasesAreExplicit`;
+- `Execute_RestoredGraphProvidesPositiveRestoreResolutionObservation`;
+- `Execute_PreservesSelectedRestoredTargetWhenGraphIsUnavailable`;
+- `PackageInput_InputKindAndBasisRequireMatchingIdentityAndProvenance`;
 - `PackageInput_RequestedConstraintAndResolvedCoordinateRemainIndependent`;
 - `PackageInput_PackageManifestDeclarationsAreLibraryDeclared`;
 - `PackageInput_RestoredRelationshipOriginRequiresOwnerAssociation`;
 - `PackageInput_ProjectNodeRelationshipRemainsUnattributedWithoutAssociation`;
+- `PackageInput_NotApplicableIsNotUnavailableOrCompleteEmpty`.
+
+Owner-enrichment behavior remains `unverified` until #5315 supplies its typed
+input and focused gates. The remaining authored-project, pruning-processing,
+runtime-dependency, and cross-host properties remain `unverified` until these
+Release gates land:
+
 - `PackageInput_AuthoredSyntaxAndEvaluatedBasisRemainDistinct`;
 - `PackageInput_AssetsPruningObservationRequiresTypedPackagesToPruneEvidence`;
 - `PackageInput_AssetsWithoutPruneEvidenceRemainProcessingUnknown`;
 - `PackageInput_DepsAbsenceNeverBecomesPruningEvidence`;
-- `PackageInput_NotApplicableIsNotUnavailableOrCompleteEmpty`; and
 - `PackageInput_CliAndBrowserConsumeTheSameTypedSnapshot`.
 
 ## Existing dependency-evidence adoption sequence

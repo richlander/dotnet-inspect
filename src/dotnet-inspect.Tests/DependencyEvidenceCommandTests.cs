@@ -313,13 +313,13 @@ public sealed class DependencyEvidenceCommandTests
         Assert.Equal(Declared(directAssets), Declared(locator));
 
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageArchive,
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive,
             Assert.Single(archive.Roots).SourceKind);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.ProjectAssets,
+            PackageDependencyEvidenceAcquisitionForm.ProjectAssets,
             Assert.Single(directAssets.Roots).SourceKind);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.ProjectLocator,
+            PackageDependencyEvidenceAcquisitionForm.ProjectLocator,
             Assert.Single(locator.Roots).SourceKind);
     }
 
@@ -679,7 +679,7 @@ public sealed class DependencyEvidenceCommandTests
         var row = new DependencyEvidenceFailureRow(
             DependencyEvidenceFailurePhase.Root,
             "NotFound",
-            PackageDependencyEvidenceSourceKind.DirectNuspec,
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
             null,
             null,
             null,
@@ -1393,7 +1393,7 @@ public sealed class DependencyEvidenceCommandTests
 
         DependencyEvidenceRootRow root = Assert.Single(projection.Roots);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
             root.SourceKind);
         Assert.Equal("contoso.fallback", root.PackageId);
         Assert.Equal(
@@ -1425,8 +1425,8 @@ public sealed class DependencyEvidenceCommandTests
             Assert.IsType<PackageDependencyEvidenceRootFailure.Package>(
                 Assert.Single(failures));
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
-            failure.SourceKind);
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
+            failure.AcquisitionForm);
         Assert.Equal(coordinate, failure.Coordinate);
         Assert.Equal(
             PackageManifestFailureReason.IdentityMismatch,
@@ -1745,7 +1745,7 @@ public sealed class DependencyEvidenceCommandTests
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
         Assert.Equal(DependencyEvidenceFailurePhase.Root, failure.Phase);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageArchive,
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive,
             failure.SourceKind);
         Assert.Equal(
             PackageDependencyEvidenceAcquisitionFailureReason.ProducerContract
@@ -1892,7 +1892,7 @@ public sealed class DependencyEvidenceCommandTests
         Assert.Equal(1, projection.Summary.FailedRootCount);
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.ProjectLocator,
+            PackageDependencyEvidenceAcquisitionForm.ProjectLocator,
             failure.SourceKind);
     }
 
@@ -1933,7 +1933,7 @@ public sealed class DependencyEvidenceCommandTests
         Assert.Equal(1, projection.Summary.FailedRootCount);
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
             failure.SourceKind);
         Assert.Equal("ProducerContract", failure.Reason);
     }
@@ -2046,8 +2046,8 @@ public sealed class DependencyEvidenceCommandTests
             projection.Failures.Select(failure => failure.Reason));
         Assert.Equal(
             [
-                PackageDependencyEvidenceSourceKind.DirectNuspec,
-                PackageDependencyEvidenceSourceKind.ProjectLocator,
+                PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
+                PackageDependencyEvidenceAcquisitionForm.ProjectLocator,
             ],
             projection.Failures.Select(failure => failure.SourceKind).Order());
     }
@@ -2277,7 +2277,7 @@ public sealed class DependencyEvidenceCommandTests
         Assert.Single(projection.Roots);
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
             failure.SourceKind);
         Assert.Equal("AcquisitionFailed", failure.Reason);
     }
@@ -2311,7 +2311,7 @@ public sealed class DependencyEvidenceCommandTests
         Assert.Single(projection.Roots);
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
             failure.SourceKind);
         Assert.Equal("AcquisitionFailed", failure.Reason);
         Assert.NotEqual("NotFound", failure.Reason);

@@ -406,7 +406,20 @@ public sealed record RestoredProjectGraphEdge(
     RestoredProjectPackageNodeIdentity Dependency,
     string CanonicalVersionConstraint,
     InertString SourceVersionConstraintSpelling,
-    RestoredProjectDependencyRole Role);
+    RestoredProjectDependencyRole Role,
+    RestoredProjectDeclarationGroupIdentity? DeclarationAssociation)
+{
+    public RestoredProjectGraphParentIdentity Parent { get; } =
+        Parent ?? throw new ArgumentNullException(nameof(Parent));
+
+    public RestoredProjectDeclarationGroupIdentity? DeclarationAssociation { get; } =
+        (Parent is RestoredProjectGraphParentIdentity.Root)
+            == DeclarationAssociation.HasValue
+                ? DeclarationAssociation
+                : throw new ArgumentException(
+                    "A root edge requires its correlated declaration group, and a non-root edge cannot carry one.",
+                    nameof(DeclarationAssociation));
+}
 
 /// <summary>Why one graph-phase fact could not be represented, or why the whole phase failed.</summary>
 public enum RestoredProjectGraphFailureReason
@@ -961,9 +974,7 @@ public static class RestoredProjectDependencyFactsQuery
             // The group is identified by its exact authored pivot occurrence: canonical text only
             // when the pivot is already exactly its recognized canonical spelling, so case-only
             // variants stay distinct groups instead of colliding into one identity.
-            string pivotIdentity = recognized && string.Equals(normalizedTfm, rawPivot, StringComparison.Ordinal)
-                ? normalizedTfm
-                : RestoredProjectIdentityText.Opaque(rawPivot);
+            string pivotIdentity = DeclarationPivotIdentity(rawPivot, recognized, normalizedTfm);
 
             ImmutableArray<RestoredProjectDeclaredPackage> packages = [];
             if (pivotProperty.Value.TryGetProperty("dependencies", out JsonElement dependencies))
@@ -1011,6 +1022,14 @@ public static class RestoredProjectDependencyFactsQuery
                 ? RestoredProjectPhaseCompletion.Complete
                 : RestoredProjectPhaseCompletion.Incomplete);
     }
+
+    static string DeclarationPivotIdentity(
+        string rawPivot,
+        bool recognized,
+        string normalizedTfm) =>
+        recognized && string.Equals(normalizedTfm, rawPivot, StringComparison.Ordinal)
+            ? normalizedTfm
+            : RestoredProjectIdentityText.Opaque(rawPivot);
 
     /// <summary>How one <c>project.frameworks</c> dependency entry classifies itself.</summary>
     enum DeclaredTargetKind
@@ -1200,6 +1219,7 @@ public static class RestoredProjectDependencyFactsQuery
         var traversal = new GraphTraversal(
             selectedTargetValue,
             correlation.Constraints,
+            correlation.DeclarationGroupPivotIdentity!,
             correlation.LimitExceeded);
         traversal.Traverse(rootEntries);
         return traversal.Build();
@@ -1219,6 +1239,7 @@ public static class RestoredProjectDependencyFactsQuery
     readonly record struct RootConstraintCorrelation(
         RootCorrelationOutcome Outcome,
         Dictionary<string, List<RootConstraint>> Constraints,
+        string? DeclarationGroupPivotIdentity = null,
         bool LimitExceeded = false);
 
     static Dictionary<string, List<RootConstraint>> EmptyRootConstraints =>
@@ -1242,7 +1263,7 @@ public static class RestoredProjectDependencyFactsQuery
             return new RootConstraintCorrelation(RootCorrelationOutcome.Unavailable, EmptyRootConstraints);
         }
 
-        JsonElement? matched = null;
+        JsonProperty? matched = null;
         foreach (JsonProperty pivot in EnumeratePropertiesInCanonicalOrder(frameworks))
         {
             if (pivot.Name.Length == 0
@@ -1255,18 +1276,31 @@ public static class RestoredProjectDependencyFactsQuery
             if (matched is not null)
                 return new RootConstraintCorrelation(RootCorrelationOutcome.Ambiguous, EmptyRootConstraints);
 
-            matched = pivot.Value;
+            matched = pivot;
         }
 
-        if (matched is not { } group)
+        if (matched is not { } matchedProperty)
             return new RootConstraintCorrelation(RootCorrelationOutcome.Unavailable, EmptyRootConstraints);
 
+        JsonElement group = matchedProperty.Value;
         if (group.ValueKind != JsonValueKind.Object)
             return new RootConstraintCorrelation(RootCorrelationOutcome.InvalidShape, EmptyRootConstraints);
 
+        string rawPivot = matchedProperty.Name;
+        bool recognized = NuGetTargetFrameworkIdentity.TryNormalize(
+            rawPivot,
+            out string normalizedTfm);
+        string declarationGroupPivotIdentity =
+            DeclarationPivotIdentity(rawPivot, recognized, normalizedTfm);
+
         var constraints = new Dictionary<string, List<RootConstraint>>(StringComparer.Ordinal);
         if (!group.TryGetProperty("dependencies", out JsonElement dependencies))
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Correlated, constraints);
+        {
+            return new RootConstraintCorrelation(
+                RootCorrelationOutcome.Correlated,
+                constraints,
+                declarationGroupPivotIdentity);
+        }
 
         if (dependencies.ValueKind != JsonValueKind.Object)
             return new RootConstraintCorrelation(RootCorrelationOutcome.InvalidShape, EmptyRootConstraints);
@@ -1316,7 +1350,11 @@ public static class RestoredProjectDependencyFactsQuery
                 occurrences.Add(constraint);
         }
 
-        return new RootConstraintCorrelation(RootCorrelationOutcome.Correlated, constraints, limitExceeded);
+        return new RootConstraintCorrelation(
+            RootCorrelationOutcome.Correlated,
+            constraints,
+            declarationGroupPivotIdentity,
+            limitExceeded);
     }
 
     /// <summary>
@@ -1365,6 +1403,7 @@ public static class RestoredProjectDependencyFactsQuery
     {
         readonly JsonElement _selectedTarget;
         readonly Dictionary<string, List<RootConstraint>> _rootConstraints;
+        readonly string _rootDeclarationGroupPivotIdentity;
         readonly Dictionary<string, string> _uniqueKeyByName = new(StringComparer.OrdinalIgnoreCase);
         readonly HashSet<string> _ambiguousNames = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, RestoredProjectPackageNodeIdentity> _packageNodes = new(StringComparer.Ordinal);
@@ -1380,10 +1419,12 @@ public static class RestoredProjectDependencyFactsQuery
         public GraphTraversal(
             JsonElement selectedTarget,
             Dictionary<string, List<RootConstraint>> rootConstraints,
+            string rootDeclarationGroupPivotIdentity,
             bool rootConstraintLimitExceeded)
         {
             _selectedTarget = selectedTarget;
             _rootConstraints = rootConstraints;
+            _rootDeclarationGroupPivotIdentity = rootDeclarationGroupPivotIdentity;
             if (rootConstraintLimitExceeded)
                 _failures.Add(RestoredProjectGraphFailureReason.ConfiguredLimitExceeded);
             IndexTargetNodes();
@@ -1525,7 +1566,8 @@ public static class RestoredProjectDependencyFactsQuery
                     "",
                     packageIdentity,
                     constraint.CanonicalConstraint,
-                    constraint.SourceSpelling);
+                    constraint.SourceSpelling,
+                    _rootDeclarationGroupPivotIdentity);
             }
 
             _directPackages.Add(packageIdentity.Coordinate);
@@ -1634,7 +1676,8 @@ public static class RestoredProjectDependencyFactsQuery
                 parentKey,
                 packageIdentity,
                 range.ToNormalizedString(),
-                new InertString(TextPolicy.Field, rawConstraint, MaxScalarCharacters));
+                new InertString(TextPolicy.Field, rawConstraint, MaxScalarCharacters),
+                declarationGroupPivotIdentity: null);
             Push(matchedKey!, RestoredProjectGraphParentIdentity.CreatePackageParent(packageIdentity));
         }
 
@@ -1648,7 +1691,8 @@ public static class RestoredProjectDependencyFactsQuery
             string parentKey,
             RestoredProjectPackageNodeIdentity dependency,
             string canonicalConstraint,
-            InertString sourceConstraint)
+            InertString sourceConstraint,
+            string? declarationGroupPivotIdentity)
         {
             if (++_edgeOccurrenceCount > MaxGraphEdges)
             {
@@ -1689,7 +1733,12 @@ public static class RestoredProjectDependencyFactsQuery
                 dependency,
                 canonicalConstraint,
                 sourceConstraint,
-                role));
+                role,
+                declarationGroupPivotIdentity is null
+                    ? null
+                    : new RestoredProjectDeclarationGroupIdentity(
+                        default!,
+                        declarationGroupPivotIdentity)));
         }
 
         bool TryBuildPackageIdentity(string matchedKey, out RestoredProjectPackageNodeIdentity identity)
@@ -1859,12 +1908,16 @@ public static class RestoredProjectDependencyFactsQuery
             {
                 RestoredProjectGraphParentIdentity parent = RescopeParent(e.Parent);
                 RestoredProjectPackageNodeIdentity dependency = Rescope(e.Dependency);
-                return e with
-                {
-                    Identity = new RestoredProjectEdgeIdentity(parent, dependency),
-                    Parent = parent,
-                    Dependency = dependency,
-                };
+                return new RestoredProjectGraphEdge(
+                    new RestoredProjectEdgeIdentity(parent, dependency),
+                    parent,
+                    dependency,
+                    e.CanonicalVersionConstraint,
+                    e.SourceVersionConstraintSpelling,
+                    e.Role,
+                    e.DeclarationAssociation is { } association
+                        ? association with { Selection = root.Selection }
+                        : null);
             })];
 
         return new RestoredProjectGraphResult.Available(packages, edges, available.Failures, available.Completion);
@@ -1961,6 +2014,7 @@ public static class RestoredProjectDependencyFactsQuery
                     Field(text, edge.Dependency.Coordinate.Version);
                     Field(text, edge.CanonicalVersionConstraint);
                     Count(text, (int)edge.Role);
+                    Field(text, edge.DeclarationAssociation?.PivotIdentity ?? "");
                 }
 
                 Count(text, available.Failures.Length);
