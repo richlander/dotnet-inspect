@@ -8,11 +8,14 @@ originally established under
 under [#6289](https://github.com/richlander/dotnet-inspect/issues/6289), within
 the Diff, Clone, and immersive-viewer experience tracked by
 [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
-Stage 2 below is implemented under
+Stages 2 and 3 below are implemented under
 [#6303](https://github.com/richlander/dotnet-inspect/issues/6303) by the
 Queries-owned `WorkspaceStructuralCloneSearchQuery` and gated by its focused
-Release suite.
-Stages 3 through 7 are **not implemented**, so the host-facing acceptance
+Release suite, and under
+[#6306](https://github.com/richlander/dotnet-inspect/issues/6306) by the
+Presentation-owned
+[Clone Candidates document](clone-candidate-presentation.md) and adapter.
+Stages 4 through 7 are **not implemented**, so the host-facing acceptance
 scenarios below remain **unverified**.
 
 Clone separates two request dimensions:
@@ -409,11 +412,13 @@ The host-neutral result carries:
 - intentional row suppression; and
 - typed acquisition, metadata, name-selection, and Analysis failures.
 
-The result may later project into the Findings-owned
-`ComparisonDocument<T>` family or another portable clone-specific document.
-That adopter owns the portable result shape. This scope owner does not choose a
-root/subject topology or invent a cross-module pairwise relation that Analysis
-has not established.
+The result projects into the Presentation-owned
+[`CloneCandidateDocument`](clone-candidate-presentation.md), whose declared
+rows preserve the one global pair ranking. `ComparisonDocument<T>` remains
+available for a later explicitly selected one-root comparison; forcing a
+multi-seed search into that topology would invent a privileged root or split
+the product-owned ranking. The Presentation owner does not invent a
+cross-module pairwise relation that Analysis has not established.
 
 Inspect Web may render a native master/detail result list and use named Member,
 Source, and pair-diff destinations. The CLI normally lowers shared typed
@@ -474,7 +479,8 @@ clone-assisted differ.
 | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Exact Workspace revision, registrations, participant outcomes, and lifetime |
 | Structural Clone Search Scope | Seed populations, candidate breadth and discovery, name-filter admission, pair suppression, global ranking composition, and coverage |
 | Queries | Focused execution over retained Workspace participants |
-| [Comparison Document](comparison-document.md) and Presentation | Portable clone composition and shared presentation lowering when adopted |
+| [Clone Candidates presentation](clone-candidate-presentation.md) | Portable globally ranked candidate document and Query-result adapter |
+| [Comparison Document](comparison-document.md) | Portable one-root comparison composition after an explicit pair selection, when adopted |
 | CLI host | Request binding, advanced work controls, Markout lowering, and disclosure |
 | Inspect Web | Breadth and candidate-discovery controls, operation lifetime, master/detail interaction, navigation, and host-native rendering |
 
@@ -488,6 +494,9 @@ The counted production-adoption path under #5083 has seven stages:
    caller-supplied participant snapshot until stage 4 or a Workspace
    registration slice supplies the concrete producer.
 3. Add the host-neutral portable clone result and presentation adapter.
+   Landed as `CloneCandidateDocument` and
+   `CloneCandidatePresentation`; the planned host result-section name is
+   `Clone Candidates`.
 4. Adopt the shared request and result in the CLI over an explicit Workspace
    scope.
 5. Add the managed Browser facade and transport.
@@ -537,12 +546,14 @@ released-group containment, duplicate suppression, global ranking, per-library
 Analysis coverage, logical-member seed expansion over ordinary compiled
 property and event accessors, overloaded-indexer selection, the field bodyless
 outcome, and cross-type accessor association;
-`WorkspaceStructuralCloneSearchQueryTests` supplies that gate. CLI tests gate
-shared presentation and structured output. Browser
-original-host and Firefox suites gate the breadth and discovery controls,
-subject narrowing, stale-result exclusion, master/detail navigation, and
-retirement of the Package-specific selector. The design remains unverified
-until those focused adoptions land.
+`WorkspaceStructuralCloneSearchQueryTests` supplies that gate.
+`CloneCandidatePresentationTests` gates portable request, row, identity,
+coverage, failure, suppression, and receipt projection. CLI tests later gate
+section/query discovery and structured output. Browser original-host and
+Firefox suites gate the breadth and discovery controls, subject narrowing,
+stale-result exclusion, master/detail navigation, and retirement of the
+Package-specific selector. The design remains unverified until those focused
+host adoptions land.
 
 ## Non-claims
 
