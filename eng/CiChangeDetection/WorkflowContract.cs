@@ -285,12 +285,11 @@ internal static partial class WorkflowContract
             RequireScalarValue(
                 webSdkWith,
                 "dotnet-version",
-                "11.0.x",
+                "11.0.100-rc.1.26425.128",
                 $"jobs.{jobName} setup-dotnet.with");
-            RequireScalarValue(
+            RequireAbsent(
                 webSdkWith,
                 "dotnet-quality",
-                "preview",
                 $"jobs.{jobName} setup-dotnet.with");
         }
     }
@@ -647,7 +646,7 @@ internal static partial class WorkflowContract
                 "jobs.changes .NET setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
+                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
             },
             "jobs.changes .NET setup step.with");
     }
