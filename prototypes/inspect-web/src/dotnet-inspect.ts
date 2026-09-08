@@ -1495,7 +1495,7 @@ function normalizeCurrentNavEntry() {
 }
 
 function applyView(view: WorkspaceView) {
-  const capacityError = view.rootKind === "platform" && view.platform
+  const capacityError = view.platform
     ? platformCoordinateCapacityError()
     : "";
   if (capacityError) {

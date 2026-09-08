@@ -3545,7 +3545,7 @@ test("history validates saved type and member identity before restoring Member s
   assert.match(applyView, /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\)/);
   assert.match(
     applyView,
-    /view\.rootKind === "platform"[\s\S]*platformCoordinateCapacityError\(\)[\s\S]*showToast\([\s\S]*return false/);
+    /const capacityError = view\.platform\s*\? platformCoordinateCapacityError\(\)\s*:\s*"";\s*if \(capacityError\) \{\s*showToast\(capacityError\);\s*return false/);
   assert.match(
     applyView,
     /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
