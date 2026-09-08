@@ -927,6 +927,7 @@ class ScopeBarController implements ScopeBarBinding {
   private readonly separator: HTMLElement | null;
   private readonly applicationScopeRegion: HTMLElement | null;
   private readonly observer: ResizeObserver | null;
+  private cancelDeferredPointerLayout: (() => void) | null = null;
   private readonly handleDocumentKeyDown = (event: KeyboardEvent) => {
     const group = this.subject?.state.open
       ? this.subject
@@ -934,6 +935,12 @@ class ScopeBarController implements ScopeBarBinding {
         ? this.inspector
         : null;
     if (!group) return;
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Node)
+      || (!group.element.contains(eventTarget)
+        && !group.menu.contains(eventTarget))) {
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -959,7 +966,8 @@ class ScopeBarController implements ScopeBarBinding {
     if (!group
       || group.element.contains(target)
       || group.menu.contains(target)) return;
-    this.closeMenu(group, false);
+    this.closeMenu(group, false, false);
+    this.deferLayoutUntilPointerActivation();
   };
   private readonly handleViewportResize = () => {
     this.positionOpenMenu();
@@ -1042,6 +1050,7 @@ class ScopeBarController implements ScopeBarBinding {
       ?.removeEventListener("resize", this.handleViewportResize);
     this.navigation.ownerDocument.defaultView?.visualViewport
       ?.removeEventListener("scroll", this.handleViewportResize);
+    this.cancelDeferredPointerLayout?.();
     if (this.subject) hidePopover(this.subject.menu);
     if (this.inspector) hidePopover(this.inspector.menu);
   }
@@ -1168,6 +1177,37 @@ class ScopeBarController implements ScopeBarBinding {
         && candidate.checkVisibility());
     const index = candidates.indexOf(trigger);
     return backwards ? candidates[index - 1] : candidates[index + 1];
+  }
+
+  private deferLayoutUntilPointerActivation(): void {
+    this.cancelDeferredPointerLayout?.();
+    const document = this.navigation.ownerDocument;
+    const view = document.defaultView;
+    let timer: number | null = null;
+    const cleanup = () => {
+      document.removeEventListener("click", finish);
+      document.removeEventListener("pointerup", deferFinish, true);
+      document.removeEventListener("pointercancel", finish, true);
+      if (timer !== null) view?.clearTimeout(timer);
+      if (this.cancelDeferredPointerLayout === cleanup) {
+        this.cancelDeferredPointerLayout = null;
+      }
+    };
+    const finish = () => {
+      cleanup();
+      this.layout();
+    };
+    const deferFinish = () => {
+      if (!view) {
+        finish();
+        return;
+      }
+      timer = view.setTimeout(finish, 0);
+    };
+    document.addEventListener("click", finish);
+    document.addEventListener("pointerup", deferFinish, true);
+    document.addEventListener("pointercancel", finish, true);
+    this.cancelDeferredPointerLayout = cleanup;
   }
 
   private openMenu(

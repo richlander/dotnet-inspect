@@ -1213,3 +1213,26 @@ for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
     await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
   });
 }
+
+test("an open Chooser yields Spotlight keyboard ownership", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.setViewportSize({ width: 390, height: 900 });
+
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  const menu = page.locator("#inspector-navigation-menu");
+  await trigger.click();
+  await page.keyboard.press("Control+k");
+  const input = page.locator("#spotlight-input");
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+
+  if (await menu.isHidden()) await trigger.click();
+  await page.keyboard.press("Control+k");
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect.poll(() => page.evaluate(() =>
+    document.activeElement?.closest(".spotlight") != null)).toBe(true);
+});

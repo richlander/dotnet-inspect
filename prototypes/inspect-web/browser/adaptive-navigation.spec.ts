@@ -256,6 +256,22 @@ test("outside pointer dismissal closes and unpins a Chooser", async ({ page }) =
   });
 });
 
+test("outside pointer dismissal preserves a neighboring tab activation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("[data-navigation-trigger='subject']").click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const source = page.getByRole("tab", { name: "Source", exact: true });
+  await source.click();
+
+  await expect(source).toHaveAttribute("aria-selected", "true");
+  await expect(source).toBeFocused();
+  await expect.poll(async () => (await forms(page)).subject).toBe("tabs");
+});
+
 test("dual Choosers share constrained width and keep full accessible labels", async ({
   page,
 }) => {
