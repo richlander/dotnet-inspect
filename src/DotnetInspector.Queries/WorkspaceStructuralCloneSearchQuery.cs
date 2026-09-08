@@ -2412,8 +2412,6 @@ public static class WorkspaceStructuralCloneSearchQuery
             // The same retrieval is evidence for two owners: the seed it ran
             // for, and the participant whose candidate methods it produced.
             analysisBlockers.Observe(retrieval);
-            bool orientationOrdered =
-                input.Seed is not StructuralCloneSearchSeed.Member;
             bool sameLibrary =
                 ReferenceEquals(
                     candidateIdentity,
@@ -2429,8 +2427,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                         _suppressed++;
                         continue;
                     }
-                    if (orientationOrdered
-                        && seeds.Handles.Contains(candidate.Method.Handle)
+                    if (seeds.Handles.Contains(candidate.Method.Handle)
                         && MetadataTokens.GetRowNumber(seed.Handle)
                             > MetadataTokens.GetRowNumber(
                                 candidate.Method.Handle))

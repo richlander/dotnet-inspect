@@ -1187,31 +1187,27 @@ public static class ApiMemberIdentity
         ImmutableArray<string> parameterTypes = [];
         if (property is { } declared)
         {
-            workBudget.ChargeProjectionNodes(
-                type.GetGenericParameters().Count);
-            GenericContext context =
-                GenericContext.ForType(
-                    reader,
-                    type,
-                    workBudget.ChargeProjection);
-            MethodSignature<string> decoded =
-                GuardedSignatureText
-                    .PropertyText(reader, declared, context)
-                    .GetValueOrThrow();
-            EnsureAnchorSignatureBudget(
-                decoded.ReturnType,
-                decoded.ParameterTypes);
+            parameterTypes =
+            [
+                .. ApiSurfaceExtractor
+                    .GetCanonicalPropertyParameterTypes(
+                        reader,
+                        typeHandle,
+                        declared,
+                        text => workBudget.ChargeProjection(text.Length),
+                        workBudget.ChargeProjection)
+                    .Select(NormalizeCanonicalCommas),
+            ];
+            EnsureAnchorSignatureBudget("", parameterTypes);
             workBudget.ChargeProjection(
-                decoded.ReturnType.Length
-                    + decoded.ParameterTypes.Sum(
-                        static parameter => (long)parameter.Length),
+                parameterTypes.Sum(
+                    static parameter => (long)parameter.Length),
                 "property signature projection");
 
             // An indexer's index parameters are part of property identity, so
             // they use the same canonical spelling as the API-surface anchor.
             // An ordinary property decodes zero of them and keeps its bare
             // canonical spelling.
-            parameterTypes = decoded.ParameterTypes;
         }
 
         string typeFullName =

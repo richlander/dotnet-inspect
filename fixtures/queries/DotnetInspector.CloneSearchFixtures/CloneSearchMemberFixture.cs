@@ -78,3 +78,28 @@ public sealed class Lookup
         get { return _byIndex[key.Length]; }
     }
 }
+
+/// <summary>Indexer parameter forms whose API and metadata identities agree.</summary>
+public sealed class NullableLookup
+{
+    public string this[string? key] => key ?? "";
+}
+
+/// <summary>Generic indexer parameter identity.</summary>
+public sealed class GenericLookup
+{
+    public int this[Dictionary<int, string> key] => key.Count;
+}
+
+/// <summary>Tuple indexer parameter identity.</summary>
+public sealed class TupleLookup
+{
+    public int this[(int Count, string Name) key] =>
+        key.Count + key.Name.Length;
+}
+
+/// <summary>Parameter-array indexer identity.</summary>
+public sealed class ParamsLookup
+{
+    public int this[params long[] values] => values.Length;
+}

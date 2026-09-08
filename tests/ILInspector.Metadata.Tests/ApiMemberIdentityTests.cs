@@ -604,6 +604,50 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void CreatePropertyAnchor_MatchesSurfaceForOrdinaryParameterForms()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        TypeDefinitionHandle typeHandle =
+            FindFixtureType(reader, nameof(IndexerParameterShapeFixture));
+        TypeDefinition typeDefinition =
+            reader.GetTypeDefinition(typeHandle);
+        ApiType apiType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name.EndsWith(
+                nameof(IndexerParameterShapeFixture),
+                StringComparison.Ordinal));
+
+        int work = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        foreach (PropertyDefinitionHandle propertyHandle
+            in typeDefinition.GetProperties())
+        {
+            ApiMember surfaceProperty = Assert.Single(
+                apiType.Members,
+                member => member.DeclarationMetadataToken
+                    == MetadataTokens.GetToken(propertyHandle));
+            MemberAnchor metadataAnchor =
+                ApiMemberIdentity.CreatePropertyAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetPropertyDefinition(propertyHandle),
+                    ref work);
+
+            Assert.Equal(
+                ApiMemberIdentity.GetMemberAnchor(
+                    apiType,
+                    surfaceProperty),
+                metadataAnchor);
+        }
+
+        Assert.Equal(4, typeDefinition.GetProperties().Count);
+    }
+
+    [Fact]
     public void FallbackCanonicalSignature_DisambiguatesIndexers_AfterJsonRoundTrip()
     {
         using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
@@ -1263,6 +1307,18 @@ public class ApiMemberIdentityTests
         public int this[int index] => index;
 
         public int this[string key] => key.Length;
+    }
+
+    sealed class IndexerParameterShapeFixture
+    {
+        public int this[string? key] => key?.Length ?? 0;
+
+        public int this[Dictionary<int, string> key] => key.Count;
+
+        public int this[(int Count, string Name) key] =>
+            key.Count + key.Name.Length;
+
+        public int this[params long[] values] => values.Length;
     }
 
     sealed class AttributedParameterFixture

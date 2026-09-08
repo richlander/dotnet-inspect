@@ -381,6 +381,59 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         Assert.True(keyed.CoverageIsComplete);
     }
 
+    [Theory]
+    [InlineData("Cases.NullableLookup")]
+    [InlineData("Cases.GenericLookup")]
+    [InlineData("Cases.TupleLookup")]
+    [InlineData("Cases.ParamsLookup")]
+    public async Task Execute_SurfaceIndexerAnchorResolvesOrdinaryParameterForms(
+        string typeFullName)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName(typeFullName),
+                            fixture.LogicalAnchor(typeFullName, "Item")),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All)));
+
+        Assert.Single(result.Seeds);
+        Assert.True(result.CoverageIsComplete);
+    }
+
+    [Fact]
+    public async Task Execute_MultiBodyMemberSuppressesOppositeSeedOrientations()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName("Cases.Widget"),
+                            fixture.LogicalAnchor("Changed")),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All)));
+        HashSet<MethodDefinitionHandle> seedHandles =
+            [.. result.Seeds.Select(seed => seed.Seed.Method.Handle)];
+        StructuralCloneSearchPair pair = Assert.Single(
+            result.Pairs.Where(
+                pair => seedHandles.Contains(pair.Left.Method.Handle)
+                    && seedHandles.Contains(pair.Right.Method.Handle)));
+
+        Assert.True(
+            MetadataTokens.GetRowNumber(pair.Left.Method.Handle)
+                < MetadataTokens.GetRowNumber(pair.Right.Method.Handle));
+        Assert.True(result.CoverageIsComplete);
+    }
+
     /// <summary>
     /// A <c>MethodSemantics</c> row associating an accessor a different type
     /// declares is malformed metadata, not a body of the selected member. An
@@ -2149,15 +2202,27 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         /// event of <c>Cases.Widget</c>.
         /// </summary>
         internal MemberAnchor LogicalAnchor(string memberName)
+            => LogicalAnchor("Cases.Widget", memberName);
+
+        internal MemberAnchor LogicalAnchor(
+            string typeFullName,
+            string memberName)
         {
             using var image = new PEReader(MemberImage);
             ApiSurface surface =
                 ApiSurfaceExtractor.Extract(image, includeAll: true);
+            int separator = typeFullName.LastIndexOf('.');
+            string typeNamespace = separator < 0
+                ? ""
+                : typeFullName[..separator];
+            string typeName = separator < 0
+                ? typeFullName
+                : typeFullName[(separator + 1)..];
             ApiType type =
                 Assert.Single(
                     surface.Types,
-                    candidate => candidate.Namespace == "Cases"
-                        && candidate.Name == "Widget");
+                    candidate => candidate.Namespace == typeNamespace
+                        && candidate.Name == typeName);
             ApiMember member =
                 Assert.Single(
                     type.Members,
