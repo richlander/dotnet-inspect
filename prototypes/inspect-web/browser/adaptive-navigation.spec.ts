@@ -103,6 +103,10 @@ test("adaptive navigation selects deterministic mixed and dual Chooser forms", a
   const horizontalOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(0);
+  const subjectLabel = page.locator(
+    "[data-navigation-trigger='subject'] > span").first();
+  expect(await subjectLabel.evaluate(element =>
+    element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
 test("application scopes yield before complete navigation falls back", async ({
@@ -174,6 +178,7 @@ test("Chooser browsing, cancellation, and commit stay explicit", async ({
   await expect(inspectorTrigger).toHaveAccessibleName("Overview");
 
   await inspectorTrigger.click();
+  await expect(overview).toBeFocused();
   await menu.getByRole("menuitemradio", { name: "Facts" }).click();
   await expect(inspectorTrigger).toHaveAccessibleName("Facts");
   await expect(page.locator("[data-member-section='facts'][aria-checked='true']"))
@@ -270,7 +275,12 @@ test("dual Choosers share constrained width and keep full accessible labels", as
 
   const trigger = page.locator("[data-navigation-trigger='inspector']");
   await trigger.click();
-  await page.getByRole("menu", { name: "Member lenses" })
+  const menu = page.getByRole("menu", { name: "Member lenses" });
+  const menuBox = await menu.boundingBox();
+  expect(menuBox).not.toBeNull();
+  expect(menuBox!.x).toBeGreaterThanOrEqual(8);
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(212);
+  await menu
     .getByRole("menuitemradio", { name: "Annotated source" })
     .click();
   await expect(trigger).toHaveAccessibleName("Annotated source");
@@ -305,8 +315,30 @@ test("responsive replacement transfers focus and preserves an open Chooser", asy
   await page.keyboard.press("Escape");
   await expect(subjectMenu).toBeHidden();
   await expect(member).toBeFocused();
-  await expect(page.locator("[data-subject-tab][tabindex='0']"))
-    .toHaveCount(1);
+  await expect(member).toHaveAttribute("tabindex", "0");
+  await expect(page.getByRole("tab", { name: "Type", exact: true }))
+    .toHaveAttribute("tabindex", "-1");
+});
+
+test("committed subject keeps focus when activation changes its form", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const type = page.getByRole("tab", { name: "Type", exact: true });
+  await type.focus();
+  await page.keyboard.press("Enter");
+  await expect(type).toHaveAttribute("aria-selected", "true");
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  const library = page.getByRole("tab", { name: "Library", exact: true });
+  await library.focus();
+  await page.keyboard.press("Enter");
+
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAccessibleName("Library");
 });
 
 test("inspector content keeps an installed accessible-name owner", async ({

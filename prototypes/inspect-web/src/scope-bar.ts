@@ -121,6 +121,7 @@ interface AdaptiveNavigationGroup {
   state: AdaptiveNavigationGroupState;
   tabsWidth: number;
   chooserWidth: number;
+  frameWidth: number;
   form: AdaptiveNavigationForm;
 }
 
@@ -345,15 +346,19 @@ export function restoreScopeBarFocus(
     : undefined;
   const replacement = preferred ?? candidates.find(element =>
     !element.hidden && !element.closest<HTMLElement>("[hidden]"));
-  if (!replacement) return false;
-  if (itemPresentation(replacement) === "tab") {
+  if (replacement && itemPresentation(replacement) === "tab") {
     const group = replacement.closest<HTMLElement>("[data-navigation-group]");
     group?.querySelectorAll<HTMLElement>('[data-navigation-item="tab"]')
       .forEach(tab => {
         tab.tabIndex = tab === replacement ? 0 : -1;
       });
   }
-  return focusRenderedElement(replacement);
+  if (replacement && focusRenderedElement(replacement)) return true;
+  const group = (replacement ?? candidates[0])
+    ?.closest<HTMLElement>("[data-navigation-group]");
+  const trigger = group?.querySelector<HTMLElement>(
+    "[data-navigation-trigger]");
+  return focusRenderedElement(trigger ?? null);
 }
 
 function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
@@ -805,6 +810,14 @@ function availableWidth(navigation: HTMLElement): number {
     - Number.parseFloat(style.paddingRight || "0"));
 }
 
+function horizontalFrameWidth(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  return Number.parseFloat(style.paddingLeft || "0")
+    + Number.parseFloat(style.paddingRight || "0")
+    + Number.parseFloat(style.borderLeftWidth || "0")
+    + Number.parseFloat(style.borderRightWidth || "0");
+}
+
 function navigationGap(navigation: HTMLElement): number {
   const style = getComputedStyle(navigation);
   return Number.parseFloat(style.columnGap || style.gap || "0");
@@ -872,6 +885,7 @@ function readGroup(
     state,
     tabsWidth: 0,
     chooserWidth: 0,
+    frameWidth: 0,
     form: "tabs",
   };
 }
@@ -1150,14 +1164,16 @@ class ScopeBarController implements ScopeBarBinding {
   ): void {
     hidePopover(group.menu);
     group.state.open = false;
+    group.state.focusedId = null;
     group.trigger.setAttribute("aria-expanded", "false");
     if (returnFocus) group.trigger.focus();
     if (relayout) this.layout();
   }
 
   private measure(group: AdaptiveNavigationGroup): void {
-    group.tabsWidth = measureHidden(group.tabs);
-    group.chooserWidth = measureHidden(group.trigger);
+    group.frameWidth = horizontalFrameWidth(group.element);
+    group.tabsWidth = measureHidden(group.tabs) + group.frameWidth;
+    group.chooserWidth = measureHidden(group.trigger) + group.frameWidth;
   }
 
   private layout(): void {
@@ -1287,8 +1303,13 @@ class ScopeBarController implements ScopeBarBinding {
     if (transferToTrigger) {
       group.trigger.focus({ preventScroll: true });
     } else if (transferToTabs) {
-      committedOrFirst(group, group.tabItems)
-        ?.focus({ preventScroll: true });
+      const target = committedOrFirst(group, group.tabItems);
+      if (target) {
+        group.tabItems.forEach(tab => {
+          tab.tabIndex = tab === target ? 0 : -1;
+        });
+        target.focus({ preventScroll: true });
+      }
     }
     if (form === "tabs" && group.state.open) {
       this.closeMenu(group, false);
@@ -1321,11 +1342,20 @@ class ScopeBarController implements ScopeBarBinding {
     const bounds = group.trigger.getBoundingClientRect();
     const viewport = group.trigger.ownerDocument.documentElement;
     const margin = 8;
-    group.menu.style.left = `${Math.max(margin, bounds.left)}px`;
+    const availableMenuWidth = Math.max(
+      0,
+      viewport.clientWidth - margin * 2);
+    const menuWidth = Math.min(
+      Math.max(bounds.width, 180),
+      availableMenuWidth);
+    const maxLeft = Math.max(
+      margin,
+      viewport.clientWidth - margin - menuWidth);
+    const left = Math.min(Math.max(margin, bounds.left), maxLeft);
+    group.menu.style.left = `${left}px`;
     group.menu.style.top = `${bounds.bottom + 4}px`;
-    group.menu.style.width = `${Math.max(bounds.width, 180)}px`;
-    group.menu.style.maxWidth =
-      `${Math.max(0, viewport.clientWidth - margin * 2)}px`;
+    group.menu.style.width = `${menuWidth}px`;
+    group.menu.style.maxWidth = `${availableMenuWidth}px`;
     group.menu.style.maxHeight =
       `${Math.max(0, viewport.clientHeight - bounds.bottom - margin)}px`;
   }
