@@ -1461,6 +1461,11 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     callGraphBinding,
     /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
+  assert.equal(
+    [...callGraphBinding.matchAll(
+      /const owner = captureViewOperation\(state\.memberCallGraphSeq\);[\s\S]{0,500}?\(\) => ownsViewOperation\(owner, state\.memberCallGraphSeq\)/g)]
+      .length,
+    2);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -5823,7 +5828,7 @@ test("async graph work uses one source-view ownership contract", () => {
     /owner\.sequence === currentSequence[\s\S]*?owner\.navigationSequence === navigationSequence\.current\(\)[\s\S]*?owner\.sourceView === viewSignature\(\)/);
   assert.equal(
     appSource.match(/captureViewOperation\(/g)?.length,
-    5);
+    7);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

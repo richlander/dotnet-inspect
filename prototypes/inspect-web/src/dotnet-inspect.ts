@@ -11246,7 +11246,8 @@ function callGraphTargetBinding(
       platform: disposition === "lookup",
       onSelect: () => {
         if (disposition === "member" && pack && resident) {
-          const navigationSeq = navigationSequence.begin();
+          navigationSequence.begin();
+          const owner = captureViewOperation(state.memberCallGraphSeq);
           observeAsync(
             openRuntimeMemberFromGraph(
               pack,
@@ -11255,7 +11256,7 @@ function callGraphTargetBinding(
               resident.overloadIndex,
               target,
               runtimeSection,
-              () => navigationSequence.isCurrent(navigationSeq),
+              () => ownsViewOperation(owner, state.memberCallGraphSeq),
               failureSurface),
             "Opening a platform call-graph member");
         } else if (disposition === "lookup") {
@@ -11379,7 +11380,8 @@ function callGraphTargetBinding(
           "Opening a graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
-          const navigationSeq = navigationSequence.begin();
+          navigationSequence.begin();
+          const owner = captureViewOperation(state.memberCallGraphSeq);
           observeAsync(
             openRuntimeMemberFromGraph(
               pack,
@@ -11388,7 +11390,7 @@ function callGraphTargetBinding(
               resident.overloadIndex,
               target,
               runtimeSection,
-              () => navigationSequence.isCurrent(navigationSeq),
+              () => ownsViewOperation(owner, state.memberCallGraphSeq),
               failureSurface),
             "Opening a resident platform call-graph member");
         } else {
