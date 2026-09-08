@@ -130,12 +130,19 @@ package dependency closure.
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
 | Root scope projection | Resource-free facts about one admitted or replacing Root | logical correspondence, current-generation freshness, typed realization status | logical membership, Root order, scope policy, or physical access authority |
 | Root preparation receipt | One complete provisional physical Root batch | prepared resources, candidate correspondence, budget reservation, one-shot publication or release | logical membership, order, expansion policy, Navigation, or portable state |
-| Inspection Workspace runtime | Physical inspection composition | runtime identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
-| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or runtime lifetime |
+| Live `InspectionWorkspace` instance | Physical inspection composition | instance identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
+| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or live Workspace instance lifetime |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
+
+In this document, **live Workspace instance** means one exact in-process
+`InspectionWorkspace` object and its `Open`/`Closing`/`Closed` lifecycle.
+Earlier text and type names may call that the **runtime Workspace**. Neither
+term means the .NET runtime, a runtime identifier, a target runtime, or the
+browser execution environment. New prose uses *live Workspace instance* to
+avoid that overload.
 
 An artifact is broader than an assembly. An artifact set may contain assemblies,
 portable PDBs, XML documentation, manifests, source archives, or other content.
@@ -3593,18 +3600,51 @@ retries are not used to wait for physical cleanup.
 
 #### Private complete-restoration physical candidate
 
-Complete Workspace restoration adds one requirement that ordinary Scope
-publication deliberately does not satisfy. Navigation and query owners may
-need to inspect newly prepared package Roots before deciding whether their
-complete fragments are ready, while the currently installed Scope and physical
-composition must remain unchanged if any later participant refuses.
+##### Problem being solved
 
-Artifact Acquisition therefore owns one private,
-`ArtifactRootRestorationCandidate`-shaped authority. It represents a complete
-desired physical composition prepared for one restoration attempt. It is not a
-second live Workspace, a current composition, a logical Scope revision, a
-portable value, or a general transaction. The candidate is available only to
-the sealed in-process restoration composition owned by Definitions.
+Suppose the current Workspace contains `System.Text.Json`, and a saved
+Workspace definition asks for `System.Text.Json` plus `NETStandard.Library`
+with a member under `NETStandard.Library` selected.
+
+Before accepting that restoration, Navigation and the relevant query owner
+must inspect `NETStandard.Library` to prove that the selected member and view
+can be restored. Today they cannot inspect it until Artifact Acquisition makes
+the package Root current. Making it current early is incorrect: a later
+Navigation, query, or Definitions failure would leave the user with package
+membership from the failed restoration instead of the previous usable
+Workspace.
+
+The required behavior is therefore:
+
+1. prepare the exact future physical package composition privately;
+2. let restoration participants inspect that private composition;
+3. publish it only when every participant is ready to publish the matching
+   complete Workspace state; and
+4. otherwise release it and leave the current Workspace unchanged.
+
+An empty saved Workspace has the same rule. Its private candidate is empty,
+but the current nonempty Workspace is not cleared unless the complete
+restoration commits.
+
+Ordinary Scope publication already stages a complete physical composition
+privately and publishes it atomically with Scope. It does not expose that
+staged composition for inspection before publication.
+
+##### Terms
+
+This subsection uses these terms narrowly:
+
+| Term | Meaning |
+| --- | --- |
+| **Live Workspace instance** | The exact in-process `InspectionWorkspace` object whose lifecycle is `Open`, `Closing`, or `Closed`. This is not the .NET runtime, a runtime identifier, or a browser execution environment. |
+| **Current physical composition** | The package Roots installed in that Workspace instance and admitted through the ordinary current-query path. |
+| **Restoration candidate** | One private, complete desired physical composition for a single restoration attempt. It is not current and is visible only through the candidate-inspection path. |
+| **Complete restoration publication** | The one commit that makes the candidate physical composition and every prepared Scope, Navigation, query, and Definitions fragment observable as the new Workspace state. |
+
+Artifact Acquisition owns the private restoration candidate. It is not a
+second live Workspace, a logical Scope revision, a portable value, or a
+general transaction. Definitions may coordinate it only through the sealed
+in-process restoration composition described below.
 
 This subsection is the normative owner for that physical candidate. Its exact
 claim is that Artifact Acquisition can prepare, inspect, publish, or completely
@@ -3630,7 +3670,20 @@ delivery plan recorded by
 [#6190](https://github.com/richlander/dotnet-inspect/issues/6190); it does not
 add a milestone or require one PR per milestone.
 
-##### Candidate preparation and ownership
+##### Contract at a glance
+
+| Phase | Artifact action | Current Workspace |
+| --- | --- | --- |
+| Prepare | Validate one complete physical plan, claim newly prepared resources, and return an opaque candidate plus resource-free projections | Unchanged |
+| Inspect | Admit bounded queries against exact candidate Roots through borrowed query leases | Unchanged |
+| Commit | Revalidate the candidate and swap it together with one already-authorized complete restoration publication | Changes once to the exact candidate |
+| Release | Stop new candidate queries and retire candidate-owned resources after admitted queries drain | Unchanged |
+
+The detailed contract below exists to preserve those four observable
+properties across cancellation, expiry, close, concurrent publication, and
+query drainage.
+
+##### 1. Prepare the candidate
 
 Preparation consumes the same closed physical plan as ordinary publication:
 one ordered complete desired set whose entries either retain an exact current
@@ -3642,9 +3695,10 @@ reserving a candidate identity.
 
 Under the Artifact composition gate, applicable preparation:
 
-1. requires an open accepting runtime, live cancellation and finite deadline,
-   the exact expected current composition, every retained exact generation,
-   and the existing aggregate Root and retained-byte budgets;
+1. requires the live Workspace instance to be open and accepting work, with
+   live cancellation, a finite deadline, the exact expected current
+   composition, every retained exact generation, and the existing aggregate
+   Root and retained-byte budgets;
 2. atomically transfers every listed `Prepared` receipt and its provisional
    resources from caller authority to candidate authority;
 3. reserves one fresh, never-reused candidate composition identity and one
@@ -3680,14 +3734,13 @@ Preparation neither publishes a physical pointer nor changes ordinary current
 query admission. Scope occurrence identity, order, and association to these
 opaque physical projections remain Scope-owned.
 
-##### Candidate-scoped inspection
+##### 2. Inspect the candidate
 
 Candidate inspection is a distinct admission path, not a provisional
 `ArtifactRootGenerationReference` and not an exception to current-generation
 validation. One admission names the exact candidate, one exact ordered
 candidate projection, and an optional expected binding-policy version.
-Admission
-succeeds only while:
+Admission succeeds only while:
 
 - the candidate remains `Prepared`;
 - its Workspace remains open and accepting work;
@@ -3724,7 +3777,7 @@ to restoration readiness must complete before the complete publication token
 is prepared; a late result cannot amend a frozen publication or recover an
 obsolete candidate.
 
-##### Complete publication seam
+##### 3. Commit the complete restoration
 
 The existing `ArtifactRootScopePublicationParticipant` remains sealed,
 Scope-only, and sufficient for ordinary Add, Remove, Replace, and Clear. It is
@@ -3753,7 +3806,8 @@ fragments.
 Artifact publication accepts only the exact `Prepared` candidate and its exact
 single-use adapter. Under the composition gate it revalidates:
 
-- runtime, cancellation, finite deadline, and candidate state;
+- Workspace instance state, cancellation, finite deadline, and candidate
+  state;
 - candidate Workspace and never-reused identity;
 - unchanged expected current composition;
 - every retained correspondence and generation;
@@ -3779,7 +3833,7 @@ preparation releases the candidate and preserves the prior complete
 publication. A signal after successful token preparation loses to the
 irrevocable commit and cannot rewrite its result.
 
-##### Settlement and drainage
+##### 4. Release or finish draining
 
 The candidate state is single-use:
 
@@ -3790,7 +3844,7 @@ Prepared -> Publishing -> Published
 
 `Publishing` begins when final publication consumes the adapter and stops new
 candidate query admission. Exactly one successful publication, explicit
-release, refusal, cancellation, deadline expiry, runtime close, or
+release, refusal, cancellation, deadline expiry, Workspace close, or
 stale-current observation chooses `Published` or `Released`; replay has no
 effect beyond a typed terminal outcome. Candidate settlement and physical
 cleanup are separate events.
@@ -3809,7 +3863,7 @@ lifetimes retire after admitted candidate callbacks drain. Quiescence and
 resource disposal occur outside the composition gate so a callback cannot
 deadlock cleanup by awaiting another Artifact operation.
 
-Cancellation, the finite deadline, and runtime close are owner-observed
+Cancellation, the finite deadline, and Workspace close are owner-observed
 settlement triggers even if the coordinator abandons the candidate. A current
 physical publication also makes every other candidate based on its replaced
 composition stale and starts its release. The deadline bounds new admission
@@ -3823,7 +3877,7 @@ Candidate preparation, admission, publication, and release use typed
 `ArtifactRootFailure` and cleanup evidence. The focused additions include
 candidate mismatch, candidate terminal/in-progress state, stale expected
 composition, retained-generation mismatch, adapter refusal or replay,
-cancellation, deadline expiry, budget rejection, runtime close, and cleanup
+cancellation, deadline expiry, budget rejection, Workspace close, and cleanup
 failure. Malformed or foreign input is rejected before authority consumption.
 No broad catch converts acquisition, query, participant, or cleanup failure
 into an empty candidate or successful publication.
@@ -3848,7 +3902,7 @@ boundaries.
 
 ##### Candidate model and required gates
 
-Model-checking precedes runtime implementation. The Artifact owner model must
+Model-checking precedes implementation. The Artifact owner model must
 extend the existing publication currency rather than copy it, and the later
 Scope composition tracked by
 [#6194](https://github.com/richlander/dotnet-inspect/issues/6194) must
@@ -3873,14 +3927,14 @@ Required future Release gates are:
 | A later participant refusal preserves the prior complete publication and releases adopted resources after candidate queries drain | Complete-restoration refusal and drainage tests |
 | Empty candidate preparation does not clear current physical or logical state before complete commit | Empty restoration composition test |
 | Successful publication installs the exact inspected identities and exposes no physical-only or participant-only intermediate state | Composed Artifact/Scope/Definitions model plus Release integration test |
-| Cancellation, expiry, current movement, and runtime close cannot publish an obsolete candidate and settle abandoned candidates | Candidate settlement race tests plus liveness model |
+| Cancellation, expiry, current movement, and Workspace close cannot publish an obsolete candidate and settle abandoned candidates | Candidate settlement race tests plus liveness model |
 | Publication stops new entry to omitted old Roots while preserving admitted old and candidate callbacks until lease disposal | Candidate publication retirement test |
 | Retaining a terminal candidate value retains no adopted Root resources | Terminal candidate lifetime test |
 
 These target claims remain **unverified** until the model and named Release
-gates exist. Runtime delivery must include Scope and Definitions composition
-plus a near-term Browser or CLI consumer; this owner does not merge an unused
-physical transaction framework.
+gates exist. Implementation delivery must include Scope and Definitions
+composition plus a near-term Browser or CLI consumer; this owner does not
+merge an unused physical transaction framework.
 
 ##### Relationship to ordinary publication evidence
 
@@ -3899,8 +3953,14 @@ evidence intact.
 
 ### Runtime Workspace identity
 
+In this heading, **runtime Workspace** means the exact live, in-process
+`InspectionWorkspace` instance and its `Open`/`Closing`/`Closed` lifecycle. It
+does not mean the .NET runtime, a runtime identifier, a target runtime, or the
+browser execution environment. New prose in this document uses **live
+Workspace instance** where that meaning would otherwise be ambiguous.
+
 `InspectionWorkspace` owns one opaque `InspectionWorkspaceIdentity` for its
-exact runtime instance. The identity is stable for that instance and differs
+exact live instance. The identity is stable for that instance and differs
 from every replacement or independently opened Workspace, even when both were
 activated from equal portable
 `WorkspaceContextAddress` values. Definition IDs, context names, URLs, cache
