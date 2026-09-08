@@ -151,15 +151,15 @@ public sealed record DependencyEvidenceSummaryJson
             RejectedRoots = summary.RejectedRootCount,
             FailedRoots = summary.FailedRootCount,
             Truncated = summary.IsTruncated,
-            CompleteDeclarations = summary.Phases.CompleteDeclarations,
-            IncompleteDeclarations = summary.Phases.IncompleteDeclarations,
-            UnavailableDeclarations = summary.Phases.UnavailableDeclarations,
-            FailedDeclarations = summary.Phases.FailedDeclarations,
-            NotApplicableGraphs = summary.Phases.NotApplicableGraphs,
-            CompleteGraphs = summary.Phases.CompleteGraphs,
-            IncompleteGraphs = summary.Phases.IncompleteGraphs,
-            UnavailableGraphs = summary.Phases.UnavailableGraphs,
-            FailedGraphs = summary.Phases.FailedGraphs,
+            CompleteDeclarations = summary.Phases.Declarations.Complete,
+            IncompleteDeclarations = summary.Phases.Declarations.Incomplete,
+            UnavailableDeclarations = summary.Phases.Declarations.Unavailable,
+            FailedDeclarations = summary.Phases.Declarations.Failed,
+            NotApplicableGraphs = summary.Phases.Relationships.NotApplicable,
+            CompleteGraphs = summary.Phases.Relationships.Complete,
+            IncompleteGraphs = summary.Phases.Relationships.Incomplete,
+            UnavailableGraphs = summary.Phases.Relationships.Unavailable,
+            FailedGraphs = summary.Phases.Relationships.Failed,
             PackagePrefix = summary.PackagePrefix is { } prefix
                 ? DependencyEvidencePrefixJson.Create(prefix, tokens)
                 : null,
@@ -206,9 +206,9 @@ public sealed record DependencyEvidenceDependencyJson
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? RootDisplay { get; init; }
 
-    public required PackageDependencyEvidenceRootOwner Owner { get; init; }
+    public required PackageDependencyEvidenceInputKind Owner { get; init; }
 
-    public required PackageDependencyEvidenceSourceKind SourceKind { get; init; }
+    public required PackageDependencyEvidenceAcquisitionForm SourceKind { get; init; }
 
     /// <summary>The document-stable group occurrence this declaration belongs to.</summary>
     public required int Group { get; init; }
@@ -281,9 +281,9 @@ public sealed record DependencyEvidenceRootJson
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? Display { get; init; }
 
-    public required PackageDependencyEvidenceRootOwner Owner { get; init; }
+    public required PackageDependencyEvidenceInputKind Owner { get; init; }
 
-    public required PackageDependencyEvidenceSourceKind SourceKind { get; init; }
+    public required PackageDependencyEvidenceAcquisitionForm SourceKind { get; init; }
 
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? SourceLabel { get; init; }
@@ -403,7 +403,7 @@ public sealed record DependencyEvidenceGroupJson
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? RootDisplay { get; init; }
 
-    public required PackageDependencyEvidenceRootOwner Owner { get; init; }
+    public required PackageDependencyEvidenceInputKind Owner { get; init; }
 
     /// <summary>The document-stable group occurrence, matching the Dependencies rows.</summary>
     public required int Group { get; init; }
@@ -552,7 +552,7 @@ public sealed record DependencyEvidenceFailureJson
 
     public required string Reason { get; init; }
 
-    public PackageDependencyEvidenceSourceKind? SourceKind { get; init; }
+    public PackageDependencyEvidenceAcquisitionForm? SourceKind { get; init; }
 
     public int? Root { get; init; }
 

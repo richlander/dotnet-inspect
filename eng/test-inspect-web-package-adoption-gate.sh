@@ -17,6 +17,10 @@ frontend="$repo_root/prototypes/inspect-web"
 resolver="$repo_root/tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj"
 site="${INSPECT_WEB_PACKAGE_ADOPTION_SITE:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
 dotnet=${DOTNET:-dotnet}
+resolver_command=("$dotnet" run --project "$resolver" -c Release)
+if [[ "${INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD:-}" == "1" ]]; then
+  resolver_command+=(--no-build)
+fi
 
 if [[ ! -f "$site/inspect-web-package.js" ]]; then
   echo "Published engine artifact not found at $site." >&2
@@ -27,7 +31,7 @@ fi
 # Building the resolver materializes the cataloged fixtures (build-only project
 # references) and prints "<id>\t<absolute-assembly-path>" for each requested ID.
 resolved=$(
-  "$dotnet" run --project "$resolver" -c Release -- \
+  "${resolver_command[@]}" -- \
     diff-asm.lib-a diff-asm.lib-b analysis.string-literals
 )
 

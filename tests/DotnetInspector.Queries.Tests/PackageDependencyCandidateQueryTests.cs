@@ -604,7 +604,8 @@ public sealed class PackageDependencyCandidateQueryTests
             constraint,
             InertString.Empty,
             InertString.Empty,
-            SourceOccurrenceCount: 1);
+            SourceOccurrenceCount: 1,
+            PackageDependencyEvidenceAuthorship.LibraryDeclared);
     }
 
     private static PackageVersionDiscoveryResult Discovery(

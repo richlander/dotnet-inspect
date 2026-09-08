@@ -26,11 +26,11 @@ public sealed class PackageDependencyEvidenceQueryTests
 
         PackageDependencyEvidenceRoot package = NormalizePackage(
             expected,
-            PackageDependencyEvidenceSourceKind.PackageArchive,
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive,
             "net8.0");
         PackageDependencyEvidenceRoot nuspec = NormalizePackage(
             selfAttested,
-            PackageDependencyEvidenceSourceKind.DirectNuspec,
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
             "net8.0");
         PackageDependencyEvidenceComparison comparison =
             PackageDependencyEvidenceQuery.Compare(package, nuspec);
@@ -54,6 +54,145 @@ public sealed class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Execute_CurrentInputKindsAndDeclarationBasesAreExplicit()
+    {
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Example.Dependency" version="[2.0.0]" />
+                </group>
+                """),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
+            "net8.0");
+        PackageDependencyEvidenceRoot restored = NormalizeRestored(
+            Available(
+                RestoredProjectDependencyFactsQuery.Execute(
+                    File.ReadAllBytes(
+                        FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
+                            "project.assets.json")),
+                    new RestoredProjectTargetRequest("net11.0"))));
+
+        Assert.Equal(
+            PackageDependencyEvidenceInputKind.PackageManifest,
+            package.InputKind);
+        Assert.Equal(
+            PackageDependencyEvidenceDeclarationBasis.PackageManifest,
+            package.DeclarationBasis);
+        Assert.Equal(
+            PackageDependencyEvidenceInputKind.RestoredProject,
+            restored.InputKind);
+        Assert.Equal(
+            PackageDependencyEvidenceDeclarationBasis.RestoredProject,
+            restored.DeclarationBasis);
+    }
+
+    [Fact]
+    public void PackageInput_InputKindAndBasisRequireMatchingIdentityAndProvenance()
+    {
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest("""<group targetFramework="net8.0" />"""),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
+        PackageDependencyEvidenceRoot restored = NormalizeRestored(
+            Available(
+                RestoredProjectDependencyFactsQuery.Execute(
+                    File.ReadAllBytes(
+                        FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
+                            "project.assets.json")),
+                    new RestoredProjectTargetRequest("net11.0"))));
+
+        Assert.Throws<ArgumentException>(() =>
+            new PackageDependencyEvidenceRoot(
+                restored.Identity,
+                package.Provenance,
+                restored.Display,
+                restored.Declaration,
+                restored.Selection,
+                restored.RestoredTarget,
+                restored.Relationships,
+                restored.Processing));
+    }
+
+    [Fact]
+    public void PackageInput_PackageManifestDeclarationsAreLibraryDeclared()
+    {
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Example.Dependency" version="[2.0.0]" />
+                </group>
+                """),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
+            "net8.0");
+
+        Assert.All(
+            Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
+                package.Declaration).Groups.SelectMany(group => group.Declarations),
+            declaration => Assert.Equal(
+                PackageDependencyEvidenceAuthorship.LibraryDeclared,
+                declaration.Authorship));
+    }
+
+    [Fact]
+    public void PackageInput_NotApplicableIsNotUnavailableOrCompleteEmpty()
+    {
+        PackageDependencyEvidenceRoot package = NormalizePackage(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Example.Dependency" version="[2.0.0]" />
+                </group>
+                """),
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
+            "net8.0");
+
+        Assert.IsType<PackageDependencyEvidenceRelationshipResult.NotApplicable>(
+            package.Relationships);
+        Assert.IsNotType<PackageDependencyEvidenceRelationshipResult.Unavailable>(
+            package.Relationships);
+        Assert.IsNotType<PackageDependencyEvidenceRelationshipResult.Available>(
+            package.Relationships);
+        Assert.IsType<PackageDependencyEvidenceProcessingResult.NotApplicable>(
+            package.Processing);
+        Assert.IsNotType<PackageDependencyEvidenceProcessingResult.Unavailable>(
+            package.Processing);
+        Assert.IsNotType<PackageDependencyEvidenceProcessingResult.Available>(
+            package.Processing);
+        Assert.Equal(1, PackageDependencyEvidenceQuery.Execute(
+            new PackageDependencyEvidenceRequest(
+                [
+                    PackageDependencyEvidenceQuery.CreatePackageInput(
+                        Manifest(
+                            """
+                            <group targetFramework="net8.0" />
+                            """),
+                        PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
+                        "net8.0"),
+                ])).Phases.Relationships.NotApplicable);
+    }
+
+    [Fact]
+    public void Execute_RestoredGraphProvidesPositiveRestoreResolutionObservation()
+    {
+        PackageDependencyEvidenceRoot restored = NormalizeRestored(
+            Available(
+                RestoredProjectDependencyFactsQuery.Execute(
+                    File.ReadAllBytes(
+                        FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
+                            "project.assets.json")),
+                    new RestoredProjectTargetRequest("net11.0"))));
+
+        var processing =
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                restored.Processing);
+        Assert.True(processing.IsComplete);
+        Assert.Equal(
+            [PackageDependencyEvidenceProcessingObservation.RestoreResolution],
+            processing.Observations);
+    }
+
+    [Fact]
     public void Compare_FixtureManifestAndRestoredFacts_HaveEqualDeclarations()
     {
         PackageManifestFacts manifest = Available(
@@ -63,7 +202,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         "manifest.nuspec"))));
         PackageDependencyEvidenceRoot package = NormalizePackage(
             manifest,
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         RestoredProjectDependencyFacts restoredFacts = Available(
             RestoredProjectDependencyFactsQuery.Execute(
                 File.ReadAllBytes(
@@ -103,11 +242,11 @@ public sealed class PackageDependencyEvidenceQueryTests
             PackageDependencyEvidenceQuery.Compare(
                 NormalizePackage(
                     net8,
-                    PackageDependencyEvidenceSourceKind.DirectNuspec,
+                    PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
                     "net8.0"),
                 NormalizePackage(
                     net9,
-                    PackageDependencyEvidenceSourceKind.DirectNuspec,
+                    PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
                     "net9.0"));
 
         Assert.IsType<PackageDependencyEvidenceComparisonResult.Equal>(
@@ -140,10 +279,10 @@ public sealed class PackageDependencyEvidenceQueryTests
             PackageDependencyEvidenceQuery.Compare(
                 NormalizePackage(
                     version1,
-                    PackageDependencyEvidenceSourceKind.DirectNuspec),
+                    PackageDependencyEvidenceAcquisitionForm.DirectNuspec),
                 NormalizePackage(
                     version2,
-                    PackageDependencyEvidenceSourceKind.DirectNuspec));
+                    PackageDependencyEvidenceAcquisitionForm.DirectNuspec));
 
         Assert.IsType<PackageDependencyEvidenceComparisonResult.Unequal>(
             comparison.Core);
@@ -165,7 +304,7 @@ public sealed class PackageDependencyEvidenceQueryTests
 
         PackageDependencyEvidenceRoot root = NormalizePackage(
             facts,
-            PackageDependencyEvidenceSourceKind.DirectNuspec,
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
             "net8.0");
         PackageDependencyEvidenceDeclarationResult.Available declaration =
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
@@ -226,7 +365,7 @@ public sealed class PackageDependencyEvidenceQueryTests
 
         PackageDependencyEvidenceRoot root = NormalizePackage(
             facts,
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceDeclarationResult.Available declaration =
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 root.Declaration);
@@ -281,11 +420,11 @@ public sealed class PackageDependencyEvidenceQueryTests
             ]);
         PackageDependencyEvidenceRoot left = NormalizePackage(
             interleaved,
-            PackageDependencyEvidenceSourceKind.DirectNuspec,
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
             "net8.0");
         PackageDependencyEvidenceRoot right = NormalizePackage(
             adjacent,
-            PackageDependencyEvidenceSourceKind.PackageArchive,
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive,
             "net8.0");
 
         PackageDependencyEvidenceComparison comparison =
@@ -314,7 +453,7 @@ public sealed class PackageDependencyEvidenceQueryTests
             ]);
         PackageDependencyEvidenceRoot duplicateRoot = NormalizePackage(
             duplicateFacts,
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceDeclarationResult.Available duplicateDeclaration =
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 duplicateRoot.Declaration);
@@ -337,7 +476,7 @@ public sealed class PackageDependencyEvidenceQueryTests
             ]);
         PackageDependencyEvidenceRoot conflictRoot = NormalizePackage(
             conflictFacts,
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceDeclarationResult.Available conflictDeclaration =
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 conflictRoot.Declaration);
@@ -361,10 +500,10 @@ public sealed class PackageDependencyEvidenceQueryTests
     {
         PackageDependencyEvidenceRoot twoGroups = NormalizePackage(
             Facts([Group("net8.0"), Group("net8.0")]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceRoot oneGroup = NormalizePackage(
             Facts([Group("net8.0")]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
 
         PackageDependencyEvidenceComparison comparison =
             PackageDependencyEvidenceQuery.Compare(twoGroups, oneGroup);
@@ -380,13 +519,13 @@ public sealed class PackageDependencyEvidenceQueryTests
     {
         PackageDependencyEvidenceRoot first = NormalizePackage(
             Facts([Group("future-one", ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceRoot same = NormalizePackage(
             Facts([Group("future-one", ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.PackageArchive);
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive);
         PackageDependencyEvidenceRoot different = NormalizePackage(
             Facts([Group("future-two", ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
 
         Assert.IsType<PackageDependencyEvidenceComparisonResult.Equal>(
             PackageDependencyEvidenceQuery.Compare(first, same).Scoped);
@@ -409,10 +548,10 @@ public sealed class PackageDependencyEvidenceQueryTests
     {
         PackageDependencyEvidenceRoot repeated = NormalizePackage(
             Facts([Group("future-one"), Group("future-one")]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceRoot single = NormalizePackage(
             Facts([Group("future-one")]),
-            PackageDependencyEvidenceSourceKind.PackageArchive);
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive);
 
         PackageDependencyEvidenceComparison comparison =
             PackageDependencyEvidenceQuery.Compare(repeated, single);
@@ -432,14 +571,14 @@ public sealed class PackageDependencyEvidenceQueryTests
                     Group("net8.0", ("A", "[1.0.0]")),
                     Group("future-one", ("B", "[2.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceRoot reordered = NormalizePackage(
             Facts(
                 [
                     Group("future-one", ("B", "[2.0.0]")),
                     Group("net8.0", ("A", "[1.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.PackageArchive);
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive);
 
         PackageDependencyEvidenceComparison comparison =
             PackageDependencyEvidenceQuery.Compare(left, reordered);
@@ -459,7 +598,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                     Group("net8.0", ("A", "[1.0.0]")),
                     Group("future-one", ("A", "[1.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         byte[] assets = Encoding.UTF8.GetBytes(
             """
             {
@@ -515,25 +654,95 @@ public sealed class PackageDependencyEvidenceQueryTests
         RestoredProjectGraphResult.Available sourceGraph =
             Assert.IsType<RestoredProjectGraphResult.Available>(facts.Graph);
         PackageDependencyEvidenceRoot root = NormalizeRestored(facts);
-        PackageDependencyEvidenceGraphResult.Available graph =
-            Assert.IsType<PackageDependencyEvidenceGraphResult.Available>(
-                root.Graph);
+        PackageDependencyEvidenceRelationshipResult.Available relationships =
+            Assert.IsType<PackageDependencyEvidenceRelationshipResult.Available>(
+                root.Relationships);
 
-        Assert.True(graph.IsComplete);
-        Assert.Equal(sourceGraph.Packages, graph.Packages);
-        Assert.Equal(sourceGraph.Edges, graph.Edges);
-        RestoredProjectGraphEdge[] diamondEdges =
+        Assert.True(relationships.IsComplete);
+        Assert.Equal(sourceGraph.Packages.Length, relationships.Packages.Length);
+        Assert.Equal(sourceGraph.Edges.Length, relationships.Relationships.Length);
+        PackageDependencyEvidenceRelationship[] diamondRelationships =
         [
-            .. graph.Edges.Where(edge =>
-                edge.Dependency.Coordinate.PackageId == "nuget.versioning"),
+            .. relationships.Relationships.Where(relationship =>
+                relationship.ResolvedCoordinate.PackageId == "nuget.versioning"),
         ];
-        Assert.True(diamondEdges.Length >= 2);
+        Assert.True(diamondRelationships.Length >= 2);
         Assert.Contains(
-            diamondEdges,
-            edge => edge.Parent is RestoredProjectGraphParentIdentity.Package);
+            diamondRelationships,
+            relationship =>
+                relationship.Parent
+                    is PackageDependencyEvidenceRelationshipParentIdentity.Package);
         Assert.Contains(
-            diamondEdges,
-            edge => edge.Parent is RestoredProjectGraphParentIdentity.Project);
+            diamondRelationships,
+            relationship =>
+                relationship.Parent
+                    is PackageDependencyEvidenceRelationshipParentIdentity.Project);
+    }
+
+    [Fact]
+    public void PackageInput_RequestedConstraintAndResolvedCoordinateRemainIndependent()
+    {
+        PackageDependencyEvidenceRelationship relationship =
+            RestoredRelationships().Relationships.First(relationship =>
+                relationship.CanonicalRequestedConstraint is not null);
+
+        Assert.NotNull(relationship.CanonicalRequestedConstraint);
+        Assert.NotNull(relationship.SourceRequestedConstraintSpelling);
+        Assert.NotEqual(
+            relationship.CanonicalRequestedConstraint,
+            relationship.ResolvedCoordinate.Version);
+    }
+
+    [Fact]
+    public void PackageInput_RestoredRelationshipOriginRequiresOwnerAssociation()
+    {
+        ImmutableArray<PackageDependencyEvidenceRelationship> relationships =
+            RestoredRelationships().Relationships;
+        PackageDependencyEvidenceRelationship rootRelationship =
+            relationships.First(relationship =>
+                relationship.Parent
+                    is PackageDependencyEvidenceRelationshipParentIdentity.Root);
+        PackageDependencyEvidenceRelationship packageRelationship =
+            relationships.First(relationship =>
+                relationship.Parent
+                    is PackageDependencyEvidenceRelationshipParentIdentity.Package);
+
+        Assert.Equal(
+            PackageDependencyEvidenceAuthorship.ApplicationAuthored,
+            rootRelationship.Authorship);
+        PackageDependencyEvidenceDeclarationIdentity declarationAssociation =
+            Assert.IsType<PackageDependencyEvidenceDeclarationIdentity>(
+                rootRelationship.DeclarationAssociation);
+        PackageDependencyEvidenceGroupIdentity.RestoredProject groupAssociation =
+            Assert.IsType<PackageDependencyEvidenceGroupIdentity.RestoredProject>(
+                declarationAssociation.Group);
+        Assert.Equal(
+            rootRelationship.ResolvedCoordinate.PackageId,
+            declarationAssociation.CanonicalPackageId);
+        Assert.Equal(
+            Assert.IsType<PackageDependencyEvidenceRootIdentity.RestoredProject>(
+                Assert.IsType<
+                    PackageDependencyEvidenceRelationshipParentIdentity.Root>(
+                        rootRelationship.Parent).Identity).Identity.Selection,
+            groupAssociation.Identity.Selection);
+        Assert.Equal(
+            PackageDependencyEvidenceAuthorship.LibraryDeclared,
+            packageRelationship.Authorship);
+        Assert.Null(packageRelationship.DeclarationAssociation);
+    }
+
+    [Fact]
+    public void PackageInput_ProjectNodeRelationshipRemainsUnattributedWithoutAssociation()
+    {
+        PackageDependencyEvidenceRelationship projectRelationship =
+            RestoredRelationships().Relationships.First(relationship =>
+                relationship.Parent
+                    is PackageDependencyEvidenceRelationshipParentIdentity.Project);
+
+        Assert.Equal(
+            PackageDependencyEvidenceAuthorship.Unattributed,
+            projectRelationship.Authorship);
+        Assert.Null(projectRelationship.DeclarationAssociation);
     }
 
     [Fact]
@@ -553,8 +762,14 @@ public sealed class PackageDependencyEvidenceQueryTests
         PackageDependencyEvidenceRoot root = NormalizeRestored(facts);
 
         Assert.Equal(facts.SelectedTarget, root.RestoredTarget);
-        Assert.IsType<PackageDependencyEvidenceGraphResult.Unavailable>(
-            root.Graph);
+        Assert.IsType<PackageDependencyEvidenceRelationshipResult.Unavailable>(
+            root.Relationships);
+        PackageDependencyEvidenceProcessingResult.Available processing =
+            Assert.IsType<PackageDependencyEvidenceProcessingResult.Available>(
+                root.Processing);
+        Assert.Equal(
+            [PackageDependencyEvidenceProcessingObservation.RestoreResolution],
+            processing.Observations);
     }
 
     [Fact]
@@ -602,13 +817,15 @@ public sealed class PackageDependencyEvidenceQueryTests
                         .. variants.Select(variant =>
                             new PackageDependencyEvidenceInput.RestoredProject(
                                 variant,
-                                PackageDependencyEvidenceSourceKind.ProjectAssets)),
+                                PackageDependencyEvidenceAcquisitionForm.ProjectAssets)),
                     ]));
 
-        Assert.Equal(1, outcome.Phases.CompleteGraphs);
-        Assert.Equal(1, outcome.Phases.IncompleteGraphs);
-        Assert.Equal(1, outcome.Phases.UnavailableGraphs);
-        Assert.Equal(1, outcome.Phases.FailedGraphs);
+        Assert.Equal(1, outcome.Phases.Relationships.Complete);
+        Assert.Equal(1, outcome.Phases.Relationships.Incomplete);
+        Assert.Equal(1, outcome.Phases.Relationships.Unavailable);
+        Assert.Equal(1, outcome.Phases.Relationships.Failed);
+        Assert.Equal(4, outcome.Phases.Processing.Complete);
+        Assert.Equal(0, outcome.Phases.Processing.Unavailable);
         Assert.All(outcome.Roots, root => Assert.NotNull(root.RestoredTarget));
         PackageDependencyEvidenceRoot baseline = outcome.Roots[0];
         Assert.All(
@@ -682,11 +899,11 @@ public sealed class PackageDependencyEvidenceQueryTests
                     [
                         PackageDependencyEvidenceQuery.CreatePackageInput(
                             facts,
-                            PackageDependencyEvidenceSourceKind.DirectNuspec),
+                            PackageDependencyEvidenceAcquisitionForm.DirectNuspec),
                     ],
                     [
                         new PackageDependencyEvidenceRootFailure.Package(
-                            PackageDependencyEvidenceSourceKind.DirectNuspec,
+                            PackageDependencyEvidenceAcquisitionForm.DirectNuspec,
                             facts.Coordinate,
                             new PackageManifestFailure(
                                 PackageManifestFailureReason.MalformedXml)),
@@ -701,7 +918,7 @@ public sealed class PackageDependencyEvidenceQueryTests
         Assert.Equal(2, outcome.RootSet.RejectedRootCount);
         Assert.Equal(1, outcome.RootSet.FailedRootCount);
         Assert.True(outcome.RootSet.IsTruncated);
-        Assert.Equal(1, outcome.Phases.CompleteDeclarations);
+        Assert.Equal(1, outcome.Phases.Declarations.Complete);
         Assert.True(
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 Assert.Single(outcome.Roots).Declaration).IsComplete);
@@ -712,7 +929,7 @@ public sealed class PackageDependencyEvidenceQueryTests
     {
         PackageDependencyEvidenceRoot root = NormalizePackage(
             Facts([Group("", ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceGroup group = Assert.Single(
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 root.Declaration).Groups);
@@ -735,7 +952,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         ("", "[2.0.0]"),
                         ("Broken.Range", "not-a-range")),
                 ]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceDeclarationResult.Available declaration =
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 root.Declaration);
@@ -781,7 +998,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                     "Source\u202Efailure"));
         var acquisitionFailure =
             new PackageDependencyEvidenceRootFailure.Acquisition(
-                PackageDependencyEvidenceSourceKind.ProjectLocator,
+                PackageDependencyEvidenceAcquisitionForm.ProjectLocator,
                 PackageDependencyEvidenceAcquisitionFailureReason.NotRestored,
                 SourceLabel:
                     new InertString(TextPolicy.Field, "Example.csproj"));
@@ -797,8 +1014,8 @@ public sealed class PackageDependencyEvidenceQueryTests
                 root.Provenance);
 
         Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
-            provenance.SourceKind);
+            PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
+            provenance.AcquisitionForm);
         Assert.Same(source.Source, provenance.Source);
         Assert.Equal(
             PackageDependencyEvidenceRootSetCompletion.Incomplete,
@@ -972,7 +1189,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         new PackageDependencyEvidenceInput.Package(
                             facts,
                             groups,
-                            PackageDependencyEvidenceSourceKind.DirectNuspec),
+                            PackageDependencyEvidenceAcquisitionForm.DirectNuspec),
                     ])));
     }
 
@@ -999,13 +1216,13 @@ public sealed class PackageDependencyEvidenceQueryTests
                     [
                         PackageDependencyEvidenceQuery.CreatePackageInput(
                             left,
-                            PackageDependencyEvidenceSourceKind.DirectNuspec),
+                            PackageDependencyEvidenceAcquisitionForm.DirectNuspec),
                         PackageDependencyEvidenceQuery.CreatePackageInput(
                             unrelated,
-                            PackageDependencyEvidenceSourceKind.DirectNuspec),
+                            PackageDependencyEvidenceAcquisitionForm.DirectNuspec),
                         PackageDependencyEvidenceQuery.CreatePackageInput(
                             right,
-                            PackageDependencyEvidenceSourceKind.PackageArchive),
+                            PackageDependencyEvidenceAcquisitionForm.PackageArchive),
                     ],
                     isTruncated: true));
 
@@ -1027,7 +1244,7 @@ public sealed class PackageDependencyEvidenceQueryTests
     {
         PackageDependencyEvidenceRoot package = NormalizePackage(
             Facts([Group("net8.0")]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         byte[] assets = Encoding.UTF8.GetBytes(
             """
             {
@@ -1065,7 +1282,7 @@ public sealed class PackageDependencyEvidenceQueryTests
         const string hostileFramework = "net8.0\u202Eevil";
         PackageDependencyEvidenceRoot root = NormalizePackage(
             Facts([Group(hostileFramework, ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceGroup group = Assert.Single(
             Assert.IsType<PackageDependencyEvidenceDeclarationResult.Available>(
                 root.Declaration).Groups);
@@ -1103,7 +1320,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=10.0.19041.0",
                         ("A", "[1.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         PackageDependencyEvidenceRoot shortForm = NormalizePackage(
             Facts(
                 [
@@ -1111,7 +1328,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         "net8.0-windows10.0.19041.0",
                         ("A", "[1.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.PackageArchive);
+            PackageDependencyEvidenceAcquisitionForm.PackageArchive);
 
         PackageDependencyEvidenceComparison comparison =
             PackageDependencyEvidenceQuery.Compare(longForm, shortForm);
@@ -1132,7 +1349,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         "net8.0-windows10.0.22621.0",
                         ("A", "[1.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         Assert.IsType<PackageDependencyEvidenceComparisonResult.Unequal>(
             PackageDependencyEvidenceQuery.Compare(
                 shortForm,
@@ -1140,7 +1357,7 @@ public sealed class PackageDependencyEvidenceQueryTests
 
         PackageDependencyEvidenceRoot targetWithRuntime = NormalizePackage(
             Facts([Group("net8.0/linux-x64", ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         Assert.Equal(
             PackageDependencyFrameworkScopeKind.UnrecognizedFramework,
             Assert.Single(
@@ -1150,7 +1367,7 @@ public sealed class PackageDependencyEvidenceQueryTests
 
         PackageDependencyEvidenceRoot uap = NormalizePackage(
             Facts([Group("UAP,Version=v10.0", ("A", "[1.0.0]"))]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         Assert.Equal(
             "uap10.0",
             Assert.Single(
@@ -1165,7 +1382,7 @@ public sealed class PackageDependencyEvidenceQueryTests
                         ".NETCoreApp,Version=v99.0,Unknown=value",
                         ("A", "[1.0.0]")),
                 ]),
-            PackageDependencyEvidenceSourceKind.DirectNuspec);
+            PackageDependencyEvidenceAcquisitionForm.DirectNuspec);
         Assert.Equal(
             PackageDependencyFrameworkScopeKind.UnrecognizedFramework,
             Assert.Single(
@@ -1176,7 +1393,7 @@ public sealed class PackageDependencyEvidenceQueryTests
 
     private static PackageDependencyEvidenceRoot NormalizePackage(
         PackageManifestFacts facts,
-        PackageDependencyEvidenceSourceKind sourceKind,
+        PackageDependencyEvidenceAcquisitionForm sourceKind,
         string? requestedFramework = null)
     {
         return Assert.Single(
@@ -1198,8 +1415,20 @@ public sealed class PackageDependencyEvidenceQueryTests
                     [
                         PackageDependencyEvidenceQuery.CreateRestoredProjectInput(
                             facts,
-                            PackageDependencyEvidenceSourceKind.ProjectAssets),
+                            PackageDependencyEvidenceAcquisitionForm.ProjectAssets),
                     ])).Roots);
+
+    private static PackageDependencyEvidenceRelationshipResult.Available
+        RestoredRelationships() =>
+        Assert.IsType<PackageDependencyEvidenceRelationshipResult.Available>(
+            NormalizeRestored(
+                Available(
+                    RestoredProjectDependencyFactsQuery.Execute(
+                        File.ReadAllBytes(
+                            FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
+                                "project.assets.json")),
+                        new RestoredProjectTargetRequest("net11.0"))))
+                .Relationships);
 
     private static PackageManifestFacts Manifest(string dependencies)
     {

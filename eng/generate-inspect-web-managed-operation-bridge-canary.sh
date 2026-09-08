@@ -78,7 +78,8 @@ cp "$dotnet_dts" "$scratch/_framework/dotnet.d.ts"
     ''
   cat "$scratch/bridge.body.ts"
 } > "$scratch/facades/bridge.ts"
-sed -i '${/^$/d;}' "$scratch/facades/bridge.ts"
+sed -i.bak '${/^$/d;}' "$scratch/facades/bridge.ts"
+rm "$scratch/facades/bridge.ts.bak"
 
 cp "$canary/initialize.ts" "$canary/exercise.ts" "$scratch/"
 cat > "$scratch/tsconfig.json" <<'JSON'
