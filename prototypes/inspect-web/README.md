@@ -2278,13 +2278,17 @@ runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-Successful main-push completion of `.github/workflows/deploy-inspect-web.yml`
-triggers `.github/workflows/deploy-inspect-web-coreclr.yml`, which checks out
-that run's exact head and downloads its exact `inspect-web-site` artifact before
-publishing the same commit to the isolated comparison site at
-`https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
-main-only `inspect-web-coreclr-staging` environment, a distinct deployment
-token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
+After `.github/workflows/promote-inspect-web.yml` successfully deploys a staged
+artifact to production, it calls
+`.github/workflows/deploy-inspect-web-coreclr.yml` with that promotion's exact
+product SHA, staging run ID, and staged artifact ID. The CoreCLR workflow checks
+out that SHA and downloads the same `inspect-web-site` artifact before
+publishing the matching commit to the isolated comparison site at
+`https://coreclr.dotnet-inspect.ca`. It therefore advances at the production
+promotion cadence rather than for every `main` staging build. It uses a third
+Azure Static Web App, the main-only `inspect-web-coreclr-staging` environment, a
+distinct deployment token, and the non-promotable `inspect-web-coreclr-site`
+artifact. The site is
 interpreter-only while CoreCLR native relinking remains outside the comparison
 scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
 CoreCLR workflow instead installs the exact runtime-main daily cohort

@@ -235,3 +235,15 @@ jobs:
           output_location: ''
           skip_app_build: true
           skip_api_build: true
+
+  coreclr:
+    name: Publish matching CoreCLR comparison
+    needs:
+      - resolve
+      - deploy
+    uses: ./.github/workflows/deploy-inspect-web-coreclr.yml
+    with:
+      staging_run_id: ${{ inputs.staging_run_id }}
+      source_sha: ${{ needs.resolve.outputs.sha }}
+      artifact_id: ${{ needs.resolve.outputs.artifact_id }}
+    secrets: inherit
