@@ -45,17 +45,7 @@ public class LibraryCommand
         => schema.Add(
             SectionNames.CloneCandidates,
             "column",
-            "Rank",
-            "Left",
-            "Right",
-            "Score",
-            "Operations",
-            "Positions",
-            "Blocks",
-            "Edges",
-            "Locals",
-            "Type Name",
-            "Member Name");
+            CloneCandidatesCommand.CandidateColumnNames);
 
     internal static StructuralSectionInput GetStructuralSectionInput(
         string section)
@@ -617,6 +607,8 @@ public class LibraryCommand
                 || options.Columns is { Length: > 0 })
             && options.Discover == null
             && projectionSections is { Count: > 0 }
+            && !CloneCandidatesCommand.IsSelected(
+                options.IncludeSections)
             && !ProjectionDiagnostics.ValidateProjection(
                 schemaMap,
                 projectionSections,

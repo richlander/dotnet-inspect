@@ -4,6 +4,7 @@ using CSharpText;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Planning;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -446,7 +447,11 @@ public static class SharedParsers
                     ? "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one type query."
                     : "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one query.");
         }
-        if (cloneCandidateQuery.HasPredicates
+        bool cloneCandidatesSelected =
+            options.ParseSelect(parseResult)?.Contains(
+                SectionNames.CloneCandidates,
+                StringComparer.OrdinalIgnoreCase) == true;
+        if ((cloneCandidateQuery.HasPredicates || cloneCandidatesSelected)
             && (bodyKindQuery.HasFilter
                 || performanceTriage.HasFilters
                 || performanceTriage.HasRanking))

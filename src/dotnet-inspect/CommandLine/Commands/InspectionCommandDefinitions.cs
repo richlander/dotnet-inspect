@@ -468,7 +468,8 @@ public static class InspectionCommandDefinitions
                     + "but not --top or --order-by. Use --rows to limit rendered matches.");
                 return 1;
             }
-            if (cloneCandidateQuery.HasPredicates
+            if ((cloneCandidateQuery.HasPredicates
+                    || CloneCandidatesCommand.IsSelected(select))
                 && (bodyKindQuery.HasFilter
                     || performanceTriage.HasFilters
                     || performanceTriage.HasRanking))

@@ -378,6 +378,7 @@ public static class MemberCommand
             // A Name~digest selector resolves its own overload below, so skip auto-select
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
             bool autoSelectedOverload = false;
+            int? exactCloneMethodToken = null;
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
                 && ShouldAutoSelectSingleOverload(
@@ -480,10 +481,21 @@ public static class MemberCommand
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
                 bool explicitAccessorSelector =
-                    target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
+                    !autoSelectedOverload
+                    && target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
                     && target.OverloadIndex.HasValue
                     && (target.DigestPrefix is not null
                         || memberResolution.Candidates.Count == 1);
+                if (explicitAccessorSelector)
+                {
+                    if (target.Body?.MetadataToken is not { } methodToken)
+                    {
+                        CommandError.Write(
+                            $"Member selector '{target.NormalizedSelector}' has no exact accessor method identity.");
+                        return 1;
+                    }
+                    exactCloneMethodToken = methodToken;
+                }
                 if (effectiveOptions.BodyKindQuery.HasFilter
                     && BodyAccessorCount(selected) > 1
                     && !explicitAccessorSelector)
@@ -587,6 +599,7 @@ public static class MemberCommand
                         clonePath,
                         apiType,
                         apiType.Members[0],
+                        exactCloneMethodToken,
                         out StructuralCloneSearchSeed.Member? seed,
                         out string? seedError))
                 {

@@ -148,6 +148,44 @@ public sealed class CloneCandidatesSectionTests
     }
 
     [Theory]
+    [InlineData("Value:1", 0x06000001)]
+    [InlineData("Value:2", 0x06000002)]
+    [InlineData("Changed:1", 0x06000003)]
+    [InlineData("Changed:2", 0x06000004)]
+    public async Task Member_ExplicitAccessorSeedsOnlySelectedBody(
+        string member,
+        int expectedMethodToken)
+    {
+        var result = await Run(
+            "member",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-m",
+            member,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            1,
+            json.RootElement.GetProperty("receipt")
+                .GetProperty("seed_methods")
+                .GetInt32());
+        Assert.Equal(
+            expectedMethodToken,
+            json.RootElement.GetProperty("seeds")[0]
+                .GetProperty("seed")
+                .GetProperty("method_definition_token")
+                .GetInt32());
+    }
+
+    [Theory]
     [InlineData("Item:1", 2)]
     [InlineData("Item:2", 1)]
     public async Task Member_OverloadedIndexerSelectionUsesSelectedProperty(
@@ -333,6 +371,93 @@ public sealed class CloneCandidatesSectionTests
             row => Assert.Equal(
                 ["rank", "score"],
                 row.EnumerateObject().Select(property => property.Name)));
+    }
+
+    [Fact]
+    public async Task Library_JsonProjectionSupportsSummaryFields()
+    {
+        var result = await Run(
+            "library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--fields",
+            "Breadth;Coverage",
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            ["breadth", "coverage"],
+            json.RootElement.GetProperty("summary")
+                .EnumerateObject()
+                .Select(property => property.Name));
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task ExplicitSelectionRejectsPerformanceTriageFilter(
+        string command)
+    {
+        string[] target = command switch
+        {
+            "library" => [command, FixturePath],
+            "type" => [command, "Cases.Widget", "--library", FixturePath],
+            _ =>
+            [
+                command,
+                "Cases.Widget",
+                "--library",
+                FixturePath,
+                "-m",
+                "Raise",
+            ],
+        };
+        var result = await Run(
+            [
+                .. target,
+                "-S",
+                SectionNames.CloneCandidates,
+                "--where",
+                "Member=NoSuchMember",
+                "-T",
+                "q",
+            ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot be combined with Body Shapes or Performance Triage",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplicitSelectionRejectsPerformanceTriageRanking()
+    {
+        var result = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--top",
+            "1",
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot be combined with Body Shapes or Performance Triage",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]

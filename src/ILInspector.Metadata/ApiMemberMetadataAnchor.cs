@@ -15,6 +15,7 @@ public static class ApiMemberMetadataAnchor
         string assemblyPath,
         ApiType type,
         ApiMember member,
+        int? exactMethodToken,
         [NotNullWhen(true)] out MemberAnchor? anchor,
         out string? error)
     {
@@ -49,7 +50,21 @@ public static class ApiMemberMetadataAnchor
         MetadataReader reader = image.GetMetadataReader();
         int anchorWorkRemaining =
             MetadataSafetyPolicy.MaxClassificationScanWorkChars;
-        if (member.DeclarationMetadataToken is { } declarationToken)
+        if (exactMethodToken is { } selectedMethodToken)
+        {
+            EntityHandle methodEntity =
+                MetadataTokens.EntityHandle(selectedMethodToken);
+            if (methodEntity.Kind == HandleKind.MethodDefinition)
+            {
+                anchor = ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)methodEntity),
+                    isExtensionMethod: false);
+            }
+        }
+        else if (member.DeclarationMetadataToken is { } declarationToken)
         {
             EntityHandle declaration =
                 MetadataTokens.EntityHandle(declarationToken);

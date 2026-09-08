@@ -230,6 +230,35 @@ internal sealed record CloneCandidateOutputDocument(
 
 internal static class CloneCandidatesCommand
 {
+    internal static readonly string[] SummaryFieldNames =
+    [
+        "Breadth",
+        "Discovery",
+        "Name similarity threshold",
+        "Participants",
+        "Coverage",
+        "Result limit",
+        "Returned pairs",
+        "Ranked pairs",
+        "Retrieval pairs",
+        "Name comparisons",
+    ];
+
+    internal static readonly string[] CandidateColumnNames =
+    [
+        "Rank",
+        "Left",
+        "Right",
+        "Score",
+        "Operations",
+        "Positions",
+        "Blocks",
+        "Edges",
+        "Locals",
+        "Type Name",
+        "Member Name",
+    ];
+
     internal static bool IsSelected(IEnumerable<string>? sections) =>
         sections?.Contains(
             SectionNames.CloneCandidates,
@@ -252,6 +281,7 @@ internal static class CloneCandidatesCommand
         string assemblyPath,
         ApiType type,
         ApiMember member,
+        int? exactMethodToken,
         out StructuralCloneSearchSeed.Member? seed,
         out string? error)
     {
@@ -267,6 +297,7 @@ internal static class CloneCandidatesCommand
                 assemblyPath,
                 type,
                 member,
+                exactMethodToken,
                 out MemberAnchor? anchor,
                 out string? anchorError))
         {
@@ -314,6 +345,8 @@ internal static class CloneCandidatesCommand
                 $"Section '{SectionNames.CloneCandidates}' supports rows, columns, fields, counts, and structured output, not payload extraction.");
             return 1;
         }
+        if (!ValidateProjection(output.Fields, output.Columns))
+            return 1;
 
         await using InspectionWorkspace workspace =
             InspectionWorkspace.CreateAsynchronous();
@@ -512,6 +545,32 @@ internal static class CloneCandidatesCommand
         }
 
         return 0;
+    }
+
+    static bool ValidateProjection(
+        string[]? fields,
+        string[]? columns)
+    {
+        var fieldSchema = new DocumentSchema();
+        fieldSchema.Add(
+            SectionNames.CloneCandidates,
+            "field",
+            SummaryFieldNames);
+        var columnSchema = new DocumentSchema();
+        columnSchema.Add(
+            SectionNames.CloneCandidates,
+            "column",
+            CandidateColumnNames);
+        return ProjectionDiagnostics.ValidateProjection(
+                fieldSchema,
+                SectionNames.CloneCandidates,
+                fields,
+                columns: null)
+            && ProjectionDiagnostics.ValidateProjection(
+                columnSchema,
+                SectionNames.CloneCandidates,
+                fields: null,
+                columns);
     }
 
     static MarkoutField[] SummaryFields(CloneCandidateDocument document) =>
