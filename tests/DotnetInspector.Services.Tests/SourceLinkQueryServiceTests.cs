@@ -195,22 +195,22 @@ public class SourceLinkQueryServiceTests
             + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs";
         const string Unattributed = "https://example.test/source.cs";
 
-        SourceLinkFetch.SourceLinkFetchOriginResult attributed =
+        ILInspector.SourceLink.SourceLinkFetchOriginResult attributed =
             SourceFetchOriginValidator.Validate(
                 Attributed,
                 Attributed,
                 finalUrlReliable: false);
-        SourceLinkFetch.SourceLinkFetchOriginResult unattributed =
+        ILInspector.SourceLink.SourceLinkFetchOriginResult unattributed =
             SourceFetchOriginValidator.Validate(
                 Unattributed,
                 Unattributed,
                 finalUrlReliable: false);
 
         Assert.Equal(
-            SourceLinkFetch.SourceLinkFetchOriginStatus.Changed,
+            ILInspector.SourceLink.SourceLinkFetchOriginStatus.Changed,
             attributed.Status);
         Assert.Equal(
-            SourceLinkFetch.SourceLinkFetchOriginStatus.Unattributed,
+            ILInspector.SourceLink.SourceLinkFetchOriginStatus.Unattributed,
             unattributed.Status);
         Assert.True(unattributed.IsAllowed);
     }

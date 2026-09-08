@@ -152,7 +152,6 @@
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
-    <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
     <Project Path="src/ts-jsexport/ts-jsexport.csproj" />
     <Project Path="src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
   </Folder>

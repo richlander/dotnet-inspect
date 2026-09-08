@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace SourceLinkFetch;
+namespace ILInspector.SourceLink;
 
 /// <summary>
 /// The origin that source content is actually fetched from, read off a resolved SourceLink URL.
@@ -153,8 +153,8 @@ public static partial class SourceLinkProvenance
     /// source resolves to, so it is established over the documents the assembly actually declares
     /// and not over the map in the abstract: an entry no document matches is never fetched.
     /// </param>
-    public static SourceLinkProvenanceResult Determine(
-        SourceLinkResolver resolver,
+    internal static SourceLinkProvenanceResult Determine(
+        SourceLinkDocumentMap resolver,
         IEnumerable<string> documentPaths)
     {
         ArgumentNullException.ThrowIfNull(resolver);

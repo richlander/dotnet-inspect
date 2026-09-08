@@ -1001,11 +1001,12 @@ gates reservation ownership.
 
 ### Untrusted JSON rejects duplicate properties
 
-JSON does not define how duplicate object keys resolve, so two readers of one payload can
-disagree. `DotnetInspector.Core.HardenedJson` and SourceLinkFetch's map parser reject duplicate
-properties, while `ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
-persistent type-index cache. Such payloads fail visibly instead of binding one of
-several possible readings.
+JSON does not define how duplicate object keys resolve, so two readers of one
+payload can disagree. `DotnetInspector.Core.HardenedJson` and
+`ILInspector.SourceLink.SourceLinkDocumentMap` rejects duplicate properties, while
+`ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
+persistent type-index cache. Such payloads fail visibly instead of binding one
+of several possible readings.
 
 This is generic hardening, not a fix for a known divergence. The SourceLink
 provenance divergence it does **not** address is closed separately, by the
@@ -1099,9 +1100,9 @@ Reported provenance must describe the origin that source content is actually
 fetched from, for every document the assembly resolves. When that cannot be
 established for all of them, report no repository.
 
-`SourceLinkFetch.SourceLinkProvenance` is the single owner of this rule. It
-resolves every document the assembly declares through
-`SourceLinkFetch.SourceLinkResolver` — the single owner of the mapping rule —
+`ILInspector.SourceLink.SourceLinkProvenance` is the single owner of this rule.
+It resolves every document the assembly declares through
+`ILInspector.SourceLink.SourceLinkDocumentMap` — the single owner of the mapping rule —
 and reads the origin off each **final resolved URL, after wildcard substitution,
 percent-encoding, and `System.Uri` canonicalization**. Never off the mapping
 text, and never off the mapping prefix alone. Agreement is required on the whole
