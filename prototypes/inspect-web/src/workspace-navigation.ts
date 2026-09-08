@@ -518,6 +518,19 @@ export function retainedPlatformTargetVersion(
   return tab.version ?? "";
 }
 
+export function resolvedPlatformTargetVersion(
+  tabs: readonly BrowserWorkspaceShareTab[],
+  runtimePack: {
+    version: string;
+    activeFramework: string;
+  } | null | undefined,
+  framework: string,
+): string {
+  const matches = tabs.filter(tab =>
+    retainedPlatformTargetVersion(tab, runtimePack, framework) !== "");
+  return matches.length === 1 ? matches[0]!.version ?? "" : "";
+}
+
 function workspaceShareTabMatchesResolved(
   requested: BrowserWorkspaceShareTab,
   resolved: BrowserWorkspaceShareTab,
@@ -554,6 +567,19 @@ export function retainedMissingPlatformTarget(
   resolvedTabs: readonly BrowserWorkspaceShareTab[],
   framework: string,
 ): RetainedMissingPlatformTarget | null {
+  const resolvedMatches = resolvedTabs
+    .map((tab, index) => ({ tab, index }))
+    .filter(({ tab }) =>
+      tab.kind === "group"
+      && tab.source === ":Platform"
+      && !tab.runtimeIdentifier
+      && Boolean(tab.version)
+      && Boolean(tab.framework)
+      && tab.framework!.toLowerCase() === framework.toLowerCase());
+  if (resolvedMatches.length === 1) {
+    const { tab, index } = resolvedMatches[0]!;
+    return { tabIndex: index, version: tab.version! };
+  }
   if (!basisTabs
     || (basisTabs.length !== resolvedTabs.length
       && basisTabs.length !== resolvedTabs.length + 1)) return null;

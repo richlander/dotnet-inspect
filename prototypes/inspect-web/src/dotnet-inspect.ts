@@ -101,7 +101,7 @@ import {
   parseWorkspaceLocation,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
-  retainedPlatformTargetVersion,
+  resolvedPlatformTargetVersion,
   selectedBrowserCallGraphPackageTabIds,
   retainWorkspaceUrlPreservation,
   workspaceShareTabsMatchResolved,
@@ -8409,6 +8409,25 @@ function pickSpotlightLoadedPackage(pkg: {
   focusTypeList(focusGeneration);
 }
 
+async function spotlightPlatformTypeIsAvailable(
+  pkg: AppPackage,
+  type: AppTypeSurface,
+  navigationIsCurrent: () => boolean,
+): Promise<boolean> {
+  if (pkg.source.kind !== "platform") return true;
+  try {
+    await exactPlatformCatalogForType(pkg, type);
+    return navigationIsCurrent();
+  } catch (error) {
+    if (navigationIsCurrent()) {
+      showToast(
+        `Could not open ${type.name}: the exact Platform target is unavailable: `
+        + errorMessage(error));
+    }
+    return false;
+  }
+}
+
 async function pickSpotlightMember(
   result: Extract<SpotlightResult, { kind: "member" }>,
 ) {
@@ -8419,7 +8438,13 @@ async function pickSpotlightMember(
       || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!pkg || !type) { closeSpotlight(); return; }
-  navigationSequence.begin();
+  const navigationSeq = navigationSequence.begin();
+  if (!await spotlightPlatformTypeIsAvailable(
+      pkg,
+      type,
+      () => navigationSequence.isCurrent(navigationSeq))) {
+    return;
+  }
   const navigationGeneration = beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
   state.home = false;
@@ -8458,7 +8483,13 @@ async function pickSpotlight(
     closeSpotlight();
     return;
   }
-  navigationSequence.begin();
+  const navigationSeq = navigationSequence.begin();
+  if (!await spotlightPlatformTypeIsAvailable(
+      pkg,
+      type,
+      () => navigationSequence.isCurrent(navigationSeq))) {
+    return;
+  }
   const navigationGeneration = beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
   state.home = false;
@@ -11930,14 +11961,9 @@ async function drillPlatformNode(
   const runtimePack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
-  const runtimeIndex = runtimePack
-    ? state.packages.indexOf(runtimePack)
-    : -1;
   const captured = capturedShareTabs();
-  const platformVersion = retainedPlatformTargetVersion(
-    runtimeIndex >= 0
-      ? captured.resolvedTabs[runtimeIndex]
-      : null,
+  const platformVersion = resolvedPlatformTargetVersion(
+    captured.resolvedTabs,
     runtimePack,
     framework);
   return callGraphInspection.drill({
@@ -12191,23 +12217,18 @@ async function openRuntimeMemberFromGraph(
   failureSurface: GraphNavigationFailureSurface,
 ): Promise<void> {
   try {
-    const target = await ensurePlatformCatalog(
-      pack.activeFramework,
-      pack.version);
+    const target = await exactPlatformCatalogForType(pack, type);
     if (!navigationIsCurrent()) return;
-    const library = resolvePackageLibrary(pack.assemblies, libraryKey(type));
-    if (!library || !target.rows.some(row =>
-      row.hasImplementation
-      && platformLibraryMatchesDescriptor(row, library))) {
-      throw new Error(
-        "The matching Platform catalog does not contain the selected Library.");
-    }
     if (retainPlatformPackageForTarget(target) !== pack) {
       throw new Error(
         "The matching Platform runtime model is unavailable.");
     }
   } catch (error) {
     if (!navigationIsCurrent()) return;
+    if (pack.source.kind === "platform" && state.packages.includes(pack)) {
+      state.packages = state.packages.filter(candidate => candidate !== pack);
+      invalidateWorkspaceMembershipViews();
+    }
     await showPlatformTargetError(
       node,
       `the exact Platform target is unavailable: ${errorMessage(error)}`,
@@ -12222,6 +12243,23 @@ async function openRuntimeMemberFromGraph(
     overloadIndex,
     node,
     section);
+}
+
+async function exactPlatformCatalogForType(
+  pack: AppPackage,
+  type: AppTypeSurface,
+): Promise<PlatformCatalogTarget> {
+  const target = await ensurePlatformCatalog(
+    pack.activeFramework,
+    pack.version);
+  const library = resolvePackageLibrary(pack.assemblies, libraryKey(type));
+  if (!library || !target.rows.some(row =>
+    row.hasImplementation
+    && platformLibraryMatchesDescriptor(row, library))) {
+    throw new Error(
+      "The matching Platform catalog does not contain the selected Library.");
+  }
+  return target;
 }
 
 async function showPlatformTargetError(

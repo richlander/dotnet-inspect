@@ -702,7 +702,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /retainedPlatformTargetVersion\(\s*runtimeIndex >= 0\s*\? captured\.resolvedTabs\[runtimeIndex\][\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
+    /resolvedPlatformTargetVersion\(\s*captured\.resolvedTabs,\s*runtimePack,\s*framework\)[\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
   assert.doesNotMatch(
     appSource,
     /platformVersion:\s*currentPackage\(\)\.version/);
@@ -2399,10 +2399,10 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /function selectWorkspacePackage\([\s\S]*if \(!packageModel\) return;\s*navigationSequence\.begin\(\);/);
   assert.match(
     appSource,
-    /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*navigationSequence\.begin\(\);\s*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*navigationSequence\.begin\(\);\s*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);
@@ -5185,11 +5185,17 @@ test("runtime graph member activation requires the matching exact catalog", () =
   const navigation =
     appSource.match(/async function openRuntimeMemberFromGraph[\s\S]*?\n\}/)?.[0]
     ?? "";
+  const catalog =
+    appSource.match(/async function exactPlatformCatalogForType[\s\S]*?\n\}/)?.[0]
+    ?? "";
   assert.match(
     navigation,
+    /await exactPlatformCatalogForType\(pack, type\)/);
+  assert.match(
+    catalog,
     /await ensurePlatformCatalog\(\s*pack\.activeFramework,\s*pack\.version\)/);
   assert.match(
-    navigation,
+    catalog,
     /target\.rows\.some\(row =>\s*row\.hasImplementation\s*&& platformLibraryMatchesDescriptor\(row, library\)\)/);
   assert.match(
     navigation,
@@ -5197,6 +5203,18 @@ test("runtime graph member activation requires the matching exact catalog", () =
   assert.match(
     navigation,
     /catch \(error\) \{[\s\S]*showPlatformTargetError\([\s\S]*exact Platform target is unavailable[\s\S]*return;[\s\S]*navigateToRuntimeMember\(/);
+  assert.match(
+    navigation,
+    /if \(pack\.source\.kind === "platform" && state\.packages\.includes\(pack\)\) \{\s*state\.packages = state\.packages\.filter\(candidate => candidate !== pack\);\s*invalidateWorkspaceMembershipViews\(\);/);
+  assert.match(
+    appSource,
+    /async function spotlightPlatformTypeIsAvailable[\s\S]*exactPlatformCatalogForType\(pkg, type\)[\s\S]*showToast\([\s\S]*exact Platform target is unavailable/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*activatePackage\(pkg\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*activatePackage\(pkg\)/);
 });
 
 test("home navigation invalidates pending graph work", () => {

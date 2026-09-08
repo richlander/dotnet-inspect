@@ -15,6 +15,7 @@ import {
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  resolvedPlatformTargetVersion,
   retainWorkspaceUrlPreservation,
   resolveWorkspaceRoute,
   selectedBrowserCallGraphPackageTabIds,
@@ -610,6 +611,18 @@ test("Platform drill target version preserves exact versus floating packet ident
   assert.equal(
     retainedPlatformTargetVersion(null, runtimePack, "net10.0"),
     "");
+  assert.equal(
+    resolvedPlatformTargetVersion([
+      { ...tab, id: "t2" },
+      { ...tab, id: "t0", source: "Example.Package", kind: "package" },
+    ], runtimePack, "net10.0"),
+    "10.0.10");
+  assert.equal(
+    resolvedPlatformTargetVersion([
+      tab,
+      { ...tab, id: "t1" },
+    ], runtimePack, "net10.0"),
+    "");
 });
 
 test("canonical tabs must remain distinct and ordered after resolution", () => {
@@ -648,6 +661,9 @@ test("missing Platform reacquisition retains only an aligned canonical pin", () 
     { tabIndex: 1, version: "10.0.10" });
   assert.deepEqual(
     retainedMissingPlatformTarget(basis, basis, "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
+    retainedMissingPlatformTarget(undefined, basis, "net10.0"),
     { tabIndex: 1, version: "10.0.10" });
   assert.deepEqual(
     retainedMissingPlatformTarget(
