@@ -69,6 +69,8 @@ Supporting owners:
   defaults and ordered source composition.
 - [Typed source intent](search-scope-domain.md#package-prefix-request) owns
   `PackagePrefixDeclaration` and its intrinsic validation.
+- [Platform Library Population Declaration](platform-library-population-declaration.md)
+  owns the resource-free .NET runtime and ASP.NET Core population values.
 - [Package source model](package-source-model.md) owns source authorization,
   package discovery, paging, failures, and payload acquisition.
 - [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
@@ -642,8 +644,10 @@ In particular, `ecosystem.platform` already groups product demos. It can retain
 that identity without pretending that its package-backed demos supply
 platform-source-owned traversal. This slice neither creates a Platform
 package set nor substitutes a `System.*` package prefix for a platform target.
-The applicable source owner must issue its discovery/acquisition binding
-before the catalog can expose that separate capability.
+The catalog can expose the
+[resource-free population declaration](platform-library-population-declaration.md)
+independently; source realization and acquisition remain separate
+prerequisites.
 
 The implementation publishes inert knowledge through the shared
 catalog. The CLI and `InspectWeb.Engine.CatalogExports` are its production
@@ -1279,6 +1283,7 @@ The owner tracks may advance independently:
 | Recorded prefix | #6094 supplies `PackagePrefixDeclaration` under #5602; catalog registration and host discovery adopt it separately from query execution. |
 | Semantic scanner | #5719 issues the opaque binding and decoded observation-context contract. |
 | Workspace registration | #6307 owns the lower declaration and catalog projection; platform population and exact-library coordinates remain separate source-owner prerequisites under #6012. |
+| Platform population declaration | #6328 issues the two resource-free Source Selection values; source realization remains a separate owner step. |
 
 1. Lock this focused pack pattern.
 2. Advance whichever independent owner track is needed for the first real pack.

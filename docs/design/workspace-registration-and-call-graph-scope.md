@@ -349,7 +349,7 @@ and per-operation bounds keep that broader model explicit.
 | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Committed Root membership, registration revision, complete snapshots, and scope-operation results |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, product default manifest, static contributions, and projection onto a lower registration declaration; not reusable Workspace state or call-graph scope |
 | [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Lower ecosystem declaration, explicit pack correspondence, projection outcomes, and product-default validation |
-| Source and resolution owners | Exact library, package-prefix, platform, and package-derived candidate outcomes |
+| [Platform Library Population Declaration](platform-library-population-declaration.md) and other source owners | Platform relevance values, exact-library and package-prefix declarations, and later source-specific candidate outcomes |
 | [Inspection Graph Modes](inspection-graph-modes.md) | Single-seed versus induced-set request meaning, focus roles, endpoint admission, and disconnected-input retention |
 | [Call Graph projection](call-graph-projection.md) and Queries | Focal-length request, participant population, call traversal or induction, bounds, completeness, and typed graph result |
 | [Workspace Definitions](workspace-definitions.md) | Portable registrations, opt-outs, and view-intent projection |

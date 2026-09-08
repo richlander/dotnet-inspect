@@ -128,9 +128,12 @@ substrates, and inspection producers that will extend that space.
   evidence and conservative platform delegation.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
-  [the typed source domain](design/search-scope-domain.md). Host adapter
-  adoption remains staged under #5602; package-set identities remain in the
-  application catalog.
+  [the typed source domain](design/search-scope-domain.md). Its
+  [Platform Library Population Declaration](design/platform-library-population-declaration.md)
+  additionally owns resource-free .NET runtime and ASP.NET Core relevance
+  values without target, view, source, or acquisition policy. Host adapter
+  adoption remains staged under #5602 and #6012; package-set identities remain
+  in the application catalog.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
