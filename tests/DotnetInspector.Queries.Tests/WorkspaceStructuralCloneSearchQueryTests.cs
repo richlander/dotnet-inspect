@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -15,10 +16,12 @@ namespace DotnetInspector.Queries.Tests;
 /// Outcome-level gates for the host-neutral Workspace structural-clone search.
 /// </summary>
 /// <remarks>
-/// The fixtures are synthetic assemblies so seed populations, decoded names,
-/// and body shapes are exact. Every method carries the same
+/// Most fixtures are synthetic assemblies so seed populations, decoded names,
+/// and body shapes are exact. Their methods carry the same
 /// <c>static void()</c> signature, so Analysis ranks the whole population and
 /// the assertions observe search behavior rather than scoring calibration.
+/// Logical property, event, field, and indexer cases use an ordinary compiled
+/// fixture so the accessor associations are compiler-emitted metadata.
 /// </remarks>
 public sealed class WorkspaceStructuralCloneSearchQueryTests
 {
@@ -28,6 +31,9 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
     const string CrossSeedAssembly = "CloneSearchCrossSeed";
     const string CrossSeedCandidateAssembly = "CloneSearchCrossSeedPeer";
     const string RepeatedNamesAssembly = "CloneSearchRepeatedNames";
+    const string SigmaAssembly = "CloneSearchSigma";
+    const string AccessorlessAssembly = "CloneSearchAccessorless";
+    const string CrossTypeAccessorAssembly = "CloneSearchCrossTypeAccessor";
     const int RepeatedNameTypes = 4;
     const int RepeatedNameMethods = 8;
 
@@ -160,6 +166,351 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         Assert.Equal(
             1,
             SeedCount(fixture, fixture.MemberSeed("Compute0")));
+    }
+
+    /// <summary>
+    /// A Member seed is every exact method body the selected member occupies.
+    /// A Metadata-issued property or event anchor therefore expands to its
+    /// associated accessor bodies rather than selecting nothing.
+    /// </summary>
+    [Fact]
+    public async Task Execute_MemberSeedExpandsPropertyAndEventBodies()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available property =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName("Cases.Widget"),
+                            fixture.LogicalAnchor("Value")),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.SimilarNames)));
+        WorkspaceStructuralCloneSearchResult.Available @event =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName("Cases.Widget"),
+                            fixture.LogicalAnchor("Changed")),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.SimilarNames)));
+
+        Assert.Equal(
+            ["get_Value", "set_Value"],
+            fixture.MemberNames(property.Seeds.Select(seed => seed.Seed)));
+        Assert.Equal(
+            ["add_Changed", "remove_Changed"],
+            fixture.MemberNames(@event.Seeds.Select(seed => seed.Seed)));
+
+        // The expansion is a real search, not just a larger seed count: the
+        // similarly named peer type supplies one exact counterpart per body.
+        Assert.Equal(
+            ["get_Value", "set_Value"],
+            fixture.MemberNames(
+                property.Pairs.Select(pair => pair.Right)));
+        Assert.All(
+            property.Pairs,
+            pair => Assert.Equal(
+                1.0,
+                Qualification(pair).MemberSimilarity));
+        Assert.True(property.CoverageIsComplete);
+        Assert.True(@event.CoverageIsComplete);
+    }
+
+    /// <summary>
+    /// An explicit accessor anchor selects that one body. Narrowing to one
+    /// accessor is the caller's choice, so expansion must not widen it back.
+    /// </summary>
+    [Fact]
+    public async Task Execute_ExplicitAccessorSeedSelectsOneBody()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName("Cases.Widget"),
+                            fixture.AccessorAnchor("get_Value")),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.SimilarNames)));
+
+        Assert.Equal(
+            ["get_Value"],
+            fixture.MemberNames(result.Seeds.Select(seed => seed.Seed)));
+        Assert.Equal(1, result.Receipt.SeedMethods);
+        Assert.True(result.CoverageIsComplete);
+    }
+
+    /// <summary>
+    /// A logical member that occupies no method body selects an empty seed
+    /// population, which is a typed outcome rather than a missing member or an
+    /// arbitrary body.
+    /// </summary>
+    [Fact]
+    public async Task Execute_MemberSeedWithoutBodiesIsTypedFailure()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult result =
+            Execute(
+                new WorkspaceStructuralCloneSearchInput(
+                    fixture.AccessorlessSnapshot(),
+                    new StructuralCloneSearchSeed.Member(
+                        TypeName("N.Holder"),
+                        fixture.AccessorlessAnchor())));
+
+        Assert.Equal(
+            StructuralCloneSearchFailureKind.SeedMemberHasNoMethodBody,
+            Assert.IsType<WorkspaceStructuralCloneSearchResult.Failed>(
+                    result)
+                .Failure.Kind);
+    }
+
+    /// <summary>
+    /// A field is a supported Member subject that occupies no method body, so
+    /// it is the bodyless outcome the product promises rather than a member the
+    /// selected type does not declare.
+    /// </summary>
+    [Fact]
+    public async Task Execute_FieldSeedIsTheBodylessOutcome()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult result =
+            Execute(
+                new WorkspaceStructuralCloneSearchInput(
+                    fixture.MemberSnapshot(),
+                    new StructuralCloneSearchSeed.Member(
+                        TypeName("Cases.Widget"),
+                        fixture.FieldAnchor("Tag"))));
+
+        Assert.Equal(
+            StructuralCloneSearchFailureKind.SeedMemberHasNoMethodBody,
+            Assert.IsType<WorkspaceStructuralCloneSearchResult.Failed>(
+                    result)
+                .Failure.Kind);
+    }
+
+    /// <summary>
+    /// A field the selected type does not declare stays the not-found outcome,
+    /// so scanning fields did not turn a missing member into a bodyless one.
+    /// </summary>
+    [Fact]
+    public async Task Execute_UndeclaredFieldSeedIsStillNotFound()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult result =
+            Execute(
+                new WorkspaceStructuralCloneSearchInput(
+                    fixture.MemberSnapshot(),
+                    new StructuralCloneSearchSeed.Member(
+                        TypeName("Cases.Widget"),
+                        fixture.UndeclaredFieldAnchor())));
+
+        Assert.Equal(
+            StructuralCloneSearchFailureKind.SeedMemberNotFound,
+            Assert.IsType<WorkspaceStructuralCloneSearchResult.Failed>(
+                    result)
+                .Failure.Kind);
+    }
+
+    /// <summary>
+    /// Two indexer overloads share one property name, so a selected overload
+    /// must expand to its own accessors alone: neither not-found, nor
+    /// ambiguous, nor the other overload's bodies.
+    /// </summary>
+    [Fact]
+    public async Task Execute_IndexerSeedExpandsOnlyItsOwnAccessors()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        MemberAnchor indexedAnchor = fixture.IndexerAnchor("int");
+        MemberAnchor keyedAnchor = fixture.IndexerAnchor("string");
+
+        // Index parameters are part of property identity, so the two overloads
+        // do not collide on one "P:Cases.Lookup.Item" identity that would make
+        // either selection ambiguous.
+        Assert.NotEqual(indexedAnchor, keyedAnchor);
+
+        WorkspaceStructuralCloneSearchResult.Available indexed =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName("Cases.Lookup"),
+                            indexedAnchor),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All)));
+        WorkspaceStructuralCloneSearchResult.Available keyed =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.MemberSnapshot(),
+                        new StructuralCloneSearchSeed.Member(
+                            TypeName("Cases.Lookup"),
+                            keyedAnchor),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All)));
+
+        // Each seed population is exactly the accessor set of the selected
+        // overload's own PropertyDef, compared by MethodDef handle because both
+        // overloads spell their accessors "get_Item"/"set_Item".
+        Assert.Equal(
+            fixture.IndexerAccessors("int"),
+            SeedHandles(indexed));
+        Assert.Equal(
+            fixture.IndexerAccessors("string"),
+            SeedHandles(keyed));
+
+        // The int overload has a getter and a setter; the string overload has
+        // a getter only. So neither selection could have picked up the other's
+        // bodies, and neither collapsed into a shared "P:Cases.Lookup.Item".
+        Assert.Equal(2, indexed.Receipt.SeedMethods);
+        Assert.Equal(1, keyed.Receipt.SeedMethods);
+        Assert.Empty(SeedHandles(indexed).Intersect(SeedHandles(keyed)));
+        Assert.True(indexed.CoverageIsComplete);
+        Assert.True(keyed.CoverageIsComplete);
+    }
+
+    /// <summary>
+    /// A <c>MethodSemantics</c> row associating an accessor a different type
+    /// declares is malformed metadata, not a body of the selected member. An
+    /// in-range MethodDef row alone does not establish that association.
+    /// </summary>
+    [Fact]
+    public async Task Execute_CrossTypeAccessorAssociationIsMalformed()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult result =
+            Execute(
+                new WorkspaceStructuralCloneSearchInput(
+                    fixture.CrossTypeAccessorSnapshot(),
+                    new StructuralCloneSearchSeed.Member(
+                        TypeName("N.Owner"),
+                        fixture.CrossTypeAccessorAnchor())));
+
+        StructuralCloneSearchFailure failure =
+            Assert.IsType<WorkspaceStructuralCloneSearchResult.Failed>(
+                    result)
+                .Failure;
+        Assert.Equal(
+            StructuralCloneSearchFailureKind.MetadataInspectionFailed,
+            failure.Kind);
+        Assert.Contains(
+            "another type declares",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    static ImmutableArray<MethodDefinitionHandle> SeedHandles(
+        WorkspaceStructuralCloneSearchResult.Available result)
+        =>
+        [
+            .. result.Seeds
+                .Select(seed => seed.Seed.Method.Handle)
+                .Order(
+                    Comparer<MethodDefinitionHandle>.Create(
+                        static (left, right) =>
+                            MetadataTokens.GetRowNumber(left)
+                                .CompareTo(
+                                    MetadataTokens.GetRowNumber(right)))),
+        ];
+
+    /// <summary>
+    /// Names equal under <c>StringComparison.OrdinalIgnoreCase</c> score
+    /// <c>1.0</c>. Greek capital sigma and final sigma are exactly that pair,
+    /// and a lowercasing approximation excludes them.
+    /// </summary>
+    [Fact]
+    public async Task Execute_ScoresOrdinalIgnoreCaseEqualNamesAsExact()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.SigmaSnapshot(),
+                        fixture.SigmaSeed(),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.SimilarNames)));
+
+        StructuralCloneSearchPair pair = Assert.Single(result.Pairs);
+        Assert.Equal("\u03c2", fixture.SigmaName(pair.Right));
+        Assert.Equal(1.0, Qualification(pair).DeclaringTypeSimilarity);
+        Assert.Equal(1.0, Qualification(pair).MemberSimilarity);
+
+        // Lowercasing maps the capital sigma to the medial sigma and leaves
+        // the final sigma alone, so the peer would be omitted from an
+        // otherwise complete search.
+        Assert.True(result.CoverageIsComplete);
+    }
+
+    /// <summary>
+    /// Analysis failures that omitted candidate methods belong to the
+    /// participant whose candidates they omitted, not only to the seed.
+    /// </summary>
+    [Fact]
+    public async Task Execute_AttributesCandidateBlockersToTheLibrary()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.Snapshot(),
+                        fixture.MemberSeed("Compute0"),
+                        StructuralCloneCandidateBreadth.Everything,
+                        StructuralCloneCandidateDiscovery.SimilarNames,
+                        new WorkspaceStructuralCloneSearchLimits(
+                            ComparisonLimits:
+                                new StructuralCloneComparisonLimits(
+                                    MaximumInstructions: 1)))));
+
+        StructuralCloneSearchLibraryCoverage self =
+            Assert.Single(
+                result.Libraries,
+                library => library.Membership
+                    == StructuralCloneParticipantMembership
+                        .ContainingLibrary);
+        Assert.Equal(
+            StructuralCloneRetrievalBlockerKind.CandidateProductionLimit,
+            Assert.Single(self.AnalysisBlockers).Kind);
+        Assert.False(self.CoverageIsComplete);
+        Assert.False(result.CoverageIsComplete);
+
+        // Attribution is per participant: a library whose candidate bodies all
+        // fit the same limit stays complete.
+        StructuralCloneSearchLibraryCoverage ecosystem =
+            Assert.Single(
+                result.Libraries,
+                library => library.Membership
+                    == StructuralCloneParticipantMembership
+                        .RegisteredEcosystem);
+        Assert.Empty(ecosystem.AnalysisBlockers);
+        Assert.True(ecosystem.CoverageIsComplete);
+
+        // Seed-level blockers are unchanged, and the evidence Analysis did
+        // produce is still ranked.
+        Assert.All(
+            result.Seeds,
+            seed => Assert.Contains(
+                seed.Blockers,
+                blocker => blocker.Kind
+                    == StructuralCloneRetrievalBlockerKind
+                        .CandidateProductionLimit));
+        Assert.NotEmpty(result.Pairs);
     }
 
     [Theory]
@@ -1143,7 +1494,10 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
 
     /// <summary>
     /// Memoized name scores are bounded by retained cells, not only by entry
-    /// count, because one entry costs one cell per distinct seed name.
+    /// count, because one entry costs one cell per distinct seed name. The
+    /// cache is a pure optimization: capacity changes what
+    /// <c>StringDistance</c> recomputes, never the charged logical name work
+    /// and never the admitted candidates.
     /// </summary>
     [Fact]
     public async Task
@@ -1203,9 +1557,76 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                     library.CandidateMethods,
                     library.DiscoveredMethods,
                     library.RetrievalPairs)));
+
+        // Logical name work is charged before the cache is consulted, so a hit
+        // and a miss cost the same budget. If they did not, the cache capacity
+        // would decide where a bounded search stops admitting candidates.
+        Assert.Equal(NameWork(cached), NameWork(uncached));
+        Assert.Equal(
+            cached.Libraries.Select(
+                library => library.NameComparisonWork),
+            uncached.Libraries.Select(
+                library => library.NameComparisonWork));
+
+        // The same equivalence under a name budget small enough to exhaust
+        // mid-participant, which is where a cache-dependent charge changed the
+        // discovered methods, the rows, and the reported coverage.
+        WorkspaceStructuralCloneSearchResult.Available boundedCached =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        snapshot,
+                        new StructuralCloneSearchSeed.Library(),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.SimilarNames,
+                        new WorkspaceStructuralCloneSearchLimits(
+                            MaximumResults: 500,
+                            MaximumNameComparisonWork: 6_000))));
+        WorkspaceStructuralCloneSearchResult.Available boundedUncached =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        snapshot,
+                        new StructuralCloneSearchSeed.Library(),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.SimilarNames,
+                        new WorkspaceStructuralCloneSearchLimits(
+                            MaximumResults: 500,
+                            MaximumNameComparisonWork: 6_000,
+                            MaximumNameCacheCells: 1))));
+
+        Assert.False(boundedCached.CoverageIsComplete);
+        Assert.NotEmpty(boundedCached.Pairs);
         Assert.True(
-            NameWork(uncached) > NameWork(cached),
-            "The bounded cache must actually retain scores when it fits.");
+            boundedCached.Receipt.DiscoveredCandidateMethods
+                < cached.Receipt.DiscoveredCandidateMethods,
+            "The bounded budget must stop admission mid-participant.");
+        Assert.Equal(boundedCached.Pairs, boundedUncached.Pairs);
+        Assert.Equal(boundedCached.Receipt, boundedUncached.Receipt);
+        Assert.Equal(
+            boundedCached.Libraries.Select(
+                library => (
+                    library.Admitted,
+                    library.CandidateMethods,
+                    library.DiscoveredMethods,
+                    library.RetrievalPairs,
+                    library.NameComparisonWork,
+                    library.CoverageIsComplete)),
+            boundedUncached.Libraries.Select(
+                library => (
+                    library.Admitted,
+                    library.CandidateMethods,
+                    library.DiscoveredMethods,
+                    library.RetrievalPairs,
+                    library.NameComparisonWork,
+                    library.CoverageIsComplete)));
+        Assert.Equal(
+            boundedCached.Libraries.SelectMany(
+                library => library.Failures.Select(
+                    failure => failure.Kind)),
+            boundedUncached.Libraries.SelectMany(
+                library => library.Failures.Select(
+                    failure => failure.Kind)));
 
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new WorkspaceStructuralCloneSearchInput(
@@ -1556,6 +1977,61 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                     RepeatedNamesGroup.Participants[0],
                     StructuralCloneParticipantMembership
                         .ContainingLibrary);
+
+            // An ordinary compiled library: the accessor bodies of a property
+            // and an event are exactly what a logical Member seed expands to.
+            MemberImage =
+                ImmutableCollectionsMarshal.AsImmutableArray(
+                    File.ReadAllBytes(
+                        FixtureCatalog.CloneSearchMembers.AssemblyPath()));
+            MemberGroup = Group(workspace, MemberImage);
+            MemberEntry =
+                new StructuralCloneParticipantEntry(
+                    MemberGroup,
+                    MemberGroup.Participants[0],
+                    StructuralCloneParticipantMembership
+                        .ContainingLibrary);
+
+            // Greek capital sigma and final sigma are equal under
+            // StringComparison.OrdinalIgnoreCase and unequal after
+            // lowercasing, and one character leaves no other similarity.
+            SigmaImage =
+                Assembly(
+                    SigmaAssembly,
+                    new Guid("1B0A0C5E-0007-4000-8000-000000000007"),
+                    [
+                        ("N", "\u03a3", [("\u03a3", 1)]),
+                        ("N", "\u03c2", [("\u03c2", 1)]),
+                    ]);
+            SigmaGroup = Group(workspace, SigmaImage);
+            SigmaEntry =
+                new StructuralCloneParticipantEntry(
+                    SigmaGroup,
+                    SigmaGroup.Participants[0],
+                    StructuralCloneParticipantMembership
+                        .ContainingLibrary);
+
+            AccessorlessImage = AccessorlessPropertyAssembly();
+            AccessorlessGroup = Group(workspace, AccessorlessImage);
+            AccessorlessEntry =
+                new StructuralCloneParticipantEntry(
+                    AccessorlessGroup,
+                    AccessorlessGroup.Participants[0],
+                    StructuralCloneParticipantMembership
+                        .ContainingLibrary);
+
+            // One library whose only property associates an accessor that a
+            // different type declares: an in-range MethodDef row that is not a
+            // body of the selected member.
+            CrossTypeAccessorImage = CrossTypeAccessorPropertyAssembly();
+            CrossTypeAccessorGroup =
+                Group(workspace, CrossTypeAccessorImage);
+            CrossTypeAccessorEntry =
+                new StructuralCloneParticipantEntry(
+                    CrossTypeAccessorGroup,
+                    CrossTypeAccessorGroup.Participants[0],
+                    StructuralCloneParticipantMembership
+                        .ContainingLibrary);
         }
 
         internal InspectionWorkspace Workspace { get; }
@@ -1578,6 +2054,19 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         internal ImmutableArray<byte> RepeatedNamesImage { get; }
         internal AssemblyContextGroup RepeatedNamesGroup { get; }
         internal StructuralCloneParticipantEntry RepeatedNamesEntry { get; }
+        internal ImmutableArray<byte> MemberImage { get; }
+        internal AssemblyContextGroup MemberGroup { get; }
+        internal StructuralCloneParticipantEntry MemberEntry { get; }
+        internal ImmutableArray<byte> SigmaImage { get; }
+        internal AssemblyContextGroup SigmaGroup { get; }
+        internal StructuralCloneParticipantEntry SigmaEntry { get; }
+        internal ImmutableArray<byte> AccessorlessImage { get; }
+        internal AssemblyContextGroup AccessorlessGroup { get; }
+        internal StructuralCloneParticipantEntry AccessorlessEntry { get; }
+        internal ImmutableArray<byte> CrossTypeAccessorImage { get; }
+        internal AssemblyContextGroup CrossTypeAccessorGroup { get; }
+        internal StructuralCloneParticipantEntry
+            CrossTypeAccessorEntry { get; }
 
         internal AssemblyContextParticipant SelfParticipant =>
             SelfGroup.Participants[0];
@@ -1649,6 +2138,255 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                     type,
                     reader.GetMethodDefinition(
                         Method(reader, type, "Compute00"))));
+        }
+
+        /// <summary>The ordinary compiled property/event library alone.</summary>
+        internal StructuralCloneParticipantSnapshot MemberSnapshot()
+            => new(Revision, Revision, [MemberEntry]);
+
+        /// <summary>
+        /// The anchor the Metadata surface issues for one logical property or
+        /// event of <c>Cases.Widget</c>.
+        /// </summary>
+        internal MemberAnchor LogicalAnchor(string memberName)
+        {
+            using var image = new PEReader(MemberImage);
+            ApiSurface surface =
+                ApiSurfaceExtractor.Extract(image, includeAll: true);
+            ApiType type =
+                Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Namespace == "Cases"
+                        && candidate.Name == "Widget");
+            ApiMember member =
+                Assert.Single(
+                    type.Members,
+                    candidate => candidate.Name == memberName
+                        && candidate.Kind is "property" or "event");
+            return ApiMemberIdentity.GetMemberAnchor(type, member);
+        }
+
+        /// <summary>One physical accessor of <c>Cases.Widget</c>.</summary>
+        internal MemberAnchor AccessorAnchor(string methodName)
+        {
+            using var image = new PEReader(MemberImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, "Cases.Widget");
+            return ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                type,
+                reader.GetMethodDefinition(
+                    Method(reader, type, methodName)));
+        }
+
+        /// <summary>One field of <c>Cases.Widget</c>.</summary>
+        internal MemberAnchor FieldAnchor(string fieldName)
+        {
+            using var image = new PEReader(MemberImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, "Cases.Widget");
+            int work =
+                MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+            return ApiMemberIdentity.CreateFieldAnchor(
+                reader,
+                type,
+                reader.GetFieldDefinition(Field(reader, type, fieldName)),
+                ref work);
+        }
+
+        /// <summary>A field anchor <c>Cases.Widget</c> does not declare.</summary>
+        internal MemberAnchor UndeclaredFieldAnchor()
+        {
+            using var image = new PEReader(MemberImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, "Cases.Lookup");
+            int work =
+                MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+            return ApiMemberIdentity.CreateFieldAnchor(
+                reader,
+                type,
+                reader.GetFieldDefinition(
+                    Field(reader, type, "_byIndex")),
+                ref work);
+        }
+
+        /// <summary>
+        /// The anchor of the one <c>Cases.Lookup</c> indexer overload whose
+        /// index parameter is <paramref name="parameterType"/>.
+        /// </summary>
+        internal MemberAnchor IndexerAnchor(string parameterType)
+        {
+            using var image = new PEReader(MemberImage);
+            ApiSurface surface =
+                ApiSurfaceExtractor.Extract(image, includeAll: true);
+            ApiType type =
+                Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Namespace == "Cases"
+                        && candidate.Name == "Lookup");
+            ApiMember indexer =
+                Assert.Single(
+                    type.Members,
+                    candidate => candidate.Kind == "property"
+                        && ApiMemberIdentity
+                            .GetCanonicalSignature(type, candidate)
+                            .EndsWith(
+                                $"({parameterType})",
+                                StringComparison.Ordinal));
+            return ApiMemberIdentity.GetMemberAnchor(type, indexer);
+        }
+
+        /// <summary>
+        /// Every accessor MethodDef of that same overload's own PropertyDef,
+        /// in MethodDef row order.
+        /// </summary>
+        internal ImmutableArray<MethodDefinitionHandle> IndexerAccessors(
+            string parameterType)
+        {
+            using var image = new PEReader(MemberImage);
+            MetadataReader reader = image.GetMetadataReader();
+            PropertyDefinitionHandle handle =
+                Indexer(reader, parameterType, out _);
+            Assert.False(handle.IsNil, "Indexer overload not found.");
+            PropertyAccessors accessors =
+                reader.GetPropertyDefinition(handle).GetAccessors();
+            List<MethodDefinitionHandle> associated =
+            [
+                accessors.Getter,
+                accessors.Setter,
+                .. accessors.Others,
+            ];
+            return
+            [
+                .. associated
+                    .Where(accessor => !accessor.IsNil)
+                    .OrderBy(
+                        static accessor =>
+                            MetadataTokens.GetRowNumber(accessor)),
+            ];
+        }
+
+        static PropertyDefinitionHandle Indexer(
+            MetadataReader reader,
+            string parameterType,
+            out MemberAnchor anchor)
+        {
+            TypeDefinitionHandle type = Type(reader, "Cases.Lookup");
+            string suffix = $"({parameterType})";
+            foreach (PropertyDefinitionHandle handle
+                in reader.GetTypeDefinition(type).GetProperties())
+            {
+                int work =
+                    MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+                MemberAnchor candidate =
+                    ApiMemberIdentity.CreatePropertyAnchor(
+                        reader,
+                        type,
+                        reader.GetPropertyDefinition(handle),
+                        ref work);
+                if (candidate.CanonicalSignature.EndsWith(
+                        suffix,
+                        StringComparison.Ordinal))
+                {
+                    anchor = candidate;
+                    return handle;
+                }
+            }
+
+            anchor = default!;
+            return default;
+        }
+
+        /// <summary>The cross-type accessor library alone.</summary>
+        internal StructuralCloneParticipantSnapshot
+            CrossTypeAccessorSnapshot()
+            => new(Revision, Revision, [CrossTypeAccessorEntry]);
+
+        /// <summary>
+        /// The anchor of the property whose only <c>MethodSemantics</c> row
+        /// associates a method another type declares.
+        /// </summary>
+        internal MemberAnchor CrossTypeAccessorAnchor()
+        {
+            using var image = new PEReader(CrossTypeAccessorImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, "N.Owner");
+            int work =
+                MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+            return ApiMemberIdentity.CreatePropertyAnchor(
+                reader,
+                type,
+                reader.GetPropertyDefinition(
+                    Assert.Single(
+                        reader.GetTypeDefinition(type).GetProperties())),
+                ref work);
+        }
+
+        /// <summary>Decoded method names of endpoints in the member library.</summary>
+        internal ImmutableArray<string> MemberNames(
+            IEnumerable<StructuralCloneSearchEndpoint> endpoints)
+        {
+            using var image = new PEReader(MemberImage);
+            MetadataReader reader = image.GetMetadataReader();
+            return
+            [
+                .. endpoints
+                    .Select(endpoint => reader.GetString(
+                        reader.GetMethodDefinition(
+                            endpoint.Method.Handle).Name))
+                    .Order(StringComparer.Ordinal),
+            ];
+        }
+
+        /// <summary>The sigma library alone.</summary>
+        internal StructuralCloneParticipantSnapshot SigmaSnapshot()
+            => new(Revision, Revision, [SigmaEntry]);
+
+        /// <summary>The Greek capital sigma method as an exact seed.</summary>
+        internal StructuralCloneSearchSeed.Member SigmaSeed()
+        {
+            using var image = new PEReader(SigmaImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, "N.\u03a3");
+            return new StructuralCloneSearchSeed.Member(
+                TypeName("N.\u03a3"),
+                ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    type,
+                    reader.GetMethodDefinition(
+                        Method(reader, type, "\u03a3"))));
+        }
+
+        internal string SigmaName(StructuralCloneSearchEndpoint endpoint)
+        {
+            using var image = new PEReader(SigmaImage);
+            MetadataReader reader = image.GetMetadataReader();
+            return reader.GetString(
+                reader.GetMethodDefinition(endpoint.Method.Handle).Name);
+        }
+
+        /// <summary>The accessorless-property library alone.</summary>
+        internal StructuralCloneParticipantSnapshot AccessorlessSnapshot()
+            => new(Revision, Revision, [AccessorlessEntry]);
+
+        /// <summary>
+        /// The anchor of a property that carries no MethodSemantics row, so it
+        /// exists and occupies no method body.
+        /// </summary>
+        internal MemberAnchor AccessorlessAnchor()
+        {
+            using var image = new PEReader(AccessorlessImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, "N.Holder");
+            int work =
+                MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+            return ApiMemberIdentity.CreatePropertyAnchor(
+                reader,
+                type,
+                reader.GetPropertyDefinition(
+                    Assert.Single(
+                        reader.GetTypeDefinition(type).GetProperties())),
+                ref work);
         }
 
         internal StructuralCloneParticipantSnapshot
@@ -1738,6 +2476,9 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
             CrossSeedGroup.Dispose();
             CrossSeedPeerGroup.Dispose();
             RepeatedNamesGroup.Dispose();
+            MemberGroup.Dispose();
+            SigmaGroup.Dispose();
+            AccessorlessGroup.Dispose();
             await Workspace.DisposeAsync();
         }
 
@@ -1840,6 +2581,16 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                     reader.GetMethodDefinition(method).Name)
                     == name);
 
+        static FieldDefinitionHandle Field(
+            MetadataReader reader,
+            TypeDefinitionHandle type,
+            string name)
+            => Assert.Single(
+                reader.GetTypeDefinition(type).GetFields(),
+                field => reader.GetString(
+                    reader.GetFieldDefinition(field).Name)
+                    == name);
+
         static TypeDefinitionHandle Type(
             MetadataReader reader,
             string serializedName)
@@ -1907,6 +2658,162 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                     AddMethod(metadata, encoder, method, body);
                 }
             }
+
+            var pe = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            pe.Serialize(image);
+            return ImmutableCollectionsMarshal.AsImmutableArray(
+                image.ToArray());
+        }
+
+        /// <summary>
+        /// One library whose only property carries no <c>MethodSemantics</c>
+        /// row, so the property exists and occupies no method body.
+        /// </summary>
+        static ImmutableArray<byte> AccessorlessPropertyAssembly()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString($"{AccessorlessAssembly}.dll"),
+                metadata.GetOrAddGuid(
+                    new Guid("1B0A0C5E-0008-4000-8000-000000000008")),
+                encId: default,
+                encBaseId: default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString(AccessorlessAssembly),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKey: default,
+                flags: default,
+                hashAlgorithm: default);
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle holder =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Class | TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Holder"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList:
+                        MetadataTokens.MethodDefinitionHandle(1));
+
+            var bodies = new BlobBuilder();
+            var encoder = new MethodBodyStreamEncoder(bodies);
+            AddMethod(metadata, encoder, "Compute", 1);
+
+            var propertySignature = new BlobBuilder();
+            new BlobEncoder(propertySignature)
+                .PropertySignature(isInstanceProperty: false)
+                .Parameters(
+                    parameterCount: 0,
+                    returnType => returnType.Type().Int32(),
+                    parameters => { });
+            metadata.AddPropertyMap(
+                holder,
+                MetadataTokens.PropertyDefinitionHandle(1));
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(propertySignature));
+
+            var pe = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            pe.Serialize(image);
+            return ImmutableCollectionsMarshal.AsImmutableArray(
+                image.ToArray());
+        }
+
+        /// <summary>
+        /// One library whose only property associates a getter that a
+        /// different type declares. The MethodDef row is in range and the
+        /// image's TypeDef method ranges still partition the MethodDef table,
+        /// so range checking alone admits this association.
+        /// </summary>
+        static ImmutableArray<byte> CrossTypeAccessorPropertyAssembly()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString(
+                    $"{CrossTypeAccessorAssembly}.dll"),
+                metadata.GetOrAddGuid(
+                    new Guid("1B0A0C5E-0009-4000-8000-000000000009")),
+                encId: default,
+                encBaseId: default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString(CrossTypeAccessorAssembly),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKey: default,
+                flags: default,
+                hashAlgorithm: default);
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle owner =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Class | TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Owner"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList:
+                        MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Class | TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Other"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
+
+            var bodies = new BlobBuilder();
+            var encoder = new MethodBodyStreamEncoder(bodies);
+            AddMethod(metadata, encoder, "Compute", 1);
+            AddMethod(metadata, encoder, "Foreign", 2);
+
+            var propertySignature = new BlobBuilder();
+            new BlobEncoder(propertySignature)
+                .PropertySignature(isInstanceProperty: false)
+                .Parameters(
+                    parameterCount: 0,
+                    returnType => returnType.Type().Int32(),
+                    parameters => { });
+            metadata.AddPropertyMap(
+                owner,
+                MetadataTokens.PropertyDefinitionHandle(1));
+            PropertyDefinitionHandle property =
+                metadata.AddProperty(
+                    PropertyAttributes.None,
+                    metadata.GetOrAddString("Value"),
+                    metadata.GetOrAddBlob(propertySignature));
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                MetadataTokens.MethodDefinitionHandle(2));
 
             var pe = new ManagedPEBuilder(
                 PEHeaderBuilder.CreateLibraryHeader(),

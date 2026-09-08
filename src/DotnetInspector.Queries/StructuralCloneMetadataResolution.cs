@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -25,6 +26,14 @@ enum StructuralCloneMemberResolutionStatus
     TypeAmbiguous,
     MemberNotFound,
     MemberAmbiguous,
+
+    /// <summary>
+    /// The exact member exists and is one logical member, but it occupies no
+    /// MethodDef. A property or event whose <c>MethodSemantics</c> rows are
+    /// absent owns no method body, and a field owns none by construction, so
+    /// either selects an empty body population rather than an arbitrary one.
+    /// </summary>
+    MemberHasNoMethodBody,
 }
 
 readonly record struct StructuralCloneTypeResolution(
@@ -33,6 +42,14 @@ readonly record struct StructuralCloneTypeResolution(
 
 readonly record struct StructuralCloneMemberResolution(
     MethodDefinitionHandle Method,
+    StructuralCloneMemberResolutionStatus Status);
+
+/// <summary>
+/// Every exact method body one selected member occupies, in MethodDef row
+/// order.
+/// </summary>
+readonly record struct StructuralCloneMemberBodyResolution(
+    ImmutableArray<MethodDefinitionHandle> Methods,
     StructuralCloneMemberResolutionStatus Status);
 
 /// <summary>
@@ -71,28 +88,78 @@ readonly struct StructuralCloneValidatedImage
 /// </remarks>
 static class StructuralCloneMetadataResolution
 {
+    /// <summary>
+    /// Selects the one MethodDef carrying the exact member identity. Only a
+    /// method anchor resolves; a logical member that occupies several bodies
+    /// is not a single-body selection.
+    /// </summary>
     internal static StructuralCloneMemberResolution ResolveMember(
         MetadataReader reader,
         MetadataTypeDefinitionName typeName,
         MemberAnchor member)
+    {
+        StructuralCloneMemberBodyResolution resolved =
+            ResolveMemberCore(
+                reader,
+                typeName,
+                member,
+                expandLogicalMembers: false);
+        return new StructuralCloneMemberResolution(
+            resolved.Methods.IsDefaultOrEmpty
+                ? default
+                : resolved.Methods[0],
+            resolved.Status);
+    }
+
+    /// <summary>
+    /// Selects every exact method body the selected member occupies.
+    /// </summary>
+    /// <remarks>
+    /// A method anchor selects its own single body, so an explicit accessor
+    /// selection stays one body. A property or event anchor selects the bodies
+    /// its <c>MethodSemantics</c> rows associate with it — getter, setter,
+    /// adder, remover, raiser, and any other associated accessor — because
+    /// those are the exact bodies that logical member occupies. A field is a
+    /// supported Member subject that occupies no method body at all, so it is
+    /// selected here to distinguish a field that exists from a member that
+    /// does not. Ambiguity and malformed-metadata behavior are unchanged: a
+    /// repeated exact identity is ambiguous, and an identity that cannot be
+    /// decoded is a metadata failure rather than a confident selection.
+    /// </remarks>
+    internal static StructuralCloneMemberBodyResolution ResolveMemberBodies(
+        MetadataReader reader,
+        MetadataTypeDefinitionName typeName,
+        MemberAnchor member)
+        => ResolveMemberCore(
+            reader,
+            typeName,
+            member,
+            expandLogicalMembers: true);
+
+    static StructuralCloneMemberBodyResolution ResolveMemberCore(
+        MetadataReader reader,
+        MetadataTypeDefinitionName typeName,
+        MemberAnchor member,
+        bool expandLogicalMembers)
     {
         StructuralCloneTypeResolution type =
             ResolveType(reader, typeName);
         switch (type.Status)
         {
             case StructuralCloneTypeResolutionStatus.NotFound:
-                return new StructuralCloneMemberResolution(
-                    default,
+                return new StructuralCloneMemberBodyResolution(
+                    [],
                     StructuralCloneMemberResolutionStatus.TypeNotFound);
             case StructuralCloneTypeResolutionStatus.Ambiguous:
-                return new StructuralCloneMemberResolution(
-                    default,
+                return new StructuralCloneMemberBodyResolution(
+                    [],
                     StructuralCloneMemberResolutionStatus.TypeAmbiguous);
         }
 
-        MethodDefinitionHandle match = default;
+        var bodies =
+            ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
         int matches = 0;
-        int inspectedMethods = 0;
+        int inspectedRows = 0;
         int identityDecodeFailures = 0;
         int anchorWorkRemaining =
             MetadataSafetyPolicy.MaxClassificationScanWorkChars;
@@ -110,15 +177,7 @@ static class StructuralCloneMetadataResolution
         foreach (MethodDefinitionHandle methodHandle
             in definition.GetMethods())
         {
-            inspectedMethods++;
-            if (inspectedMethods
-                > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
-            {
-                throw new BadImageFormatException(
-                    "The exact seed member lookup exceeds the MethodDef "
-                        + "row budget.");
-            }
-
+            ChargeMemberRow(ref inspectedRows);
             MethodDefinition method =
                 reader.GetMethodDefinition(methodHandle);
             MemberAnchor anchor;
@@ -146,25 +205,12 @@ static class StructuralCloneMetadataResolution
                 {
                     throw;
                 }
-                if (anchorWorkRemaining <= 0)
-                {
-                    throw new BadImageFormatException(
-                        "The exact seed member lookup exceeds the "
-                            + "anchor-signature work budget.",
-                        ex);
-                }
-                identityDecodeFailures++;
-                if (identityDecodeFailures
-                    >= MetadataSafetyPolicy
-                        .MaxClassificationIdentityDecodeFailures)
-                {
-                    throw new BadImageFormatException(
-                        "The exact seed member lookup exceeds the "
-                            + "method-identity decode failure budget.",
-                        ex);
-                }
 
-                rejected ??= ex;
+                NoteIdentityDecodeFailure(
+                    ex,
+                    anchorWorkRemaining,
+                    ref identityDecodeFailures,
+                    ref rejected);
                 continue;
             }
 
@@ -173,8 +219,172 @@ static class StructuralCloneMetadataResolution
                 continue;
             }
 
-            match = methodHandle;
+            bodies.Add(methodHandle);
             matches++;
+        }
+
+        // A logical member occupies the bodies its MethodSemantics rows
+        // associate with it. Physical accessor projection belongs to the
+        // metadata owner, so the association is read through SRM's accessor
+        // projection rather than re-derived from accessor name conventions.
+        if (expandLogicalMembers)
+        {
+            int methodRowCount =
+                reader.GetTableRowCount(TableIndex.MethodDef);
+            foreach (PropertyDefinitionHandle propertyHandle
+                in definition.GetProperties())
+            {
+                ChargeMemberRow(ref inspectedRows);
+                PropertyDefinition property =
+                    reader.GetPropertyDefinition(propertyHandle);
+                MemberAnchor anchor;
+                try
+                {
+                    anchor = ApiMemberIdentity.CreatePropertyAnchor(
+                        reader,
+                        type.Handle,
+                        property,
+                        ref anchorWorkRemaining);
+                }
+                catch (Exception ex) when (IsMalformedMetadata(ex))
+                {
+                    NoteIdentityDecodeFailure(
+                        ex,
+                        anchorWorkRemaining,
+                        ref identityDecodeFailures,
+                        ref rejected);
+                    continue;
+                }
+
+                if (anchor != member)
+                {
+                    continue;
+                }
+
+                PropertyAccessors accessors = property.GetAccessors();
+                AddAccessor(
+                    reader,
+                    accessors.Getter,
+                    type.Handle,
+                    methodRowCount,
+                    bodies);
+                AddAccessor(
+                    reader,
+                    accessors.Setter,
+                    type.Handle,
+                    methodRowCount,
+                    bodies);
+                foreach (MethodDefinitionHandle other in accessors.Others)
+                {
+                    AddAccessor(
+                        reader,
+                        other,
+                        type.Handle,
+                        methodRowCount,
+                        bodies);
+                }
+
+                matches++;
+            }
+
+            foreach (EventDefinitionHandle eventHandle
+                in definition.GetEvents())
+            {
+                ChargeMemberRow(ref inspectedRows);
+                EventDefinition eventDefinition =
+                    reader.GetEventDefinition(eventHandle);
+                MemberAnchor anchor;
+                try
+                {
+                    anchor = ApiMemberIdentity.CreateEventAnchor(
+                        reader,
+                        type.Handle,
+                        eventDefinition,
+                        ref anchorWorkRemaining);
+                }
+                catch (Exception ex) when (IsMalformedMetadata(ex))
+                {
+                    NoteIdentityDecodeFailure(
+                        ex,
+                        anchorWorkRemaining,
+                        ref identityDecodeFailures,
+                        ref rejected);
+                    continue;
+                }
+
+                if (anchor != member)
+                {
+                    continue;
+                }
+
+                EventAccessors accessors = eventDefinition.GetAccessors();
+                AddAccessor(
+                    reader,
+                    accessors.Adder,
+                    type.Handle,
+                    methodRowCount,
+                    bodies);
+                AddAccessor(
+                    reader,
+                    accessors.Remover,
+                    type.Handle,
+                    methodRowCount,
+                    bodies);
+                AddAccessor(
+                    reader,
+                    accessors.Raiser,
+                    type.Handle,
+                    methodRowCount,
+                    bodies);
+                foreach (MethodDefinitionHandle other in accessors.Others)
+                {
+                    AddAccessor(
+                        reader,
+                        other,
+                        type.Handle,
+                        methodRowCount,
+                        bodies);
+                }
+
+                matches++;
+            }
+
+            // A field is a supported Member subject that occupies no method
+            // body. Scanning fields is what makes a bodyless field the typed
+            // "member exists, has no body" outcome instead of a member the
+            // selected type does not declare.
+            foreach (FieldDefinitionHandle fieldHandle
+                in definition.GetFields())
+            {
+                ChargeMemberRow(ref inspectedRows);
+                FieldDefinition field =
+                    reader.GetFieldDefinition(fieldHandle);
+                MemberAnchor anchor;
+                try
+                {
+                    anchor = ApiMemberIdentity.CreateFieldAnchor(
+                        reader,
+                        type.Handle,
+                        field,
+                        ref anchorWorkRemaining);
+                }
+                catch (Exception ex) when (IsMalformedMetadata(ex))
+                {
+                    NoteIdentityDecodeFailure(
+                        ex,
+                        anchorWorkRemaining,
+                        ref identityDecodeFailures,
+                        ref rejected);
+                    continue;
+                }
+
+                if (anchor != member)
+                {
+                    continue;
+                }
+
+                matches++;
+            }
         }
 
         // A rejected sibling cannot be shown to decode to a different
@@ -185,23 +395,126 @@ static class StructuralCloneMetadataResolution
         if (rejected is not null)
         {
             throw new BadImageFormatException(
-                "A MethodDef could not be inspected while resolving "
+                "A member could not be inspected while resolving "
                     + "the exact seed member.",
                 rejected);
         }
 
-        return matches switch
+        if (matches == 0)
         {
-            0 => new StructuralCloneMemberResolution(
-                default,
-                StructuralCloneMemberResolutionStatus.MemberNotFound),
-            1 => new StructuralCloneMemberResolution(
-                match,
-                StructuralCloneMemberResolutionStatus.Resolved),
-            _ => new StructuralCloneMemberResolution(
-                default,
-                StructuralCloneMemberResolutionStatus.MemberAmbiguous),
-        };
+            return new StructuralCloneMemberBodyResolution(
+                [],
+                StructuralCloneMemberResolutionStatus.MemberNotFound);
+        }
+        if (matches > 1)
+        {
+            return new StructuralCloneMemberBodyResolution(
+                [],
+                StructuralCloneMemberResolutionStatus.MemberAmbiguous);
+        }
+
+        ImmutableArray<MethodDefinitionHandle> methods =
+        [
+            .. bodies
+                .Distinct()
+                .OrderBy(static handle =>
+                    MetadataTokens.GetRowNumber(handle)),
+        ];
+        return methods.IsEmpty
+            ? new StructuralCloneMemberBodyResolution(
+                [],
+                StructuralCloneMemberResolutionStatus
+                    .MemberHasNoMethodBody)
+            : new StructuralCloneMemberBodyResolution(
+                methods,
+                StructuralCloneMemberResolutionStatus.Resolved);
+    }
+
+    static void ChargeMemberRow(ref int inspectedRows)
+    {
+        inspectedRows++;
+        if (inspectedRows
+            > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+        {
+            throw new BadImageFormatException(
+                "The exact seed member lookup exceeds the member "
+                    + "row budget.");
+        }
+    }
+
+    static void NoteIdentityDecodeFailure(
+        Exception failure,
+        int anchorWorkRemaining,
+        ref int identityDecodeFailures,
+        ref Exception? rejected)
+    {
+        if (anchorWorkRemaining <= 0)
+        {
+            throw new BadImageFormatException(
+                "The exact seed member lookup exceeds the "
+                    + "anchor-signature work budget.",
+                failure);
+        }
+
+        identityDecodeFailures++;
+        if (identityDecodeFailures
+            >= MetadataSafetyPolicy
+                .MaxClassificationIdentityDecodeFailures)
+        {
+            throw new BadImageFormatException(
+                "The exact seed member lookup exceeds the "
+                    + "member-identity decode failure budget.",
+                failure);
+        }
+
+        rejected ??= failure;
+    }
+
+    /// <summary>
+    /// Records one associated accessor body, rejecting an association that
+    /// does not name a MethodDef the selected type declares.
+    /// </summary>
+    /// <remarks>
+    /// SRM's accessor projection returns the raw <c>MethodSemantics</c>
+    /// method, so an out-of-range row is malformed metadata rather than an
+    /// absent accessor. Being in range is not sufficient: a member of the
+    /// selected type cannot be implemented by a body another type owns, so an
+    /// accessor associated across types is malformed metadata too, not a body
+    /// of the selected member. Declaring-type ownership is read through SRM
+    /// over an image whose TypeDef method ranges
+    /// <see cref="StructuralCloneValidatedImage"/> already established as a
+    /// partition of the MethodDef table, which is what makes that lookup
+    /// answer for exactly one type.
+    /// </remarks>
+    static void AddAccessor(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        TypeDefinitionHandle declaringType,
+        int methodRowCount,
+        ImmutableArray<MethodDefinitionHandle>.Builder bodies)
+    {
+        if (handle.IsNil)
+        {
+            return;
+        }
+
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (row < 1 || row > methodRowCount)
+        {
+            throw new BadImageFormatException(
+                "A MethodSemantics accessor references a MethodDef that "
+                    + "does not exist.");
+        }
+
+        if (reader.GetMethodDefinition(handle).GetDeclaringType()
+            != declaringType)
+        {
+            throw new BadImageFormatException(
+                "A MethodSemantics accessor references a MethodDef that "
+                    + "another type declares.");
+        }
+
+        bodies.Add(handle);
     }
 
     internal static StructuralCloneTypeResolution ResolveType(

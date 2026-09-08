@@ -41,6 +41,193 @@ public class ApiMemberIdentityTests
         Assert.Equal(MemberAnchor.ComputeFingerprint(anchor.CanonicalSignature), anchor.Fingerprint);
     }
 
+    /// <summary>
+    /// A logical property or event anchor, and a field anchor, read directly
+    /// from metadata must be the same anchor the surface producer issues,
+    /// because both are the exact identity a caller binds a member selection
+    /// to.
+    /// </summary>
+    [Fact]
+    public void CreateNonMethodAnchors_MatchTheSurfaceIssuedAnchors()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var apiType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "AssociationAnchorFixture");
+        var typeHandle = FindFixtureType(reader, "AssociationAnchorFixture");
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+
+        int propertyWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var propertyAnchor = ApiMemberIdentity.CreatePropertyAnchor(
+            reader,
+            typeHandle,
+            reader.GetPropertyDefinition(
+                Assert.Single(typeDefinition.GetProperties())),
+            ref propertyWork);
+        int eventWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var eventAnchor = ApiMemberIdentity.CreateEventAnchor(
+            reader,
+            typeHandle,
+            reader.GetEventDefinition(
+                Assert.Single(typeDefinition.GetEvents())),
+            ref eventWork);
+        int fieldWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var fieldAnchor = ApiMemberIdentity.CreateFieldAnchor(
+            reader,
+            typeHandle,
+            reader.GetFieldDefinition(
+                Assert.Single(
+                    typeDefinition.GetFields(),
+                    handle => reader.GetString(
+                        reader.GetFieldDefinition(handle).Name) == "Tag")),
+            ref fieldWork);
+
+        Assert.Equal(
+            "P:ILInspector.Metadata.Tests.AssociationAnchorFixture.Value",
+            propertyAnchor.CanonicalSignature);
+        Assert.Equal(
+            "E:ILInspector.Metadata.Tests.AssociationAnchorFixture.Changed",
+            eventAnchor.CanonicalSignature);
+        Assert.Equal(
+            "F:ILInspector.Metadata.Tests.AssociationAnchorFixture.Tag",
+            fieldAnchor.CanonicalSignature);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                apiType,
+                Assert.Single(
+                    apiType.Members,
+                    member => member.Kind == "property")),
+            propertyAnchor);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                apiType,
+                Assert.Single(
+                    apiType.Members,
+                    member => member.Kind == "event")),
+            eventAnchor);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                apiType,
+                Assert.Single(
+                    apiType.Members,
+                    member => member.Kind == "field"
+                        && member.Name == "Tag")),
+            fieldAnchor);
+        Assert.True(
+            propertyWork < MetadataSafetyPolicy.MaxClassificationScanWorkChars,
+            "The anchor must charge the caller-owned work counter.");
+        Assert.True(
+            eventWork < MetadataSafetyPolicy.MaxClassificationScanWorkChars,
+            "The anchor must charge the caller-owned work counter.");
+        Assert.True(
+            fieldWork < MetadataSafetyPolicy.MaxClassificationScanWorkChars,
+            "The anchor must charge the caller-owned work counter.");
+    }
+
+    /// <summary>
+    /// An indexer is a property that overloads on its index parameters, so the
+    /// SRM-direct producer must include them exactly as the surface producer
+    /// does. Without them, two overloads collide on <c>P:Type.Item</c> and a
+    /// caller selecting one either gets the other or an ambiguous outcome.
+    /// </summary>
+    /// <remarks>
+    /// The SRM-direct producer must emit the same exact anchor as the API
+    /// surface because that surface anchor is what a selected Member carries
+    /// into a consumer query.
+    /// </remarks>
+    [Fact]
+    public void CreatePropertyAnchor_DistinguishesOverloadedIndexers()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = FindFixtureType(reader, nameof(IndexerFixture));
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+
+        int work = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        List<MemberAnchor> anchors = [];
+        foreach (var handle in typeDefinition.GetProperties())
+        {
+            anchors.Add(
+                ApiMemberIdentity.CreatePropertyAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetPropertyDefinition(handle),
+                    ref work));
+        }
+
+        Assert.Equal(2, anchors.Count);
+        string declaringType =
+            "ILInspector.Metadata.Tests.ApiMemberIdentityTests+IndexerFixture";
+        Assert.Equal(
+            [
+                $"P:{declaringType}.Item(int)",
+                $"P:{declaringType}.Item(string)",
+            ],
+            anchors
+                .Select(anchor => anchor.CanonicalSignature)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            2,
+            anchors
+                .Select(anchor => anchor.Fingerprint)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var apiType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name.EndsWith(
+                nameof(IndexerFixture),
+                StringComparison.Ordinal));
+        Assert.Equal(
+            anchors.OrderBy(
+                anchor => anchor.CanonicalSignature,
+                StringComparer.Ordinal),
+            apiType.Members
+                .Where(member => member.Kind == "property")
+                .Select(member =>
+                    ApiMemberIdentity.GetMemberAnchor(apiType, member))
+                .OrderBy(
+                    anchor => anchor.CanonicalSignature,
+                    StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// An ordinary property keeps the bare canonical spelling it has always
+    /// had. Only an indexer grows a parameter list, so no parameterless
+    /// property's identity moves.
+    /// </summary>
+    [Fact]
+    public void CreatePropertyAnchor_OrdinaryPropertyHasNoParameterList()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = FindFixtureType(reader, "AssociationAnchorFixture");
+
+        int work = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var anchor = ApiMemberIdentity.CreatePropertyAnchor(
+            reader,
+            typeHandle,
+            reader.GetPropertyDefinition(
+                Assert.Single(
+                    reader.GetTypeDefinition(typeHandle).GetProperties())),
+            ref work);
+
+        Assert.DoesNotContain('(', anchor.CanonicalSignature);
+        Assert.EndsWith(
+            ".Value",
+            anchor.CanonicalSignature,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CreateMethodAnchorInfo_IncludesCanonicalReturnType()
     {
@@ -808,6 +995,22 @@ public class ApiMemberIdentityTests
         throw new InvalidOperationException("Fixture method not found.");
     }
 
+    static TypeDefinitionHandle FindFixtureType(
+        MetadataReader reader,
+        string name)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            if (reader.GetString(
+                    reader.GetTypeDefinition(typeHandle).Name) == name)
+            {
+                return typeHandle;
+            }
+        }
+
+        throw new InvalidOperationException("Fixture type not found.");
+    }
+
     static byte[] BuildRepeatedLongMethodNameImage(
         int methodCount,
         int methodNameLength,
@@ -1076,5 +1279,29 @@ public class ApiMemberIdentityTests
             [System.Runtime.InteropServices.Optional]
             [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
             DateTime when] => when.Year;
+    }
+}
+
+/// <summary>
+/// An ordinary compiled property, event, and field whose anchors must agree
+/// between the surface producer and the SRM-direct producer.
+/// </summary>
+internal sealed class AssociationAnchorFixture
+{
+    int _value;
+    EventHandler? _changed;
+
+    public int Tag = 1;
+
+    public int Value
+    {
+        get { return _value; }
+        set { _value = value; }
+    }
+
+    public event EventHandler? Changed
+    {
+        add { _changed += value; }
+        remove { _changed -= value; }
     }
 }

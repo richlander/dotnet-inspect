@@ -1041,6 +1041,206 @@ public static class ApiMemberIdentity
         }
     }
 
+    /// <summary>
+    /// Creates the anchor of one property declared by
+    /// <paramref name="typeHandle"/>, drawing from the same caller-owned
+    /// cumulative work counter as the method anchor producers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An ordinary property's canonical signature is <c>P:{type}.{name}</c>:
+    /// its return type is not part of member identity. An indexer is a
+    /// property that overloads on its index parameters, so those parameters
+    /// are part of its identity and the canonical signature becomes
+    /// <c>P:{type}.{name}({parameters})</c>. This is the same discrimination
+    /// the surface producer performs, so two overloaded indexers do not
+    /// collide on one identity and get selected by declaration order.
+    /// </para>
+    /// <para>
+    /// The parameters are decoded through the same guarded C#-spelling
+    /// projection as the API surface, then charged to this producer's
+    /// caller-owned work budget. The resulting anchor therefore matches the
+    /// owner-issued surface anchor that a selected Member carries while still
+    /// rejecting an unsafe or undecodable signature.
+    /// </para>
+    /// </remarks>
+    public static MemberAnchor CreatePropertyAnchor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        PropertyDefinition property,
+        ref int scanWorkRemaining)
+        => CreateNonMethodAnchor(
+            reader,
+            typeHandle,
+            property.Name,
+            "P",
+            property,
+            ref scanWorkRemaining);
+
+    /// <summary>
+    /// Creates the anchor of one event declared by
+    /// <paramref name="typeHandle"/>, drawing from the same caller-owned
+    /// cumulative work counter as the method anchor producers.
+    /// </summary>
+    /// <remarks>
+    /// An event's canonical signature is <c>E:{type}.{name}</c> and its
+    /// handler type is not part of member identity, so no signature is
+    /// decoded. An event carries no parameter list to overload on, so unlike a
+    /// property this identity cannot grow one.
+    /// </remarks>
+    public static MemberAnchor CreateEventAnchor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        EventDefinition eventDefinition,
+        ref int scanWorkRemaining)
+        => CreateNonMethodAnchor(
+            reader,
+            typeHandle,
+            eventDefinition.Name,
+            "E",
+            property: null,
+            ref scanWorkRemaining);
+
+    /// <summary>
+    /// Creates the anchor of one field declared by
+    /// <paramref name="typeHandle"/>, drawing from the same caller-owned
+    /// cumulative work counter as the method anchor producers.
+    /// </summary>
+    /// <remarks>
+    /// A field's canonical signature is <c>F:{type}.{name}</c>, matching the
+    /// anchor the surface producer issues for kind <c>"field"</c>. A field
+    /// cannot be overloaded, so its type is not part of member identity and no
+    /// signature is decoded — the same reason an event decodes none.
+    /// A field is a supported Member subject that occupies no method body, so
+    /// a consumer resolving bodies needs this anchor to tell a field that
+    /// exists apart from a member that does not.
+    /// </remarks>
+    public static MemberAnchor CreateFieldAnchor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        FieldDefinition field,
+        ref int scanWorkRemaining)
+        => CreateNonMethodAnchor(
+            reader,
+            typeHandle,
+            field.Name,
+            "F",
+            property: null,
+            ref scanWorkRemaining);
+
+    static MemberAnchor CreateNonMethodAnchor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        StringHandle nameHandle,
+        string kind,
+        PropertyDefinition? property,
+        ref int scanWorkRemaining)
+    {
+        if (scanWorkRemaining <= 0)
+        {
+            throw new BadImageFormatException(
+                "The assembly exceeds the classification scan work budget.");
+        }
+
+        int anchorAllowance = scanWorkRemaining;
+        if (anchorAllowance > MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
+            anchorAllowance = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+
+        var workBudget = new AnchorSignatureWorkBudget(
+            anchorAllowance,
+            chargeProjectionWork: true);
+        try
+        {
+            MemberAnchor anchor = CreateNonMethodAnchorShape(
+                reader,
+                typeHandle,
+                nameHandle,
+                kind,
+                property,
+                workBudget);
+            int spent = anchorAllowance - workBudget.Remaining;
+            scanWorkRemaining -= spent;
+            if (scanWorkRemaining < 0)
+                scanWorkRemaining = 0;
+            return anchor;
+        }
+        catch (BadImageFormatException)
+        {
+            scanWorkRemaining = workBudget.Remaining;
+            throw;
+        }
+    }
+
+    static MemberAnchor CreateNonMethodAnchorShape(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        StringHandle nameHandle,
+        string kind,
+        PropertyDefinition? property,
+        AnchorSignatureWorkBudget workBudget)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        string memberName = ReadProjectionString(
+            reader,
+            nameHandle,
+            workBudget);
+        ImmutableArray<string> parameterTypes = [];
+        if (property is { } declared)
+        {
+            workBudget.ChargeProjectionNodes(
+                type.GetGenericParameters().Count);
+            GenericContext context =
+                GenericContext.ForType(
+                    reader,
+                    type,
+                    workBudget.ChargeProjection);
+            MethodSignature<string> decoded =
+                GuardedSignatureText
+                    .PropertyText(reader, declared, context)
+                    .GetValueOrThrow();
+            EnsureAnchorSignatureBudget(
+                decoded.ReturnType,
+                decoded.ParameterTypes);
+            workBudget.ChargeProjection(
+                decoded.ReturnType.Length
+                    + decoded.ParameterTypes.Sum(
+                        static parameter => (long)parameter.Length),
+                "property signature projection");
+
+            // An indexer's index parameters are part of property identity, so
+            // they use the same canonical spelling as the API-surface anchor.
+            // An ordinary property decodes zero of them and keeps its bare
+            // canonical spelling.
+            parameterTypes = decoded.ParameterTypes;
+        }
+
+        string typeFullName =
+            FormatDefinitionName(reader, typeHandle, workBudget);
+        ChargeCanonicalSignatureProjection(
+            workBudget,
+            typeFullName,
+            memberName,
+            parameterTypes,
+            conversionReturnType: null);
+        string canonicalSignature = MemberCanonicalSignature.Build(
+            kind,
+            typeFullName,
+            memberName,
+            parameterTypes);
+        ChargeSelectorProjection(workBudget, memberName);
+
+        // A property, event, or field selector is its own name for every
+        // accessibility and for explicit interface implementations, matching
+        // the surface producer's selector for kind "property", "event", and
+        // "field".
+        return CreateAnchor(
+            typeFullName,
+            memberName,
+            memberName,
+            canonicalSignature,
+            workBudget);
+    }
+
     public static ExtensionMemberAnchorInfo CreateExtensionMethodAnchorInfo(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -1318,6 +1518,24 @@ public static class ApiMemberIdentity
                     throw AnchorSignatureBudgetExceeded();
                 remaining -= parameter.Length;
             }
+        }
+    }
+
+    static void EnsureAnchorSignatureBudget(
+        string returnType,
+        ImmutableArray<string> parameters)
+    {
+        int remaining =
+            MetadataSafetyPolicy.MaxStructuralSignatureChars
+            - returnType.Length;
+        if (remaining < 0)
+            throw AnchorSignatureBudgetExceeded();
+
+        foreach (string parameter in parameters)
+        {
+            if (parameter.Length > remaining)
+                throw AnchorSignatureBudgetExceeded();
+            remaining -= parameter.Length;
         }
     }
 

@@ -101,6 +101,20 @@ The selected subject supplies the seed population:
 | Type | Every MethodDef declared by the selected exact type |
 | Member | Every exact method body occupied by the selected Member subject; an exact overload or accessor selection narrows this to one body |
 
+A Member subject is a logical member, so a property or event supplies the
+bodies its accessors occupy — getter and setter, adder, remover, and raiser,
+and any other associated accessor. An indexer is a property that overloads on
+its index parameters, so those parameters are part of its exact identity and a
+selected overload supplies only its own accessors. An explicit accessor
+selection is itself an exact member identity and stays one body. A selected
+member that occupies no method body — a property or event with no accessor, and
+every field — selects an empty seed population and is reported as that typed
+outcome; it is neither a missing member nor an arbitrary body. The search reads
+the physical accessor association and the member identities from their metadata
+owner rather than re-deriving either from accessor name conventions, and an
+accessor association naming a method a different type declares is malformed
+metadata rather than a body of the selected member.
+
 The selected subject retains its owner-issued exact identity. The search does
 not recover a Library, Type, or Member from display text.
 
@@ -197,6 +211,14 @@ Both conditions are required for the same seed-candidate pair. An exact
 ordinal-ignore-case name match has similarity `1.0`. Other comparisons
 case-fold invariantly before using
 `ILInspector.MetadataPrimitives.StringDistance.Similarity`.
+
+Invariant case folding here is the mapping `StringComparison.OrdinalIgnoreCase`
+itself uses, so the two rules agree by construction. Lowercasing is not that
+mapping: Greek capital sigma lowercases to the medial sigma while the final
+sigma lowercases to itself, so a lowercased comparison would exclude a peer the
+first rule promises to score `1.0`. The same equivalence governs how the search
+indexes and memoizes seed and candidate names, so two spellings of one name
+never admit different candidates.
 Declaring-type names follow the existing Metadata type-suggestion convention:
 use the innermost simple name and remove canonical generic arity. Method names
 use the decoded metadata method name.
@@ -221,6 +243,14 @@ filter.
 Name decode failure, name-work exhaustion, or a candidate library that cannot
 be inspected remains visible candidate-coverage evidence. The search does not
 silently discard that library and report a complete result.
+
+A candidate body Analysis could not produce is the same kind of evidence and
+belongs to the participant whose candidate it was. A library carries the
+Analysis-issued blockers that omitted its candidate methods, aggregated over
+every seed and every unit of retrieval work run against it, and is incomplete
+while it carries one. A blocker that reports the seed itself could not be
+produced stays with that seed: it omits no candidate of any one participant,
+and the seed's own coverage already makes the result incomplete.
 
 ### All
 
@@ -290,6 +320,12 @@ Exact method identity here is the snapshot-issued participant identity plus the
 physical method address. Both endpoints of one search come from the same bound
 snapshot, so that snapshot's owner-issued order is a total order over its
 distinct registrations and supplies the tie-break.
+
+Name-work bounds are accounted logically, not by execution. Any memoization the
+search uses is a pure optimization: the same logical comparison work is charged
+whether a score is recomputed or reused, so changing memoization capacity alone
+cannot change the discovered methods, the retrieval pairs, the ranked rows, or
+the reported coverage of an otherwise identical request.
 
 The product result limit applies after global ranking. Per-seed candidate,
 body-production, name-work, byte, and operation limits remain independently
@@ -368,7 +404,8 @@ The host-neutral result carries:
 - fixed name threshold and qualifying name scores where applicable;
 - global result and work bounds;
 - ordered pair identities and Analysis-issued retrieval evidence;
-- per-seed and per-library coverage;
+- per-seed and per-library coverage, including the Analysis-issued blockers
+  that omitted a participant's candidate methods;
 - intentional row suppression; and
 - typed acquisition, metadata, name-selection, and Analysis failures.
 
@@ -476,6 +513,9 @@ The following future outcome-level scenarios are required:
 | Scenario | Required observation |
 | --- | --- |
 | Open Library, Type, and Member Clone without changing target settings | Each subject supplies its own seed population; all use `Everything` plus `SimilarNames` |
+| Open Clone on a property or event | The seed population is every accessor body that member occupies; selecting one accessor seeds only that body |
+| Open Clone on one overloaded indexer | The seed population is that overload's own accessor bodies, not the other overload's and not both |
+| Open Clone on a field | The typed bodyless outcome, distinct from a member the type does not declare |
 | Run one Member seed at all three breadths with `All` | `Self` stays in the containing library, the middle breadth adds registered ecosystems, and `Everything` admits every available Workspace participant |
 | Run all six breadth/discovery combinations | Breadth changes only the Workspace population and discovery changes only method admission inside that population |
 | Run a Library search | Results are one global ranking across all admitted seeds, not N rows per method or library |
@@ -492,8 +532,11 @@ Shared owner suites run in Release and gate request defaults, starting/effective
 revision and participant-snapshot association, breadth and discovery
 admission, name-threshold behavior, per-pair name admission, snapshot-local
 endpoint identity order, aggregate participant and retrieval work bounds,
-bounded name-score memoization, chunked retrieval equivalence, released-group
-containment, duplicate suppression, global ranking, and coverage;
+memoization-independent admission, chunked retrieval equivalence,
+released-group containment, duplicate suppression, global ranking, per-library
+Analysis coverage, logical-member seed expansion over ordinary compiled
+property and event accessors, overloaded-indexer selection, the field bodyless
+outcome, and cross-type accessor association;
 `WorkspaceStructuralCloneSearchQueryTests` supplies that gate. CLI tests gate
 shared presentation and structured output. Browser
 original-host and Firefox suites gate the breadth and discovery controls,

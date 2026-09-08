@@ -381,7 +381,9 @@ public abstract record StructuralCloneSearchSeed
         public MetadataTypeDefinitionName Definition { get; }
     }
 
-    /// <summary>One exact method body selected by member identity.</summary>
+    /// <summary>
+    /// Every exact method body occupied by one selected member identity.
+    /// </summary>
     public sealed record Member : StructuralCloneSearchSeed
     {
         public Member(
@@ -637,6 +639,13 @@ public enum StructuralCloneSearchFailureKind
     SeedTypeAmbiguous,
     SeedMemberNotFound,
     SeedMemberAmbiguous,
+
+    /// <summary>
+    /// The exact seed member exists but occupies no method body. A property or
+    /// event with no <c>MethodSemantics</c> association, and every field,
+    /// selects an empty seed population rather than an arbitrary body.
+    /// </summary>
+    SeedMemberHasNoMethodBody,
     SeedPopulationLimitReached,
     CandidatePopulationLimitReached,
     ParticipantPopulationLimitReached,
@@ -698,6 +707,12 @@ public sealed record StructuralCloneSearchSeedCoverage(
 /// The seed-candidate pairs this participant charged against the search's
 /// aggregate retrieval budget.
 /// </param>
+/// <param name="AnalysisBlockers">
+/// The distinct Analysis-issued blockers that omitted candidate methods of
+/// this participant, aggregated over every seed and every retrieval chunk run
+/// against it. The blockers are Analysis's own typed evidence, not a string
+/// rendering of it.
+/// </param>
 public sealed record StructuralCloneSearchLibraryCoverage(
     StructuralCloneParticipantIdentity Participant,
     AssemblyContextSubject Subject,
@@ -707,15 +722,27 @@ public sealed record StructuralCloneSearchLibraryCoverage(
     int DiscoveredMethods,
     long RetrievalPairs,
     long NameComparisonWork,
-    ImmutableArray<StructuralCloneSearchFailure> Failures)
+    ImmutableArray<StructuralCloneSearchFailure> Failures,
+    ImmutableArray<StructuralCloneRetrievalBlocker> AnalysisBlockers)
 {
     /// <summary>
     /// The library contributed its complete admitted candidate population.
     /// A library excluded by breadth is complete: breadth is a request
     /// decision, not missing evidence. A library excluded whole by a work
-    /// bound is not: it carries the failure that omitted its pairs.
+    /// bound is not: it carries the failure that omitted its pairs, and
+    /// neither is a candidate body Analysis could not produce, which carries
+    /// its Analysis blocker.
     /// </summary>
-    public bool CoverageIsComplete => Failures.IsEmpty;
+    /// <remarks>
+    /// A seed body Analysis could not produce is not this library's
+    /// incompleteness. It omits no candidate of this participant: the seed
+    /// produced no evidence against any library, which is already visible as
+    /// that seed's own coverage and in the whole result's coverage. Keeping
+    /// the two separate is what lets a reader ask which participant Analysis
+    /// could not fully evaluate.
+    /// </remarks>
+    public bool CoverageIsComplete =>
+        Failures.IsEmpty && AnalysisBlockers.IsEmpty;
 }
 
 /// <summary>Bounded-work receipt for one clone search.</summary>
@@ -1132,7 +1159,8 @@ public static class WorkspaceStructuralCloneSearchQuery
                             .MetadataInspectionFailed,
                         entry.Subject,
                         ex.Message),
-                ]);
+                ],
+                []);
         }
 
         ImmutableArray<StructuralCloneSearchFailure> failures =
@@ -1158,7 +1186,8 @@ public static class WorkspaceStructuralCloneSearchQuery
                         $"Candidate population {population.Methods.Length} "
                             + "exceeds "
                             + $"{search.Limits.MaximumCandidateMethods}; "
-                            + "the library contributed no ranked rows.")));
+                            + "the library contributed no ranked rows.")),
+                []);
         }
 
         long pairs = population.RetrievalPairs;
@@ -1185,9 +1214,11 @@ public static class WorkspaceStructuralCloneSearchQuery
                             + " does not fit the aggregate retrieval budget "
                             + $"of {search.Limits.MaximumRetrievalPairs}; "
                             + "the library was excluded whole and "
-                            + "contributed no ranked rows.")));
+                            + "contributed no ranked rows.")),
+                []);
         }
 
+        var analysisBlockers = new LibraryAnalysisBlockers();
         if (pairs > 0)
         {
             foreach (SeedMethod seed in search.Seeds.Methods)
@@ -1242,7 +1273,8 @@ public static class WorkspaceStructuralCloneSearchQuery
                         identity,
                         entry,
                         group,
-                        retrieval);
+                        retrieval,
+                        analysisBlockers);
                 }
             }
         }
@@ -1256,7 +1288,62 @@ public static class WorkspaceStructuralCloneSearchQuery
             population.Methods.Length,
             pairs,
             population.NameComparisonWork,
-            failures);
+            failures,
+            analysisBlockers.Build());
+    }
+
+    /// <summary>
+    /// The distinct Analysis blockers that omitted candidate methods of one
+    /// participant.
+    /// </summary>
+    /// <remarks>
+    /// One participant is retrieved once per seed and once per candidate
+    /// chunk, and a blocker carries no subject, so an identical kind and
+    /// detail from two retrievals is indistinguishable evidence and is
+    /// recorded once. That keeps the reported blockers bounded by the distinct
+    /// failures Analysis reported rather than by the seed and chunk counts.
+    /// </remarks>
+    sealed class LibraryAnalysisBlockers
+    {
+        readonly ImmutableArray<StructuralCloneRetrievalBlocker>.Builder
+            _blockers =
+                ImmutableArray.CreateBuilder<
+                    StructuralCloneRetrievalBlocker>();
+        readonly HashSet<StructuralCloneRetrievalBlocker> _seen = [];
+
+        internal void Observe(StructuralCloneRetrievalResult retrieval)
+        {
+            foreach (StructuralCloneRetrievalBlocker blocker
+                in retrieval.Blockers)
+            {
+                if (OmitsCandidates(blocker.Kind) && _seen.Add(blocker))
+                {
+                    _blockers.Add(blocker);
+                }
+            }
+        }
+
+        internal ImmutableArray<StructuralCloneRetrievalBlocker> Build()
+            => _blockers.ToImmutable();
+
+        /// <summary>
+        /// Whether one blocker omitted candidate methods of the participant it
+        /// was produced against.
+        /// </summary>
+        /// <remarks>
+        /// A seed-side blocker is excluded: it reports that the seed produced
+        /// no evidence anywhere, which belongs to that seed's coverage. Every
+        /// other blocker reports candidate methods this participant did not
+        /// contribute, so it makes this library's coverage incomplete.
+        /// </remarks>
+        static bool OmitsCandidates(
+            StructuralCloneRetrievalBlockerKind kind)
+            => kind
+                is not StructuralCloneRetrievalBlockerKind.SeedUnsupported
+                and not StructuralCloneRetrievalBlockerKind
+                    .SeedProductionLimit
+                and not StructuralCloneRetrievalBlockerKind
+                    .SeedProductionFailure;
     }
 
     static StructuralCloneSearchLibraryCoverage UnavailableLibrary(
@@ -1278,7 +1365,8 @@ public static class WorkspaceStructuralCloneSearchQuery
                         .CandidateLibraryUnavailable,
                     entry.Subject,
                     $"{failure.Kind}: {failure.Detail}"),
-            ]);
+            ],
+            []);
 
     static StructuralCloneSearchLibraryCoverage ReleasedLibrary(
         StructuralCloneParticipantIdentity identity,
@@ -1302,7 +1390,8 @@ public static class WorkspaceStructuralCloneSearchQuery
                         + "was released before the search could read its "
                         + "immutable image, so it contributed no ranked row: "
                         + failure.Message),
-            ]);
+            ],
+            []);
 
     static SeedPopulation ResolveSeeds(
         PEReader seedImage,
@@ -1313,7 +1402,8 @@ public static class WorkspaceStructuralCloneSearchQuery
             StructuralCloneValidatedImage.Create(seedImage);
         MetadataReader reader = image.Reader;
         TypeDefinitionHandle scope = default;
-        MethodDefinitionHandle exact = default;
+        FrozenSet<MethodDefinitionHandle> exact =
+            FrozenSet<MethodDefinitionHandle>.Empty;
         switch (input.Seed)
         {
             case StructuralCloneSearchSeed.Library:
@@ -1335,8 +1425,12 @@ public static class WorkspaceStructuralCloneSearchQuery
             }
             case StructuralCloneSearchSeed.Member member:
             {
-                StructuralCloneMemberResolution resolved =
-                    StructuralCloneMetadataResolution.ResolveMember(
+                // The Member seed population is every exact method body the
+                // selected member occupies, so a property or event expands to
+                // its associated accessor bodies while an explicit accessor
+                // anchor stays one body.
+                StructuralCloneMemberBodyResolution resolved =
+                    StructuralCloneMetadataResolution.ResolveMemberBodies(
                         reader,
                         member.Definition,
                         member.MemberIdentity);
@@ -1346,7 +1440,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                     return SeedPopulation.Failed(failure);
                 }
 
-                exact = resolved.Method;
+                exact = resolved.Methods.ToFrozenSet();
                 break;
             }
             default:
@@ -1377,7 +1471,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             foreach (MethodDefinitionHandle methodHandle
                 in definition.GetMethods())
             {
-                if (!wholeType && methodHandle != exact)
+                if (!wholeType && !exact.Contains(methodHandle))
                 {
                     continue;
                 }
@@ -1464,7 +1558,7 @@ public static class WorkspaceStructuralCloneSearchQuery
         };
 
     static StructuralCloneSearchFailure? SeedMemberFailure(
-        StructuralCloneMemberResolution resolution,
+        StructuralCloneMemberBodyResolution resolution,
         MetadataTypeDefinitionName name)
         => resolution.Status switch
         {
@@ -1484,10 +1578,16 @@ public static class WorkspaceStructuralCloneSearchQuery
                     StructuralCloneSearchFailureKind.SeedMemberNotFound,
                     null,
                     "The exact seed member does not exist in the selected seed type."),
+            StructuralCloneMemberResolutionStatus.MemberHasNoMethodBody =>
+                new StructuralCloneSearchFailure(
+                    StructuralCloneSearchFailureKind.SeedMemberHasNoMethodBody,
+                    null,
+                    "The exact seed member occupies no method body, so it "
+                        + "supplies no seed method."),
             _ => new StructuralCloneSearchFailure(
                 StructuralCloneSearchFailureKind.SeedMemberAmbiguous,
                 null,
-                "The exact seed member identifies more than one MethodDef."),
+                "The exact seed member identifies more than one member."),
         };
 
     /// <summary>
@@ -1495,6 +1595,11 @@ public static class WorkspaceStructuralCloneSearchQuery
     /// bound, so an artifact-authored name cannot buy unbounded decode or
     /// edit-distance work.
     /// </summary>
+    /// <remarks>
+    /// The decoded name is preserved as decoded. Case folding belongs to
+    /// comparison, not to decoding: folding here would lose the distinction
+    /// between names the product must still treat as exactly equal.
+    /// </remarks>
     static string? DecodeName(
         MetadataReader reader,
         StringHandle handle,
@@ -1513,9 +1618,29 @@ public static class WorkspaceStructuralCloneSearchQuery
 
         return stripArity
             ? MetadataNameArity.StripFromFlattenedName(value)
-                .ToLowerInvariant()
-            : value.ToLowerInvariant();
+            : value;
     }
+
+    /// <summary>
+    /// The invariant case-folded form of one decoded name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two names are exactly equal under
+    /// <see cref="StringComparison.OrdinalIgnoreCase"/> exactly when their
+    /// folded forms are ordinally equal, because that comparison is defined by
+    /// the same invariant uppercase mapping. Lowercasing is not equivalent:
+    /// Greek capital sigma lowercases to the medial sigma while the final
+    /// sigma lowercases to itself, so a lowercased comparison excludes two
+    /// names the product promises to score <c>1.0</c>.
+    /// </para>
+    /// <para>
+    /// Folding is therefore also the memoization currency: two names that must
+    /// score identically share one cached score vector, and two names that
+    /// must score differently never do.
+    /// </para>
+    /// </remarks>
+    static string Fold(string name) => name.ToUpperInvariant();
 
     static WorkspaceStructuralCloneSearchResult Failed(
         AssemblyContextSubject subject,
@@ -1559,28 +1684,47 @@ public static class WorkspaceStructuralCloneSearchQuery
     {
         internal SeedNameIndex(
             ImmutableArray<string> declaringTypes,
+            ImmutableArray<string> foldedDeclaringTypes,
             ImmutableArray<string> members,
+            ImmutableArray<string> foldedMembers,
             ImmutableArray<SeedNameKey> pairs)
         {
             DeclaringTypes = declaringTypes;
+            FoldedDeclaringTypes = foldedDeclaringTypes;
             Members = members;
+            FoldedMembers = foldedMembers;
             Pairs = pairs;
         }
 
         internal ImmutableArray<string> DeclaringTypes { get; }
+        internal ImmutableArray<string> FoldedDeclaringTypes { get; }
         internal ImmutableArray<string> Members { get; }
+        internal ImmutableArray<string> FoldedMembers { get; }
         internal ImmutableArray<SeedNameKey> Pairs { get; }
     }
 
+    /// <summary>
+    /// Interns the distinct seed names by exact ordinal-ignore-case identity.
+    /// </summary>
+    /// <remarks>
+    /// Two seed names that must score <c>1.0</c> against the same candidates
+    /// are one entry, so a candidate cannot be admitted against one spelling
+    /// of a name and excluded against another spelling of the same name.
+    /// </remarks>
     sealed class SeedNameIndexBuilder
     {
-        readonly Dictionary<string, int> _types = new(StringComparer.Ordinal);
+        readonly Dictionary<string, int> _types =
+            new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, int> _members =
-            new(StringComparer.Ordinal);
+            new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<SeedNameKey, int> _pairs = [];
         readonly ImmutableArray<string>.Builder _typeNames =
             ImmutableArray.CreateBuilder<string>();
+        readonly ImmutableArray<string>.Builder _foldedTypeNames =
+            ImmutableArray.CreateBuilder<string>();
         readonly ImmutableArray<string>.Builder _memberNames =
+            ImmutableArray.CreateBuilder<string>();
+        readonly ImmutableArray<string>.Builder _foldedMemberNames =
             ImmutableArray.CreateBuilder<string>();
         readonly ImmutableArray<SeedNameKey>.Builder _pairList =
             ImmutableArray.CreateBuilder<SeedNameKey>();
@@ -1592,12 +1736,14 @@ public static class WorkspaceStructuralCloneSearchQuery
             {
                 typeIndex = _typeNames.Count;
                 _typeNames.Add(declaringType);
+                _foldedTypeNames.Add(Fold(declaringType));
                 _types.Add(declaringType, typeIndex);
             }
             if (!_members.TryGetValue(member, out int memberIndex))
             {
                 memberIndex = _memberNames.Count;
                 _memberNames.Add(member);
+                _foldedMemberNames.Add(Fold(member));
                 _members.Add(member, memberIndex);
             }
 
@@ -1616,7 +1762,9 @@ public static class WorkspaceStructuralCloneSearchQuery
         internal SeedNameIndex Build()
             => new(
                 _typeNames.ToImmutable(),
+                _foldedTypeNames.ToImmutable(),
                 _memberNames.ToImmutable(),
+                _foldedMemberNames.ToImmutable(),
                 _pairList.ToImmutable());
     }
 
@@ -1642,7 +1790,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             StructuralCloneSearchFailure failure)
             => new(
                 [],
-                new SeedNameIndex([], [], []),
+                new SeedNameIndex([], [], [], [], []),
                 failure);
     }
 
@@ -1709,9 +1857,6 @@ public static class WorkspaceStructuralCloneSearchQuery
         internal long Charged { get; private set; }
         internal bool Exhausted { get; private set; }
 
-        internal bool TryCharge(string left, string right)
-            => TryChargeUnits(((long)left.Length + 1) * (right.Length + 1));
-
         internal bool TryChargeUnits(long work)
         {
             if (Exhausted || work > _remaining)
@@ -1731,13 +1876,22 @@ public static class WorkspaceStructuralCloneSearchQuery
     /// shared by the declaring-type and member name populations.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Retained memory is bounded on both axes a large seed population can
     /// grow: the entry count bounds the retained decoded-name keys, and the
     /// shared cell budget bounds the retained score vectors, which are one
     /// cell per distinct seed name each. A vector that does not fit the
     /// remaining cells whole is not retained, so a partial vector can never be
-    /// served. The cache changes no admission decision: callers check the
-    /// shared name-work budget before consulting it.
+    /// served.
+    /// </para>
+    /// <para>
+    /// The cache changes no admission decision. Callers charge the whole
+    /// logical comparison work of a name before consulting it, so a hit and a
+    /// miss cost the shared budget the same amount and the cache only avoids
+    /// recomputing <see cref="StringDistance"/>. Names are keyed by exact
+    /// ordinal-ignore-case identity, which is the same equivalence the scores
+    /// themselves respect.
+    /// </para>
     /// </remarks>
     sealed class NameScoreCache(long maximumCells, int maximumEntries)
     {
@@ -1745,10 +1899,10 @@ public static class WorkspaceStructuralCloneSearchQuery
         int _remainingEntries = maximumEntries;
 
         internal Dictionary<string, double[]> DeclaringTypes { get; } =
-            new(StringComparer.Ordinal);
+            new(StringComparer.OrdinalIgnoreCase);
 
         internal Dictionary<string, double[]> Members { get; } =
-            new(StringComparer.Ordinal);
+            new(StringComparer.OrdinalIgnoreCase);
 
         internal void Retain(
             Dictionary<string, double[]> cache,
@@ -1851,6 +2005,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                     DiscoveredMethods: 0,
                     RetrievalPairs: 0,
                     NameComparisonWork: 0,
+                    [],
                     []));
         }
 
@@ -1881,7 +2036,8 @@ public static class WorkspaceStructuralCloneSearchQuery
                             kind,
                             entry.Subject,
                             detail),
-                    ]));
+                    ],
+                    []));
         }
 
         internal void AddLibrary(
@@ -1999,6 +2155,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                         : Score(
                             typeName,
                             seeds.Names.DeclaringTypes,
+                            seeds.Names.FoldedDeclaringTypes,
                             cache,
                             cache.DeclaringTypes);
                 foreach (MethodDefinitionHandle methodHandle
@@ -2034,6 +2191,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                         Score(
                             memberName,
                             seeds.Names.Members,
+                            seeds.Names.FoldedMembers,
                             cache,
                             cache.Members);
                     if (memberScores is null)
@@ -2099,18 +2257,59 @@ public static class WorkspaceStructuralCloneSearchQuery
         /// returning null when the bounded name work is exhausted.
         /// </summary>
         /// <remarks>
-        /// The exhausted state is checked before the cache, so a cached vector
-        /// can never continue admission past the shared name-work bound. That
-        /// keeps the cache a pure optimization: changing its capacity cannot
-        /// change which candidates a bounded search admits.
+        /// <para>
+        /// A name exactly equal to a seed name under
+        /// <see cref="StringComparison.OrdinalIgnoreCase"/> scores <c>1.0</c>
+        /// at no cost; every other comparison folds both names invariantly and
+        /// charges its edit-distance cells before
+        /// <see cref="StringDistance.Similarity"/> runs.
+        /// </para>
+        /// <para>
+        /// The whole vector's logical work is charged before the cache is
+        /// consulted, and the charge is the same on a hit and on a miss. The
+        /// name-work budget therefore reaches exhaustion at the same candidate
+        /// for every cache capacity, which is what keeps
+        /// <see cref="WorkspaceStructuralCloneSearchLimits.MaximumNameCacheCells"/>
+        /// a pure optimization: it can change how much
+        /// <see cref="StringDistance"/> runs, never which candidates a bounded
+        /// search admits.
+        /// </para>
+        /// <para>
+        /// The charge is also atomic per name. A vector that does not fit the
+        /// remaining budget latches exhaustion instead of admitting the
+        /// candidate on a partially scored vector.
+        /// </para>
         /// </remarks>
         double[]? Score(
             string candidate,
             ImmutableArray<string> seedNames,
+            ImmutableArray<string> foldedSeedNames,
             NameScoreCache cache,
             Dictionary<string, double[]> names)
         {
             if (_nameWork.Exhausted)
+            {
+                return null;
+            }
+
+            string folded = Fold(candidate);
+            long work = 0;
+            for (int index = 0; index < seedNames.Length; index++)
+            {
+                if (string.Equals(
+                        candidate,
+                        seedNames[index],
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                work +=
+                    ((long)folded.Length + 1)
+                    * (foldedSeedNames[index].Length + 1);
+            }
+
+            if (!_nameWork.TryChargeUnits(work))
             {
                 return null;
             }
@@ -2122,19 +2321,15 @@ public static class WorkspaceStructuralCloneSearchQuery
             var scores = new double[seedNames.Length];
             for (int index = 0; index < seedNames.Length; index++)
             {
-                string seedName = seedNames[index];
-                if (string.Equals(candidate, seedName, StringComparison.Ordinal))
-                {
-                    scores[index] = 1.0;
-                    continue;
-                }
-                if (!_nameWork.TryCharge(candidate, seedName))
-                {
-                    return null;
-                }
-
                 scores[index] =
-                    StringDistance.Similarity(candidate, seedName);
+                    string.Equals(
+                        candidate,
+                        seedNames[index],
+                        StringComparison.OrdinalIgnoreCase)
+                        ? 1.0
+                        : StringDistance.Similarity(
+                            folded,
+                            foldedSeedNames[index]);
             }
 
             cache.Retain(names, candidate, scores);
@@ -2207,11 +2402,16 @@ public static class WorkspaceStructuralCloneSearchQuery
             StructuralCloneParticipantIdentity candidateIdentity,
             StructuralCloneParticipantEntry candidateEntry,
             CandidateGroup group,
-            StructuralCloneRetrievalResult retrieval)
+            StructuralCloneRetrievalResult retrieval,
+            LibraryAnalysisBlockers analysisBlockers)
         {
             _retrievalCalls++;
             SeedCoverageState coverage = SeedCoverage(seed);
             coverage.Observe(retrieval);
+
+            // The same retrieval is evidence for two owners: the seed it ran
+            // for, and the participant whose candidate methods it produced.
+            analysisBlockers.Observe(retrieval);
             bool orientationOrdered =
                 input.Seed is not StructuralCloneSearchSeed.Member;
             bool sameLibrary =
