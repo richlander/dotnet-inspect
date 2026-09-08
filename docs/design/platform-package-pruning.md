@@ -564,18 +564,18 @@ The first implementation slice is #6239. Its gates live in
 
 | Property | Gate | State |
 | --- | --- | --- |
-| Inventory membership is exact for a known family and target | `ReadsInventoryMembershipForExactTarget` | pending — #6239 |
-| Inventory absence does not assert package absence | `InventoryAbsenceDoesNotClassifyPackageAvailability` | pending — #6239 |
-| Literal supplied versions are preserved exactly | `PreservesLiteralSuppliedVersions` | pending — #6239 |
-| Subsumption compares by NuGet semantic order, not string order | `SubsumptionUsesSemanticVersionOrder` | pending — #6239 |
-| A version above the supplied version is not subsumed | `LeapfroggingPackageIsNotSubsumed` | pending — #6239 |
-| Uncertainty resolves away from subsumed | `UncertaintyResolvesAwayFromSubsumed` | pending — #6239 |
-| Supplied versions remain bound to the inventory target | `SuppliedVersionDoesNotAdoptDiscoveredTarget` | pending — #6239 |
-| A projected inventory cannot subsume for another exact target | `ProjectedInventoryIsNotComparableAcrossTargets` | pending — #6239 |
-| A malformed override line fails rather than dropping an identity | `MalformedOverrideLineFails` | pending — #6239 |
-| Family composition decides inventory membership | `FamilyCompositionDecidesInventoryMembership` | pending — #6239 |
-| Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | pending — #6239 |
-| An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | pending — #6239 |
+| Inventory membership is exact for a known family and target | `ReadsInventoryMembershipForExactTarget` | implemented — #6239 |
+| Inventory absence does not assert package absence | `InventoryAbsenceDoesNotClassifyPackageAvailability` | implemented — #6239 |
+| Literal supplied versions are preserved exactly | `PreservesLiteralSuppliedVersions` | implemented — #6239 |
+| Subsumption compares by NuGet semantic order, not string order | `SubsumptionUsesSemanticVersionOrder` | implemented — #6239 |
+| A version above the supplied version is not subsumed | `LeapfroggingPackageIsNotSubsumed` | implemented — #6239 |
+| Uncertainty resolves away from subsumed | `UncertaintyResolvesAwayFromSubsumed` | implemented — #6239 |
+| Supplied versions remain bound to the inventory target | `SuppliedVersionDoesNotAdoptDiscoveredTarget` | implemented — #6239 |
+| A projected inventory cannot subsume for another exact target | `ProjectedInventoryIsNotComparableAcrossTargets` | implemented — #6239 |
+| A malformed override line fails rather than dropping an identity | `MalformedOverrideLineFails` | implemented — #6239 |
+| Family composition decides inventory membership | `FamilyCompositionDecidesInventoryMembership` | implemented — #6239 |
+| Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented — #6239 |
+| An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | implemented — #6239 |
 | An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |
 | Band-floor equality does not infer patch-following behavior | `Pruning_BandFloorEqualityRemainsLiteral` | pending — projection slice |
 | A within-band membership change is reported for review | `Pruning_MembershipChangeIsReported` | pending — projection slice |
