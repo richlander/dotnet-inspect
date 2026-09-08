@@ -602,9 +602,8 @@ internal sealed class NuGetCatalogAcquisition
             NuGetOperationDeadline operation,
             CancellationToken cancellationToken)
     {
-        using JsonDocument document = await JsonDocument.ParseAsync(
+        using JsonDocument document = await ParseDocumentAsync(
             json,
-            DocumentOptions,
             cancellationToken).ConfigureAwait(false);
         JsonElement root = RequiredObject(
             document.RootElement,
@@ -679,9 +678,8 @@ internal sealed class NuGetCatalogAcquisition
             NuGetOperationDeadline operation,
             CancellationToken cancellationToken)
     {
-        using JsonDocument document = await JsonDocument.ParseAsync(
+        using JsonDocument document = await ParseDocumentAsync(
             json,
-            DocumentOptions,
             cancellationToken).ConfigureAwait(false);
         JsonElement root = RequiredObject(
             document.RootElement,
@@ -784,9 +782,8 @@ internal sealed class NuGetCatalogAcquisition
             NuGetOperationDeadline operation,
             CancellationToken cancellationToken)
     {
-        using JsonDocument document = await JsonDocument.ParseAsync(
+        using JsonDocument document = await ParseDocumentAsync(
             json,
-            DocumentOptions,
             cancellationToken).ConfigureAwait(false);
         JsonElement root = RequiredObject(
             document.RootElement,
@@ -1027,6 +1024,25 @@ internal sealed class NuGetCatalogAcquisition
         {
             throw Invalid(
                 $"The {document} contained invalid UTF-16 text.",
+                exception);
+        }
+    }
+
+    private static async ValueTask<JsonDocument> ParseDocumentAsync(
+        Stream json,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await JsonDocument.ParseAsync(
+                json,
+                DocumentOptions,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw Invalid(
+                "NuGet Catalog metadata contained invalid UTF-16 text.",
                 exception);
         }
     }

@@ -931,6 +931,59 @@ public sealed class NuGetCatalogAcquisitionTests
 
         Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
         Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Theory]
+    [InlineData(MalformedCatalogDocument.ServiceIndex)]
+    [InlineData(MalformedCatalogDocument.CatalogIndex)]
+    [InlineData(MalformedCatalogDocument.CatalogPage)]
+    public async Task MalformedUtf16PropertyNameRemainsATypedFailure(
+        MalformedCatalogDocument document)
+    {
+        string service = document == MalformedCatalogDocument.ServiceIndex
+            ? """{"version":"3.0.0","resources":[],"\uD800":true}"""
+            : ServiceDocument(
+                $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""");
+        string index = document == MalformedCatalogDocument.CatalogIndex
+            ? $$"""
+                {"commitId":"index","commitTimeStamp":"{{Stamp(Day1)}}",
+                "count":1,"items":[{{Page(Page1, Day1)}}],"\uD800":true}
+                """
+            : IndexDocument(Day1, Page(Page1, Day1));
+        string page = document == MalformedCatalogDocument.CatalogPage
+            ? $$"""
+                {"commitId":"page","commitTimeStamp":"{{Stamp(Day1)}}",
+                "count":0,"parent":"{{Catalog}}","items":[],"\uD800":true}
+                """
+            : PageDocument(Catalog, Day1);
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(service),
+            [Catalog] = Json(index),
+            [Page1] = Json(page),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            Assert.Single(
+                await ReadAllAsync(
+                    source,
+                    new NuGetCatalogRequest(Day0, Day1))).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal(
+            document switch
+            {
+                MalformedCatalogDocument.ServiceIndex =>
+                    [ServiceIndex],
+                MalformedCatalogDocument.CatalogIndex =>
+                    [ServiceIndex, Catalog],
+                MalformedCatalogDocument.CatalogPage =>
+                    [ServiceIndex, Catalog, Page1],
+                _ => throw new ArgumentOutOfRangeException(nameof(document)),
+            },
+            handler.Requested);
         Assert.Equal(PackageSourceCapabilities.Catalog, failure.Capability);
     }
 
@@ -1669,6 +1722,13 @@ public sealed class NuGetCatalogAcquisitionTests
         Index,
         Page,
         PageItem,
+    }
+
+    public enum MalformedCatalogDocument
+    {
+        ServiceIndex,
+        CatalogIndex,
+        CatalogPage,
     }
 
     private sealed record RouteResponse(
