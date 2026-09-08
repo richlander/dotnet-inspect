@@ -485,6 +485,12 @@ internal sealed class NuGetCatalogAcquisition
         for (int retry = 0; ; retry++)
         {
             operation.ThrowIfExpired();
+            if (!_budget.CanReadDecodedByte)
+            {
+                return NuGetCatalogDocumentResult<T>.Limited(
+                    NuGetCatalogCompletion.DecodedByteLimitReached);
+            }
+
             if (!_budget.TryBeginRequest())
             {
                 return NuGetCatalogDocumentResult<T>.Limited(
@@ -530,6 +536,18 @@ internal sealed class NuGetCatalogAcquisition
                 when (retry < NuGetHttpRetry.MaximumRetries
                     && NuGetHttpRetry.IsTransient(exception))
             {
+                if (!_budget.CanStartRequest)
+                {
+                    return NuGetCatalogDocumentResult<T>.Limited(
+                        NuGetCatalogCompletion.RequestLimitReached);
+                }
+
+                if (!_budget.CanReadDecodedByte)
+                {
+                    return NuGetCatalogDocumentResult<T>.Limited(
+                        NuGetCatalogCompletion.DecodedByteLimitReached);
+                }
+
                 await NuGetHttpRetry.DelayAsync(operation, retry)
                     .ConfigureAwait(false);
             }
@@ -621,7 +639,10 @@ internal sealed class NuGetCatalogAcquisition
                 if (!validTypeShape
                     || Optional(resource, "@id") is not
                         { ValueKind: JsonValueKind.String } id
-                    || id.GetString() is not { } declared
+                    || ReadText(
+                        id,
+                        "service index Catalog resource")
+                        is not { } declared
                     || !TryNormalizeAdvertisedUrl(
                         declared,
                         out string normalized))
@@ -896,7 +917,9 @@ internal sealed class NuGetCatalogAcquisition
         hasCatalogType = false;
         if (type.ValueKind == JsonValueKind.String)
         {
-            hasCatalogType = type.GetString()?.Equals(
+            hasCatalogType = ReadText(
+                type,
+                "service index resource type")?.Equals(
                 "Catalog/3.0.0",
                 StringComparison.OrdinalIgnoreCase) == true;
             return true;
@@ -909,7 +932,10 @@ internal sealed class NuGetCatalogAcquisition
         foreach (JsonElement item in type.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.String
-                || item.GetString() is not { } value)
+                || ReadText(
+                    item,
+                    "service index resource type")
+                    is not { } value)
             {
                 valid = false;
                 continue;
@@ -972,14 +998,37 @@ internal sealed class NuGetCatalogAcquisition
         string document)
     {
         JsonElement value = Optional(parent, name);
-        if (value.ValueKind != JsonValueKind.String
-            || string.IsNullOrWhiteSpace(value.GetString()))
+        if (value.ValueKind != JsonValueKind.String)
         {
             throw Invalid(
                 $"The {document} must contain nonempty '{name}' text.");
         }
 
-        return value.GetString()!;
+        string? text = ReadText(value, document);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw Invalid(
+                $"The {document} must contain nonempty '{name}' text.");
+        }
+
+        return text;
+    }
+
+    private static string? ReadText(
+        JsonElement value,
+        string document)
+    {
+        try
+        {
+            return value.GetString();
+        }
+        catch (InvalidOperationException exception)
+            when (value.ValueKind == JsonValueKind.String)
+        {
+            throw Invalid(
+                $"The {document} contained invalid UTF-16 text.",
+                exception);
+        }
     }
 
     private static string RequiredUrl(

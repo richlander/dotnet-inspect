@@ -737,6 +737,78 @@ public sealed class NuGetCatalogAcquisitionTests
     }
 
     [Fact]
+    public async Task ExhaustedDecodedBudgetStopsBeforeTheFirstPage()
+    {
+        string service = ServiceDocument(
+            $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""");
+        string index = IndexDocument(
+            Day1,
+            Page(Page1, Day1));
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(service),
+            [Catalog] = Json(index),
+            [Page1] = new RouteResponse(
+                HttpStatusCode.ServiceUnavailable,
+                ""),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxCatalogDecodedBytes =
+                        Utf8Length(service) + Utf8Length(index),
+                });
+
+        NuGetCatalogPage terminal = Succeeded(
+            Assert.Single(
+                await ReadAllAsync(
+                    source,
+                    new NuGetCatalogRequest(Day0, Day1))));
+
+        Assert.Equal(
+            NuGetCatalogCompletion.DecodedByteLimitReached,
+            terminal.Completion);
+        Assert.Equal([ServiceIndex, Catalog], handler.Requested);
+    }
+
+    [Fact]
+    public async Task ExhaustedAttemptBudgetSkipsRetryDelay()
+    {
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(
+                ServiceDocument(
+                    $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""")),
+            [Catalog] = Json(
+                IndexDocument(Day1, Page(Page1, Day1))),
+            [Page1] = new RouteResponse(
+                HttpStatusCode.ServiceUnavailable,
+                ""),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxCatalogHttpAttempts = 3,
+                    OperationTimeout = TimeSpan.FromMilliseconds(50),
+                });
+
+        NuGetCatalogPage terminal = Succeeded(
+            Assert.Single(
+                await ReadAllAsync(
+                    source,
+                    new NuGetCatalogRequest(Day0, Day1))));
+
+        Assert.Equal(
+            NuGetCatalogCompletion.RequestLimitReached,
+            terminal.Completion);
+        Assert.Equal([ServiceIndex, Catalog, Page1], handler.Requested);
+    }
+
+    [Fact]
     public async Task AggregateByteCrossingRejectsTheWholeActivePage()
     {
         string service = ServiceDocument(
@@ -838,6 +910,27 @@ public sealed class NuGetCatalogAcquisitionTests
                     new NuGetCatalogRequest(Day0, Day1))).Failure);
 
         Assert.Equal(PackageSourceFailureKind.ResponseRejected, failure.Kind);
+    }
+
+    [Fact]
+    public async Task MalformedUtf16TextRemainsATypedFailure()
+    {
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(
+                """{"version":"\uD800","resources":[]}"""),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            Assert.Single(
+                await ReadAllAsync(
+                    source,
+                    new NuGetCatalogRequest(Day0, Day1))).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal([ServiceIndex], handler.Requested);
         Assert.Equal(PackageSourceCapabilities.Catalog, failure.Capability);
     }
 
