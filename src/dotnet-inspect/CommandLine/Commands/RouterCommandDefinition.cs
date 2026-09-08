@@ -40,7 +40,8 @@ public static class RouterCommandDefinition
         SharedOptions opts,
         TypeOptionsParser.TypeCommandArgs typeArgs,
         MemberOptionsParser.MemberCommandArgs memberArgs,
-        PackageOptionsParser.PackageCommandArgs packageArgs)
+        PackageOptionsParser.PackageCommandArgs packageArgs,
+        IReadOnlyList<Command> rowSelectionCommands)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
         {
@@ -293,6 +294,29 @@ public static class RouterCommandDefinition
                 }
             }
 
+            IReadOnlyList<Command> rowSelectionCandidates =
+                GetRowSelectionCandidates(
+                    tokens,
+                    rootCommand,
+                    rowSelectionCommands);
+            if (CliRowSelectionRouterPreflight.FindCommonOptionValueError(
+                    tokens,
+                    rowSelectionCandidates) is { } optionValueError)
+            {
+                CommandError.Write(optionValueError);
+                return 1;
+            }
+
+            CliRowSelectionRouteEnvelopeResult rowSelection =
+                CliRowSelectionRouterPreflight.Evaluate(
+                    tokens,
+                    rowSelectionCandidates);
+            RequestTelemetry.Breadcrumb(
+                "router-row-selection",
+                rowSelection.Outcome.ToString());
+            if (CliRowSelectionRouterPreflight.TryWriteFailure(rowSelection))
+                return 1;
+
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,
@@ -319,6 +343,41 @@ public static class RouterCommandDefinition
         });
 
         return routerCommand;
+    }
+
+    internal static IReadOnlyList<Command> GetRowSelectionCandidates(
+        string[] tokens,
+        RootCommand rootCommand,
+        IReadOnlyList<Command> commands)
+    {
+        if (RouterTokenRewriter.TryRewriteAcquisitionFree(
+                tokens,
+                rootCommand,
+                structuralSchema: false,
+                out string[] rewritten)
+            && rewritten.Length > 0)
+        {
+            if (rewritten.Contains(
+                    DeferredTypeOrMemberOptionName,
+                    StringComparer.Ordinal))
+            {
+                return
+                [
+                    .. commands.Where(command =>
+                        command.Name is "type" or "member"),
+                ];
+            }
+
+            if (commands.FirstOrDefault(command =>
+                    command.Name.Equals(
+                        rewritten[0],
+                        StringComparison.Ordinal)) is { } selected)
+            {
+                return [selected];
+            }
+        }
+
+        return commands;
     }
 
     private static List<ParseError> GetSourceOptionErrors(
