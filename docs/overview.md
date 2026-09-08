@@ -197,6 +197,12 @@ substrates, and inspection producers that will extend that space.
   acquisition](design/local-repository-source-acquisition.md): when a
   caller-supplied Git clone may satisfy one PDB document request with verified
   bytes, or decline so acquisition can continue.
+  Its `SourceFetch` implementation targets an independent `SourceFetch` root
+  alongside `NuGetFetch`: it owns bounded host-authorized source-byte
+  transport, redirect and origin enforcement, content-store integration, and
+  typed transport outcomes. `PdbSourceHouse` retains local, repository, and
+  remote ordering, PDB checksum verification, decoding, and settled
+  PDB-source outcomes.
 - `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
   Packages, Services, and the CLI. Its cache, networking, untrusted-document,
   CLI telemetry, and single-consumer helpers move to subject owners under

@@ -138,6 +138,9 @@ A project may use an independent root when its contract is coherent outside
 both inspection families and the shorter name is established by the subject:
 
 - `NuGetFetch` owns NuGet protocol access and transport behavior.
+- Target `SourceFetch` owns bounded, host-authorized source-byte retrieval,
+  redirect and origin enforcement, content-store integration, and typed
+  transport outcomes.
 - `CSharpText` owns model-free C# and XML-documentation text grammars.
 - `InertText` owns construction-time containment of untrusted text.
 - Target `NetworkAccess` owns network-destination admission shared by
@@ -198,9 +201,12 @@ not IL semantics:
    record and PDB document, checksum, sequence-point, and row identities.
 3. `ILInspector.SourceLink` interprets the map and correlates those identities
    with type, member, and IL-offset source evidence.
-4. `PdbSourceHouse` composes authorized local, repository, and network
-   acquisition, verification, caching, and visible failure policy.
-5. `AssemblyContextSourceQuery` composes verified PDB source with the distinct
+4. Target `SourceFetch` retrieves source bytes over authorized network
+   transports without owning SourceLink or PDB semantics.
+5. `PdbSourceHouse` composes local, repository, and remote candidate ordering,
+   invokes the source fetcher, verifies PDB checksums, decodes source, and
+   settles visible PDB-source outcomes.
+6. `AssemblyContextSourceQuery` composes verified PDB source with the distinct
    decompiler fallback.
 
 `ILInspector.SourceLink` therefore remains in the IL inspection family
@@ -219,6 +225,12 @@ under `ILInspector`.
 The standalone SourceLink map utility had no independent second composition
 point and is retired by #6312. Its map grammar and provenance logic remain
 implementation details of `ILInspector.SourceLink`.
+
+That retired `SourceLinkFetch` project was not the peer of `NuGetFetch`: it
+parsed SourceLink maps and provenance but did not fetch source bytes. The
+existing `SourceFetch` implementation is the transport peer. Its contract is
+useful at multiple source-acquisition composition points and is independent of
+the PDB-specific ordering and checksum policy owned by `PdbSourceHouse`.
 
 ## Placement test
 
@@ -258,7 +270,7 @@ implementation belongs to separately tracked owner-scoped work.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | Target `Inspector.Artifacts`, `Inspector.Findings`, and `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `NetworkAccess` and `UntrustedDocuments` |
+| Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `SourceFetch`, `NetworkAccess`, and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:
@@ -283,8 +295,9 @@ beside their consumers.
 
 `DotnetInspector.Services` likewise has no aggregate successor. Package
 components move to the package owner, platform components to the
-`PlatformHouse` owner, PDB and source components to the `PdbSourceHouse` owner,
-and assembly-set or dependency-resolution components to their workspace or
+`PlatformHouse` owner, source-byte transport to the independent `SourceFetch`
+root, PDB-specific source composition to the `PdbSourceHouse` owner, and
+assembly-set or dependency-resolution components to their workspace or
 assembly-resolution owner. `House` remains reserved for the accepted
 clearing-house scenarios and does not become an assembly bucket.
 
