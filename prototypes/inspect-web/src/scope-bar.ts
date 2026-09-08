@@ -1015,10 +1015,12 @@ class ScopeBarController implements ScopeBarBinding {
     this.bindGroup(this.inspector);
     this.layout();
     if (this.subject?.state.open) {
+      this.subject.trigger.setAttribute("aria-expanded", "true");
       this.positionMenu(this.subject);
       showPopover(this.subject.menu);
     }
     if (this.inspector?.state.open) {
+      this.inspector.trigger.setAttribute("aria-expanded", "true");
       this.positionMenu(this.inspector);
       showPopover(this.inspector.menu);
     }

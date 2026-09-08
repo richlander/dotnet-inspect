@@ -1228,6 +1228,8 @@ test("an open Chooser yields Spotlight keyboard ownership", async ({ page }) => 
   await expect(input).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(input).toHaveCount(0);
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
 
   if (await menu.isHidden()) await trigger.click();
   await page.keyboard.press("Control+k");
