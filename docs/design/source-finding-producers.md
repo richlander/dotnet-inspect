@@ -111,9 +111,10 @@ loaded after service creation advances `PdbContext.PdbVersion`; the service
 then re-extracts the map and invalidates its resolver, document, provenance,
 and type-index caches before the next query.
 
-SourceLinkFetch remains the dependency-free owner of map matching and
-provenance grammar. It does not open PE/PDB files and has no Metadata project
-dependency.
+Within `ILInspector.SourceLink`, `SourceLinkDocumentMap` remains the single
+owner of map matching and `SourceLinkProvenance` remains the single owner of
+provenance grammar. Those utilities do not open PE/PDB files;
+`SourceLinkService` composes them with Metadata's typed PDB context.
 
 ## Consumer boundaries
 

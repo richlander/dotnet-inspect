@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace SourceLinkFetch;
+namespace ILInspector.SourceLink;
 
 public static partial class SourceLinkProvenance
 {
@@ -150,7 +150,7 @@ public static partial class SourceLinkProvenance
     /// So an unrecognized host keeps today's behavior: unknown grammar means no claim in either
     /// direction, and the substitution resolves. At parse time, a known-host entry whose ordinary
     /// substitution demonstrably misses the selector lands in
-    /// <see cref="SourceLinkResolver.RejectedKeys"/>. At resolution time, a concrete empty or
+    /// <see cref="SourceLinkDocumentMap.RejectedKeys"/>. At resolution time, a concrete empty or
     /// blank substitution that changes the host's selector binding yields to a valid less-specific
     /// entry. Both remedies enforce the same rule: wrong content is worse than no content.
     /// </para>
