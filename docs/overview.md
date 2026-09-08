@@ -6,6 +6,11 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The [library family boundaries](design/library-family-boundaries.md) define
+what `ILInspector`, `DotnetInspector`, independent domain roots, and host
+namespaces mean. Those subject families are independent from dependency
+altitude and from component roles such as Fetch, Service, and House.
+
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
@@ -357,6 +362,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Library family boundaries](design/library-family-boundaries.md): subject
+  families for compiled-program inspection, ecosystem composition, neutral
+  domains, and product hosts.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
   section lenses and caller-owned execution contexts.

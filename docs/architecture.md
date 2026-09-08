@@ -19,6 +19,9 @@ Authority is intentionally distributed:
   workspace, query, acquisition, join, cache, and safety target.
 - [Inspection layers](design/inspection-layers.md) owns the L1/L2/L3 consumer
   boundaries.
+- [Library family boundaries](design/library-family-boundaries.md) owns the
+  meaning of project and namespace roots independently from consumer layer and
+  component role.
 - Focused documents under [`docs/design/`](design/) own their component
   contracts.
 - [CLI host architecture](cli-architecture.md) describes command-host

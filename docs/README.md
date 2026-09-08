@@ -30,6 +30,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Space Architecture](inspection-space.md) | Target core workspace, query, acquisition, join, cache, and safety architecture organized around Rich, Fast, and Safe. |
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
+| [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `ILInspector`, `DotnetInspector`, neutral-domain, and host namespace families, independent of dependency altitude and component role. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
