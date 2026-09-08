@@ -39,6 +39,11 @@ public sealed record PackageAuthorityFailure(
     public PackageSourceFailure? SourceFailure { get; init; }
     public PackageSourceResultIdentity? ResultSource { get; init; }
     public PackageSourceTimeout? Timeout { get; init; }
+
+    /// <summary>
+    /// Whether an exact producer pin had no matching configured authority.
+    /// </summary>
+    public bool IsRequiredProducerUnavailable { get; init; }
 }
 
 internal sealed class ConfiguredPackageCandidateObservation

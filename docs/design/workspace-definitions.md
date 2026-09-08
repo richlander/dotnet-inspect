@@ -824,7 +824,7 @@ Workspace Definitions execution remains unchanged. `RunHomeDemo` accepts both
 type-only `Methods` and member-bound
 `Call Graph` presets: the engine resolves the workspace, focus, section, and
 optional member anchor, opens one aggregate browser workspace, and returns its
-ordinary browsable surfaces plus exact source-native activation identity.
+ordinary browsable surfaces plus exact source-owner-issued activation identity.
 Package runs retain package identity; Platform runs retain family, assembly,
 version, and target-framework identity while using the shared Platform
 workspace, API-surface projection, and progressively acquired Call Graph path.

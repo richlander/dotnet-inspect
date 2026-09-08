@@ -2888,6 +2888,7 @@ kbd {
 .query-page-bar button,
 .query-bar button,
 .query-row-meta button,
+.query-assembly-controls button,
 .query-footer button {
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -2900,12 +2901,14 @@ kbd {
 .query-page-bar button:hover,
 .query-bar button:hover,
 .query-row-meta button:hover,
+.query-assembly-controls button:hover,
 .query-footer button:hover {
   border-color: var(--accent);
   color: var(--text);
 }
 .query-main {
   min-height: 0;
+  container-type: size;
   padding: 24px clamp(18px, 4vw, 52px) 40px;
   overflow: auto;
 }
@@ -2951,6 +2954,8 @@ kbd {
   font: 11px var(--mono);
 }
 .query-bar input,
+.query-source-controls input:not([type="checkbox"]),
+.query-source-controls textarea,
 .query-source-controls select {
   min-width: 0;
   border: 1px solid var(--line-strong);
@@ -2963,6 +2968,7 @@ kbd {
 .query-bar input:focus-visible,
 .query-source-controls select:focus-visible,
 .query-source-controls input:focus-visible,
+.query-source-controls textarea:focus-visible,
 .query-facet:focus-visible,
 .query-page button:focus-visible {
   outline: 2px solid var(--blue);
@@ -2994,6 +3000,8 @@ kbd {
 .query-facet-rail {
   position: sticky;
   top: 0;
+  max-height: 100cqh;
+  overflow-y: auto;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3026,6 +3034,15 @@ kbd {
   align-items: center;
 }
 .query-source-controls select { width: 100%; }
+.query-assembly-controls summary {
+  color: var(--text);
+  font: 12px var(--mono);
+  cursor: pointer;
+}
+.query-assembly-controls form { display: grid; gap: 9px; }
+.query-assembly-controls input,
+.query-assembly-controls textarea { width: 100%; }
+.query-assembly-controls textarea { resize: vertical; }
 .query-row-description {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -3187,7 +3204,7 @@ kbd {
   .query-bar label { grid-column: 1 / -1; }
   .query-bar input { grid-column: 1 / -1; }
   .query-layout { grid-template-columns: 1fr; }
-  .query-facet-rail { position: static; }
+  .query-facet-rail { position: static; max-height: none; overflow-y: visible; }
   .query-facets { flex-flow: row wrap; }
   .query-facet { width: auto; text-align: center; }
   .query-facet-group { width: auto; }
