@@ -68,7 +68,7 @@ existing per-response metadata limit:
 | Bound | Default | Meaning |
 | --- | ---: | --- |
 | Catalog pages | 512 | Maximum page documents acquired after the index |
-| HTTP attempts | 1,024 | Service-index, Catalog-index, page, and retry attempts |
+| HTTP attempts | 1,024 | Actual sends across service-index, Catalog-index, page, redirect, authentication, and retry traffic |
 | Aggregate decoded metadata | 512 MiB | Bytes read across every admitted Catalog document and retry attempt |
 
 The existing 16 MiB per-response ceiling, request deadline, metadata-body
@@ -124,9 +124,10 @@ Acquisition performs these steps:
    position has no ordering meaning.
 3. Select pages whose maximum commit timestamp is later than the exclusive
    lower bound.
-4. Continue through the first selected page whose maximum commit timestamp is
-   later than the effective upper bound. A page timestamp is its maximum, not
-   its minimum, so this crossing page can still contain in-window events.
+4. Continue through every selected page whose maximum commit timestamp equals
+   the first maximum later than the effective upper bound. A page timestamp is
+   its maximum, not its minimum, so each tied crossing page can still contain
+   in-window events.
 5. Parse each selected page atomically, sort its items by commit timestamp and
    stable leaf-URL tie-breaker, and publish only items whose timestamps are
    greater than the lower bound and less than or equal to the effective upper
@@ -137,6 +138,12 @@ effective upper bound is the earlier of that horizon and the requested end. If
 the source horizon trails the requested end, acquisition may still publish the
 covered prefix, but terminal completion is `SourceHorizonReached`, not
 `WindowExhausted`.
+
+The analogous NuGet implementation stops after one crossing page. This owner
+deliberately extends that algorithm through every descriptor tied at the
+crossing maximum: the wire contract makes index order undefined and exposes no
+page minimum that would prove another tied page contains no in-window event.
+The ordinary acquisition bounds remain the stopping authority.
 
 The active page can grow after the index was fetched. Events later than the
 captured index horizon are excluded even if the subsequent page response

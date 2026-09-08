@@ -223,6 +223,84 @@ public sealed class NuGetCatalogAcquisitionTests
             url => url.Contains("/leaf/", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(1, NuGetCatalogCompletion.PageLimitReached)]
+    [InlineData(2, NuGetCatalogCompletion.WindowExhausted)]
+    public async Task TiedCrossingPagesStopOnlyAtCoverageOrAVisibleLimit(
+        int maximumPages,
+        NuGetCatalogCompletion expectedCompletion)
+    {
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(
+                ServiceDocument(
+                    $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""")),
+            [Catalog] = Json(
+                IndexDocument(
+                    Day3,
+                    Page(Page1, Day3),
+                    Page(Page2, Day3))),
+            [Page1] = Json(
+                PageDocument(
+                    Catalog,
+                    Day3,
+                    Item(
+                        "https://feed.example/leaf/after-first.json",
+                        "After.First",
+                        "1.0.0",
+                        Day3,
+                        "nuget:PackageDetails"))),
+            [Page2] = Json(
+                PageDocument(
+                    Catalog,
+                    Day3,
+                    Item(
+                        "https://feed.example/leaf/in-window.json",
+                        "In.Window",
+                        "1.0.0",
+                        Day2,
+                        "nuget:PackageDetails"),
+                    Item(
+                        "https://feed.example/leaf/after-second.json",
+                        "After.Second",
+                        "1.0.0",
+                        Day3,
+                        "nuget:PackageDetails"))),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxCatalogPages = maximumPages,
+                });
+
+        IReadOnlyList<PackageSourceOperationResult<NuGetCatalogPage>> outcomes =
+            await ReadAllAsync(
+                source,
+                new NuGetCatalogRequest(Day0, Day2));
+
+        Assert.Equal(maximumPages, outcomes.Count);
+        NuGetCatalogPage terminal = Succeeded(outcomes[^1]);
+        Assert.Equal(expectedCompletion, terminal.Completion);
+        if (maximumPages == 1)
+        {
+            Assert.Empty(terminal.Events);
+        }
+        else
+        {
+            Assert.Equal(
+                "in.window",
+                Assert.Single(terminal.Events).Coordinate.PackageId);
+        }
+
+        Assert.Equal(
+            maximumPages == 1
+                ? [ServiceIndex, Catalog, Page1]
+                : [ServiceIndex, Catalog, Page1, Page2],
+            handler.Requested);
+    }
+
     [Fact]
     public async Task CapturedHorizonFiltersAPageThatGrowsAfterTheIndex()
     {
@@ -734,6 +812,69 @@ public sealed class NuGetCatalogAcquisitionTests
         Assert.Equal(
             [ServiceIndex, Catalog, Page1, Page1],
             handler.Requested);
+    }
+
+    [Theory]
+    [InlineData(3, NuGetCatalogCompletion.RequestLimitReached)]
+    [InlineData(4, NuGetCatalogCompletion.WindowExhausted)]
+    public async Task RedirectHopsConsumeCatalogWideAttemptBudget(
+        int maximumAttempts,
+        NuGetCatalogCompletion expectedCompletion)
+    {
+        string page = PageDocument(
+            Catalog,
+            Day1,
+            Item(
+                "https://feed.example/leaf/redirected.json",
+                "Redirected",
+                "1.0.0",
+                Day1,
+                "nuget:PackageDetails"));
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(
+                ServiceDocument(
+                    $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""")),
+            [Catalog] = Json(
+                IndexDocument(Day1, Page(Page1, Day1))),
+            [Page2] = Json(page),
+        };
+        handler.Set(
+            Page1,
+            (request, _) =>
+            {
+                var response =
+                    new HttpResponseMessage(HttpStatusCode.Redirect)
+                    {
+                        RequestMessage = request,
+                    };
+                response.Headers.Location = new Uri(Page2);
+                return Task.FromResult(response);
+            });
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxCatalogHttpAttempts = maximumAttempts,
+                });
+
+        NuGetCatalogPage terminal = Succeeded(
+            Assert.Single(
+                await ReadAllAsync(
+                    source,
+                    new NuGetCatalogRequest(Day0, Day1))));
+
+        Assert.Equal(expectedCompletion, terminal.Completion);
+        Assert.Equal(maximumAttempts, terminal.HttpAttempts);
+        Assert.Equal(
+            maximumAttempts == 3
+                ? [ServiceIndex, Catalog, Page1]
+                : [ServiceIndex, Catalog, Page1, Page2],
+            handler.Requested);
+        Assert.Equal(
+            maximumAttempts == 3 ? 0 : 1,
+            terminal.Events.Length);
     }
 
     [Fact]

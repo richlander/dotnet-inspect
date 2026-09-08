@@ -310,14 +310,23 @@ internal sealed class NuGetCatalogAcquisition
             : _request.ThroughInclusive;
         var selected =
             ImmutableArray.CreateBuilder<NuGetCatalogPageDescriptor>();
+        DateTimeOffset? crossingTimestamp = null;
         foreach (NuGetCatalogPageDescriptor page in index.Pages)
         {
             if (page.CommitTimestamp <= _request.FromExclusive)
                 continue;
+            if (crossingTimestamp is { } crossing
+                && page.CommitTimestamp != crossing)
+            {
+                break;
+            }
 
             selected.Add(page);
-            if (page.CommitTimestamp > upper)
-                break;
+            if (crossingTimestamp is null
+                && page.CommitTimestamp > upper)
+            {
+                crossingTimestamp = page.CommitTimestamp;
+            }
         }
 
         return selected.ToImmutable();
@@ -493,7 +502,7 @@ internal sealed class NuGetCatalogAcquisition
                     NuGetCatalogCompletion.DecodedByteLimitReached);
             }
 
-            if (!_budget.TryBeginRequest())
+            if (!_budget.CanStartRequest)
             {
                 return NuGetCatalogDocumentResult<T>.Limited(
                     NuGetCatalogCompletion.RequestLimitReached);
@@ -507,6 +516,9 @@ internal sealed class NuGetCatalogAcquisition
                         using HttpRequestMessage request =
                             NuGetHttpRequest
                                 .CreateGetPreservingPathAndQuery(url);
+                        request.Options.Set(
+                            NuGetCatalogAttemptHandler.BudgetOption,
+                            _budget);
                         NuGetSourceRequest.ApplyCredential(
                             request,
                             credential);
@@ -533,6 +545,11 @@ internal sealed class NuGetCatalogAcquisition
             {
                 return NuGetCatalogDocumentResult<T>.Limited(
                     NuGetCatalogCompletion.DecodedByteLimitReached);
+            }
+            catch (NuGetCatalogRequestLimitExceededException)
+            {
+                return NuGetCatalogDocumentResult<T>.Limited(
+                    NuGetCatalogCompletion.RequestLimitReached);
             }
             catch (Exception exception)
                 when (retry < NuGetHttpRetry.MaximumRetries
@@ -1349,6 +1366,29 @@ internal sealed class NuGetCatalogBudget
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+}
+
+internal sealed class NuGetCatalogAttemptHandler(
+    HttpMessageHandler innerHandler)
+    : DelegatingHandler(innerHandler)
+{
+    internal static HttpRequestOptionsKey<NuGetCatalogBudget> BudgetOption
+    { get; } = new("NuGetFetch.CatalogAttemptBudget");
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Options.TryGetValue(
+                BudgetOption,
+                out NuGetCatalogBudget? budget)
+            && !budget.TryBeginRequest())
+        {
+            throw new NuGetCatalogRequestLimitExceededException();
+        }
+
+        return base.SendAsync(request, cancellationToken);
     }
 }
 

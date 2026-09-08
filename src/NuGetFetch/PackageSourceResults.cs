@@ -1545,6 +1545,7 @@ internal static class PackageSourceOperation
             NuGetRedirectLimitExceededException
                 or NuGetRegistrationResourceLimitExceededException
                 or NuGetCatalogResourceLimitExceededException
+                or NuGetCatalogRequestLimitExceededException
                 or NuGetCatalogDecodedByteLimitExceededException
                 or LocalPackageSourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
@@ -1591,6 +1592,7 @@ internal static class PackageSourceOperation
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
             or NuGetCatalogResourceLimitExceededException
+            or NuGetCatalogRequestLimitExceededException
             or NuGetCatalogDecodedByteLimitExceededException
             or LocalPackageSourceLimitExceededException
             or LocalPackageSourceNotFoundException

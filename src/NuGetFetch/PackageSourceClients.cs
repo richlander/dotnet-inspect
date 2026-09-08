@@ -760,6 +760,7 @@ public static partial class PackageSourceClientFactory
 
         HttpMessageHandler handler = transport
             ?? CreateV3TransportHandler(source, isBrowser);
+        handler = new NuGetCatalogAttemptHandler(handler);
         if (authenticationContext is not null)
         {
             handler = authenticationContext.Bind(handler);

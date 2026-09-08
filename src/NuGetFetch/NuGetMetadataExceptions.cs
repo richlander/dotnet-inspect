@@ -39,6 +39,10 @@ internal sealed class NuGetRegistrationResourceLimitExceededException(
 internal sealed class NuGetCatalogResourceLimitExceededException(
     string message) : IOException(message);
 
+internal sealed class NuGetCatalogRequestLimitExceededException()
+    : IOException(
+        "NuGet Catalog traffic exceeded the aggregate HTTP-attempt limit.");
+
 internal sealed class NuGetCatalogStalePageException(
     string message) : InvalidOperationException(message);
 

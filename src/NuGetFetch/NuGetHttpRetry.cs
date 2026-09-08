@@ -64,6 +64,7 @@ internal static class NuGetHttpRetry
             and not NuGetRedirectLimitExceededException
             and not NuGetRegistrationResourceLimitExceededException
             and not NuGetCatalogResourceLimitExceededException
+            and not NuGetCatalogRequestLimitExceededException
             and not NuGetCatalogDecodedByteLimitExceededException
         || exception is NuGetCatalogStalePageException
         || exception is HttpRequestException request
