@@ -226,7 +226,6 @@ internal sealed class NuGetCatalogAcquisition
     private readonly NuGetOperationContext? _operationContext;
     private readonly NuGetCatalogBudget _budget;
     private TimeSpan _remaining;
-    private NuGetCatalogEvent? _lastEvent;
 
     internal NuGetCatalogAcquisition(
         PackageSourceResultFactory results,
@@ -401,7 +400,6 @@ internal sealed class NuGetCatalogAcquisition
     {
         try
         {
-            ValidatePageOrder(events);
             _budget.AdmitPage(events.Length);
             NuGetCatalogCompletion? completion =
                 pageIndex == selectedPages.Length - 1
@@ -447,23 +445,6 @@ internal sealed class NuGetCatalogAcquisition
                 return Task.FromResult(
                     _results.SucceededCatalog(page, operation));
             }).ConfigureAwait(false);
-    }
-
-    private void ValidatePageOrder(
-        ImmutableArray<NuGetCatalogEvent> events)
-    {
-        if (events.IsEmpty)
-            return;
-
-        NuGetCatalogEvent first = events[0];
-        if (_lastEvent is not null
-            && _lastEvent.CommitTimestamp > first.CommitTimestamp)
-        {
-            throw new NuGetSourceResponseException(
-                "Catalog pages did not produce chronological event order.");
-        }
-
-        _lastEvent = events[^1];
     }
 
     private async Task<NuGetCatalogDocumentResult<T>> ReadDocumentAsync<T>(

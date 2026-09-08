@@ -301,6 +301,90 @@ public sealed class NuGetCatalogAcquisitionTests
             handler.Requested);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EqualMaximumPagesDoNotInferOrderFromAdvertisedUrls(
+        bool laterOnlyPageFirst)
+    {
+        string existingPage = PageDocument(
+            Catalog,
+            Day3,
+            Item(
+                "https://feed.example/leaf/earlier.json",
+                "Earlier",
+                "1.0.0",
+                Day2,
+                "nuget:PackageDetails"),
+            Item(
+                "https://feed.example/leaf/existing.json",
+                "Existing",
+                "1.0.0",
+                Day3,
+                "nuget:PackageDetails"));
+        string laterOnlyPage = PageDocument(
+            Catalog,
+            Day3,
+            Item(
+                "https://feed.example/leaf/later.json",
+                "Later",
+                "1.0.0",
+                Day3,
+                "nuget:PackageDetails"));
+        var handler = new RouteHandler
+        {
+            [ServiceIndex] = Json(
+                ServiceDocument(
+                    $$"""{"@id":"{{Catalog}}","@type":"Catalog/3.0.0"}""")),
+            [Catalog] = Json(
+                IndexDocument(
+                    Day3,
+                    Page(Page1, Day3),
+                    Page(Page2, Day3))),
+            [Page1] = Json(
+                laterOnlyPageFirst ? laterOnlyPage : existingPage),
+            [Page2] = Json(
+                laterOnlyPageFirst ? existingPage : laterOnlyPage),
+        };
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+
+        IReadOnlyList<PackageSourceOperationResult<NuGetCatalogPage>> outcomes =
+            await ReadAllAsync(
+                source,
+                new NuGetCatalogRequest(Day0, Day3));
+
+        Assert.Equal(2, outcomes.Count);
+        NuGetCatalogPage first = Succeeded(outcomes[0]);
+        NuGetCatalogPage second = Succeeded(outcomes[1]);
+        Assert.Equal(
+            laterOnlyPageFirst
+                ? ["Later"]
+                : ["Earlier", "Existing"],
+            first.Events.Select(item => item.PackageId));
+        Assert.Equal(
+            laterOnlyPageFirst
+                ? ["Earlier", "Existing"]
+                : ["Later"],
+            second.Events.Select(item => item.PackageId));
+        if (laterOnlyPageFirst)
+        {
+            Assert.True(
+                first.Events[^1].CommitTimestamp
+                > second.Events[0].CommitTimestamp);
+        }
+
+        NuGetCatalogPage terminal = Succeeded(outcomes[^1]);
+        Assert.Equal(2, terminal.PagesAcquired);
+        Assert.Equal(3, terminal.InWindowEventCount);
+        Assert.Equal(
+            NuGetCatalogCompletion.WindowExhausted,
+            terminal.Completion);
+        Assert.Equal(
+            [ServiceIndex, Catalog, Page1, Page2],
+            handler.Requested);
+    }
+
     [Fact]
     public async Task CapturedHorizonFiltersAPageThatGrowsAfterTheIndex()
     {

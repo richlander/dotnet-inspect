@@ -28,7 +28,7 @@ This owner defines:
 - discovery and selection of advertised `Catalog/3.0.0` resources;
 - explicit interval validation and bounded index/page acquisition;
 - typed Catalog event, progress, horizon, completion, and failure evidence;
-- chronological page and event processing; and
+- deterministic page delivery and per-page chronological event processing; and
 - the exact point at which a bounded interval may be called covered.
 
 It does not define ecosystem membership, package-ID prefix filtering, security
@@ -128,10 +128,10 @@ Acquisition performs these steps:
    the first maximum later than the effective upper bound. A page timestamp is
    its maximum, not its minimum, so each tied crossing page can still contain
    in-window events.
-5. Parse each selected page atomically, sort its items by commit timestamp and
-   stable leaf-URL tie-breaker, and publish only items whose timestamps are
-   greater than the lower bound and less than or equal to the effective upper
-   bound.
+5. Deliver pages in sorted descriptor order. Parse each selected page
+   atomically, sort its items by commit timestamp and stable leaf-URL
+   tie-breaker, and publish only items whose timestamps are greater than the
+   lower bound and less than or equal to the effective upper bound.
 
 The index `commitTimeStamp` is the observed horizon for this attempt. The
 effective upper bound is the earlier of that horizon and the requested end. If
@@ -144,6 +144,17 @@ deliberately extends that algorithm through every descriptor tied at the
 crossing maximum: the wire contract makes index order undefined and exposes no
 page minimum that would prove another tied page contains no in-window event.
 The ordinary acquisition bounds remain the stopping authority.
+
+Page descriptors with equal maxima have no source-issued relative order, and
+one commit can span pages, so their event ranges can overlap. Their
+advertised-URL tie-breaker makes page delivery deterministic, but event
+timestamps can move backward between those tied page outcomes. Distinct page
+maxima remain chronological. Acquisition does not buffer an arbitrary tied
+group or reject it as malformed: both choices would undermine bounded
+page-atomic streaming or omit valid source evidence. A consumer that requires
+global chronological or newest-first order sorts each tied group or the
+bounded typed result after acquisition; the ecosystem report query owns that
+presentation-independent ordering.
 
 The active page can grow after the index was fetched. Events later than the
 captured index horizon are excluded even if the subsequent page response
@@ -201,10 +212,13 @@ release, relist, metadata change, or vulnerability update. Repeated events for
 one coordinate are not deduplicated.
 
 Catalog commits are strictly ordered by timestamp, but item order within one
-commit is undefined. The stable leaf-URL tie-breaker gives deterministic
-delivery without claiming causality. This capability does not persist or
-promise a resumable cursor. In particular, an intermediate page is not proof
-that every item sharing its last commit timestamp has been processed.
+commit is undefined. Page descriptors are delivered by maximum timestamp and
+advertised URL; events within each page are delivered by commit timestamp and
+leaf URL. These tie-breakers give deterministic delivery without claiming
+causality or global timestamp order across equal-maximum pages. This capability
+does not persist or promise a resumable cursor. In particular, an intermediate
+page is not proof that every item sharing its last commit timestamp has been
+processed.
 
 ## Failure and admission
 
@@ -239,6 +253,8 @@ The focused Release suite must gate:
   cancellation;
 - repeated coordinates, deterministic same-commit delivery, and distinct
   Details/Delete evidence;
+- equal-maximum page delivery without omitted evidence or a global event-order
+  claim;
 - source identity, normalized advertised URLs, credential scope, malformed
   URLs, duplicate properties, and per-response/aggregate body limits; and
 - original coordinate spelling beside normalized package identity; and
