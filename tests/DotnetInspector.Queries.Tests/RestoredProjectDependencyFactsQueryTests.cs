@@ -178,6 +178,15 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         RestoredProjectGraphResult.Available graph = Assert.IsType<RestoredProjectGraphResult.Available>(facts.Graph);
         Assert.True(graph.IsComplete);
         Assert.Contains(graph.Packages, p => p.Identity.Coordinate.PackageId == "nuget.packaging");
+        RestoredProjectPackagePruningResult.Available packagePruning =
+            Assert.IsType<RestoredProjectPackagePruningResult.Available>(
+                facts.PackagePruning);
+        Assert.Equal(
+            facts.SelectionIdentity,
+            packagePruning.Evidence.DeclarationGroup.Selection);
+        Assert.Equal(
+            "net11.0",
+            packagePruning.Evidence.DeclarationGroup.PivotIdentity);
     }
 
     [Fact]
@@ -561,6 +570,235 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         Assert.Equal(RestoredProjectDependencyRole.Direct, foo.Role);
         RestoredProjectPackageNode bar = Assert.Single(graph.Packages, p => p.Identity.Coordinate.PackageId == "bar");
         Assert.Equal(RestoredProjectDependencyRole.Transitive, bar.Role);
+    }
+
+    // ---- Selected-group package-pruning processing evidence --------------
+
+    [Fact]
+    public void Execute_SelectedFrameworkPackagesToPruneProvidesTypedEvidence()
+    {
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                ReadCopiedAssetsBytes(),
+                new RestoredProjectTargetRequest("net11.0")));
+
+        RestoredProjectPackagePruningResult.Available available =
+            Assert.IsType<RestoredProjectPackagePruningResult.Available>(
+                facts.PackagePruning);
+        Assert.Equal(
+            facts.SelectionIdentity,
+            available.Evidence.DeclarationGroup.Selection);
+        Assert.Equal(
+            "net11.0",
+            available.Evidence.DeclarationGroup.PivotIdentity);
+        Assert.Contains(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups,
+            group => group.Identity == available.Evidence.DeclarationGroup);
+    }
+
+    [Fact]
+    public void Execute_ValidEmptyPackagesToPruneIsPositiveEvidence()
+    {
+        byte[] bytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] =
+                new JsonObject());
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+
+        Assert.IsType<RestoredProjectPackagePruningResult.Available>(
+            facts.PackagePruning);
+    }
+
+    [Fact]
+    public void Execute_AbsentPackagesToPruneRemainsUnavailable()
+    {
+        byte[] bytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root).Remove("packagesToPrune"));
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+
+        Assert.IsType<RestoredProjectPackagePruningResult.Unavailable>(
+            facts.PackagePruning);
+    }
+
+    [Fact]
+    public void Execute_PackagePruningIdentityTracksEvidenceStateNotRuleInventory()
+    {
+        byte[] emptyBytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] =
+                new JsonObject());
+        byte[] otherValidBytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] =
+                new JsonObject { ["Other.Package"] = "(,9.0.0]" });
+        byte[] absentBytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root).Remove("packagesToPrune"));
+        byte[] failedBytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] = "invalid");
+
+        RestoredProjectTargetRequest request = new("net11.0");
+        RestoredProjectDependencyFacts empty = Available(
+            RestoredProjectDependencyFactsQuery.Execute(emptyBytes, request));
+        RestoredProjectDependencyFacts otherValid = Available(
+            RestoredProjectDependencyFactsQuery.Execute(otherValidBytes, request));
+        RestoredProjectDependencyFacts absent = Available(
+            RestoredProjectDependencyFactsQuery.Execute(absentBytes, request));
+        RestoredProjectDependencyFacts failed = Available(
+            RestoredProjectDependencyFactsQuery.Execute(failedBytes, request));
+
+        Assert.Equal(empty.SelectionIdentity, otherValid.SelectionIdentity);
+        Assert.NotEqual(empty.ContentProvenance, otherValid.ContentProvenance);
+        Assert.NotEqual(empty.SelectionIdentity, absent.SelectionIdentity);
+        Assert.NotEqual(absent.SelectionIdentity, failed.SelectionIdentity);
+    }
+
+    [Fact]
+    public void Execute_InvalidPackagesToPruneShapeFailsIndependently()
+    {
+        byte[] bytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] = "invalid");
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+
+        RestoredProjectPackagePruningResult.Failed failed =
+            Assert.IsType<RestoredProjectPackagePruningResult.Failed>(
+                facts.PackagePruning);
+        Assert.Equal(
+            RestoredProjectPackagePruningFailureReason.InvalidShape,
+            failed.Failure.Reason);
+        Assert.True(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).IsComplete);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+    }
+
+    [Fact]
+    public void Execute_InvalidPackagesToPruneRulesFailWithDeterministicCount()
+    {
+        byte[] bytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] =
+                new JsonObject
+                {
+                    [""] = "(,1.0.0]",
+                    ["Bad.Range"] = "not-a-range",
+                    ["Bad.Shape"] = 42,
+                });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+        RestoredProjectDependencyFacts reordered = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                WithReversedPropertyOrder(bytes),
+                new RestoredProjectTargetRequest("net11.0")));
+
+        RestoredProjectPackagePruningResult.Failed failed =
+            Assert.IsType<RestoredProjectPackagePruningResult.Failed>(
+                facts.PackagePruning);
+        Assert.Equal(
+            RestoredProjectPackagePruningFailureReason.InvalidRule,
+            failed.Failure.Reason);
+        Assert.Equal(3, failed.Failure.Count);
+        Assert.Equal(Describe(facts), Describe(reordered));
+        Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
+    [Fact]
+    public void Execute_PackagesToPruneRuleLimitFailsVisibly()
+    {
+        var rules = new JsonObject();
+        for (int index = 0;
+            index <= RestoredProjectDependencyFactsQuery.MaxPackagePruningRules;
+            index++)
+        {
+            rules.Add($"Package.{index}", "(,1.0.0]");
+        }
+
+        byte[] bytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] = rules);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+        RestoredProjectPackagePruningResult.Failed failed =
+            Assert.IsType<RestoredProjectPackagePruningResult.Failed>(
+                facts.PackagePruning);
+
+        Assert.Equal(
+            RestoredProjectPackagePruningFailureReason.ConfiguredLimitExceeded,
+            failed.Failure.Reason);
+        Assert.Equal(1, failed.Failure.Count);
+    }
+
+    [Fact]
+    public void Execute_AmbiguousFrameworkGroupAssociationFailsPruningEvidence()
+    {
+        byte[] bytes = WithReplacedNode(
+            ReadCopiedAssetsBytes(),
+            root =>
+            {
+                JsonObject frameworks =
+                    root["project"]!["frameworks"]!.AsObject();
+                frameworks.Add(
+                    "NET11.0",
+                    frameworks["net11.0"]!.DeepClone());
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+        RestoredProjectPackagePruningResult.Failed failed =
+            Assert.IsType<RestoredProjectPackagePruningResult.Failed>(
+                facts.PackagePruning);
+
+        Assert.Equal(
+            RestoredProjectPackagePruningFailureReason
+                .AmbiguousDeclarationGroupAssociation,
+            failed.Failure.Reason);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3CorrelatesPruningEvidenceToShortFrameworkGroup()
+    {
+        byte[] bytes = WithReplacedNode(
+            SchemaVersion3Document(),
+            root => SelectedFrameworkGroup(root)["packagesToPrune"] =
+                new JsonObject { ["Framework.Package"] = "(,1.0.0]" });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net11.0")));
+        RestoredProjectPackagePruningResult.Available available =
+            Assert.IsType<RestoredProjectPackagePruningResult.Available>(
+                facts.PackagePruning);
+
+        Assert.Equal(
+            "net11.0",
+            available.Evidence.DeclarationGroup.PivotIdentity);
     }
 
     // ---- Groups, ranges, and valid empty groups --------------------------
@@ -2246,10 +2484,22 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         foreach (RestoredProjectGraphFailureReason reason in Enum.GetValues<RestoredProjectGraphFailureReason>())
             Assert.False(string.IsNullOrWhiteSpace(new RestoredProjectGraphFailure(reason).Message));
 
+        foreach (RestoredProjectPackagePruningFailureReason reason
+            in Enum.GetValues<RestoredProjectPackagePruningFailureReason>())
+        {
+            Assert.False(
+                string.IsNullOrWhiteSpace(
+                    new RestoredProjectPackagePruningFailure(reason).Message));
+        }
+
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new RestoredProjectDeclarationFailure(RestoredProjectDeclarationFailureReason.InvalidGroupShape, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new RestoredProjectGraphFailure(RestoredProjectGraphFailureReason.UnresolvedDependency, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RestoredProjectPackagePruningFailure(
+                RestoredProjectPackagePruningFailureReason.InvalidRule,
+                0));
     }
 
     [Fact]
@@ -2280,6 +2530,13 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         RestoredProjectDeclarationResult.Available declaration =
             Assert.IsType<RestoredProjectDeclarationResult.Available>(facts.Declaration);
         Assert.All(declaration.Groups, g => Assert.Equal(selection, g.Identity.Selection));
+
+        RestoredProjectPackagePruningResult.Available packagePruning =
+            Assert.IsType<RestoredProjectPackagePruningResult.Available>(
+                facts.PackagePruning);
+        Assert.Equal(
+            selection,
+            packagePruning.Evidence.DeclarationGroup.Selection);
 
         RestoredProjectGraphResult.Available graph = Assert.IsType<RestoredProjectGraphResult.Available>(facts.Graph);
         Assert.NotEmpty(graph.Edges);
@@ -2373,6 +2630,23 @@ public sealed class RestoredProjectDependencyFactsQueryTests
                 break;
         }
 
+        switch (facts.PackagePruning)
+        {
+            case RestoredProjectPackagePruningResult.Available available:
+                lines.Add(
+                    $"package-pruning=available "
+                    + available.Evidence.DeclarationGroup.PivotIdentity);
+                break;
+            case RestoredProjectPackagePruningResult.Unavailable:
+                lines.Add("package-pruning=unavailable");
+                break;
+            case RestoredProjectPackagePruningResult.Failed failed:
+                lines.Add(
+                    $"package-pruning=failed {failed.Failure.Reason} "
+                    + $"x{failed.Failure.Count}");
+                break;
+        }
+
         return lines.ToImmutable();
     }
 
@@ -2423,6 +2697,12 @@ public sealed class RestoredProjectDependencyFactsQueryTests
                     yield return package.CanonicalVersionConstraint;
                 }
             }
+        }
+
+        if (facts.PackagePruning
+            is RestoredProjectPackagePruningResult.Available packagePruning)
+        {
+            yield return packagePruning.Evidence.DeclarationGroup.PivotIdentity;
         }
 
         if (facts.Graph is RestoredProjectGraphResult.Available graph)
@@ -2541,6 +2821,9 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         mutate(root);
         return Encoding.UTF8.GetBytes(root.ToJsonString());
     }
+
+    static JsonObject SelectedFrameworkGroup(JsonNode root) =>
+        root["project"]!["frameworks"]!["net11.0"]!.AsObject();
 
     static byte[] WithReversedPropertyOrder(byte[] assetsBytes)
     {
