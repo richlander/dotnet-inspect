@@ -4,11 +4,16 @@ This document owns the meaning of the repository's project and namespace
 families. A name starts with what a library processes, inspects, or acts on.
 Dependency depth and component role are separate decisions.
 
+Namespace families do not encode the L1/L2/L3 consumer layers directly, but
+project dependencies must remain consistent with the family direction. A
+production `ILInspector.*` project must not reference a
+`DotnetInspector.*` project. A temporary violation must be documented as an
+exception with a named retirement path.
+
 The end-to-end adoption tracker is
-[#6315](https://github.com/richlander/dotnet-inspect/issues/6315). Its three
-steps are this contract, migration of the CLI host out of the reusable
-`DotnetInspector` namespace, and migration of the web host from its prototype
-namespace.
+[#6315](https://github.com/richlander/dotnet-inspect/issues/6315). It tracks
+this contract, the two production-host migrations, and the focused library
+adoption trackers named below.
 
 ## Claim
 
@@ -29,7 +34,8 @@ Placement considers four questions:
 Dependency depth alone does not select a family, and a role such as Service
 says nothing about the subject. `ILInspector.SourceLink` is a relatively high
 composer that still inspects PDB-associated program evidence.
-`DotnetInspector.Artifacts` is a low contract floor for broader .NET artifacts.
+The current `DotnetInspector.Artifacts` project is a low, source-neutral
+contract floor and therefore targets `Inspector.Artifacts`.
 `House` describes reach and role; it does not select either family.
 
 ## Process, inspect, or act on
@@ -90,7 +96,7 @@ not become compiled-program semantics.
 `DotnetInspector.*` libraries inspect or act on .NET ecosystem subjects beyond
 one compiled program. Their subjects include:
 
-- source-neutral artifacts and workspaces
+- product workspaces and ecosystem artifact composition
 - NuGet packages and package relationships
 - platforms, SDK assets, and restored-project evidence
 - source-selection and acquisition services
@@ -109,6 +115,23 @@ This distinction allows the CLI and browser to consume the same
 center. A reusable component may be product-specific and still belong here; it
 need not be a general-purpose .NET library.
 
+## `Inspector`: subject-neutral inspection substrate
+
+`Inspector.*` libraries provide contracts and mechanics intrinsic to
+inspection but independent of both IL-bearing programs and the broader .NET
+ecosystem:
+
+- `Inspector.Artifacts` owns source-neutral artifact identity, acquisition,
+  authorization, and lifetime contracts.
+- `Inspector.Findings` owns the domain-neutral Finding algebra.
+- `Inspector.Text` owns generic text Findings and deterministic text
+  construction used by inspection producers.
+
+This is a deliberately narrow shared family, not a general-purpose utility
+layer. It does not admit `Core`, `Services`, networking, serialization, or
+other infrastructure merely because several projects use it. It remains
+host-neutral and Markout-free.
+
 ## Independent domain roots
 
 A project may use an independent root when its contract is coherent outside
@@ -117,12 +140,16 @@ both inspection families and the shorter name is established by the subject:
 - `NuGetFetch` owns NuGet protocol access and transport behavior.
 - `CSharpText` owns model-free C# and XML-documentation text grammars.
 - `InertText` owns construction-time containment of untrusted text.
+- Target `NetworkAccess` owns network-destination admission shared by
+  otherwise independent transport owners.
+- Target `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
 
 An independent root is not an escape from ownership. It must name a focused
-domain, expose a contract that does not depend on either umbrella, and have
-credible reuse at more than one composition point. A one-caller implementation
-detail normally belongs with its caller unless a separate boundary has another
-concrete reason to exist.
+domain, expose a contract that does not depend on the `Inspector`,
+`ILInspector`, or `DotnetInspector` families, and have credible reuse at more
+than one composition point. A one-caller implementation detail normally
+belongs with its caller unless a separate boundary has another concrete reason
+to exist.
 
 ## Host namespaces
 
@@ -220,53 +247,77 @@ If the answers disagree, split the responsibilities before choosing a name.
 A project that combines compiled-image interpretation with network policy is
 not evidence that either family should absorb both.
 
-## Current classification
+## Classification
 
 The following examples anchor the contract; they are not an exhaustive project
-inventory.
+inventory. Names described as targets are accepted classifications whose
+implementation belongs to separately tracked owner-scoped work.
 
 | Classification | Representative projects |
 | --- | --- |
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
-| Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation` |
-| Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText` |
+| Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
+| Subject-neutral inspection substrate | Target `Inspector.Artifacts`, `Inspector.Findings`, and `Inspector.Text` |
+| Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `NetworkAccess` and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
-Several existing names deserve focused classification work rather than a
-conclusion in this document:
+The following dispositions close the existing ambiguous names:
 
-- `DotnetInspector.MetadataRendering` directly consumes Metadata but produces
-  a rendering contract.
-- `DotnetInspector.CSharpBodySlicer` consumes only `CSharpText` and may be a
-  C#-text component rather than ecosystem composition.
-- `DotnetInspector.Artifacts` and `DotnetInspector.Core` are cross-family
-  floors; the current Metadata-to-Artifact reference is an explicit exception
-  that exposes the naming pressure.
-- `ILInspector.Findings` and `ILInspector.Text` describe domain-neutral
-  contracts in the current architecture. Their established producer-stack
-  placement is not evidence that every neutral substrate belongs under
-  `ILInspector`.
-- `DotnetInspector.Services` contains multiple focused services and Houses;
-  continuing to split or rehome owners is preferable to renaming the mixed
-  assembly as one unit.
+| Current name | Disposition | Basis |
+| --- | --- | --- |
+| `DotnetInspector.MetadataRendering` | Keep. | It is a focused Markout-based product presentation adapter over Metadata projections, shared by `mdi` and the CLI. No production `ILInspector.*` library references it. Keeping it above Metadata preserves the Markout-free IL inspection layer. |
+| `DotnetInspector.CSharpBodySlicer` | Target `CSharpText.MemberSlicing` under [#6332](https://github.com/richlander/dotnet-inspect/issues/6332). | It consumes only the public `CSharpText` contract and operates on C# source structure. Its separate assembly preserves the enforced boundary that prevents access to lexer internals. “Member” is more accurate than “Body” because the result includes the complete declaration. |
+| `DotnetInspector.Artifacts*` | Target `Inspector.Artifacts`, `Inspector.Artifacts.Workspaces`, and `Inspector.Artifacts.Local` under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | The family is source-neutral and the base is a dependency-free artifact contract floor. `ILInspector.Metadata` legitimately consumes its scoped content and identities to construct artifact-to-assembly correspondence, but the current prefix creates the sole production `ILInspector.*` to `DotnetInspector.*` exception. |
+| `DotnetInspector.Core` | Retire without a replacement assembly under [#6334](https://github.com/richlander/dotnet-inspect/issues/6334). | It groups unrelated cache, networking, untrusted-document, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. |
+| `ILInspector.Findings` | Target `Inspector.Findings` under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Its observation, census, matching, transition, comparison, diff, and correlation contracts are a coherent domain-neutral semantic model shared by both inspection families. They do not belong in metadata primitives, which owns mechanical ECMA/SRM operations rather than semantic models. |
+| `ILInspector.Text` | Target `Inspector.Text` under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Generic text Findings and deterministic LF text construction are host-neutral and Markout-free, but not inherently IL- or C#-specific. The project continues to depend on `Inspector.Findings`. |
+| `DotnetInspector.Services` | Retire without a replacement assembly under [#6335](https://github.com/richlander/dotnet-inspect/issues/6335). | It groups unrelated package, platform, source, assembly-resolution, parser, and corpus components by role. Targeted `*Service` names remain valid, while Houses and helpers move to their subject owners. |
 
-Each accepted move requires its own owner-scoped issue and PR. This document
-does not authorize a repository-wide rename or alter any component's runtime
-contract.
+`DotnetInspector.Core` decomposes by subject: shared cache behavior targets
+`DotnetInspector.Cache`; HTTP composition and product network telemetry target
+`DotnetInspector.Networking`; the destination-admission primitive shared with
+`NuGetFetch` targets the independent `NetworkAccess` root; hardened JSON and
+XML entry points target the independent `UntrustedDocuments` root; CLI
+measurement moves to `DotnetInspect.Cli`; and single-consumer helpers move
+beside their consumers.
+
+`DotnetInspector.Services` likewise has no aggregate successor. Package
+components move to the package owner, platform components to the
+`PlatformHouse` owner, PDB and source components to the `PdbSourceHouse` owner,
+and assembly-set or dependency-resolution components to their workspace or
+assembly-resolution owner. `House` remains reserved for the accepted
+clearing-house scenarios and does not become an assembly bucket.
+
+The accepted library migrations are tracked by
+[#6332](https://github.com/richlander/dotnet-inspect/issues/6332),
+[#6333](https://github.com/richlander/dotnet-inspect/issues/6333),
+[#6334](https://github.com/richlander/dotnet-inspect/issues/6334), and
+[#6335](https://github.com/richlander/dotnet-inspect/issues/6335). Each
+implementation step remains an owner-scoped PR. This document does not
+authorize a repository-wide rename or alter any component's runtime contract.
 
 ## Adoption and evidence
 
-The three-step adoption tracked by #6315 is:
+The seven adoption tracks recorded by #6315 are:
 
 1. Land this naming contract.
 2. Move the CLI host to `DotnetInspect.Cli`.
 3. Move the web host to `DotnetInspect.Web`, with JavaScript export contracts,
    wire projections, and entry points under `DotnetInspect.Web.Interop`.
+4. Rename the C# member-slicing library under #6332.
+5. Adopt the shared `Inspector.*` family under #6333.
+6. Retire `DotnetInspector.Core` by subject under #6334.
+7. Retire `DotnetInspector.Services` by subject under #6335.
 
 Together, the host migrations prove that reusable `DotnetInspector.*`
 libraries and both product hosts can be named distinctly without changing
 behavior. `Web` names the product surface; neither its current Wasm runtime nor
 its JavaScript export mechanism defines the host.
+
+The library trackers prove the same boundary from below: neutral inspection
+substrate does not masquerade as either subject-specific family, focused text
+processing does not claim a C# inspector, and role-based buckets disappear
+rather than receiving broader replacement names.
 
 Future moves must preserve dependency direction and public behavior. Their
 focused gates are compilation, existing owner tests, dependency-policy
@@ -275,11 +326,15 @@ changes. This naming contract adds no runtime safety or correctness claim.
 
 ## Non-claims
 
-- Project prefixes do not define the L1/L2/L3 consumer layers.
+- Project prefixes do not encode the L1/L2/L3 consumer layers, but production
+  `ILInspector.*` projects must not reference `DotnetInspector.*`. The current
+  Metadata-to-Artifact edge is a documented temporary exception retired by the
+  `Inspector.Artifacts` rename.
 - A lower dependency does not automatically belong to `ILInspector`.
 - PDB carriage does not make acquisition policy an `ILInspector` concern.
 - `DotnetInspector.*` does not mean CLI-only or necessarily high-level.
 - `Web` does not promise a particular runtime, and `Interop` does not name the
   whole web host.
 - Independent roots are not preferred over an existing coherent family.
-- This document does not settle the candidate projects listed above.
+- The accepted migrations are not authorization to combine their
+  independently owned implementation slices.

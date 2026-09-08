@@ -118,13 +118,13 @@ alphabetically.
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `DotnetInspector.Artifacts` | Contract floor | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, and guarded content access. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
-| `DotnetInspector.Core` | Runtime floor | Cache roots, cache publication, network policy, telemetry, and hardened readers. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md) |
-| `DotnetInspector.Artifacts.Workspaces` | Workspace composition | Bounded immutable contribution composition and workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
-| `DotnetInspector.Artifacts.Local` | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `DotnetInspector.Artifacts` (target `Inspector.Artifacts`) | Contract floor | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, and guarded content access. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
+| `DotnetInspector.Core` (transitional) | Runtime floor | Cache roots, cache publication, network policy, telemetry, and hardened readers pending subject-based decomposition. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md), [#6334](https://github.com/richlander/dotnet-inspect/issues/6334) |
+| `DotnetInspector.Artifacts.Workspaces` (target `Inspector.Artifacts.Workspaces`) | Workspace composition | Bounded immutable contribution composition and workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
+| `DotnetInspector.Artifacts.Local` (target `Inspector.Artifacts.Local`) | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
 | `NuGetFetch` | Protocol adapter | NuGet feeds, downloads, authentication, and protocol behavior. | [NuGet authentication](design/nuget-authentication.md) |
 | `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
-| `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
+| `DotnetInspector.Services` (transitional) | Shared services | Reusable acquisition and resolution services over explicit host policy pending decomposition into subject owners. | The focused acquisition, package, platform, PDB, and source designs; [#6335](https://github.com/richlander/dotnet-inspect/issues/6335) |
 
 Within Services, `LocalRepoSourceAcquisition` owns [local repository source
 acquisition](design/local-repository-source-acquisition.md): checksum-backed
@@ -162,10 +162,10 @@ interpretation and Decompiler reconstruction stay with their respective owners.
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `ILInspector.Findings` | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
+| `ILInspector.Findings` (target `Inspector.Findings`) | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md), [library family boundaries](design/library-family-boundaries.md) |
 | `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
-| `ILInspector.Text` | Text producer | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
+| `ILInspector.Text` (target `Inspector.Text`) | Text producer | Exact ordered line inspection, generic text comparison, and deterministic LF construction. | [Finding producers](design/finding-producers.md), [library family boundaries](design/library-family-boundaries.md) |
 | `ILInspector.Analysis` | IL evidence producer | SRM-based whole-assembly and targeted IL evidence, including calls, allocations, safety, leverage, and resource analysis. | Focused Analysis designs, [Finding adoption](design/finding-adoption.md) |
 | `ILInspector.Decompiler` | IR producer | Per-method IR, structuring, typing, C# projection, and annotated IL. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | `ILInspector.ILDiff` | Comparison producer | Canonical IL-body and assembly comparison with typed failures and Finding projection. | [Implementation diff](design/implementation-diff.md) |
