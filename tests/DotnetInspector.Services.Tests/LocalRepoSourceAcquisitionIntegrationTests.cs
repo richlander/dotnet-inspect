@@ -28,7 +28,7 @@ public class LocalRepoSourceAcquisitionIntegrationTests
         var subject = new FindingSubject("local-repo-source", targetType.FullName!);
 
         PdbMemberSourceInspection member =
-            await PdbSourceAcquisition.AcquireMemberAsync(
+            await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 targetMethod.MetadataToken,
                 targetMethod.Name,
@@ -38,7 +38,7 @@ public class LocalRepoSourceAcquisitionIntegrationTests
                 TestContext.Current.CancellationToken,
                 allowLocalSource: false);
         PdbTypeSourceInspection type =
-            await PdbSourceAcquisition.AcquireTypeAsync(
+            await PdbSourceHouse.AcquireTypeAsync(
                 source,
                 typeName.Name,
                 subject,
@@ -49,7 +49,7 @@ public class LocalRepoSourceAcquisitionIntegrationTests
         SourceDocumentObservation document = Assert.IsType<SourceDocumentObservation>(
             member.Document);
         VerifiedSourceTextResult projection =
-            await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+            await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
                 fetcher,
                 document.OriginalPath,
                 document.ResolvedUrl!,

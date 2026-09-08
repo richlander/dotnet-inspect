@@ -14,7 +14,7 @@ using ILInspector.SourceLink;
 namespace DotnetInspector.Services.Tests;
 
 [Collection(CoreCacheCollection.Name)]
-public class PdbSourceAcquisitionTests
+public class PdbSourceHouseTests
 {
     static readonly FindingSubject Subject = new("M~source", "Sample.M");
     const string Source = """
@@ -38,10 +38,10 @@ public class PdbSourceAcquisitionTests
         var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
                 "DotnetInspector.Services.Tests",
-                [nameof(PdbSourceAcquisitionTests)]));
+                [nameof(PdbSourceHouseTests)]));
 
         PdbMemberSourceInspection member =
-            await PdbSourceAcquisition.AcquireMemberAsync(
+            await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 0x06000001,
                 "M",
@@ -50,7 +50,7 @@ public class PdbSourceAcquisitionTests
                 cancellationToken:
                     TestContext.Current.CancellationToken);
         PdbTypeSourceInspection typeInspection =
-            await PdbSourceAcquisition.AcquireTypeAsync(
+            await PdbSourceHouse.AcquireTypeAsync(
                 source,
                 type.Name,
                 Subject,
@@ -87,10 +87,10 @@ public class PdbSourceAcquisitionTests
         var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
                 "DotnetInspector.Services.Tests",
-                [nameof(PdbSourceAcquisitionTests)]));
+                [nameof(PdbSourceHouseTests)]));
 
         PdbMemberSourceInspection member =
-            await PdbSourceAcquisition.AcquireMemberAsync(
+            await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 0x06000001,
                 "M",
@@ -99,7 +99,7 @@ public class PdbSourceAcquisitionTests
                 cancellationToken:
                     TestContext.Current.CancellationToken);
         PdbTypeSourceInspection typeInspection =
-            await PdbSourceAcquisition.AcquireTypeAsync(
+            await PdbSourceHouse.AcquireTypeAsync(
                 source,
                 type.Name,
                 Subject,
@@ -125,7 +125,7 @@ public class PdbSourceAcquisitionTests
     public void FromContent_VerifiedSourceProducesCompleteLineCensus()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             Mapping(),
             Document(content),
             content,
@@ -171,7 +171,7 @@ public class PdbSourceAcquisitionTests
             SequencePointStartLines = [6],
         };
 
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             mapping,
             Document(content),
             content,
@@ -186,7 +186,7 @@ public class PdbSourceAcquisitionTests
     public void FromContent_MismatchedChecksumProducesFailedInspection()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             Mapping(),
             Document(Encoding.UTF8.GetBytes(Source + "changed")),
             content,
@@ -213,7 +213,7 @@ public class PdbSourceAcquisitionTests
             };
 
         PdbMemberSourceInspection result =
-            PdbSourceAcquisition.FromContent(
+            PdbSourceHouse.FromContent(
                 Mapping(),
                 document,
                 content,
@@ -238,7 +238,7 @@ public class PdbSourceAcquisitionTests
             + " } }";
         byte[] content = Encoding.UTF8.GetBytes(source);
 
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             Mapping(),
             Document(content),
             content,
@@ -264,7 +264,7 @@ public class PdbSourceAcquisitionTests
             };
 
         PdbMemberSourceInspection result =
-            PdbSourceAcquisition.FromContent(
+            PdbSourceHouse.FromContent(
                 mapping,
                 Document(content),
                 content,
@@ -292,7 +292,7 @@ public class PdbSourceAcquisitionTests
             };
 
         PdbMemberSourceInspection result =
-            PdbSourceAcquisition.FromContent(
+            PdbSourceHouse.FromContent(
                 mapping,
                 Document(content),
                 content,
@@ -313,7 +313,7 @@ public class PdbSourceAcquisitionTests
         byte[] content = Encoding.UTF8.GetBytes(
             new string(
                 '\n',
-                PdbSourceAcquisition
+                PdbSourceHouse
                     .MaxPdbSourceLineCount));
         var mapping =
             new ILInspector.SourceLink.SourceLinkResolver
@@ -324,7 +324,7 @@ public class PdbSourceAcquisitionTests
                     GitHubBrowseUrl: null);
 
         PdbTypeSourceInspection result =
-            PdbSourceAcquisition.FromTypeContent(
+            PdbSourceHouse.FromTypeContent(
                 mapping,
                 Document(content),
                 content,
@@ -349,7 +349,7 @@ public class PdbSourceAcquisitionTests
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
 
-        var verification = PdbSourceAcquisition.VerifyChecksum(
+        var verification = PdbSourceHouse.VerifyChecksum(
             Document(expected),
             actual);
 
@@ -370,7 +370,7 @@ public class PdbSourceAcquisitionTests
             new InMemorySourceContentStore());
 
         VerifiedSourceTextResult result =
-            await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+            await PdbSourceHouse.FetchVerifiedSourceTextAsync(
                 fetcher,
                 $"https://example.test/{Guid.NewGuid():N}/Sample.cs",
                 "SHA256",
@@ -394,7 +394,7 @@ public class PdbSourceAcquisitionTests
             Checksum = null,
         };
 
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             Mapping(),
             document,
             content,
@@ -567,7 +567,7 @@ public class PdbSourceAcquisitionTests
             }
             """;
         byte[] content = Encoding.UTF8.GetBytes(source);
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             DestructorMapping(memberName: "Finalize", startLine: 6, endLine: 7, isFinalizer: true),
             Document(content),
             content,
@@ -602,7 +602,7 @@ public class PdbSourceAcquisitionTests
             }
             """;
         byte[] content = Encoding.UTF8.GetBytes(source);
-        var result = PdbSourceAcquisition.FromContent(
+        var result = PdbSourceHouse.FromContent(
             DestructorMapping(memberName: "Finalize", startLine: 7, endLine: 8, isFinalizer: false),
             Document(content),
             content,
@@ -628,7 +628,7 @@ public class PdbSourceAcquisitionTests
         var mapping = Mapping() with { DocumentRowId = 2 };
 
         SourceDocumentObservation? selected =
-            PdbSourceAcquisition.SelectMappedDocument(
+            PdbSourceHouse.SelectMappedDocument(
                 mapping,
                 [first, second]);
 
@@ -645,7 +645,7 @@ public class PdbSourceAcquisitionTests
             OriginalPath = "/_/Other.cs",
         };
 
-        Assert.Null(PdbSourceAcquisition.SelectMappedDocument(
+        Assert.Null(PdbSourceHouse.SelectMappedDocument(
             mapping,
             [document]));
     }
@@ -699,7 +699,7 @@ public class PdbSourceAcquisitionTests
     static SourceLinkService OpenSourceNeedingPdb()
     {
         byte[] assemblyBytes = File.ReadAllBytes(
-            typeof(PdbSourceAcquisitionTests).Assembly.Location);
+            typeof(PdbSourceHouseTests).Assembly.Location);
         AssemblyReferenceIdentity identity;
         using (var stream = new MemoryStream(
                    assemblyBytes,

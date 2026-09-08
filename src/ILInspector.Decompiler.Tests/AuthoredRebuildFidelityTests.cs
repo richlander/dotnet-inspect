@@ -501,7 +501,7 @@ public sealed class AuthoredRebuildFidelityTests
             Mapping: null,
             Document: null,
             ChecksumVerification: null);
-        var failed = PdbSourceAcquisition.MemberPdbAcquisitionFailed(
+        var failed = PdbSourceHouse.MemberPdbAcquisitionFailed(
             Subject,
             new IOException("source fetch failed"));
 

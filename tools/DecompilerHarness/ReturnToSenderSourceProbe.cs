@@ -486,7 +486,7 @@ static partial class ReturnToSenderSourceProbe
         var subject = new FindingSubject(
             TargetId(target.Target),
             TargetDisplay(target.Target));
-        PdbMemberSourceInspection authored = await PdbSourceAcquisition.AcquireMemberAsync(
+        PdbMemberSourceInspection authored = await PdbSourceHouse.AcquireMemberAsync(
             source,
             target.MetadataToken,
             target.Target.Method,
