@@ -4286,6 +4286,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
+        expandedInspectorInventory: state.atLibraryRoot,
         contextualActionsHtml: methodBodyPageContext || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface

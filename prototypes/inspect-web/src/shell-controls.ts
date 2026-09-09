@@ -37,6 +37,7 @@ export interface LoadErrorShellBindingActions {
 export interface WorkbenchShellHtmlOptions {
   applicationScopeHtml: string;
   contextualActionsHtml?: string;
+  expandedInspectorInventory?: boolean;
   inspectedTargetHtml: string;
   subjectInspectorHtml: string;
   titleNavigationHtml: string;
@@ -51,7 +52,7 @@ export function workbenchShellHtml(
         <div class="application-scope-region">
           ${options.applicationScopeHtml}
         </div>
-        <div class="subject-inspector-region">
+        <div class="subject-inspector-region${options.expandedInspectorInventory ? " expanded-inspector-inventory" : ""}">
           ${options.subjectInspectorHtml}
         </div>
         ${options.titleNavigationHtml}
