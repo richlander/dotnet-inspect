@@ -9,6 +9,8 @@ namespace DotnetInspector.Commands;
 
 internal static class DependsShareProjection
 {
+    private const string BrowserPlatformPackageId = "Microsoft.NETCore.App";
+
     internal static string? ValidateOptions(DependsOptions options)
     {
         if (options.ShareFormat is null)
@@ -55,6 +57,15 @@ internal static class DependsShareProjection
         {
             return NonProjectable(
                 "--share requires a valid NuGet package id.");
+        }
+        if (string.Equals(
+                packageId,
+                BrowserPlatformPackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return NonProjectable(
+                $"--share cannot project NuGet package '{packageId}' because "
+                + "the published Browser reserves that id for the .NET Platform.");
         }
         if (versionText is null
             || versionText.Contains('*', StringComparison.Ordinal)

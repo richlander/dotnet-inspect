@@ -566,9 +566,9 @@ fail visibly rather than producing a link the browser cannot restore.
 projects the package Dependencies view without traversing the graph in the CLI.
 The published browser acquires the exact NuGet.org coordinate and lazily
 computes the dependency graph for the selected target framework. Local archives,
-configured sources, floating versions, omitted frameworks, row windows, counts,
-and other rendering formats fail visibly rather than producing a
-non-reproducible link.
+configured sources, floating versions, omitted frameworks, the Browser-reserved
+`Microsoft.NETCore.App` Platform id, row windows, counts, and other rendering
+formats fail visibly rather than producing a non-reproducible link.
 
 ## Requirements
 

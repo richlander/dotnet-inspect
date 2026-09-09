@@ -8594,6 +8594,13 @@ function buildStateUrl(base = location.href) {
     : new URL(base);
 }
 
+function buildShareUrl(base = location.href) {
+  const snapshot = captureWorkspaceUrlState();
+  return snapshot
+    ? workspaceLocation.build(snapshot, base)
+    : new URL(base);
+}
+
 // Rewrite the address bar to reflect the current selection so a refresh restores it and
 // the URL is always shareable. replaceState (not pushState) keeps the app's own
 // back/forward buttons authoritative and avoids flooding browser history on every render.
@@ -8997,7 +9004,7 @@ function loadSelectionData() {
 async function share() {
   const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
-    await navigator.clipboard?.writeText(buildStateUrl().toString());
+    await navigator.clipboard?.writeText(buildShareUrl().toString());
     showToast("selection link copied");
   } catch (error) {
     state.queryNotice = errorMessage(error);

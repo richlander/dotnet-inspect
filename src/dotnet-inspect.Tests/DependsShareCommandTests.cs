@@ -139,6 +139,28 @@ public partial class CommandExecutionTests
         Assert.Contains("cannot be combined with source configuration", result.Error);
     }
 
+    [Fact]
+    public async Task DependsShare_RejectsBrowserPlatformPackageId()
+    {
+        var result = await RunAppAsync(
+            "depends",
+            "--package",
+            "Microsoft.NETCore.App@2.2.8",
+            "--tfm",
+            "netcoreapp2.2",
+            "--share",
+            "packet",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "published Browser reserves that id for the .NET Platform",
+            result.Error);
+        Assert.DoesNotContain("could not be resolved", result.Error);
+    }
+
     [Theory]
     [InlineData("String", "--platform")]
     [InlineData(null, "--library", "System.Runtime")]
