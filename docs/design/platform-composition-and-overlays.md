@@ -484,6 +484,13 @@ user named. The platform remains internally coherent; the overlay and base have
 a version-skew risk. Whether one traversal can succeed also depends on the
 member requested.
 
+The same compatibility shape applies when a package-selected or direct library
+is retained beside an older Workspace platform. That participant is not an
+overlay for designation or precedence purposes, but loading it is still valid
+and does not require a matching platform closure. Its own metadata, API, IL,
+source, decompilation, and comparison operations remain available until an
+operation asks it to compose with another participant.
+
 This is why compatibility cannot be folded into entitlement. Entitlement is
 computed per acquisition, at open, and both sides pass. Compatibility concerns
 the pair and a concrete traversal request. No hostile actor is required: the
@@ -492,29 +499,74 @@ platform for metadata that the platform does not contain.
 
 **Detect risk at load, attribute failure at traverse** (**#4592**):
 
-- **At load**, compute the skew and surface it as a warning. Do not block. An
-  assembly built for a newer framework still renders its own surface correctly,
-  which is most of what the user opened it for; refusing at open would reject a
-  session that mostly works.
+- **At load**, evaluate the target relation. An owner-classified unsupported
+  downgrade, such as a .NET 12 participant over a .NET 10 platform, surfaces a
+  warning but does not block. An assembly built for a newer framework still
+  renders its own surface correctly, which is most of what the user opened it
+  for; refusing at open would reject a session that mostly works.
 - **At traversal into the platform**, attempt the requested lookup. If the
-  loaded platform contains the member, return it; the skew warning remains
-  useful context but does not invalidate the result. If the member is
-  unavailable and the requesting overlay is known to target a newer platform,
-  return an attributed typed compatibility failure naming the request, overlay
-  target, and loaded platform. Without known skew, preserve the ordinary
-  missing or unresolved result.
+  normal assembly-binding policy selects a platform candidate and Metadata
+  resolves the exact requested member identity and signature, return it; the
+  skew warning remains useful context but does not invalidate the binding.
+  Resolution may not substitute a same-named member, another overload, a
+  display-text match, or a merely shape-compatible signature. A breaking
+  signature change therefore makes the requested member unavailable. When the
+  request is unavailable and the requesting participant is known to target a
+  newer platform, return an attributed typed compatibility failure naming the
+  request, participant target, and loaded platform. Without known skew,
+  preserve the ordinary missing or unresolved result.
 
-The failure mode this replaces is the one `AGENTS.md` forbids under *keep
-failure visible*: today an unavailable member under known skew surfaces as an
-unattributed missing type or member. A blanket refusal would be wrong in the
-other direction because many requests remain satisfiable.
+Different target text is not itself an incompatibility warning. A library
+selected for `net8.0` may compose with a .NET 10 Workspace platform under the
+ordinary supported upward-compatibility relation even though the supplying
+platform's documentation, annotations, source, and implementation differ from
+.NET 8. The warning requires the owner-issued incompatible relation; it is not
+triggered by target inequality or descriptive differences.
+
+The failure mode this replaces is an unavailable member under known skew
+surfacing as an unattributed missing type or member. The traversal result must
+retain and expose the compatibility cause. A blanket refusal would be wrong in
+the other direction because many requests remain satisfiable.
+
+Under an owner-classified unsupported downgrade, an exact member bind proves
+only that the loaded supplier satisfies Metadata's binding identity. It does
+not make the participant/platform composition compatible for every
+descriptive or implementation facet. Nullable annotations, custom attributes,
+XML documentation, PDB-mapped source, implementation bodies, and source-level
+`unsafe` placement may differ across platform versions without changing the
+bindable member identity. Any change to Metadata's binding signature changes
+that identity and therefore fails the exact lookup. Successful
+platform-derived documentation, source, decompilation, and analysis retain the
+loaded supplier, target, and incompatible relation so consumers can attribute
+potentially incorrect results to the unsupported downgrade.
 
 Expect a degree of incompatibility to remain even when everything is reported.
-Decompiled output on the far side of a reference into a skewed assembly may be
-wrong, and a type whose base declaration is unavailable will render
-incompletely. That is **inherent** to overlaying: the missing information does
-not exist in the workspace. The requirement is that it be attributed, not that
-it be avoided.
+Decompiled output on the far side of a reference into a skewed assembly may
+be incorrect for the unsupported composition, and a type whose base declaration
+is unavailable will render incompletely. That is **inherent** to overlaying:
+the missing or newer information does not exist in the Workspace. The
+requirement is that it be attributed, not that it be avoided.
+
+### Client disclosure
+
+The retained incompatibility warning is participant-level context, not a
+decoration on every source and target of every traversal. Its projection must
+communicate that the package/platform relation is unsupported, that some
+operations may be blocked, and that non-binding results may be incorrect. It
+must not imply that every exact member traversal fails.
+
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-overview)
+owns the exact browser copy and its single Package Overview placement beside
+the package version and framework controls. This document does not duplicate
+that user-facing string.
+
+The warning remains applicable after an exact member lookup succeeds because
+that binding does not make the owner-classified unsupported downgrade
+compatible for documentation, annotations, source, implementation, or other
+non-binding facets. It does not replace an operation's exact compatibility
+failure, which remains visible where that operation reports its result.
+Direct-library and non-browser hosts project the same owner-issued
+incompatibility evidence under their own presentation contracts.
 
 ## Precedence between entitled candidates
 
