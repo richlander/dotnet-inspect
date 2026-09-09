@@ -416,7 +416,7 @@ constructs a fresh Workspace, Navigation state, and initial view as defined by
 [Workspace Definitions](workspace-definitions.md); two packets remain
 separately selectable even when their portable contents are equal. The first
 browser adoption retains resolved product demo scenarios for the current
-session. Inspect Web has exactly one active Workspace. The home page
+session. Inspect Web has at most one active Workspace. The home page
 exposes one **Demos** entry that opens this subject; it does not expose one
 button per demo or create a Workspace switcher.
 
@@ -448,8 +448,9 @@ with:
 
 The page's named local Save action and compact saved-definition list are owned
 by [Saved Workspaces](inspect-web-saved-workspaces.md). Saved entries are
-definitions that may replace the one active Workspace, not another Workspace
-inventory or a switcher between simultaneously active Workspaces.
+definitions that may become active, replacing a current Workspace when one
+exists. They are not another Workspace inventory or a switcher between
+simultaneously active Workspaces.
 
 The Packages section's compact [Add package](inspect-web-workspace-add-package.md)
 action reuses package search to append a resolved coordinate without replacing

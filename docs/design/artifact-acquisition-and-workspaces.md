@@ -3622,11 +3622,12 @@ or a second query-access protocol.
 A saved definition describes one Workspace with `Newtonsoft.Json` and
 `Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
 selected. Opening that definition constructs exactly that Workspace. The
-currently active Workspace may contain any composition; its contents are not
-input to construction and are not a comparison operand. Once construction
-succeeds, the host switches to the new Workspace and Navigation makes
-`Humanizer.Core` active in the subject strip for the selected member. Failure
-leaves the existing active Workspace unchanged.
+contents of any currently active Workspace are not input to construction and
+are not a comparison operand. Once construction succeeds, the host makes the
+new Workspace active and Navigation makes `Humanizer.Core` active in the
+subject strip for the selected member. If another Workspace was active, the
+host has switched from it; otherwise this is initial activation. Failure
+retains the prior host state, including the absence of an active Workspace.
 
 Restoration does not test compatibility between Workspaces or make a
 whole-Workspace compatibility judgment from package overlap or dependency
@@ -3683,7 +3684,7 @@ same construction path without switching from a prior active Workspace.
 
 A retained host admits at most one unpublished new Workspace at a time. A newer
 restoration supersedes and closes the older attempt's Workspace before
-beginning another. The product exposes exactly one active Workspace; the
+beginning another. The product exposes at most one active Workspace; the
 unpublished Workspace is not selectable, rendered, placed in history, or
 available to ordinary host actions.
 

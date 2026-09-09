@@ -4,9 +4,10 @@
 
 The Workspace page can save the current nonempty Workspace under a local name,
 open that saved definition later, and forget it with the shared trailing close
-control. There remains exactly one active Workspace. A saved name identifies a
-definition, not another active Workspace or the owner of the current packages.
-This document owns the focused Browser interaction and local saved-entry store.
+control. There is at most one active Workspace. A saved name identifies a
+definition, not another active Workspace or the owner of current packages when
+a Workspace exists. This document owns the focused Browser interaction and
+local saved-entry store.
 
 The consumer is the existing Inspect Web application, tracked by #5932 and
 the end-to-end tracker #5697. The user approved this Browser-only

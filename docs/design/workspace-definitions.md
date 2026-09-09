@@ -116,7 +116,7 @@ authority and carries only owner-issued replacement and Navigation authority.
    unpublished Workspace from one immutable canonical request. Failure,
    supersession, or `ProjectionFailed` closes that Workspace. A completely
    prepared projectable or validly non-projectable Workspace may become the
-   one active Workspace under current host authority.
+   active Workspace under current host authority.
 
 ## The definition schema
 
@@ -1471,12 +1471,12 @@ version-1 writer accepts a Registry ID.
 ### Complete restoration
 
 Complete restoration is a switch to an independently constructed Workspace.
-The active Workspace's composition is not input to the new Workspace and no
-compatibility relationship exists between them. Restoration does not mutate
-the active Workspace in place or reuse its Roots, occurrence identities,
-contexts, sessions, budgets, Navigation state, or query authority. Whether the
-two Workspaces share zero, some, or all requested package IDs has no bearing on
-the switch.
+The composition of any currently active Workspace is not input to the new
+Workspace and no compatibility relationship exists between them. Restoration
+does not mutate a current Workspace in place or reuse its Roots, occurrence
+identities, contexts, sessions, budgets, Navigation state, or query authority.
+Whether a current Workspace exists, or whether it shares zero, some, or all
+requested package IDs with the new Workspace, has no bearing on activation.
 
 This rule applies to saved definitions, share packets, Browser history,
 product demos, external-package Spotlight selection, and CLI canonical replay.
@@ -1527,11 +1527,12 @@ One restoration attempt proceeds in this order:
    intent and effect authority remain current. Installation is one active
    Workspace reference change; history, URL, focus, and announcement remain
    host-owned effects of that same authorized result.
-8. After installation, close the old Workspace outside the pointer-swap path.
-   On decode, resolution, construction, Navigation, query, projection,
-   cancellation, expiry, or supersession failure, close the unpublished
-   Workspace and retain the active Workspace unchanged. A late completion
-   for a settled token is discarded and cannot install.
+8. After installation, close the previously active Workspace, when one
+   existed, outside the pointer-swap path. On decode, resolution, construction,
+   Navigation, query, projection, cancellation, expiry, or supersession
+   failure, close the unpublished Workspace and retain the prior host state:
+   the prior active Workspace or no active Workspace. A late completion for a
+   settled token is discarded and cannot install.
 
 At most one unpublished new Workspace may coexist with the active Workspace.
 The new Workspace is not selectable, rendered, addressable through ordinary
@@ -1857,11 +1858,12 @@ Implementation must add, at minimum:
   projection failure; supersession before installation; late completion; and
   initial failure with no active Workspace. Unauthorized input must reserve,
   acquire, and publish nothing. Every non-install outcome must close the
-  unpublished Workspace, retain the active Workspace and its exact snapshot,
-  and carry the source-identifying failure evidence. Successful installation
-  must publish the exact prepared Workspace once, preserve the request's packet
-  or definition basis and projection classification, and remain reachable only
-  through current host effect authority;
+  unpublished Workspace, retain the prior host state and its exact snapshot
+  when one exists, and carry the source-identifying failure evidence.
+  Successful installation must publish the exact prepared Workspace once,
+  preserve the request's packet or definition basis and projection
+  classification, and remain reachable only through current host effect
+  authority;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`

@@ -301,15 +301,17 @@ The missing product concept is not a Workspace manager. It is one authoritative
 logical scope over physical acquisition and binding resources that already have
 owners.
 
-## One active Workspace
+## At most one active Workspace
 
-Inspect Web exposes exactly one active Workspace. Activating a demo, share
+Inspect Web exposes at most one active Workspace. Activating a demo, share
 packet, imported definition, saved definition, or external package **Open**
-constructs a fresh Workspace independently from the active one. The active
-Workspace remains usable until construction is complete, then the host
-switches the active reference and closes the old Workspace. At most one
-unpublished new Workspace may coexist with the active Workspace; it is not
-selectable or independently presented.
+constructs a fresh Workspace independently from any active one. An active
+Workspace remains usable until construction is complete, then the host makes
+the new Workspace active and closes the prior Workspace when one existed.
+At most one unpublished new Workspace may exist; when another Workspace is
+active, the two may coexist during construction. The unpublished Workspace is
+not selectable or independently presented. With no active Workspace, the same
+construction path performs initial activation rather than a switch.
 
 This component exposes no Workspace collection, switcher, name, or
 cross-Workspace operation. Each Workspace has one current scope
