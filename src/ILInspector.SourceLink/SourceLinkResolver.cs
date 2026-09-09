@@ -89,7 +89,7 @@ public sealed class SourceLinkResolver
         return _exactTypesByDefinitionName!.TryGetValue(
             type,
             out PdbTypeDocumentInfo? match)
-                ? ResolveTypeSource(match, StringComparer.Ordinal)
+                ? ResolveTypeSource(match)
                 : null;
     }
 
@@ -107,20 +107,17 @@ public sealed class SourceLinkResolver
             return null;
         }
 
-        return ResolveTypeSource(
-            type,
-            StringComparer.OrdinalIgnoreCase);
+        return ResolveTypeSource(type);
     }
 
     TypeSourceInfo? ResolveTypeSource(
-        PdbTypeDocumentInfo type,
-        StringComparer filePathComparer)
+        PdbTypeDocumentInfo type)
     {
         string simpleName = type.TypeSimpleName;
         if (type.Documents.Count > 0)
         {
             Dictionary<string, PartialSourceFile> files =
-                new(filePathComparer);
+                new(StringComparer.Ordinal);
 
             foreach (var documents in type.Documents.GroupBy(
                 static document => document.FilePath,
@@ -157,7 +154,7 @@ public sealed class SourceLinkResolver
         string[] inferredPaths =
         [
             .. FindDocumentsMatchingTypeName(simpleName)
-                .Distinct(filePathComparer)
+                .Distinct(StringComparer.Ordinal)
                 .Take(2),
         ];
         if (inferredPaths.Length != 1)

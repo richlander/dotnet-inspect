@@ -13482,6 +13482,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SourceLinkFiles_DeclinesCaseDistinctBodylessDocuments()
+    {
+        Type selectedType =
+            typeof(
+                global::DotnetInspector.Queries.EmbeddedFixtures
+                    .BodylessSourceCollision.Right
+                    .AmbiguousBodylessFixture);
+        string assemblyPath = selectedType.Assembly.Location;
+        using var sourceLink = SourceLinkService.Open(assemblyPath);
+
+        List<SourceFileInfo> rows =
+            await SourceFileCollector.CollectAsync(
+                sourceLink,
+                assemblyPath,
+                typeFilter: selectedType.Name);
+        SourceFileInfo[] ambiguousRows =
+        [
+            .. rows.Where(row => row.Type.EndsWith(
+                "." + selectedType.Name,
+                StringComparison.Ordinal)),
+        ];
+
+        Assert.Equal(2, ambiguousRows.Length);
+        Assert.All(ambiguousRows, row => Assert.Null(row.Url));
+    }
+
+    [Fact]
     public async Task Discover_Bare_PreservesEmbeddedSourceLinkDoor()
     {
         var (assemblyPath, fixtureDir) =

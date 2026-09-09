@@ -142,8 +142,8 @@ covers unambiguous bodyless interfaces and other declarations that produce no
 sequence points. A correlated document remains primary regardless of unrelated
 filename matches, while multiple inferred matches decline to decompiler
 fallback. An inferred mapping retains `Inferred` as the resolution method. It
-does not let a simple-name type lookup replace the exact identity, and exact
-document-path deduplication remains ordinal.
+does not let a simple-name type lookup replace the exact identity, and document
+paths remain ordinal across exact and legacy string entry points.
 `MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinal`,
 `MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch`,
 `MetadataSourceFindingsTests.ExactCorrelatedTypeSourceResolution_DoesNotAddFilenameInference`,
@@ -156,6 +156,8 @@ checksum-verified acquisition through
 `AssemblyContextSourceQueryTests.BodylessType_AcquiresInferredChecksumVerifiedPdbSource`
 and ambiguous-inference fallback through
 `AssemblyContextSourceQueryTests.AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler`.
+`CommandExecutionTests.SourceLinkFiles_DeclinesCaseDistinctBodylessDocuments`
+gates ordinal path identity through the CLI projection.
 Request conversion uses `ApiType.DefinitionName` when available; an older
 surface's string `MetadataName` is accepted only for an unambiguous top-level
 name, because `+` cannot distinguish nesting from a literal metadata character.

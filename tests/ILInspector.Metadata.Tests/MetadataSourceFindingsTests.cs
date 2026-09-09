@@ -485,8 +485,18 @@ public sealed class MetadataSourceFindingsTests
                     selectedType.Namespace!,
                     [selectedType.Name]))
             .Name;
+        string[] matchingPaths =
+        [
+            .. context.EnumeratePdbDocumentPaths()
+                .Where(path => Path.GetFileName(path).Equals(
+                    selectedType.Name + ".cs",
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
 
+        Assert.Contains("/_/Case/AmbiguousBodylessFixture.cs", matchingPaths);
+        Assert.Contains("/_/case/AmbiguousBodylessFixture.cs", matchingPaths);
         Assert.Null(resolver.ResolveTypeSource(name));
+        Assert.Null(resolver.ResolveTypeSource(selectedType.FullName!));
     }
 
     [Fact]
