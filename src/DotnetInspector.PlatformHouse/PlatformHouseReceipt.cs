@@ -1036,10 +1036,15 @@ public sealed class PlatformHouseReceipt
             {
                 if (selected.Any(
                         settlement => settlement.Contribution
-                            is not PlatformSourceContribution.Realization))
+                            is not PlatformSourceContribution.Realization
+                            {
+                                RealizationCompleteness:
+                                    PlatformSourceContributionCompleteness
+                                        .Authoritative,
+                            }))
                 {
                     throw new ArgumentException(
-                        $"A completed NoNameOwner selected {facet} settlement must retain only successfully realized source populations.",
+                        $"A completed NoNameOwner selected {facet} settlement must retain only authoritative realized source populations.",
                         nameof(completionSettlements));
                 }
                 ValidateSuccessfulFacetPolicy(

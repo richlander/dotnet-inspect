@@ -776,6 +776,42 @@ public class PlatformHouseContractTests
                 PlatformSourceEvidenceIdentity.Create(
                     "second-realized-evidence")),
             PlatformSourceSettlementDisposition.Selected);
+        var partialRealized = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Realization(
+                PlatformSourceFacet.Reference,
+                second,
+                aggregatingRequest.Snapshot,
+                PlatformSourceGeneration.Create("partial-realized"),
+                Target(),
+                PlatformSourceCoordinateIdentity.Create(
+                    "partial-coordinate"),
+                PlatformTargetCorrespondenceIdentity.Create(
+                    "partial-target-correspondence"),
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformSourceContributionCompleteness.Partial,
+                PlatformSourceEvidenceIdentity.Create(
+                    "partial-realized-evidence")),
+            PlatformSourceSettlementDisposition.Selected);
+        var partialCompletion =
+            new PlatformHouseCompletion.AssemblyReference(
+                (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    aggregatingRequest.Snapshot.Operation,
+                PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+                new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                    new TestMetadataOutcome(),
+                    "partial-no-name-owner"),
+                [realized, partialRealized]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                aggregatingRequest.Snapshot,
+                new PlatformTargetSettlement.Exact(
+                    (PlatformTargetDemand.Exact)
+                        aggregatingRequest.Target),
+                [realized, partialRealized],
+                Consumed(),
+                partialCompletion));
+
         var searchedCompletion =
             new PlatformHouseCompletion.AssemblyReference(
                 (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
