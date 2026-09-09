@@ -89,7 +89,7 @@ Run the complete text-library suites from the repository root:
 
 ```bash
 dotnet run --project tests/InertText.Tests -c Release
-dotnet run --project tests/ILInspector.Text.Tests -c Release
+dotnet run --project tests/Inspector.Text.Tests -c Release
 ```
 
 Both are xUnit in-process executables. Their source lives under `tests/`, while
@@ -138,6 +138,92 @@ This is an xUnit in-process executable with its built output under `artifacts/`.
 Its compiler-produced sample types stay with the test host, including the types
 inspected through its own assembly. Keep this suite distinct from the model-free
 `tests/CSharpText.Tests` suite. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Analysis tests
+
+Build the solution before running the analysis suite so every FixtureCatalog
+binary is available, and always use Release because compiler-generated IL is
+part of the evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Required PR lanes exclude
+`Speed=Slow` after `--`; Deep Inspect runs the complete suite. Compiler-produced
+runtime-async specimens remain inside the test assembly, while independently
+compiled analysis inputs remain under `fixtures/analysis/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Research tests
+
+Build the solution before running the Research suite so every FixtureCatalog
+binary is available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Research.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its compiler-produced
+sample types stay with the host under `tests/`; independently compiled Research,
+analysis, and diff inputs remain under `fixtures/`. Deep Inspect adds
+`--fail-skips on` so platform certification cannot silently lose coverage. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Decompiler tests
+
+Build the solution before running the decompiler suite so its cataloged fixture
+binaries and tool harness are current, and always use Release because the
+compiler-produced IL is test evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+source eng/activate-iltools.sh --mdv
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+```
+
+The custom xUnit executable retains its native selectors and `--gate` presets.
+Its compiler-produced specimens stay with the host under `tests/`; independent
+inputs remain under `fixtures/`, and linked harness sources remain owned by
+`tools/DecompilerHarness`. Run the separate `--gate corpus` lane only when the
+multi-hour corpus sweep is required. See
+[decompiler correctness](decompiler-correctness-pipeline.md) and
+[repository layout](fixture-governance.md#repository-layout).
+
+### Inspection query tests
+
+Build the solution before running the inspection-query suite so every
+FixtureCatalog binary is available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source and embedded
+resources live under `tests/`; the independently compiled binaries it inspects
+remain under `fixtures/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Shared services tests
+
+Build the solution before running the shared-services suite so its route-learning
+FixtureCatalog binaries are available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source lives under
+`tests/`; independently compiled route-learning inputs and static signed-package
+archives remain under `fixtures/services/`. See
 [repository layout](fixture-governance.md#repository-layout).
 
 ## Test tooling activation

@@ -6,7 +6,9 @@ interface ClientFacades {
   readonly host: Pick<HostFacade, "buildIdentity">;
   readonly package: Pick<
     PackageFacade,
-    "listPackageQueryFacets" | "listGalleryDiscoveryCatalog" | "matchPackageDependencyCoordinate"
+    "listPackageQueryFacets" | "listGalleryDiscoveryCatalog"
+    | "matchPackageDependencyCoordinate"
+    | "listPackageAssemblyQueryPatterns"
   >;
   readonly catalog: Pick<
     CatalogFacade,
@@ -34,6 +36,9 @@ export function createMainThreadEngineClient(facades: ClientFacades) {
         ...args: Parameters<PackageFacade["matchPackageDependencyCoordinate"]>
       ) {
         return facades.package.matchPackageDependencyCoordinate(...args);
+      },
+      async listPackageAssemblyQueryPatterns() {
+        return facades.package.listPackageAssemblyQueryPatterns();
       },
     },
     catalog: {

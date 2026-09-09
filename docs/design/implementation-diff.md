@@ -276,7 +276,7 @@ gates visible PDB source identity and exact/normalized checksum evidence. The
 acquisition side is gated by
 `VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
 `VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
-`PdbSourceAcquisitionTests.
+`PdbSourceHouseTests.
 FromContent_MismatchedChecksumProducesFailedInspection`, while
 `FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence` gates the
 network result's typed verification. A source context is
@@ -1123,8 +1123,9 @@ mutable-file or local-actor threat model.
 
 ### Designated-pair basis and delivery
 
-The baseline is explicit old/new endpoint comparison, already supported by
-`ImplementationDiff.CompareMembers` and both native endpoint adapters.
+The baseline is explicit old/new endpoint comparison, which was supported by
+`ImplementationDiff.CompareMembers` when this design was written and remains
+supported by both native endpoint adapters.
 Ordinary Research correspondence is useful analogous evidence precisely
 because it refuses unequal keys: changing that refusal would answer the wrong
 question. An owner-issued pair and a closed alternate work basis are the
@@ -1143,12 +1144,13 @@ The tracker and the
 own those paths and final legacy Queries/Research retirement at steps 16/17.
 The tracker owns subsequent status/count changes.
 
-Adding this substrate does not retire `ImplementationDiff.CompareMembers`,
-its Source-dependent callers, or their projections. Queries population,
-workspace composition, publication, host rendering, and Source adoption remain
-separate work. This section adds no output schema: downstream CLI lowering
-uses the planned shared Markout presentation path, and browser adoption
-consumes typed evidence under its own host contract.
+Adding this substrate did not itself retire `ImplementationDiff.CompareMembers`
+or its then-current callers. After CLI, browser, comparison-tool, and Source
+adoption, #6283 retires that superseded wrapper and its result shape. Queries
+population, workspace composition, publication, host rendering, and broader
+Source adoption remain separate work. This section adds no output schema:
+downstream CLI lowering uses the shared Markout presentation path, and browser
+adoption consumes typed evidence under its own host contract.
 
 ## Research local producer session and completion
 
@@ -1635,7 +1637,7 @@ repository authenticity or identifies the physical syntax tree that produced IL.
 
 ### Text and outcome semantics
 
-Two complete, compatible source endpoints use `ILInspector.Text`'s exact
+Two complete, compatible source endpoints use `Inspector.Text`'s exact
 ordered line semantics and native Findings. CR, LF, and CRLF boundaries are
 equivalent under that owner. Other supplied text remains significant:
 Research does not strip comments, attributes, directives, indentation, or
@@ -1884,11 +1886,10 @@ the input is a pair of assemblies or `ResearchDiffInput` values. The result is a
 list of changed implementation members. Each member can carry C# changes, IL
 changes, or both; exact members are omitted.
 
-Use `ImplementationDiff.CompareMembers` when the caller already resolved exact
-old/new `MethodDefinitionHandle` values in live `MetadataSource` instances. The
-member result keeps the typed C# diff, typed IL diff, joined implementation
-changes, and a single `ResearchSubjectKey`; exact members return an empty
-change list with `IsExact` set.
+Callers that already resolved exact old/new methods use the Queries-owned
+`DirectMemberComparisonQuery`. Its `LocalComparisonQueryResult` retains the
+designated endpoints, typed native C#/IL outcomes, Findings, and terminal
+non-success without reconstructing an `ImplementationDiffResult`.
 
 Use `WithPdbSourceComparisons` to enrich an assembly comparison with old/new
 `FindingInspection<string>` envelopes from Services. It preserves `Complete`,

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 using ILReader = ILInspector.Instructions.ILReader;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -2979,7 +2979,11 @@ public static class IrImporter
         }
     }
 
-    internal static FieldRef ResolveField(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
+    internal static FieldRef ResolveField(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericScope callerScope,
+        MemorySafetyMetadataIndex? memorySafety = null)
     {
         switch (handle.Kind)
         {
@@ -3000,8 +3004,21 @@ public static class IrImporter
                         field,
                         fieldType,
                         fieldType);
+                RequiresUnsafeContractResult contract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        memorySafety,
+                        fieldHandle);
                 return new FieldRef(declaring, name, fieldType)
                 {
+                    HasNormalizedMemorySafetyContract =
+                        contract.HasNormalizedContract,
+                    RequiresUnsafe = contract.IsExplicit,
+                    RequiresUnsafeFact = contract.State,
+                    MemorySafetyRulesState = contract.RulesState,
+                    MemorySafetyRulesUnavailable =
+                        contract.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        contract.ContractUnavailable,
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
                     DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
                     FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
@@ -3031,8 +3048,28 @@ public static class IrImporter
                     name,
                     declaredFieldType,
                     fieldType);
+                RequiresUnsafeContractResult? contract =
+                    MemberReferenceFieldMemorySafetyContract(
+                        reader,
+                        member,
+                        name,
+                        memorySafety);
                 return new FieldRef(declaring, name, fieldType)
                 {
+                    DefinitionType = declaring.Kind
+                        == TypeRefKind.GenericInstance
+                            ? declaredFieldType
+                            : null,
+                    HasNormalizedMemorySafetyContract =
+                        contract?.HasNormalizedContract == true,
+                    RequiresUnsafe = contract?.IsExplicit == true,
+                    RequiresUnsafeFact =
+                        contract?.State ?? MetadataFactState.Unknown,
+                    MemorySafetyRulesState = contract?.RulesState,
+                    MemorySafetyRulesUnavailable =
+                        contract?.RulesUnavailable == true,
+                    MemorySafetyContractUnavailable =
+                        contract?.ContractUnavailable == true,
                     BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
                     DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(
                         reader,
@@ -3053,7 +3090,35 @@ public static class IrImporter
     }
 
     static FieldRef ResolveField(MetadataSource source, EntityHandle handle, GenericScope callerScope)
-        => source.CrossAssembly.Upgrade(ResolveField(source.Reader, handle, callerScope));
+    {
+        FieldRef field = source.CrossAssembly.Upgrade(
+            ResolveField(
+                source.Reader,
+                handle,
+                callerScope,
+                source.MemorySafety),
+            resolveMemorySafety: true);
+        bool callerUsesUpdatedRules = source.SimulateNewRules
+            || source.MemorySafety.Rules is MemorySafetyRulesResult.Available
+            {
+                State: MemorySafetyRulesState.Updated,
+            };
+        bool legacyShapeRequiresUnsafe = field.FixedBuffer is null
+            && UnsafeAwaitOperand.ContainsPointer(field.Type);
+        if (FieldMemorySafetyContract.EvidenceRequired(
+                callerUsesUpdatedRules,
+                legacyShapeRequiresUnsafe)
+            && !field.HasNormalizedMemorySafetyContract)
+        {
+            field = field with
+            {
+                MemorySafetyRulesUnavailable =
+                    field.MemorySafetyRulesState is null,
+                MemorySafetyContractUnavailable = true,
+            };
+        }
+        return field;
+    }
 
     static FixedBufferFieldInfo? FixedBufferFieldInfo(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => FixedBufferMetadata.Read(reader, attributes) is { } metadata
@@ -3179,6 +3244,47 @@ public static class IrImporter
             }
         }
         return MetadataFactState.Unknown;
+    }
+
+    static RequiresUnsafeContractResult? MemberReferenceFieldMemorySafetyContract(
+        MetadataReader reader,
+        MemberReference member,
+        string fieldName,
+        MemorySafetyMetadataIndex? memorySafety)
+    {
+        if (memorySafety is null
+            || DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+        {
+            return null;
+        }
+
+        var declaringType = reader.GetTypeDefinition(typeHandle);
+        var memberSignature = reader.GetBlobBytes(member.Signature);
+        FieldDefinitionHandle match = default;
+        foreach (var fieldHandle in declaringType.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (!string.Equals(
+                    reader.GetString(field.Name),
+                    fieldName,
+                    StringComparison.Ordinal)
+                || !reader.GetBlobBytes(field.Signature)
+                    .AsSpan()
+                    .SequenceEqual(memberSignature))
+            {
+                continue;
+            }
+
+            if (!match.IsNil)
+                return null;
+            match = fieldHandle;
+        }
+
+        return match.IsNil
+            ? null
+            : MethodDefinitionFacts.RequiresUnsafeContract(
+                memorySafety,
+                match);
     }
 
     static bool IsSystemObject(TypeRef type)

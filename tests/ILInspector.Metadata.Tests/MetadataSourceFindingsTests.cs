@@ -3,7 +3,9 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
-using ILInspector.Findings;
+using DotnetInspector.Fixtures;
+using DotnetInspector.Queries.EmbeddedFixtures;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -330,7 +332,7 @@ public sealed class MetadataSourceFindingsTests
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
-        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://example.test/*"}}""");
         var resolver = new SourceLinkResolver(context, map);
 
@@ -346,7 +348,7 @@ public sealed class MetadataSourceFindingsTests
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
-        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://example.test/*"}}""");
         var resolver = new SourceLinkResolver(context, map);
 
@@ -365,11 +367,11 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
-    public void ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments()
+    public void ExactTypeSourceResolution_IsOrdinal()
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
-        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://example.test/*"}}""");
         var resolver = new SourceLinkResolver(context, map);
         var upperName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -406,6 +408,133 @@ public sealed class MetadataSourceFindingsTests
             StringComparison.Ordinal);
         Assert.Empty(upper.AdditionalSourceFiles);
         Assert.Empty(lower.AdditionalSourceFiles);
+    }
+
+    [Fact]
+    public void ExactCorrelatedTypeSourceResolution_DoesNotAddFilenameInference()
+    {
+        Type selectedType =
+            typeof(DotnetInspector.Queries.EmbeddedFixtures
+                .CorrelatedSourceCollision.Left.SharedNameFixture);
+        using var context = PdbContext.Open(selectedType.Assembly.Location);
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    selectedType.Namespace!,
+                    [selectedType.Name]))
+            .Name;
+
+        var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name));
+
+        Assert.EndsWith(
+            Path.Combine(
+                "CorrelatedSourceCollision",
+                "Definitions.cs"),
+            source.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.SourceLink,
+            source.ResolutionMethod);
+        Assert.Empty(source.AdditionalSourceFiles);
+    }
+
+    [Fact]
+    public void ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch()
+    {
+        using var context = PdbContext.Open(
+            typeof(BodylessSourceFixture).Assembly.Location);
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeof(BodylessSourceFixture).Namespace!,
+                    [nameof(BodylessSourceFixture)]))
+            .Name;
+
+        var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name));
+
+        Assert.EndsWith(
+            nameof(BodylessSourceFixture) + ".cs",
+            source.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.Inferred,
+            source.ResolutionMethod);
+        Assert.Empty(source.AdditionalSourceFiles);
+    }
+
+    [Fact]
+    public void ExactBodylessTypeSourceResolution_DeclinesAmbiguousFilenameInference()
+    {
+        Type selectedType =
+            typeof(DotnetInspector.Queries.EmbeddedFixtures
+                .BodylessSourceCollision.Right.AmbiguousBodylessFixture);
+        using var context = PdbContext.Open(selectedType.Assembly.Location);
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    selectedType.Namespace!,
+                    [selectedType.Name]))
+            .Name;
+        string[] matchingPaths =
+        [
+            .. context.EnumeratePdbDocumentPaths()
+                .Where(path => Path.GetFileName(path).Equals(
+                    selectedType.Name + ".cs",
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+
+        Assert.Contains("/_/Case/AmbiguousBodylessFixture.cs", matchingPaths);
+        Assert.Contains("/_/case/AmbiguousBodylessFixture.cs", matchingPaths);
+        Assert.Null(resolver.ResolveTypeSource(name));
+        Assert.Null(resolver.ResolveTypeSource(selectedType.FullName!));
+    }
+
+    [Fact]
+    public void ExactBodylessVisualBasicTypeSourceResolution_InfersDocument()
+    {
+        const string typeNamespace =
+            "DotnetInspector.SourceLinkVisualBasicFixtures";
+        const string typeName = "BodylessSourceFixture";
+        using var context = PdbContext.Open(
+            FixtureCatalog.SourceLinkVisualBasic.AssemblyPath());
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeNamespace,
+                    [typeName]))
+            .Name;
+
+        var exact = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name));
+        var legacy = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource($"{typeNamespace}.{typeName}"));
+
+        Assert.EndsWith(
+            "BodylessSourceFixture.vb",
+            exact.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.Inferred,
+            exact.ResolutionMethod);
+        Assert.Equal(exact.SourceFilePath, legacy.SourceFilePath);
+        Assert.Equal(exact.SourceUrl, legacy.SourceUrl);
+        Assert.Equal(exact.ResolutionMethod, legacy.ResolutionMethod);
+        Assert.Equal(exact.Checksum, legacy.Checksum);
+        Assert.Equal(exact.ChecksumAlgorithm, legacy.ChecksumAlgorithm);
     }
 
     [Fact]

@@ -211,8 +211,8 @@ Owns PDB-source acquisition and verification:
 - exact member/type body slicing
 
 It consumes Metadata-owned PDB document and coordinate facts without making
-Metadata own textual C#. `PdbSourceAcquisitionTests.FromContent_VerifiedSourceProducesCompleteLineCensus`,
-`PdbSourceAcquisitionTests.FromContent_UsesSequencePointEvidenceToSelectAConditionalMember`,
+Metadata own textual C#. `PdbSourceHouseTests.FromContent_VerifiedSourceProducesCompleteLineCensus`,
+`PdbSourceHouseTests.FromContent_UsesSequencePointEvidenceToSelectAConditionalMember`,
 and
 `AssemblyContextSourceQueryTests.LocalPdbSource_DoesNotRequireSourceLinkMap`
 gate that boundary.

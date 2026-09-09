@@ -7,15 +7,14 @@ namespace ILInspector.Metadata.Tests;
 /// <summary>
 /// Architecture guardrail for the engine/tool boundary (#2568, #2579): a production
 /// <c>ILInspector.*</c> (engine) project must never reference a <c>DotnetInspector.*</c>
-/// tool project. The source-neutral <c>DotnetInspector.Artifacts</c> contract floor is
-/// the sole exception despite its historical project-name prefix. Test projects are
-/// intentionally excluded — pulling shared fixtures/services into a test is normal and
-/// is a separate policy call from the production boundary.
+/// tool project. Test projects are intentionally excluded — pulling shared
+/// fixtures/services into a test is normal and is a separate policy call from
+/// the production boundary.
 /// </summary>
 public class EngineToolBoundaryTests
 {
     [Fact]
-    public void MetadataHasNoSourceLinkFetchProjectReference()
+    public void MetadataHasNoSourceLinkProjectReference()
     {
         string project = Path.Combine(
             FindRepoRoot(),
@@ -27,11 +26,11 @@ public class EngineToolBoundaryTests
             ReadEvaluatedProjectReferences(project),
             reference => Path.GetFileNameWithoutExtension(
                     reference.Replace('\\', '/'))
-                .Equals("SourceLinkFetch", StringComparison.Ordinal));
+                .Equals("ILInspector.SourceLink", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void EngineProjectsReferenceOnlyTheSourceNeutralArtifactFloor()
+    public void EngineProjectsDoNotReferenceToolProjects()
     {
         var srcDir = Path.Combine(FindRepoRoot(), "src");
         var violations = new List<string>();
@@ -47,11 +46,7 @@ public class EngineToolBoundaryTests
                 // csproj Include paths use either separator (the repo mixes `..\` and
                 // `../`); normalize so the leaf name is extracted on any OS.
                 var referenceName = Path.GetFileNameWithoutExtension(reference.Replace('\\', '/'));
-                bool isArtifactContractFloor =
-                    projectName == "ILInspector.Metadata"
-                    && referenceName == "DotnetInspector.Artifacts";
-                if (referenceName.StartsWith("DotnetInspector.", StringComparison.Ordinal)
-                    && !isArtifactContractFloor)
+                if (referenceName.StartsWith("DotnetInspector.", StringComparison.Ordinal))
                 {
                     violations.Add($"{projectName} -> {referenceName}");
                 }
@@ -60,8 +55,8 @@ public class EngineToolBoundaryTests
 
         Assert.True(
             violations.Count == 0,
-            "Production ILInspector.* (engine) projects may reference only "
-            + "DotnetInspector.Artifacts from the DotnetInspector.* project family. "
+            "Production ILInspector.* (engine) projects must not reference "
+            + "the DotnetInspector.* project family. "
             + "Violations:\n  "
             + string.Join("\n  ", violations));
     }

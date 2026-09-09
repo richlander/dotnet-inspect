@@ -4,7 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 

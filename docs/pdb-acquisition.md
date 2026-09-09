@@ -11,18 +11,34 @@ recognizes and interprets the SourceLink custom-debug-information document.
 ## PDB source document acquisition
 
 After a Portable PDB maps a member or type to a checksummed source document,
-`PdbSourceAcquisition` looks for the document bytes in this order:
+`PdbSourceHouse` looks for the document bytes in this order:
 
 1. The PDB-recorded local path, when local source reads are enabled.
 2. Each caller-supplied local Git clone, addressed by the revision selector and
    repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
 3. The remote SourceLink URL.
 
+For an exact TypeDef with no method-correlated document, such as a bodyless
+interface, SourceLink may infer matching PDB documents by filename. The exact
+metadata type is resolved before that inference, and the resulting mapping
+retains `Inferred` rather than presenting the filename relationship as a
+sequence-point correlation.
+
+`PdbSourceHouse` is the clearing house for this PDB-provenance-based source
+scenario: it composes the candidate origins, fetch policy, checksum
+verification, source decoding, and typed failure outcomes into one settled
+result. It intentionally does not include decompiler-generated source.
+`AssemblyContextSourceQuery` owns that higher Queries-layer fallback.
+
 Every successful path must satisfy the shared Portable PDB checksum verifier
 (exact or accepted line-ending-normalized correspondence) before its content
 becomes evidence. Local-clone acquisition reads the addressed Git blob rather
 than the working-tree file. A missing revision, path, or checksum match in one
 clone continues through the remaining clones and then to the remote source.
+Remote acquisition follows HTTP redirects. A final successful response becomes
+PDB source only when its bytes satisfy the document checksum; an unsuccessful
+response or transport failure remains a typed acquisition failure, after which
+`AssemblyContextSourceQuery` uses decompiled source when available.
 
 [Local repository source acquisition](design/local-repository-source-acquisition.md)
 owns that adapter's locator interpretation, byte admission, optional-lookup
@@ -38,10 +54,10 @@ but when no valid entry resolves the document, a rejected conformant key that
 matches that document is a mapping failure. An unrelated usable entry in the
 same map does not turn that failure into absence. Once a URL resolves, HTTP 404
 is definitive document absence; transport failures, other unsuccessful HTTP
-responses, rejected origins, oversized responses, checksum mismatches, and
-storage failures remain acquisition failures. This boundary cannot distinguish
-a deliberately concealed private GitHub document that returns HTTP 404 from a
-missing public document; both are absence.
+responses, unauthorized initial destinations, oversized responses, checksum
+mismatches, and storage failures remain acquisition failures. This boundary
+cannot distinguish a deliberately concealed private GitHub document that
+returns HTTP 404 from a missing public document; both are absence.
 
 At the reusable service boundary, callers supply optional fully qualified
 repository paths to member or type acquisition. The desktop CLI exposes those

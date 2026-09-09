@@ -108,6 +108,7 @@ public sealed record BrowserMemberSurface(
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
+    string AnchorTypeFullName,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 
@@ -212,7 +213,6 @@ public sealed record BrowserVocabularySection(
     string Id,
     string Name,
     string Summary,
-    string[] Categories,
     [property: JsonPropertyName("accepted_by")]
     string[] AcceptedBy,
     BrowserVocabularyField[] Fields,
@@ -289,13 +289,19 @@ public sealed record BrowserHomeDemoResolveResult(
 
 /// <summary>
 /// Exact browser selection produced while running one product home demo.
-/// The frontend applies this identity to the package surfaces returned by the
-/// same operation; it does not parse product view or navigation definitions.
+/// <see cref="FocusKind"/> is <c>package</c> or <c>platform</c>;
+/// <see cref="FocusId"/> is respectively the package id or Platform family.
+/// For Platform results, <see cref="FocusAssembly"/> selects the returned surface
+/// whose <see cref="BrowserPackageSurface.DefaultAssemblyId"/> has the same value.
+/// The frontend applies this source-native identity to the surfaces returned
+/// by the same operation; it does not parse product view or navigation definitions.
 /// </summary>
 public sealed record BrowserHomeDemoRunActivation(
-    string FocusPackage,
+    string FocusKind,
+    string FocusId,
     string FocusVersion,
     string FocusFramework,
+    string? FocusAssembly,
     string TypeId,
     string Section,
     string? MemberName,
@@ -305,7 +311,7 @@ public sealed record BrowserHomeDemoRunActivation(
 
 /// <summary>
 /// Browser result of running one product home demo through the normal package
-/// workspace and query path. Unknown ids return <see cref="Found"/> false;
+/// or Platform workspace and query path. Unknown ids return <see cref="Found"/> false;
 /// known-demo failures remain visible exceptions.
 /// </summary>
 public sealed record BrowserHomeDemoRunResult(

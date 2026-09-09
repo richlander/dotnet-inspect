@@ -111,9 +111,11 @@ export interface BrowserHomeDemoResolved {
     readonly view: BrowserHomeDemoView;
 }
 export interface BrowserHomeDemoRunActivation {
-    readonly focusPackage: string;
+    readonly focusKind: string;
+    readonly focusId: string;
     readonly focusVersion: string;
     readonly focusFramework: string;
+    readonly focusAssembly: string | null;
     readonly typeId: string;
     readonly section: string;
     readonly memberName: string | null;
@@ -162,6 +164,7 @@ export interface BrowserMemberSurface {
     readonly stableSelector: string;
     readonly anchorDigest: string;
     readonly canonicalSignature: string;
+    readonly anchorTypeFullName: string;
     readonly graphSelectorKey: string;
     readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
 }
@@ -233,7 +236,6 @@ export interface BrowserVocabularySection {
     readonly id: string;
     readonly name: string;
     readonly summary: string;
-    readonly categories: ReadonlyArray<string>;
     readonly accepted_by: ReadonlyArray<string>;
     readonly fields: ReadonlyArray<BrowserVocabularyField>;
     readonly values: ReadonlyArray<unknown>;

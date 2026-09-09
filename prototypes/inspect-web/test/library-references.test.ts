@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { renderLibraryReferencesSurface, type LibraryReferencesOptions } from "../src/library-references.ts";
-import type { BrowserPackageDependencies } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserAssemblyReferenceList,
+  BrowserPackageDependencies,
+} from "../src/facades/inspect-web-package.d.ts";
+
+const referenceList: BrowserAssemblyReferenceList = {
+  references: [
+    { name: "System.Runtime", version: "10.0.0.0", culture: null, publicKeyToken: "b03f5f7f11d50a3a" },
+    { name: "Example.Other", version: "1.2.3.4", culture: "fr", publicKeyToken: null },
+  ],
+};
 
 const data: BrowserPackageDependencies = {
   package: "Example.Package", version: "1.0.0", activeFramework: "net10.0",
   assembly: "Example.Core",
-  dependencyGroups: [], dependencyGroupError: null, assemblyReferenceError: null,
-  assemblyReferences: [
-    { name: "System.Runtime", version: "10.0.0.0", culture: null, publicKeyToken: "b03f5f7f11d50a3a" },
-    { name: "Example.Other", version: "1.2.3.4", culture: "fr", publicKeyToken: null },
-  ],
+  dependencyGroups: [], dependencyGroupError: null,
+  assemblyReferences: referenceList,
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
 };
 
@@ -37,18 +44,21 @@ test("References uses a single compact heading, direct list, and complete bottom
   assert.match(html, /library-references-scroll"><ul class="dep-list"/);
   assert.match(html, /System\.Runtime[\s\S]*10\.0\.0\.0.*neutral.*pkt b03f5f7f11d50a3a/);
   assert.match(html, /Example\.Other[\s\S]*1\.2\.3\.4.*fr.*unsigned/);
+  assert.ok(html.indexOf("System.Runtime") < html.indexOf("Example.Other"));
   assert.match(html, /<footer[\s\S]*lib\/net10\.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/);
   assert.match(html, /<footer[\s\S]*net10.0 \/ Example.Package@1.0.0/);
   assert.doesNotMatch(html, /type-heading|section-title|<h2>/);
 });
 
 test("a single direct reference uses a singular count", () => {
-  assert.match(render({ data: { ...data, assemblyReferences: data.assemblyReferences.slice(0, 1) } }),
+  assert.match(render({ data: { ...data, assemblyReferences: {
+    references: referenceList.references.slice(0, 1),
+  } } }),
     /1 direct reference<\/p>/);
 });
 
 test("successful zero references retain the frame and explicit empty result", () => {
-  const html = render({ data: { ...data, assemblyReferences: [] } });
+  const html = render({ data: { ...data, assemblyReferences: { references: [] } } });
   assert.match(html, /0 direct references/);
   assert.match(html, /No direct references/);
   assert.match(html, /This assembly declares no direct AssemblyRef rows/);
@@ -79,21 +89,35 @@ test("query failure remains visible instead of exposing retained rows", () => {
 });
 
 test("inspection failure is not a zero-reference result", () => {
-  const html = render({ data: { ...data, assemblyReferenceError: "Cannot decode AssemblyRef." } });
+  const html = render({ data: { ...data, assemblyReferences: "Cannot decode AssemblyRef." } });
   assert.match(html, /Inspection failed/);
   assert.match(html, /Cannot decode AssemblyRef/);
   assert.match(html, /<footer/);
   assert.doesNotMatch(html, /<ul|0 direct references|2 direct references/);
 });
 
+for (const [result, message] of [
+  ["", "No failure details were provided."],
+  [null, "The engine returned no assembly-reference result."],
+] as const) {
+  test(`reference result ${JSON.stringify(result)} is a settled failure, not initial loading`, () => {
+    const html = render({ data: { ...data, assemblyReferences: result } });
+
+    assert.match(html, /Inspection failed/);
+    assert.ok(html.includes(message));
+    assert.match(html, /<footer/);
+    assert.doesNotMatch(html, /declares no direct|loader|Loading|<ul/);
+  });
+}
+
 test("identity, reference fields, and diagnostics use the existing escape boundary", () => {
   const html = render({
     assemblyIdentity: 'Example."Core"',
     assetPath: "lib/Example&Core.dll",
     coordinate: "net10.0 / Example<Package>@1",
-    data: { ...data, assemblyReferences: [
+    data: { ...data, assemblyReferences: { references: [
       { name: "Example<Other>", version: "1&2", culture: "a&b", publicKeyToken: "c&d" },
-    ] },
+    ] } },
   });
   assert.match(html, /title="lib\/Example&amp;Core.dll.*Example.&quot;Core&quot;"/);
   assert.match(html, /Example&lt;Package&gt;/);

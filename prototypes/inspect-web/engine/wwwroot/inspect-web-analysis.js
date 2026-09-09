@@ -34,6 +34,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "AnalysisExports");
+        value = $ownDataProperty(value, "QueryCloneCandidates.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027AnalysisExports.QueryCloneCandidates.976702342\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "AnalysisExports");
         value = $ownDataProperty(value, "QueryMemberFacts.581406856");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027AnalysisExports.QueryMemberFacts.581406856\u0027 is not callable.");
@@ -111,6 +119,11 @@ export function initializeRuntime(runtime) {
 }
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
+}
+export async function queryCloneCandidates(requestJson) {
+    const $result = await $requireManagedExports()["AnalysisExports"]["QueryCloneCandidates.976702342"](requestJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
 }
 export async function queryMemberFacts(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected) {
     const $result = await $requireManagedExports()["AnalysisExports"]["QueryMemberFacts.581406856"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected);

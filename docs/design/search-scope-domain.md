@@ -62,6 +62,12 @@ construct or inspect a declaration. The source-production changes in #5954 and
 the catalog hints/priorities in #6028 remain separate. This slice introduces no
 universal realization protocol.
 
+The focused
+[Platform Library Population Declaration](platform-library-population-declaration.md)
+extends this component's resource-free construction role for Workspace
+ecosystem registration. It is separate from `SearchPlatformFramework` and does
+not change search defaulting, normalization, or .NET Standard participation.
+
 ## Declaration contract
 
 A declaration is an immutable ordered snapshot of a closed set of selectors:

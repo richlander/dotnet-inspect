@@ -227,22 +227,17 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version,
         IPackageSourceClient source,
-        TimeSpan operationTimeout) =>
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken,
+        BrowserManagedEpochWorkSource? epochWork) =>
         AcquireAsync(
             packageId,
             version,
             source,
             ConfiguredSourceIdentityFor(source),
-            operationTimeout);
-
-    internal static Task<BrowserPackage> AcquireAsync(
-        string packageId,
-        string? version,
-        IPackageSourceClient source,
-        PackageSourceIdentity configuredSourceIdentity,
-        TimeSpan operationTimeout) =>
-        AcquireAsync(packageId, version, source, configuredSourceIdentity, operationTimeout,
-            CancellationToken.None, epochWork: null);
+            operationTimeout,
+            cancellationToken,
+            epochWork);
 
     internal static Task<BrowserPackage> AcquireAsync(
         string packageId,
@@ -444,6 +439,71 @@ internal static class BrowserPackageWorkspace
             package.CreateRootBinding(targetFramework));
     }
 
+    internal static async Task<BrowserPackageCoordinate> ReacquireAsync(
+        PackageRootReacquisitionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.SelectionRuntimeIdentifier is not null)
+        {
+            throw new NotSupportedException(
+                "Browser Workspace navigation does not yet support runtime-specific package Roots.");
+        }
+
+        // The store the acquisition writes through is also the store that names
+        // the cache entry, so the reopened package stays associated with the
+        // source client that produced it (#6132) instead of a default namespace.
+        BrowserSessionPackageStore store = Store;
+        PackageRootPayloadResult payload =
+            await AcquirePackageRootPayloadAsync(
+                PackageSourceCoordinate.Create(
+                    request.Coordinate.PackageId,
+                    request.Coordinate.Version),
+                request.Coordinate.Producer,
+                store,
+                PackageLimits,
+                cancellationToken,
+                PackageTransferPolicy).ConfigureAwait(false);
+        if (payload is PackageRootPayloadResult.Unavailable unavailable)
+        {
+            throw new InvalidOperationException(
+                $"Exact package Root reopening failed ({unavailable.FailureKind}): "
+                + unavailable.Message);
+        }
+
+        var available = (PackageRootPayloadResult.Available)payload;
+        PackageRootRebindingOutcome rebound =
+            PackageRootAcquisition.BindReacquired(
+                request,
+                available.Payload);
+        if (rebound is PackageRootRebindingOutcome.Failed failed)
+        {
+            throw new InvalidOperationException(
+                $"Exact package Root reopening failed ({failed.Kind}): {failed.Message}");
+        }
+        PackageRootBinding binding =
+            ((PackageRootRebindingOutcome.Bound)rebound).Binding;
+
+        string key = store.PackageKey(
+            available.Payload.Coordinate.PackageId,
+            available.Payload.Coordinate.Version);
+        if (!Cache.TryGetValue(key, out CacheEntry? cached)
+            || !cached.ProducerKey.Equals(available.Payload.ProducerKey, StringComparison.Ordinal)
+            || !ReferenceEquals(cached.Content.GenerationIdentity, available.Payload.Content.GenerationIdentity))
+        {
+            throw new InvalidOperationException(
+                "Exact Root reacquisition did not publish the acquired generation in the Browser cache.");
+        }
+
+        Cache[key] = cached with { LastAccess = ++_clock };
+        return new BrowserPackageCoordinate(
+            new BrowserPackage(
+                request.Coordinate.PackageId,
+                available.Payload,
+                cached.Bytes,
+                store),
+            binding);
+    }
     internal static Task<BrowserPackageCoordinate> ResolveAsync(
         string packageId,
         string? version,
@@ -471,7 +531,9 @@ internal static class BrowserPackageWorkspace
             version,
             source,
             configuredSourceIdentity,
-            operationTimeout);
+            operationTimeout,
+            CancellationToken.None,
+            epochWork: null);
         return new BrowserPackageCoordinate(
             package,
             package.CreateRootBinding(targetFramework));
@@ -1321,6 +1383,71 @@ internal static class BrowserPackageWorkspace
             PackageSourcePayloadResult.Failed failed =>
                 new PackageQueryContentResult.Unavailable(
                     failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
+    }
+
+    internal static ValueTask<PackageRootPayloadResult>
+        AcquirePackageAssemblyQueryPayloadAsync(
+            PackageSourceCoordinate coordinate,
+            string? requiredProducerKey,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken) =>
+        AcquirePackageRootPayloadAsync(
+            coordinate,
+            requiredProducerKey,
+            new InMemoryPackageStore(),
+            limits,
+            cancellationToken);
+
+    static async ValueTask<PackageRootPayloadResult>
+        AcquirePackageRootPayloadAsync(
+            PackageSourceCoordinate coordinate,
+            string? requiredProducerKey,
+            IPackageStore store,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken,
+            IPackagePayloadTransferPolicy? transferPolicy = null)
+    {
+        if (requiredProducerKey is not null
+            && !NuGetCache.GetSourceKey(
+                    PackageSource.NuGetOrg.Url)
+                .Equals(
+                requiredProducerKey,
+                StringComparison.Ordinal))
+        {
+            return new PackageRootPayloadResult.Unavailable(
+                Gallery.Source.Producer.Display,
+                "The producer required by the exact package request is not authorized by this Browser host.",
+                PackageRootAcquisitionFailureKind.ProducerNotAuthorized);
+        }
+
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                Gallery,
+                ConfiguredSourceIdentityFor(Gallery),
+                coordinate,
+                store,
+                limits: limits,
+                cancellationToken: cancellationToken,
+                transferPolicy: transferPolicy).ConfigureAwait(false);
+        return result switch
+        {
+            PackageSourcePayloadResult.Acquired acquired =>
+                new PackageRootPayloadResult.Available(
+                    acquired.Payload),
+            PackageSourcePayloadResult.Unavailable unavailable =>
+                new PackageRootPayloadResult.Unavailable(
+                    Gallery.Source.Producer.Display,
+                    unavailable.Message,
+                    PackageRootAcquisitionFailureKind.PackageUnavailable),
+            PackageSourcePayloadResult.Failed failed =>
+                new PackageRootPayloadResult.Unavailable(
+                    failed.Failure.Source.Producer.Display,
+                    failed.Failure.Message,
+                    PackageRootAcquisitionFailureKind.PackageUnavailable,
+                    failed.Failure.Kind),
             _ => throw new InvalidOperationException(
                 "Package payload acquisition returned an unknown outcome."),
         };
@@ -2650,6 +2777,7 @@ internal sealed class BrowserPackage
 {
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
+    readonly AcquiredPackagePayload? _resolvedPayload;
     readonly Lazy<BrowserPackageIconPayload?> _icon;
 
     public BrowserPackage(
@@ -2711,6 +2839,31 @@ internal sealed class BrowserPackage
         _icon = new(ProjectIcon);
     }
 
+    internal BrowserPackage(
+        AcquiredPackagePayload acquiredPayload,
+        byte[] retainedBytes,
+        BrowserPackageWorkspace.BrowserSessionPackageStore store)
+    {
+        ArgumentNullException.ThrowIfNull(acquiredPayload);
+        ArgumentNullException.ThrowIfNull(retainedBytes);
+        ArgumentNullException.ThrowIfNull(store);
+        if (acquiredPayload.Content is not InMemoryPackageContent content)
+        {
+            throw new ArgumentException(
+                "The Browser package store returned non-memory package content.",
+                nameof(acquiredPayload));
+        }
+
+        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        PackageId = acquiredPayload.Coordinate.PackageId;
+        Version = acquiredPayload.Coordinate.Version;
+        CacheKey = store.PackageKey(PackageId, Version);
+        RetainedBytes = retainedBytes;
+        Content = content;
+        _resolvedPayload = acquiredPayload;
+        _icon = new(ProjectIcon);
+    }
+
     public string PackageId { get; }
 
     public string Version { get; }
@@ -2724,12 +2877,13 @@ internal sealed class BrowserPackage
     public BrowserPackageIconPayload? Icon => _icon.Value;
 
     internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
-        PackageRootBinding.CreateFromSource(
-            _acquiredPayload
-            ?? throw new InvalidOperationException(
-                "Only an acquisition-issued Browser package can create a bound package Root."),
-            targetFramework,
-            displayPackageId: PackageId);
+        _acquiredPayload is not null
+            ? PackageRootBinding.CreateFromSource(
+                _acquiredPayload, targetFramework, displayPackageId: PackageId)
+            : _resolvedPayload is not null
+                ? PackageRootBinding.CreateFromResolved(_resolvedPayload, targetFramework)
+                : throw new InvalidOperationException(
+                    "Only an acquisition-issued Browser package can create a bound package Root.");
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any

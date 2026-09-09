@@ -6,9 +6,42 @@ import {
   engineWorkerText,
 } from "./engine-worker-contract.ts";
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
+import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
+import {
+  registerEngineWorkerTypeSourceOperation,
+  type EngineWorkerTypeSourceFacade,
+} from "./engine-worker-source.ts";
+import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
+registerEngineWorkerCpuOperation(
+  operations,
+  () => import("/inspect-web-host.js"),
+);
+registerEngineWorkerStartupOperations(operations, {
+  async buildIdentity() {
+    return (await import("/inspect-web-host.js")).buildIdentity();
+  },
+  async listVocabulary() {
+    return (await import("/inspect-web-catalog.js")).listVocabulary();
+  },
+  async listHomeDemos() {
+    return (await import("/inspect-web-catalog.js")).listHomeDemos();
+  },
+  async listPackageQueryFacets() {
+    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  },
+  async listGalleryDiscoveryCatalog() {
+    return (await import("/inspect-web-package.js")).listGalleryDiscoveryCatalog();
+  },
+});
+let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
+registerEngineWorkerTypeSourceOperation(operations, () => {
+  if (sourceFacade === undefined)
+    throw new Error("Type Source facade is unavailable before Worker readiness.");
+  return sourceFacade;
+});
 operations.register({
   kind: engineWorkerCanaryKind,
   allowance: { kind: "unbounded" },
@@ -34,8 +67,12 @@ const bootstrap = createEngineWorkerBootstrap(
     fail: detail => realm.fail(detail),
   },
 );
+const bootstrapWorker = async (value: string): Promise<void> => {
+  await bootstrap.bootstrap(value);
+  sourceFacade = await import("/inspect-web-source.js");
+};
 const realm = new WorkerRuntimeRealm({
-  bootstrap: { decoder: engineWorkerText, bootstrap: bootstrap.bootstrap },
+  bootstrap: { decoder: engineWorkerText, bootstrap: bootstrapWorker },
   diagnostic: engineWorkerDiagnostic,
   unknownOperationRejection: kind => ({
     error: `Unknown Worker operation: ${kind}`,

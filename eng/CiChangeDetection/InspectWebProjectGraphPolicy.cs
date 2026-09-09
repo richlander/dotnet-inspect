@@ -18,7 +18,7 @@ internal static class InspectWebProjectGraphPolicy
     [
         BrowserEngineProject,
         "src/ts-jsexport/ts-jsexport.csproj",
-        "tests/DotnetInspector.Artifacts.Local.PlatformProbe/LocalPathAdmissionBrowserProbe.csproj",
+        "tests/Inspector.Artifacts.Local.PlatformProbe/LocalPathAdmissionBrowserProbe.csproj",
         "tests/ILInspector.MetadataPrimitives.PlatformProbe/MethodSemanticsBrowserProbe.csproj",
     ];
 

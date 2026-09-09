@@ -313,7 +313,7 @@ internal static class SourceEnricher
 
         logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allSourcesToFetch.Count} unique source documents ({stopwatch.ElapsedMilliseconds}ms)");
 
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var fetchList = allSourcesToFetch
             .OrderBy(entry => entry.Key, StringComparer.Ordinal)
             .Select(entry => entry.Value)
@@ -325,7 +325,7 @@ internal static class SourceEnricher
             new ParallelOptions { MaxDegreeOfParallelism = 16 },
             async (sourceFetch, ct) =>
             {
-                var result = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+                var result = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
                     fetcher,
                     sourceFetch.FilePath,
                     sourceFetch.Url,
@@ -835,7 +835,7 @@ internal static class SourceEnricher
             return;
         }
 
-        var fetcher = new SourceFetcher(
+        var fetcher = new SourceFetch(
             DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var parser = new DocCommentParser();
         List<(string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sourceFilesToFetch =
@@ -865,7 +865,7 @@ internal static class SourceEnricher
         foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
         {
             logger.Log("Fetching SourceLink source.");
-            var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+            var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
                 fetcher,
                 filePath,
                 url,

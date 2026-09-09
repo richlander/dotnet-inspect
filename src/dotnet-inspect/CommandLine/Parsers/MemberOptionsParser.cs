@@ -166,6 +166,7 @@ public static class MemberOptionsParser
             typeScoped: false,
             typeName: null,
             out BodyKindQueryOptions bodyKindQuery,
+            out _,
             out _);
         if (error is not null)
             return true;
@@ -296,6 +297,7 @@ public static class MemberOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> UnsafeOption,
         Option<int?> IndexOption,
+        Option<string?> ShareOption,
         Option<string[]> KindOption,
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
@@ -568,19 +570,33 @@ public static class MemberOptionsParser
                 typeScoped: false,
                 typeName: null,
                 out BodyKindQueryOptions bodyKindQuery,
-                out PerformanceTriageOptions performanceTriage);
+                out PerformanceTriageOptions performanceTriage,
+                out CloneCandidateQueryOptions cloneCandidateQuery);
         if (analysisError is not null)
             return new VersionError(analysisError.Value);
         // Only surface Performance Triage from row filters when the user did not select sections
         // with -S; an explicit selection must not silently gain a second section.
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
+        if (cloneCandidateQuery.HasPredicates
+            && !opts.IsDiscoveryMode(parseResult)
+            && !hasExplicitSelect)
+        {
+            select = [.. select ?? [], SectionNames.CloneCandidates];
+        }
 
         OptionError? mermaidError =
             GetMermaidOptionError(parseResult, opts);
         if (mermaidError is not null)
             return new VersionError(mermaidError.Value);
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
+        MemberShareFormat? shareFormat =
+            parseResult.GetValue(args.ShareOption)?.ToLowerInvariant() switch
+            {
+                "packet" => MemberShareFormat.Packet,
+                "url" => MemberShareFormat.Url,
+                _ => null,
+            };
 
         var outputFormat = opts.ResolveFormat(parseResult);
         var options = new MemberOptions
@@ -631,6 +647,11 @@ public static class MemberOptionsParser
             OverloadIndex = explicitIndex ?? shorthandIndex,
             OverloadIndexExplicitlySet =
                 parseResult.GetResult(args.IndexOption) is { Implicit: false },
+            LegacyUrlModeExplicitlySet =
+                parseResult.GetResult(opts.RawUrls) is { Implicit: false }
+                || parseResult.GetResult(opts.BrowsableUrls)
+                    is { Implicit: false },
+            ShareFormat = shareFormat,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
@@ -651,6 +672,7 @@ public static class MemberOptionsParser
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
+            CloneCandidateQuery = cloneCandidateQuery,
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

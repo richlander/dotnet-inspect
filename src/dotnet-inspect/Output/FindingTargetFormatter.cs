@@ -1,5 +1,5 @@
 using ILInspector.Analysis;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace DotnetInspector.Output;
 

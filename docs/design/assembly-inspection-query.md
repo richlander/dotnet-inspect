@@ -408,7 +408,7 @@ public enum ArtifactAssemblyQueryFailureKind
 
 These declarations describe the value shape and typed outcomes; they do not
 assign the artifact owner's callback API or authorization implementation to
-Metadata. `DotnetInspector.Artifacts` owns the two `ref struct` views and their
+Metadata. `Inspector.Artifacts` owns the two `ref struct` views and their
 construction, implemented by #5906. Their distinct types and scoped callbacks
 provide the phase distinction and non-retention boundary.
 

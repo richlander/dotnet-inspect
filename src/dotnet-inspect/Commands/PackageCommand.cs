@@ -16,7 +16,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using InertText;
-using ILInspector.Findings;
+using Inspector.Findings;
 using Markout;
 using System.Buffers;
 using System.Globalization;
@@ -2676,6 +2676,17 @@ public class PackageCommand
 
     private static bool ValidateMultiPackageMode(InspectionOptions options)
     {
+        List<string> conflicts = GetMultiPackageConflicts(options);
+        if (conflicts.Count == 0)
+            return true;
+
+        CommandError.Write($"Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
+        CommandError.WriteLine("Use id@version for per-package version pins.");
+        return false;
+    }
+
+    internal static List<string> GetMultiPackageConflicts(InspectionOptions options)
+    {
         List<string> conflicts = [];
         if (options.ExplicitVersion != null) conflicts.Add("--version");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
@@ -2691,12 +2702,7 @@ public class PackageCommand
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
 
-        if (conflicts.Count == 0)
-            return true;
-
-        CommandError.Write($"Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
-        CommandError.WriteLine("Use id@version for per-package version pins.");
-        return false;
+        return conflicts;
     }
 
     private static bool ValidatePackageContentMode(InspectionOptions options)

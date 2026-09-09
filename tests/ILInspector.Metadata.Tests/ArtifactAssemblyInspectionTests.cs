@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 
 namespace ILInspector.Metadata.Tests;
 

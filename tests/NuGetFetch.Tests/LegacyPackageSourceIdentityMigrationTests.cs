@@ -49,7 +49,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 ImplicitReferences: 0),
             new(
                 "#4797",
-                "src/DotnetInspector.Services.Tests/PackagePayloadAcquisitionTests.cs",
+                "tests/DotnetInspector.Services.Tests/PackagePayloadAcquisitionTests.cs",
                 ExplicitReferences: 3,
                 ImplicitReferences: 0),
             new(

@@ -7,6 +7,17 @@ public sealed record WorkspaceOptions
 {
     public string[] Packages { get; init; } = [];
     public string? Tfm { get; init; }
+
+    /// <summary>
+    /// An owner-issued package Root reopening token, opened exactly as issued.
+    /// </summary>
+    /// <remarks>
+    /// The token is opaque: only the Artifact owner's decoder reads it, and
+    /// this command never reconstructs an opening target from a package id,
+    /// version, asset path, or any other display field.
+    /// </remarks>
+    public string? RootRequest { get; init; }
+
     public bool IncludePrerelease { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }

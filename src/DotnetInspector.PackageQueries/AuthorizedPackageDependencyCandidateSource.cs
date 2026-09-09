@@ -16,6 +16,12 @@ public sealed class AuthorizedPackageDependencyCandidateSource
         IPackageSourceClient> _getClient;
     private readonly PackageAcquisitionCandidateIssuer _issuer = new();
 
+    internal PackageAcquisitionCandidateIssuer CandidateIssuer => _issuer;
+
+    internal IPackageSourceClient GetClient(
+        ConfiguredPackageAuthority authority) =>
+        _getClient(authority);
+
     public AuthorizedPackageDependencyCandidateSource(
         IPackageSourceAuthorization authorization,
         Func<ConfiguredPackageAuthority, IPackageSourceClient> getClient)

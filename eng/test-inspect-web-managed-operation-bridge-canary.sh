@@ -11,6 +11,23 @@ dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
 
+mode=comprehensive
+case "${1:-}" in
+  "")
+    ;;
+  --fast)
+    if [[ "$#" != 1 ]]; then
+      echo "Usage: $0 [--fast]" >&2
+      exit 1
+    fi
+    mode=fast
+    ;;
+  *)
+    echo "Usage: $0 [--fast]" >&2
+    exit 1
+    ;;
+esac
+
 expect_failure() {
   local name=$1
   local expected=$2
@@ -33,19 +50,21 @@ DOTNET="$dotnet" NODE="$node" TSC="$tsc" \
   "$repo_root/eng/generate-inspect-web-managed-operation-bridge-canary.sh" \
   --check
 
-mkdir -p "$scratch/stale-facade"
-cp "$canary/facades/bridge.ts" "$scratch/stale-facade/"
-printf '\n// stale\n' >> "$scratch/stale-facade/bridge.ts"
-expect_failure \
-  stale-bridge-facade \
-  "bridge.ts is stale" \
-  env \
-  CANARY_FACADE_OUTPUT_DIR="$scratch/stale-facade" \
-  DOTNET="$dotnet" \
-  NODE="$node" \
-  TSC="$tsc" \
-  "$repo_root/eng/generate-inspect-web-managed-operation-bridge-canary.sh" \
-  --check
+if [[ "$mode" == comprehensive ]]; then
+  mkdir -p "$scratch/stale-facade"
+  cp "$canary/facades/bridge.ts" "$scratch/stale-facade/"
+  printf '\n// stale\n' >> "$scratch/stale-facade/bridge.ts"
+  expect_failure \
+    stale-bridge-facade \
+    "bridge.ts is stale" \
+    env \
+    CANARY_FACADE_OUTPUT_DIR="$scratch/stale-facade" \
+    DOTNET="$dotnet" \
+    NODE="$node" \
+    TSC="$tsc" \
+    "$repo_root/eng/generate-inspect-web-managed-operation-bridge-canary.sh" \
+    --check
+fi
 
 runtime_pack_directory=$(
   "$dotnet" msbuild \
@@ -154,7 +173,7 @@ process.stdout.write(matches[0].Identity);
     --output "$output" \
     -p:CanaryModulesDir="$scratch/modules" \
     -p:UseMonoRuntime="$use_mono_runtime" \
-    "${runtime_properties[@]}" \
+    ${runtime_properties[@]+"${runtime_properties[@]}"} \
     --nologo
   published_site="$output/wwwroot"
   dotnet_module=$(
@@ -185,6 +204,11 @@ process.stdout.write(matches[0].Identity);
 published_site=
 publish_canary mono true
 mono_site=$published_site
+if [[ "$mode" == fast ]]; then
+  echo "Managed-operation bridge fast Browser/Wasm gate passed."
+  exit 0
+fi
+
 publish_canary coreclr false
 
 expect_failure \

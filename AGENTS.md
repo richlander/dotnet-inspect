@@ -314,6 +314,10 @@ selection (`command -v dotnet`, `dotnet --version`) before installing one or
 changing `PATH`. If `dotnet` is centrally installed, stop and ask before
 replacing or shadowing it. Follow `README.md#repository-development-sdk`.
 
+The primary dependencies are the .NET SDK, `Microsoft.CodeAnalysis.CSharp`,
+and Markout. For major dependency updates, check all three; update the .NET SDK
+and `Microsoft.CodeAnalysis.CSharp` together.
+
 Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
@@ -329,15 +333,15 @@ threshold, placement convention, and existing consumers.
 | Area | Command |
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
-| Artifact contracts | `dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release` |
+| Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
-| Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
-| Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
+| Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
+| Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
-| Inspection queries | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
-| Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
+| Research and additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
+| Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
+| Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
 
