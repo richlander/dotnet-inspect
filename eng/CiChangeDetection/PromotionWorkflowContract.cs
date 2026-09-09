@@ -599,8 +599,7 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(setup, "with", "production setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
             },
             "production setup step.with");
 
@@ -793,7 +792,7 @@ internal static class PromotionWorkflowContract
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_SDK_VERSION"] = "11.0.100-preview.7.26381.103",
+                ["DOTNET_SDK_VERSION"] = "11.0.100-rc.1.26425.128",
             },
             "staging workflow.env");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
@@ -2193,8 +2192,7 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(setup, "with", "resolution setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
             },
             "resolution setup step.with");
 

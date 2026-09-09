@@ -30,6 +30,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Space Architecture](inspection-space.md) | Target core workspace, query, acquisition, join, cache, and safety architecture organized around Rich, Fast, and Safe. |
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
+| [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
@@ -116,7 +117,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
-| [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID, explicit-prefix, and explicit Gallery input selection for shared Query and its hosts. |
+| [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection for Inspect Web, plus retained explicit Gallery input for other shared Query consumers. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
 | [NuGet Feed Authentication](design/nuget-authentication.md) | How feeds are authenticated: `nuget.config` credentials, credential provider discovery and the 401-driven plugin protocol, source-scoped plugin credential isolation, supported credential forms, and hermetic/live test tiers. See [Private NuGet Feeds](private-feeds.md) for setup instructions. |
 | [Local Package Source Identity](design/local-package-source-identity.md) | Canonical config- and command-relative path identity shared by local source consumers. |

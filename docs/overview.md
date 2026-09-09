@@ -6,6 +6,12 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The [library family boundaries](design/library-family-boundaries.md) define
+what `Inspector`, `ILInspector`, `DotnetInspector`, independent domain roots,
+and host namespaces mean. Those subject families are independent from
+dependency altitude and from component roles such as Fetch, Service, and
+House.
+
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
@@ -113,12 +119,19 @@ substrates, and inspection producers that will extend that space.
   matching uses the original decoded text, never its contained display form.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
-- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.Findings/` (target `Inspector.Findings`) contains the
+  domain-free observation, inspection, matching, transition, comparison,
+  complete analysis-diff, whole-census correlation, and exact-identity
+  correlation contracts shared by product producers. The `timeline` command
+  composes Metadata and Analysis producers over those same correlation
+  contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
-- `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
+- `src/ILInspector.Text/` (target `Inspector.Text`) provides the reusable
+  `TextFindings` API for exact, ordered line inspection and generic text
+  comparison on the shared Finding spine, plus deterministic LF construction.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its
@@ -163,10 +176,11 @@ substrates, and inspection producers that will extend that space.
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
   package assemblies.
-- `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
-  floor for generation-scoped artifact identity, typed provenance and
-  diagnostics, acquisition outcomes, and owner-issued guarded access.
-- `src/DotnetInspector.Services/` contains shared services such as assembly-set
+- `src/DotnetInspector.Artifacts/` (target `Inspector.Artifacts`) is the
+  package- and Metadata-free contract floor for generation-scoped artifact
+  identity, typed provenance and diagnostics, acquisition outcomes, and
+  owner-issued guarded access.
+- `src/DotnetInspector.Services/` is a transitional assembly containing shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
   and nuspec parsing. `AssemblyDependencyResolver` owns the
@@ -183,10 +197,16 @@ substrates, and inspection producers that will extend that space.
   acquisition](design/local-repository-source-acquisition.md): when a
   caller-supplied Git clone may satisfy one PDB document request with verified
   bytes, or decline so acquisition can continue.
-- `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
-  Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
-  `AsyncCache`), the single `HttpClientFactory` seam with offline and
-  network-policy enforcement, network telemetry, and hardened XML/JSON readers.
+  Its `SourceFetch` implementation targets an independent `SourceFetch` root
+  alongside `NuGetFetch`: it owns bounded host-authorized source-byte
+  transport, redirect and origin enforcement, content-store integration, and
+  typed transport outcomes. `PdbSourceHouse` retains local, repository, and
+  remote ordering, PDB checksum verification, decoding, and settled
+  PDB-source outcomes.
+- `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
+  Packages, Services, and the CLI. Its cache, networking, untrusted-document,
+  CLI telemetry, and single-consumer helpers move to subject owners under
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
   and Decompiler: its registry orders fact producers, joins R1 analysis
@@ -357,6 +377,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Library family boundaries](design/library-family-boundaries.md): subject
+  families for shared inspection substrate, compiled-program inspection,
+  ecosystem composition, independent domains, and product hosts.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
   section lenses and caller-owned execution contexts.

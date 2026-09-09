@@ -13,6 +13,7 @@ if [[ $# -gt 1 || ! -f "$site/index.html" ]]; then
 fi
 
 export INSPECT_WEB_WORKER_SITE="$site"
+export INSPECT_WEB_WORKER_SOURCE_DLL="$repo_root/artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll"
 export INSPECT_WEB_PACKAGE_ADOPTION_SITE="$site"
 export INSPECT_WEB_SOURCE_DIFF_SITE="$site"
 export INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD=1
