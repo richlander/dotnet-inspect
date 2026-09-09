@@ -108,15 +108,44 @@ internal static class DependencyGraphService
 
             var (refs, _) =
                 AssemblyInspector.ExtractReferenceIdentitiesAndCompany(assemblyPath);
-            var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+            ManagedMetadataIdentity? rootIdentity =
+                AssemblyInspector.ExtractManagedMetadataIdentity(assemblyPath);
+            var assemblyName = rootIdentity switch
+            {
+                ManagedMetadataIdentity.Assembly assembly =>
+                    assembly.Identity.Name,
+                ManagedMetadataIdentity.Module module =>
+                    module.Name,
+                _ => Path.GetFileNameWithoutExtension(assemblyPath),
+            };
 
             if (refs.Count == 0)
-                return new LibraryDependencyGraphResult.Empty(assemblyName);
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { assemblyName };
-            var refNodes = LibraryMetadataService.BuildTransitiveReferences(
-                refs, assemblyPath, visited, logger, deduplicate: true);
+            {
+                if (rootIdentity is null)
+                {
+                    return new LibraryDependencyGraphResult.NoMetadata(
+                        assemblyName);
+                }
 
-            return new LibraryDependencyGraphResult.Graph(assemblyName, refNodes);
+                return new LibraryDependencyGraphResult.Empty(
+                    assemblyName,
+                    rootIdentity);
+            }
+            if (rootIdentity is null)
+            {
+                throw new InvalidOperationException(
+                    "An image without managed metadata cannot declare assembly references.");
+            }
+            LibraryMetadataService.AssemblyReferenceGraph referenceGraph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    refs,
+                    assemblyPath,
+                    rootIdentity,
+                    logger);
+
+            return new LibraryDependencyGraphResult.Graph(
+                assemblyName,
+                referenceGraph);
         }
         finally
         {
@@ -124,7 +153,8 @@ internal static class DependencyGraphService
         }
     }
 
-    public static async Task<PackageDependencyGraphResult> BuildPackageDependencyTreeAsync(
+    public static Task<PackageDependencyGraphResult>
+        BuildPackageDependencyTreeAsync(
         HttpClient httpClient,
         string packageRef,
         string? requestedTfm,
@@ -132,6 +162,45 @@ internal static class DependencyGraphService
         VerboseLogger logger,
         bool includePrerelease = false,
         bool allowCompatibleFallbackForRequestedTfm = true)
+        => BuildPackageDependenciesAsync(
+            httpClient,
+            packageRef,
+            requestedTfm,
+            sourceOptions,
+            logger,
+            includePrerelease,
+            allowCompatibleFallbackForRequestedTfm,
+            buildGraph: false);
+
+    public static Task<PackageDependencyGraphResult>
+        BuildPackageDependencyGraphAsync(
+        HttpClient httpClient,
+        string packageRef,
+        string? requestedTfm,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        bool includePrerelease = false,
+        bool allowCompatibleFallbackForRequestedTfm = true)
+        => BuildPackageDependenciesAsync(
+            httpClient,
+            packageRef,
+            requestedTfm,
+            sourceOptions,
+            logger,
+            includePrerelease,
+            allowCompatibleFallbackForRequestedTfm,
+            buildGraph: true);
+
+    private static async Task<PackageDependencyGraphResult>
+        BuildPackageDependenciesAsync(
+        HttpClient httpClient,
+        string packageRef,
+        string? requestedTfm,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        bool includePrerelease,
+        bool allowCompatibleFallbackForRequestedTfm,
+        bool buildGraph)
     {
         PackageNuspecResolution resolution =
             await ResolvePackageNuspecAsync(
@@ -190,20 +259,46 @@ internal static class DependencyGraphService
         }
 
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            httpClient,
-            group.Dependencies,
-            tfm,
-            globalSeen,
-            logger.Log,
-            sourceOptions);
+        PackageDependencyGraph dependencyGraph;
+        if (buildGraph)
+        {
+            dependencyGraph =
+                await DependencyResolutionService
+                    .ResolveDependencyGraphAsync(
+                        httpClient,
+                        new PackageDependencyIdentity(
+                            resolution.ManifestPackageName,
+                            resolution.ManifestVersion),
+                        nuspec.Authors,
+                        group.Dependencies,
+                        tfm,
+                        globalSeen,
+                        logger.Log,
+                        sourceOptions);
+        }
+        else
+        {
+            List<DependencyNode> tree =
+                await DependencyResolutionService
+                    .ResolveDependencyTreeAsync(
+                        httpClient,
+                        group.Dependencies,
+                        tfm,
+                        globalSeen,
+                        logger.Log,
+                        sourceOptions);
+            dependencyGraph = new PackageDependencyGraph(
+                Nodes: [],
+                Relationships: [],
+                tree);
+        }
 
         return new PackageDependencyGraphResult.Graph(
             resolution.PackageName,
             resolution.Version,
             resolution.ManifestPackageName,
             resolution.ManifestVersion,
-            depNodes);
+            dependencyGraph);
     }
 
     private static async Task<PackageNuspecResolution> ResolvePackageNuspecAsync(
@@ -598,8 +693,21 @@ internal static class DependencyGraphService
 
 internal abstract record LibraryDependencyGraphResult
 {
-    public sealed record Graph(string AssemblyName, List<AssemblyReferenceNode> References) : LibraryDependencyGraphResult;
-    public sealed record Empty(string AssemblyName) : LibraryDependencyGraphResult;
+    public sealed record Graph(
+        string AssemblyName,
+        LibraryMetadataService.AssemblyReferenceGraph ReferenceGraph) :
+        LibraryDependencyGraphResult
+    {
+        public IReadOnlyList<AssemblyReferenceNode> References =>
+            ReferenceGraph.Nodes;
+    }
+
+    public sealed record Empty(
+        string AssemblyName,
+        ManagedMetadataIdentity Identity) : LibraryDependencyGraphResult;
+
+    public sealed record NoMetadata(
+        string AssemblyName) : LibraryDependencyGraphResult;
     /// <summary>
     /// A resolution failure whose message embeds the caller's subject.
     /// </summary>
@@ -633,9 +741,12 @@ internal abstract record PackageDependencyGraphResult
         string Version,
         string ManifestPackageName,
         string ManifestVersion,
-        List<DependencyNode> Dependencies) : PackageDependencyGraphResult
+        PackageDependencyGraph DependencyGraph) : PackageDependencyGraphResult
     {
         public string Title => $"{PackageName} ({Version})";
+
+        public List<DependencyNode> Dependencies =>
+            DependencyGraph.Tree;
     }
 
     public sealed record Empty(

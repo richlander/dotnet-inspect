@@ -221,6 +221,58 @@ public static class PackageAssetSelector
     const string SatelliteSuffix = ".resources.dll";
 
     /// <summary>
+    /// Selects DLL candidates in an already pinned platform implementation pack,
+    /// including managed images outside conventional lib folders in one exact RID.
+    /// Framework-qualified lib folders retain their ordinary selection semantics.
+    /// Ordinary package compile/runtime asset selection continues to use <see cref="Select"/>.
+    /// Metadata admission, not the folder name, determines which candidates are managed.
+    /// </summary>
+    public static PackageAssetSelection SelectPlatformPack(
+        IPackageContent content,
+        string targetFramework,
+        string runtimeIdentifier)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (IsBlankOrPadded(targetFramework) || IsBlankOrPadded(runtimeIdentifier))
+            return new PackageAssetSelection.Invalid(
+                "A platform pack selection requires an explicit framework and runtime identifier.");
+
+        PackageAssetSelection conventional = Select(content, targetFramework, runtimeIdentifier);
+        if (conventional is PackageAssetSelection.Invalid or PackageAssetSelection.Ambiguous)
+            return conventional;
+        var candidates = new List<CandidateEntry>();
+        foreach (string path in content.EnumerateEntries())
+        {
+            if (path is null || !path.EndsWith(AssemblyExtension, StringComparison.OrdinalIgnoreCase))
+                continue;
+            string[] segments = path.Split('/');
+            if (segments.Length < 3
+                || !segments[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)
+                || !segments[1].Equals(runtimeIdentifier, StringComparison.Ordinal))
+                continue;
+            if (segments[2].Equals("lib", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!IsSafeEntryPath(path))
+                return new PackageAssetSelection.Invalid(
+                    "A candidate assembly entry in the platform pack has an unusable path.");
+            candidates.Add(new(path, targetFramework, string.Join('/', segments[2..]),
+                segments[^1], runtimeIdentifier));
+        }
+        var paths = candidates.Select(candidate => candidate.RelativePath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        IEnumerable<PackageAssetEntry> libraries = conventional is PackageAssetSelection.Selected selected
+            ? selected.Universe.Assets : [];
+        PackageAssetEntry[] assets = [.. libraries.Concat(candidates
+            .Where(candidate => !IsSatelliteAsset(candidate, paths))
+            .Select(candidate => new PackageAssetEntry(
+                candidate.EntryPath, candidate.FileName, runtimeIdentifier)))
+            .OrderBy(asset => asset.EntryPath, StringComparer.Ordinal)];
+        return assets.Length == 0
+            ? new PackageAssetSelection.NoMatch("The platform pack carries no DLL candidates for the selected RID.")
+            : new PackageAssetSelection.Selected(new(targetFramework, runtimeIdentifier, assets));
+    }
+
+    /// <summary>
     /// Selects the effective asset universe for
     /// <paramref name="targetFramework"/> and the optional
     /// <paramref name="runtimeIdentifier"/>.

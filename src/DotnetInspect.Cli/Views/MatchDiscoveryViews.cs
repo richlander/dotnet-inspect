@@ -22,14 +22,8 @@ internal sealed record MatchDiscoveryRequest(
     string? CandidatePackage = null,
     string? CandidateTfm = null,
     string? ReplayLibrary = null,
-    MatchDiscoveryReplaySources? ReplaySources = null,
+    PackageReplaySources? ReplaySources = null,
     bool IncludeAll = false);
-
-internal sealed record MatchDiscoveryReplaySources(
-    ImmutableArray<string> Sources,
-    ImmutableArray<string> AdditionalSources,
-    string? ConfigFile,
-    string? ConfigDirectory);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
@@ -454,18 +448,7 @@ internal static class MatchDiscoveryFormatter
 
             if (request.ReplaySources is { } sources)
             {
-                options.AddRange(sources.Sources.Select(
-                    source => "--source " + ShellCommandText.Quote(source)));
-                options.AddRange(sources.AdditionalSources.Select(
-                    source => "--add-source " + ShellCommandText.Quote(source)));
-                if (sources.ConfigFile is string configFile)
-                    options.Add("--nugetconfig " + ShellCommandText.Quote(configFile));
-                if (sources.ConfigDirectory is string configDirectory)
-                {
-                    options.Add(
-                        "--nugetconfig-directory "
-                            + ShellCommandText.Quote(configDirectory));
-                }
+                options.Add(PackageReplaySourceArguments.Format(sources));
             }
         }
         else

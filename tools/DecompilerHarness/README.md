@@ -1306,7 +1306,11 @@ oracle for raise and printer changes. The first run writes a versioned,
 method-keyed JSON baseline containing each rendered body and its typed async,
 unsafe, and await-syntax declaration context; the second run compares the
 current render against that baseline and reports changed, added, and removed
-methods. Body-only baselines predate the semantic-context contract and are
+methods. Raised renders carry the same sibling-body import and metadata
+type-disjointness capabilities as product rendering;
+`RenderAbMatchesMetadataBackedProductProjection` gates both the
+disjointness-proving and non-proving compiler fixtures. Body-only baselines
+predate the semantic-context contract and are
 rejected with a regeneration instruction rather than measured with current-head
 facts. Changed methods are classified on two axes:
 

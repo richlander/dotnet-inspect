@@ -880,7 +880,10 @@ internal static class LibraryMetadataService
                 logger,
                 depth,
                 maxDepth,
-                failOnReadError);
+                failOnReadError,
+                rootIdentity: null,
+                relationships: null,
+                retainRevisits: false);
         }
 
         return BuildTransitiveReferences(
@@ -896,6 +899,52 @@ internal static class LibraryMetadataService
             depth,
             maxDepth,
             failOnReadError);
+    }
+
+    internal static AssemblyReferenceGraph BuildTransitiveReferenceGraph(
+        IReadOnlyList<AssemblyReferenceIdentity> references,
+        string assemblyPath,
+        ManagedMetadataIdentity rootIdentity,
+        VerboseLogger logger,
+        int? maxDepth = null,
+        bool failOnReadError = false)
+    {
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        StringComparer pathComparer = ReferenceTreePathComparer(
+            OperatingSystem.IsWindows());
+        var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
+            pathComparer);
+        IAssemblyBindingPolicy bindingPolicy =
+            ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
+        var visitedPaths = new HashSet<string>(pathComparer)
+        {
+            fullAssemblyPath,
+        };
+        var relationships = new List<AssemblyReferenceRelationship>();
+        List<AssemblyReferenceNode> nodes =
+            BuildDeduplicatedTransitiveReferences(
+                references,
+                bindingPolicy,
+                bindingPolicies,
+                Path.GetDirectoryName(fullAssemblyPath)
+                    ?? throw new InvalidOperationException(
+                        "The assembly path has no containing directory."),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ManagedIdentityName(rootIdentity),
+                },
+                visitedPaths,
+                logger,
+                depth: 0,
+                maxDepth,
+                failOnReadError,
+                rootIdentity,
+                relationships,
+                retainRevisits: true);
+        return new AssemblyReferenceGraph(
+            rootIdentity,
+            nodes,
+            relationships);
     }
 
     private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
@@ -938,7 +987,21 @@ internal static class LibraryMetadataService
         IAssemblyBindingPolicy BindingPolicy,
         string BindingScope,
         int Depth,
+        ManagedMetadataIdentity? SourceIdentity,
         DeduplicatedReferenceNode? Parent);
+
+    internal sealed record AssemblyReferenceRelationship(
+        ManagedMetadataIdentity Source,
+        ManagedMetadataIdentity Target,
+        AssemblyReferenceIdentity RequestedTarget,
+        bool IsResolved,
+        AssemblyReferenceResolutionFailure? ResolutionFailure,
+        int Ordinal);
+
+    internal sealed record AssemblyReferenceGraph(
+        ManagedMetadataIdentity Root,
+        IReadOnlyList<AssemblyReferenceNode> Nodes,
+        IReadOnlyList<AssemblyReferenceRelationship> Relationships);
 
     private static List<AssemblyReferenceNode>
         BuildDeduplicatedTransitiveReferences(
@@ -951,7 +1014,10 @@ internal static class LibraryMetadataService
             VerboseLogger logger,
             int depth,
             int? maxDepth,
-            bool failOnReadError)
+            bool failOnReadError,
+            ManagedMetadataIdentity? rootIdentity,
+            List<AssemblyReferenceRelationship>? relationships,
+            bool retainRevisits)
     {
         List<DeduplicatedReferenceNode> roots = [];
         var seen = new HashSet<AssemblyReferenceTraversalKey>(
@@ -966,6 +1032,7 @@ internal static class LibraryMetadataService
                             bindingPolicy,
                             bindingScope,
                             depth,
+                            rootIdentity,
                             Parent: null)));
 
         while (pending.Count > 0)
@@ -1025,6 +1092,7 @@ internal static class LibraryMetadataService
             }
 
             node.Path = resolved?.Path;
+            node.ResolvedIdentity = resolved?.Identity;
             node.ResolvedFrom =
                 resolved?.Provenance
                     is AssemblyResolutionProvenance.PlatformAsset
@@ -1041,8 +1109,6 @@ internal static class LibraryMetadataService
                 && (resolvedPath is not null
                     ? visitedPaths.Contains(resolvedPath)
                     : visited.Contains(resolved.Identity.Name));
-            if (isRootCycle)
-                continue;
 
             AssemblyReferenceTraversalKey traversalKey =
                 resolvedPath is not null
@@ -1051,8 +1117,41 @@ internal static class LibraryMetadataService
                     : AssemblyReferenceTraversalKey.ForReference(
                         reference,
                         next.BindingScope);
-            if (!seen.Add(traversalKey))
+            AssemblyReferenceIdentity targetAssemblyIdentity =
+                resolved?.Identity ?? reference;
+            ManagedMetadataIdentity targetIdentity =
+                new ManagedMetadataIdentity.Assembly(
+                    targetAssemblyIdentity);
+            if (relationships is not null)
+            {
+                ManagedMetadataIdentity sourceIdentity =
+                    next.SourceIdentity
+                    ?? throw new InvalidOperationException(
+                        "Graph traversal requires a typed source identity.");
+                relationships.Add(
+                    new AssemblyReferenceRelationship(
+                        sourceIdentity,
+                        targetIdentity,
+                        reference,
+                        resolved is not null,
+                        node.ResolutionFailure,
+                        relationships.Count));
+            }
+
+            bool isRevisit = !seen.Add(traversalKey);
+            if (isRootCycle || isRevisit)
+            {
+                if (retainRevisits)
+                {
+                    node.IsCyclic = true;
+                    var revisitNode = new DeduplicatedReferenceNode(node);
+                    if (next.Parent is null)
+                        roots.Add(revisitNode);
+                    else
+                        next.Parent.Children.Add(revisitNode);
+                }
                 continue;
+            }
 
             var treeNode = new DeduplicatedReferenceNode(node);
             if (next.Parent is null)
@@ -1099,6 +1198,7 @@ internal static class LibraryMetadataService
                             childBindingPolicy,
                             childBindingScope,
                             next.Depth + 1,
+                            targetIdentity,
                             treeNode));
                 }
             }
@@ -1135,6 +1235,18 @@ internal static class LibraryMetadataService
             FlattenDeduplicatedReferenceTree(root, flattened);
         return flattened;
     }
+
+    private static string ManagedIdentityName(
+        ManagedMetadataIdentity identity) =>
+        identity switch
+        {
+            ManagedMetadataIdentity.Assembly assembly =>
+                assembly.Identity.Name,
+            ManagedMetadataIdentity.Module module =>
+                module.Name,
+            _ => throw new InvalidOperationException(
+                "Unknown managed metadata identity."),
+        };
 
     private static void FlattenDeduplicatedReferenceTree(
         DeduplicatedReferenceNode node,

@@ -537,9 +537,35 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
         dependsCommand.Options.Add(opts.Markdown);
+        dependsCommand.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(dependsCommand);
+        dependsCommand.Options.Add(opts.Tree);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
+
+        dependsCommand.Validators.Add(result =>
+        {
+            if (result.GetValue(opts.Tree)
+                && result.GetValue(opts.Mermaid))
+            {
+                result.AddError(
+                    "--tree and --mermaid are alternate graph renderings; choose one.");
+            }
+            if (result.GetValue(opts.Tree)
+                && (result.GetValue(opts.Json)
+                    || result.GetValue(opts.Markdown)
+                    || result.GetValue(opts.PlainText)
+                    || result.GetValue(opts.Table)
+                    || result.GetValue(opts.Tsv)
+                    || result.GetValue(opts.Jsonl)
+                    || result.GetResult(opts.Verbosity)
+                        is { Implicit: false }))
+            {
+                result.AddError(
+                    "--tree is a standalone graph rendering and cannot combine with another output format.");
+            }
+        });
 
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
@@ -547,6 +573,8 @@ public static class SearchCommandDefinitions
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
+            OutputFormat outputFormat = opts.ResolveFormat(parseResult);
+            RowWindow? rows = ParseDependsRows(parseResult, opts);
 
             // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
@@ -554,12 +582,15 @@ public static class SearchCommandDefinitions
                 var commonOptions = new DependsOptions
                 {
                     Tfm = parseResult.GetValue(tfmOption),
-                    JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                    Format = outputFormat,
+                    JsonOutput = outputFormat == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
-                    MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
+                    MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                    Rows = opts.ParseRows(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
+                    Rows = rows,
                     Count = parseResult.GetValue(opts.Count),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
@@ -594,12 +625,15 @@ public static class SearchCommandDefinitions
                 PlatformFrameworks = [.. sources.PlatformFrameworks],
                 Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                Format = outputFormat,
+                JsonOutput = outputFormat == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
-                MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
+                MermaidOutput = outputFormat == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                Rows = opts.ParseRows(parseResult),
+                Tree = parseResult.GetValue(opts.Tree),
+                Rows = rows,
                 Count = parseResult.GetValue(opts.Count),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = sourceOptions
             };
@@ -617,12 +651,15 @@ public static class SearchCommandDefinitions
                 {
                     LibraryName = targetType,
                     Tfm = parseResult.GetValue(tfmOption),
-                    JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                    Format = outputFormat,
+                    JsonOutput = outputFormat == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
-                    MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
+                    MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                    Rows = opts.ParseRows(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
+                    Rows = rows,
                     Count = parseResult.GetValue(opts.Count),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
@@ -648,5 +685,24 @@ public static class SearchCommandDefinitions
         });
 
         return dependsCommand;
+    }
+
+    private static RowWindow? ParseDependsRows(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        RowWindow? rows = opts.ParseRows(parseResult);
+        if (rows is not null)
+            return rows;
+
+        if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
+            || parseResult.GetValue(opts.Limit) is not int count)
+        {
+            return null;
+        }
+
+        return parseResult.GetValue(opts.Tail)
+            ? RowWindow.Tail(count)
+            : RowWindow.Head(count);
     }
 }

@@ -493,7 +493,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                PackageExports.ProjectPlatformSurface(resolution),
+                PackageExports.ProjectPlatformSurface(
+                    resolution,
+                    "Misleading.dll"),
                 BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Equal(
@@ -501,6 +503,7 @@ public sealed partial class BrowserEngineBoundaryTests
             surface.Package);
         BrowserAssemblySurface selectedAssembly =
             Assert.Single(surface.Assemblies);
+        Assert.Equal("Misleading.dll", selectedAssembly.Asset);
         Assert.Equal(
             "aspnetcore.app",
             selectedAssembly.PlatformPack);
@@ -1110,7 +1113,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PlatformWorkspace_RejectsOneNameAcrossPackFamilies()
+    public async Task PlatformWorkspace_ReplacesOneNameAcrossPackFamiliesButRejectsBatch()
     {
         const string version = "11.0.6";
         byte[] package = PlatformPackage(
@@ -1137,19 +1140,46 @@ public sealed partial class BrowserEngineBoundaryTests
                 authorization,
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
-        InvalidOperationException failure =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => BrowserPlatformWorkspace.OpenAssemblyAsync(
-                    "net11.0-platform-family-collision",
-                    "InspectWeb.Engine.Tests.dll",
-                    "aspnetcore.app",
-                    client,
-                    authorization,
-                    TimeSpan.FromSeconds(5),
-                    TestContext.Current.CancellationToken));
+        await using BrowserPlatformScopeResolution aspnet =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-platform-family-collision",
+                "InspectWeb.Engine.Tests.dll",
+                "aspnetcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
 
-        Assert.Contains("already selected", failure.Message);
+        Assert.Equal(
+            "aspnetcore.app",
+            BrowserPlatformWorkspace.Pack(aspnet.Coordinate.Family));
+        Assert.Single(aspnet.Scope.Members);
         Assert.Single(runtime.Scope.Members);
+        Assert.Same(
+            runtime.Participant,
+            runtime.Scope.Participant(
+                runtime.Coordinate.Family,
+                "InspectWeb.Engine.Tests"));
+        BrowserPackageSurface runtimeSurface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    PackageExports.ProjectPlatformSurface(
+                        runtime,
+                        "Shared.dll"),
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface aspnetSurface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    PackageExports.ProjectPlatformSurface(
+                        aspnet,
+                        "Shared.dll"),
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        Assert.Equal(
+            "netcore.app",
+            Assert.Single(runtimeSurface.Assemblies).PlatformPack);
+        Assert.Equal(
+            "aspnetcore.app",
+            Assert.Single(aspnetSurface.Assemblies).PlatformPack);
 
         bool downloaded = false;
         handler.BeforeDownload = _ => downloaded = true;
@@ -4150,6 +4180,11 @@ public sealed partial class BrowserEngineBoundaryTests
         const string fileName = "Renamed.Library.dll";
         byte[] implementation = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        int implementationTypeCount;
+        using (var reader = new PEReader(new MemoryStream(implementation, writable: false)))
+        {
+            implementationTypeCount = reader.GetMetadataReader().TypeDefinitions.Count;
+        }
         byte[] reference = BuildEmptySurfaceImage(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName());
         _ = await Coordinate(
@@ -4197,7 +4232,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 packageId, "1.0.0", "net11.0", surface.Asset.Id,
                 "cli",
                 (int)TableIndex.TypeDef, 1, 10));
-        Assert.True(table.RootElement.GetProperty("rowCount").GetInt32() > 1);
+        Assert.Equal(
+            implementationTypeCount,
+            table.RootElement.GetProperty("rowCount").GetInt32());
         using JsonDocument heap = JsonDocument.Parse(
             await MetadataExports.QueryPackageHeapEntries(
                 packageId, "1.0.0", "net11.0", surface.Asset.Id,
@@ -7290,7 +7327,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 () => BrowserPackageWorkspace.GetVersionsAsync(
                     "contoso",
                     source,
-                    TimeSpan.FromSeconds(10)));
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken));
 
         Assert.Equal(
             "The package source operation exceeded its configured deadline.",
