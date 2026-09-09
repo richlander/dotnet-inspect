@@ -234,6 +234,24 @@ export function createBrowserPackageQueryDataSource(
               request.sourceOrderId,
               request.inputKind === "gallery");
         flushEvents();
+        let unexpectedFailure: Error | null = null;
+        if (result.version === 1
+            && result.kind === "Failed"
+            && result.failureKind === "Unexpected") {
+          unexpectedFailure = new Error(
+            result.error ?? "The Browser package query failed without an error.");
+          try {
+            reportUnexpectedFailure(
+              operationId,
+              unexpectedFailure,
+              result.diagnostic);
+          } catch (reportingError: unknown) {
+            throw new AggregateError(
+              [unexpectedFailure, reportingError],
+              "The Browser package query and its diagnostic observer failed.",
+              { cause: reportingError });
+          }
+        }
         if (flushState.failed) throw flushState.error;
         if (result.version !== 1) {
           throw new Error(
@@ -241,22 +259,8 @@ export function createBrowserPackageQueryDataSource(
         }
         if (result.kind === "Canceled") return { kind: "cancelled" };
         if (result.kind === "Failed") {
-          const error = new Error(
+          throw unexpectedFailure ?? new Error(
             result.error ?? "The Browser package query failed without an error.");
-          if (result.failureKind === "Unexpected") {
-            try {
-              reportUnexpectedFailure(
-                operationId,
-                error,
-                result.diagnostic);
-            } catch (reportingError: unknown) {
-              throw new AggregateError(
-                [error, reportingError],
-                "The Browser package query and its diagnostic observer failed.",
-                { cause: reportingError });
-            }
-          }
-          throw error;
         }
         if (result.kind !== "Succeeded" || result.value === null) {
           throw new TypeError(

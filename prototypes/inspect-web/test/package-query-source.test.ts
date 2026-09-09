@@ -1170,6 +1170,68 @@ test("Browser source decodes managed failure and cancellation results", async ()
     { kind: "cancelled" });
 });
 
+test("Browser source reports unexpected failure after a superseded observer failure", async () => {
+  const diagnostics: Array<[string, string, string | null]> = [];
+  let settleManagedResult:
+    ((result: BrowserPackageQueryResult) => void) | undefined;
+  const managedResult = new Promise<BrowserPackageQueryResult>(resolve => {
+    settleManagedResult = resolve;
+  });
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run(...args) {
+      const eventSink = args[7];
+      assert.ok(typeof eventSink === "object" && eventSink !== null);
+      Reflect.set(eventSink, "event", JSON.stringify({
+        kind: "Progress",
+        row: null,
+        failure: null,
+        progress: {
+          phase: "Manifest",
+          completed: 1,
+          limit: 200,
+        },
+        assessment: null,
+        completion: null,
+      } satisfies BrowserPackageQueryEvent));
+      return managedResult;
+    },
+  };
+  const abort = new AbortController();
+  const running = createBrowserPackageQueryDataSource(engine, {
+    createOperationId: () => "observer-failure-operation",
+    reportUnexpectedFailure: (operationId, error, diagnostic) => {
+      diagnostics.push([operationId, error.message, diagnostic]);
+    },
+  }).run(
+    createQueryRequest("Failure."),
+    () => {},
+    () => {},
+    () => {
+      throw new Error("package-query observer failed");
+    },
+    abort.signal);
+
+  await Promise.resolve();
+  abort.abort("superseded");
+  settleManagedResult?.({
+    version: 1,
+    kind: "Failed",
+    value: null,
+    failureKind: "Unexpected",
+    error: "managed package query failed",
+    diagnostic: "managed diagnostic",
+    reason: null,
+  });
+
+  await assert.rejects(running, /package-query observer failed/);
+  assert.deepEqual(diagnostics, [[
+    "observer-failure-operation",
+    "managed package query failed",
+    "managed diagnostic",
+  ]]);
+});
+
 test("Browser data source batches consecutive matches into one controller page", async () => {
   const secondMatch = {
     ...toolMatchEvent,

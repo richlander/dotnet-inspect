@@ -465,6 +465,10 @@ public sealed class BrowserPackageQueryOperationsTests
             new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var secondReceivedCredit =
             new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondObservedCancellation =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecond =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         Task<BrowserManagedOperationResult<int, string, string>> first =
             BrowserPackageQueryOperationCoordinator.RunAsync<int, object>(
@@ -487,9 +491,18 @@ public sealed class BrowserPackageQueryOperationsTests
                 async (credit, _, token) =>
                 {
                     await credit.WaitAsync(token);
-                    await credit.WaitAsync(token);
-                    secondReceivedCredit.SetResult();
-                    return 2;
+                    try
+                    {
+                        await credit.WaitAsync(token);
+                        secondReceivedCredit.SetResult();
+                        return 2;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        secondObservedCancellation.SetResult();
+                        await releaseSecond.Task;
+                        throw;
+                    }
                 });
 
         var granted = Assert.IsType<
@@ -507,6 +520,7 @@ public sealed class BrowserPackageQueryOperationsTests
                     secondId,
                     BrowserManagedOperationCancelReason.User));
         Assert.Equal(BrowserManagedOperationCancelReason.User, requested.Reason);
+        await secondObservedCancellation.Task;
         var repeated = Assert.IsType<
             BrowserManagedCancellationRequestResult.AlreadyRequested>(
                 BrowserPackageQueryOperationCoordinator.RequestCancellation(
@@ -514,6 +528,7 @@ public sealed class BrowserPackageQueryOperationsTests
                     BrowserManagedOperationCancelReason.Timeout));
         Assert.Equal(BrowserManagedOperationCancelReason.User, repeated.Reason);
 
+        releaseSecond.SetResult();
         var canceled = Assert.IsType<
             BrowserManagedOperationResult<int, string, string>.Canceled>(
                 await second);
