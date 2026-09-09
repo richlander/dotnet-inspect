@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>The non-failed state of one finding inspection endpoint.</summary>
 public enum FindingInspectionState

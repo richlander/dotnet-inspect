@@ -14,7 +14,7 @@
         "CSharpText",
         "DotnetInspector.Artifacts",
         "DotnetInspector.RowSelection",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",
         "TsJsExport.Contracts"
@@ -251,7 +251,7 @@
       ],
       "allowOnly": [
         "$platform",
-        "ILInspector.Findings"
+        "Inspector.Findings"
       ]
     },
     {
@@ -284,7 +284,7 @@
         "$platform",
         "CSharpText",
         "DotnetInspector.Artifacts",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText"
       ]
@@ -319,7 +319,7 @@
       ],
       "allowOnly": [
         "$platform",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.Instructions",
         "ILInspector.MetadataPrimitives",
         "ILInspector.Text"
@@ -339,7 +339,7 @@
         "$platform",
         "CSharpText",
         "ILInspector.ControlFlow",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
@@ -377,7 +377,7 @@
         "CSharpText",
         "ILInspector.ControlFlow",
         "ILInspector.CSharp",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.ILDiff",
         "ILInspector.Instructions",
         "ILInspector.Metadata",
@@ -397,7 +397,7 @@
       ],
       "allowOnly": [
         "$platform",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives"
       ]
@@ -417,7 +417,7 @@
         "CSharpText",
         "ILInspector.Analysis",
         "ILInspector.Decompiler",
-        "ILInspector.Findings",
+        "Inspector.Findings",
         "ILInspector.ILDiff",
         "ILInspector.Instructions",
         "ILInspector.Metadata",

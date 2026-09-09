@@ -1,6 +1,6 @@
 
 using ILInspector.DecompilerHarness;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
 

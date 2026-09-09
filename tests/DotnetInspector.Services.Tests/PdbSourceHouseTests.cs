@@ -6,7 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Core;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;

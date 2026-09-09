@@ -12,7 +12,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 

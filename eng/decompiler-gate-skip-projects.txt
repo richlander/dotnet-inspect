@@ -71,11 +71,8 @@ fixtures/research/ILInspector.Research.TargetFixtures
 fixtures/research/ResearchTargetCorrespondenceFixtures.V1
 fixtures/research/ResearchTargetCorrespondenceFixtures.V2
 fixtures/runfaster/RunFaster.AllocationFixture
-fixtures/services/DotnetInspector.Services.RouteLearning.Base
 fixtures/services/DotnetInspector.Services.RouteLearning.Consumer
-fixtures/services/DotnetInspector.Services.RouteLearning.Contract
 fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase
-fixtures/services/DotnetInspector.Services.RouteLearning.Middle
 fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated
 fixtures/shared/DotnetInspector.Fixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures
@@ -98,11 +95,11 @@ src/dotnet-inspect.Tests
 src/mdi
 src/runfaster
 src/ts-jsexport
+tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
 tests/DotnetInspector.Artifacts.Local.PlatformProbe
 tests/DotnetInspector.Artifacts.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
-tests/CSharpText.MemberSlicing.Tests
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
