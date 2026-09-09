@@ -79,7 +79,6 @@ fixtures/shared/DotnetInspector.Fixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
-src/DotnetInspector.Artifacts.Local
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
@@ -90,6 +89,7 @@ src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
+src/Inspector.Artifacts.Local
 src/TsJsExport.Contracts
 src/dotnet-inspect
 src/dotnet-inspect.Tests
@@ -98,8 +98,6 @@ src/runfaster
 src/ts-jsexport
 tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
-tests/DotnetInspector.Artifacts.Local.PlatformProbe
-tests/DotnetInspector.Artifacts.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
@@ -127,6 +125,8 @@ tests/ILInspector.Metadata.Tests
 tests/ILInspector.MetadataPrimitives.PlatformProbe
 tests/ILInspector.Research.Tests
 tests/InertText.Tests
+tests/Inspector.Artifacts.Local.PlatformProbe
+tests/Inspector.Artifacts.Tests
 tests/Inspector.Text.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions

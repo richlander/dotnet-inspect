@@ -68,13 +68,13 @@ public sealed class PolicyEvaluatorTests
                     "ILInspector.Metadata",
                     projectReferences:
                     [
-                        "DotnetInspector.Artifacts",
+                        "DotnetInspector.Contracts",
                         "DotnetInspector.Services",
                     ]),
                 Node(
                     "ILInspector.Metadata.Tests",
                     projectReferences: ["DotnetInspector.Services"]),
-                Node("DotnetInspector.Artifacts"),
+                Node("DotnetInspector.Contracts"),
                 Node("DotnetInspector.Services"),
             ]);
         DependencyPolicyDocument policy = Policy(
@@ -86,7 +86,7 @@ public sealed class PolicyEvaluatorTests
                 Targets = ["ILInspector.*"],
                 ExcludeTargets = ["*.Tests"],
                 Deny = ["DotnetInspector.*"],
-                Except = ["DotnetInspector.Artifacts"],
+                Except = ["DotnetInspector.Contracts"],
             });
 
         DependencyViolation violation = Assert.Single(
@@ -714,6 +714,42 @@ public sealed class PolicyEvaluatorTests
                     $"{ruleId} selects caller-graph fixture {fixtureName}.");
             }
         }
+    }
+
+    [Fact]
+    public void CheckedInExternalDependencyRuleCoversInspectorFamily()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "product-libraries-use-repository-and-platform-assemblies");
+        string[] inspectorProjects = Directory
+            .EnumerateFiles(
+                Path.Combine(repository, "src"),
+                "Inspector.*.csproj",
+                SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.NotEmpty(inspectorProjects);
+        Assert.All(
+            inspectorProjects,
+            path =>
+            {
+                string projectName = Path.GetFileNameWithoutExtension(path);
+                string projectPath = Path
+                    .GetRelativePath(repository, path)
+                    .Replace('\\', '/');
+                Assert.True(
+                    DependencyPattern.Selects(
+                        rule,
+                        projectName,
+                        projectPath),
+                    $"{rule.Id} does not select {projectName}.");
+            });
     }
 
     [Fact]

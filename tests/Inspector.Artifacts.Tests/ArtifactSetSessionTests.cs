@@ -1,8 +1,8 @@
 using System.Runtime.CompilerServices;
 
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Workspaces;
 
-namespace DotnetInspector.Artifacts.Tests;
+namespace Inspector.Artifacts.Tests;
 
 public sealed partial class ArtifactSetSessionTests
 {
@@ -195,7 +195,7 @@ public sealed partial class ArtifactSetSessionTests
         IReadOnlyList<Exception> attached =
             Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
                 disposed.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.Same(
             failure,
             Assert.Single(attached));
@@ -324,7 +324,7 @@ public sealed partial class ArtifactSetSessionTests
         IReadOnlyList<Exception> attached =
             Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
                 primary.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.Same(
             Assert.Single(attached),
             Assert.Single(session.CleanupFailures));
@@ -368,7 +368,7 @@ public sealed partial class ArtifactSetSessionTests
         IReadOnlyList<Exception> attached =
             Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
                 disposed.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.IsType<IOException>(Assert.Single(attached));
         Assert.Same(
             Assert.Single(attached),
@@ -1418,14 +1418,14 @@ public sealed partial class ArtifactSetSessionTests
         IReadOnlyList<Exception> attached =
             Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
                 disposed.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.IsType<IOException>(Assert.Single(attached));
         Assert.Same(
             Assert.Single(attached),
             Assert.Single(session.CleanupFailures));
         Assert.False(
             disposed.Data.Contains(
-                "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"));
+                "Inspector.Artifacts.Workspaces.AdmissionFailures"));
     }
 
     [Fact]
@@ -1464,7 +1464,7 @@ public sealed partial class ArtifactSetSessionTests
             Assert.IsAssignableFrom<
                 IReadOnlyList<ArtifactSetAdmissionFailure>>(
                     disposed.Data[
-                        "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"]);
+                        "Inspector.Artifacts.Workspaces.AdmissionFailures"]);
         ArtifactSetAdmissionFailure failure =
             Assert.Single(attached);
         Assert.Equal(
@@ -1566,7 +1566,7 @@ public sealed partial class ArtifactSetSessionTests
         IReadOnlyList<Exception> checkpointCleanup =
             Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
                 checkpointCanceled.Data[
-                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+                    "Inspector.Artifacts.Workspaces.CleanupFailures"]);
         Assert.IsType<IOException>(
             Assert.Single(checkpointCleanup));
 

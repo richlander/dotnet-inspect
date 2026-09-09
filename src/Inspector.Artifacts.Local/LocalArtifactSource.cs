@@ -1,4 +1,4 @@
-namespace DotnetInspector.Artifacts.Local;
+namespace Inspector.Artifacts.Local;
 
 public sealed record LocalArtifactAcquisitionOptions
 {

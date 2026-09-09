@@ -1,4 +1,4 @@
-namespace DotnetInspector.Artifacts;
+namespace Inspector.Artifacts;
 
 /// <summary>Owner-attested retained bytes borrowed during admission.</summary>
 public readonly ref struct ArtifactAdmissionContentView

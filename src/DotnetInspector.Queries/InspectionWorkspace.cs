@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;

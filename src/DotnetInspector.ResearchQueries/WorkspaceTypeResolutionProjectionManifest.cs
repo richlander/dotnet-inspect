@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using InertText;

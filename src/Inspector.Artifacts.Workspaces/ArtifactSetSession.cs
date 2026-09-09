@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
-namespace DotnetInspector.Artifacts.Workspaces;
+namespace Inspector.Artifacts.Workspaces;
 
 public sealed record ArtifactSetSessionLimits
 {
@@ -123,7 +123,7 @@ public abstract class ArtifactSetPublicationOutcome
 public sealed class ArtifactSetSession : IAsyncDisposable
 {
     private const string CleanupFailuresKey =
-        "DotnetInspector.Artifacts.Workspaces.CleanupFailures";
+        "Inspector.Artifacts.Workspaces.CleanupFailures";
 
     private readonly object _gate = new();
     private readonly ArtifactGenerationAuthority _authority = new();
@@ -1571,7 +1571,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         if (admissionFailures.Count > 0)
         {
             primary.Data[
-                "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"] =
+                "Inspector.Artifacts.Workspaces.AdmissionFailures"] =
                 admissionFailures;
         }
     }
