@@ -89,16 +89,19 @@ printf '%s\n' "$selected_sdk"
 ```
 
 After a local install, keep process-scoped `DOTNET_ROOT` set to the local root
-in every shell and invoke the worktree-local executable explicitly for all
-repository commands. For example, in PowerShell:
+and prepend it to the process-scoped `PATH` in every shell, so repository tools
+that launch `dotnet` inherit the same SDK. Continue to invoke the worktree-local
+executable explicitly for repository commands. For example, in PowerShell:
 
 ```powershell
+$env:PATH = "$env:DOTNET_ROOT$([IO.Path]::PathSeparator)$env:PATH"
 & "$env:DOTNET_ROOT\dotnet.exe" build dotnet-inspect.slnx -c Release
 ```
 
 Or in Bash:
 
 ```bash
+export PATH="$DOTNET_ROOT:$PATH"
 "$DOTNET_ROOT/dotnet" build dotnet-inspect.slnx -c Release
 ```
 
