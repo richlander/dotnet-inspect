@@ -1,4 +1,5 @@
 using CSharpText;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 using ILInspector.Metadata.TypeDependencyFixtures;
 
@@ -245,6 +246,69 @@ public class TypeDependencyScannerTests
                     "TypeDependencyGenericBase"
                     + "<ILInspector.Metadata.TypeDependencyFixtures."
                     + "TypeDependencyCasevalue>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Relationships_DoNotBorrowCaseDistinctDefinitionWhenExactTypeIsMissing()
+    {
+        const string root =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.Root";
+        FixtureDefinition consumer =
+            FixtureCatalog.MetadataTypeDependencyConsumer;
+        FixtureDefinition reference =
+            FixtureCatalog.MetadataTypeDependencyReference;
+
+        TypeDependencyResult missingReference =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [consumer.AssemblyPath()]);
+
+        Assert.Contains(
+            missingReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Root",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal));
+        Assert.All(
+            missingReference.Relationships,
+            static relationship => Assert.EndsWith(
+                ".Root",
+                relationship.SourceTypeName,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            missingReference.Relationships,
+            static relationship =>
+                relationship.TargetTypeName.EndsWith(
+                    ".UnrelatedLeaf",
+                    StringComparison.Ordinal));
+
+        TypeDependencyResult resolvedReference =
+            TypeDependencyScanner.BuildDependencyTree(
+                root,
+                [consumer.AssemblyPath(), reference.AssemblyPath()]);
+
+        Assert.Equal(2, resolvedReference.Relationships.Count);
+        Assert.Contains(
+            resolvedReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".ActualLeaf",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            resolvedReference.Relationships,
+            static relationship =>
+                relationship.SourceTypeName.EndsWith(
+                    ".Casebranch",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeName.EndsWith(
+                    ".UnrelatedLeaf",
                     StringComparison.Ordinal));
     }
 

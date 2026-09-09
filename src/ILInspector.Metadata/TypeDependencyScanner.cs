@@ -529,11 +529,10 @@ public static class TypeDependencyScanner
             return;
 
         var normalized = FqnParser.NormalizeTypeName(typeName);
-        var matchKey = ResolveTransitiveKey(typeIndex, normalized);
-        if (matchKey == null)
+        if (!typeIndex.TryGetValue(normalized, out var match))
             return;
 
-        var (_, mdReader, typeDef) = typeIndex[matchKey];
+        var (_, mdReader, typeDef) = match;
         GenericContext context =
             ContextForConstructedType(mdReader, typeDef, typeName);
 
@@ -641,15 +640,13 @@ public static class TypeDependencyScanner
     {
         var normalizedName = FqnParser.NormalizeTypeName(typeName);
 
-        var matchKey = ResolveTransitiveKey(typeIndex, normalizedName);
-        if (matchKey == null)
+        if (!typeIndex.TryGetValue(normalizedName, out var match))
             return [];
-        if (!activeDefinitions.Add(matchKey))
+        if (!activeDefinitions.Add(normalizedName))
             return [];
 
         try
         {
-            var match = typeIndex[matchKey];
             return BuildNode(
                 typeName,
                 match.MdReader,
@@ -668,22 +665,9 @@ public static class TypeDependencyScanner
         }
         finally
         {
-            activeDefinitions.Remove(matchKey);
+            activeDefinitions.Remove(normalizedName);
         }
     }
-
-    /// <summary>
-    /// Resolves a base/interface name (already a full ECMA name from metadata) to an index key.
-    /// Tries an exact dictionary hit first — the common case for transitive walks — and only falls
-    /// back to the fuzzy namespace-suffix scan, so closure traversal is O(1) per node instead of
-    /// O(index size). The user-supplied root pattern still uses the fuzzy scan directly.
-    /// </summary>
-    private static string? ResolveTransitiveKey(
-        Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
-        string normalized)
-        => typeIndex.ContainsKey(normalized)
-            ? normalized
-            : typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalized));
 
     private static Exception ToRejectionException(
         TypeDependencyRejection rejection,
