@@ -1226,15 +1226,15 @@ routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
 Search also exposes a `Package query` action that opens the routed `/query`
-surface. Leave search text empty to browse, then select a package type or
-source order from NuGetFetch's Gallery catalog. Basic discovery uses search
-metadata only; the separate inspection facets explicitly add manifest or
-bounded package-content evaluation. Browser Wasm streams shared product rows
+surface. Package Query accepts an exact package ID or terminal-star literal
+prefix and remains idle when blank; Spotlight remains the open-text NuGet
+discovery experience. The separate inspection facets explicitly add manifest
+or bounded package-content evaluation. Browser Wasm streams shared product rows
 and visible failures, then hands an exact result coordinate to the normal
-Workspace package-opening path. Results disclose one bounded Gallery response,
-not a globally exhaustive or exact top-N result; provider totals are estimates.
-The route keeps request and result state in the current session rather than in
-the URL; a direct load starts with empty search text.
+Workspace package-opening path. Prefix results disclose their source and client
+bounds rather than claiming globally exhaustive coverage. The route keeps
+request and result state in the current session rather than in the URL; a
+direct load starts with empty package input.
 
 The **Assembly patterns** disclosure is a separate explicit mode. Select
 **IL string literal contains**, enter one to five exact `ID@VERSION` packages,
@@ -1246,14 +1246,11 @@ request and reacquires under current source authorization; it does not retain
 the query candidate in the Workspace cache. RID selection and ecosystem-wide
 candidate discovery are outside this first assembly-pattern gesture.
 
-The Gallery scenarios in `browser/package-adoption.spec.ts` drive the published
+The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.
-Deterministic search responses cover blank tool/template browse, text search,
-source ordering, metadata-only acquisition, and bounded completion. Set
-`INSPECT_WEB_GALLERY_LIVE=1` when running
-`eng/test-inspect-web-package-adoption-gate.sh` to include the opt-in live Gallery
-CORS observation and capture the tool-browse page. Live provider availability
-is point-in-time evidence, not a permanent guarantee.
+Deterministic responses cover blank idle behavior, exact-ID resource selection,
+literal-prefix boundaries, missing-ID non-fallback, metadata-only acquisition,
+and bounded completion.
 
 The same harness's **Assembly Package Query website over real Wasm** scenario
 uses the cataloged `analysis.string-literals` fixture to exercise all four

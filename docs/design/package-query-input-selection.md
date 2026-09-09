@@ -12,8 +12,9 @@ This focused owner is introduced by
 [#6070](https://github.com/richlander/dotnet-inspect/issues/6070), under the
 end-to-end responsiveness tracker
 [#5816](https://github.com/richlander/dotnet-inspect/issues/5816). The shared
-query and Browser binding implement this selection contract. Production
-website deployment remains separate from merging the implementation.
+query implements the full selection contract; the Browser binding implements
+only its exact-ID and prefix subset. Production website deployment remains
+separate from merging the implementation.
 
 Supporting owners retain their contracts:
 
@@ -62,11 +63,12 @@ owner's identity rules rather than changing the spelling into another search.
 An absent exact result stays absent; it does not fall back to prefix or
 keyword discovery.
 
-Gallery discovery is selected by an explicit host action, separately from the
-package editor. It supplies the existing Gallery request as candidate input,
-then uses the same requested inspections. An empty editor is not that action.
-Source controls retain their Gallery meaning when discovery is selected; they
-must not silently constrain or reinterpret an exact-ID or prefix input.
+The Inspect Web Package Query host exposes only this exact-ID and prefix
+selection. Open-text package discovery belongs to Spotlight, which may seed the
+query editor only when its text is a valid package-ID prefix. The shared Query
+model may still accept explicit Gallery input from another consumer, but the
+Browser `/query` surface does not expose Gallery search, termless browse,
+package-type selection, or source-order selection.
 
 ## Acquisition and evidence boundary
 
@@ -108,20 +110,21 @@ feedback remains available independently of match delivery.
 The production path has three steps:
 
 1. Shared Package Query interprets the editor spelling into existing typed
-   package/prefix intent or accepts explicit Gallery input, and acquires the
-   corresponding candidates.
-2. The Browser Query consumer uses that shared choice. Blank input remains
-   idle; a separate discovery gesture replaces implicit blank-input browsing.
-   The existing operation feedback and demand-credit adapter are retained.
+   package/prefix intent and acquires the corresponding candidates. Its
+   explicit Gallery input remains available to other consumers.
+2. The Browser Query consumer lowers only package/prefix intent. Blank input
+   remains idle; Spotlight owns open-text package discovery. The existing
+   operation feedback and demand-credit adapter are retained.
 3. CLI package/prefix consumers and the planned CLI query binding use the same
    source distinction. An explicitly named `--package-prefix` remains prefix
    intent; the new editor convention does not turn that option into exact-ID
    selection. Remaining general query execution adoption stays tracked by
    #5919 rather than being advertised by a discovery listing alone.
 
-This retires the website's implicit replacement of package-ID intent with
-arbitrary Gallery text, not Gallery discovery itself. The prefix producer in
-PR #5954 lands independently before its renewed Browser adoption here.
+This retires both the website's implicit replacement of package-ID intent with
+arbitrary Gallery text and its later explicit Gallery browse gesture. It does
+not remove Gallery discovery from shared Query or other consumers. The prefix
+producer in PR #5954 remains the Browser surface's candidate source.
 
 Typed package rows and query events remain the rendering input. The existing
 Browser facade lowers them to its typed controls/cards; CLI presentation uses
@@ -139,8 +142,8 @@ behavior is described as supported:
   exact-ID miss.
 - `Newtonsoft.*` excludes a neighboring `NewtonsoftOther` ID, whereas
   `Newtonsoft*` permits it.
-- Invalid spellings cause no acquisition. An empty Browser editor stays idle;
-  only the explicit discovery action submits a Gallery request.
+- Invalid spellings and an empty Browser editor cause no acquisition. The
+  Browser surface exposes no Gallery request action or Gallery source controls.
 - Exact selection respects stable/prerelease and authoritative listing
   evidence, distinguishing no eligible candidate from failed acquisition.
 - Basic rows avoid unnecessary manifest/content work; selected inspection
@@ -164,6 +167,7 @@ generation check gates the changed interop signature and declarations.
 
 The real-Wasm `browser/package-adoption.spec.ts` scenarios run against the
 Release-published website in `eng/test-inspect-web-package-adoption-gate.sh`.
-They gate initially idle input, explicit Gallery discovery, exact-ID resource
-selection, neighboring literal-prefix results, missing-ID non-fallback, and
-metadata-only acquisition through the actual Browser application.
+They gate initially idle input, absence of Gallery actions and source controls,
+exact-ID resource selection, neighboring literal-prefix results, missing-ID
+non-fallback, and metadata-only acquisition through the actual Browser
+application.

@@ -431,7 +431,6 @@ import {
   type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
   type QueryRequest,
-  type QuerySourceCatalog,
   type QuerySourceSelection,
 } from "./package-query.ts";
 import {
@@ -831,7 +830,6 @@ const initialState = {
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
   packageQueryAssemblyPatterns: [],
-  packageQuerySourceCatalog: null,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -1043,7 +1041,6 @@ interface StateOverrides {
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
-  packageQuerySourceCatalog: QuerySourceCatalog | null;
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -9677,15 +9674,14 @@ function closePackageQueryRoute() {
 
 function preparePackageQueryRequest(
   text: string,
-  inputKind = state.packageQueryState.request?.inputKind ?? "package",
 ): QueryRequest {
   const validText = validPackageQuerySearchText(text);
   state.packageQueryPrefix = validText;
   state.packageQueryNavigationError = "";
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validText)
-    : createQueryRequest(validText, inputKind);
-  return withInputKind(request, inputKind);
+    : createQueryRequest(validText);
+  return withInputKind(request, "package");
 }
 
 function submitPackageQueryRequest(request: QueryRequest) {
@@ -9698,22 +9694,13 @@ function submitPackageQueryRequest(request: QueryRequest) {
 }
 
 function runPackageQuery(text: string) {
-  const request = preparePackageQueryRequest(text, "package");
-  submitPackageQueryRequest(request);
-}
-
-function discoverPackages() {
-  const request = preparePackageQueryRequest("", "gallery");
+  const request = preparePackageQueryRequest(text);
   submitPackageQueryRequest(request);
 }
 
 function preparePackageQueryControlRequest(
   text: string,
 ): QueryRequest {
-  if (state.packageQueryState.request?.inputKind === "gallery") {
-    state.packageQueryNavigationError = "";
-    return state.packageQueryState.request;
-  }
   return preparePackageQueryRequest(text);
 }
 
@@ -9791,7 +9778,6 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
-  onDiscover: discoverPackages,
   onAssemblyRun: request => {
     state.packageQueryNavigationError = "";
     packageQueryLiveAnnouncer.reset();
@@ -9867,7 +9853,6 @@ function renderPackageQueryPage() {
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
     availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
-    sourceCatalog: state.packageQuerySourceCatalog,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -13114,13 +13099,10 @@ async function bootstrap() {
     try {
       state.packageQueryFacets =
         packageQueryFacets(await engineClient.package.listPackageQueryFacets());
-      state.packageQuerySourceCatalog =
-        await engineClient.package.listGalleryDiscoveryCatalog();
     } catch (error) {
       state.packageQueryFacets = [];
-      state.packageQuerySourceCatalog = null;
       state.packageQueryCatalogError =
-        `Package-query catalogs are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       state.packageQueryAssemblyPatterns =

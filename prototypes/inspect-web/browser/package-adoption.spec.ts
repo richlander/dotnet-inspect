@@ -403,90 +403,7 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
 }
 
 test.describe("Package Query website over real Wasm", () => {
-  test("requires explicit discovery before browsing by source type", async ({
-    page,
-    context,
-  }) => {
-    const requests: URL[] = [];
-    const enrichment: string[] = [];
-    context.on("request", request => {
-      if (new URL(request.url()).hostname === "globalcdn.nuget.org") {
-        enrichment.push(request.url());
-      }
-    });
-    const row = (id: string, downloads?: number) => ({
-      PackageRegistration: {
-        Id: id,
-        ...(downloads === undefined ? {} : { DownloadCount: downloads }),
-        Verified: true,
-        Owners: ["Contoso"],
-      },
-      Version: "1.0.0",
-      NormalizedVersion: "1.0.0",
-      Listed: true,
-      Description: "Gallery website fixture.",
-      DownloadCount: 3,
-    });
-    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
-      const url = new URL(route.request().url());
-      expect(url.pathname).toBe("/search/query");
-      requests.push(url);
-      const type = url.searchParams.get("packageType")?.toLowerCase();
-      const data = type === "dotnettool"
-          ? [
-            row("Contoso.ToolA", 1_000),
-            row("Contoso.ToolB", 500),
-            ...Array.from({ length: 18 }, (_, index) =>
-              row(`Contoso.Tool${index + 3}`, 100 - index)),
-          ]
-          : type === "template"
-            ? [row("Contoso.Template", 400)]
-            : [row("Contoso.Package", 2_000)];
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: corsHeaders,
-        body: JSON.stringify({ totalHits: data.length, data }),
-      });
-    });
-
-    await page.goto("/query");
-    await expect(page.locator("#package-query-prefix")).toBeVisible({ timeout: 120_000 });
-    await expect(page.locator("#package-query-prefix")).toHaveValue("");
-    await expect(page.locator("#package-query-type")).toHaveCount(0);
-    expect(requests).toHaveLength(0);
-
-    await page.locator("#package-query-discover").click();
-    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
-    await expect(page.locator("#package-query-type")).toBeVisible();
-    await page.locator("#package-query-type").selectOption({ label: ".NET tools" });
-    await expect(page.locator(".query-row")).toHaveCount(20);
-    await expect(page.locator(".query-row h2")).toContainText(["Contoso.ToolA", "Contoso.ToolB"]);
-    await expect(page.locator(".query-row").first()).toContainText("1,000");
-    await expect(page.locator(".query-row-description").first()).toHaveText("Gallery website fixture.");
-    await expect(page.locator(".query-footer")).toContainText("200");
-    await expect(page.locator(".query-footer")).not.toContainText("all matches");
-    expect(requests.at(-1)?.searchParams.get("take")).toBe("200");
-    expect(requests.at(-1)?.searchParams.get("sortBy")).toBe("totalDownloads-desc");
-    const lastFacet = page.locator("[data-query-facet]").last();
-    await lastFacet.focus();
-    await expect(lastFacet).toBeInViewport();
-
-    await page.locator("#package-query-type").selectOption({ label: "Templates" });
-    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Template"]);
-    await page.locator("#package-query-order").selectOption({ label: "Relevance" });
-    await expect.poll(() => requests.at(-1)?.searchParams.get("sortBy")).toBe("relevance");
-
-    await page.locator("#package-query-type").selectOption("");
-    await expect(page.locator(".query-row h2")).toHaveText(["Contoso.Package"]);
-    await page.locator("#package-query-order").selectOption("");
-    await expect.poll(() => requests.at(-1)?.searchParams.get("sortBy")).toBe("totalDownloads-desc");
-    expect(requests.every(request => !request.searchParams.get("q"))).toBe(true);
-    expect(requests.every(request => request.searchParams.get("take") === "200")).toBe(true);
-    expect(enrichment).toEqual([]);
-  });
-
-  test("keeps exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
+  test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
     const exactRequests: URL[] = [];
     const searchRequests: URL[] = [];
     const enrichment: string[] = [];
@@ -536,6 +453,14 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
+    await expect(page.locator("#package-query-run")).toHaveText("Run query");
+    await expect(page.locator("#package-query-discover")).toHaveCount(0);
+    await expect(page.locator("#package-query-type")).toHaveCount(0);
+    await expect(page.locator("#package-query-order")).toHaveCount(0);
+    expect(exactRequests).toHaveLength(0);
+    expect(searchRequests).toHaveLength(0);
+
+    await page.locator("#package-query-run").click();
     expect(exactRequests).toHaveLength(0);
     expect(searchRequests).toHaveLength(0);
 
@@ -562,26 +487,13 @@ test.describe("Package Query website over real Wasm", () => {
 
     await input.fill("Newtonsoft.Missing");
     await page.locator("#package-query-run").click();
-    await expect(page.locator(".query-empty")).toContainText("No prefix or Gallery search fallback was used.");
+    await expect(page.locator(".query-empty")).toContainText("No fallback search was used.");
     await expect(page.locator(".query-row")).toHaveCount(0);
     expect(searchRequests).toHaveLength(searchCount);
     expect(exactRequests.at(-1)?.pathname).toBe("/v3-flatcontainer/newtonsoft.missing/index.json");
     expect(enrichment).toEqual([]);
   });
 
-  test("live Gallery tool browse uses the production page and CORS path", async ({ page }) => {
-    test.skip(process.env.INSPECT_WEB_GALLERY_LIVE !== "1", "Opt-in live provider observation.");
-    await page.goto("/query");
-    await expect(page.locator("#package-query-discover")).toBeVisible({ timeout: 120_000 });
-    await page.locator("#package-query-discover").click();
-    await expect(page.locator("#package-query-type")).toBeVisible();
-    await page.locator("#package-query-type").selectOption({ label: ".NET tools" });
-    await expect(page.locator(".query-row").first()).toBeVisible({ timeout: 60_000 });
-    await expect(page.locator(".query-row").first()).toContainText("Open in workspace");
-    await expect(page.locator(".query-failures")).toHaveCount(0);
-    await page.screenshot({ path: test.info().outputPath("gallery-tools.png"), fullPage: true });
-    await page.locator("[data-query-cancel]").first().click();
-  });
 });
 
 test.describe("Assembly Package Query website over real Wasm", () => {
