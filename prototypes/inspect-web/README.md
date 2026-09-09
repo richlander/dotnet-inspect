@@ -2026,14 +2026,15 @@ routing, stale publication, and explicit Platform library scope;
 
 `src/source-inspection.ts` owns the mutually exclusive member, type, and
 call-graph source request lifecycle: shared cancellation, generation and
-per-surface identity checks, loading/error/result transitions, graph-modal
-open/close state, and focus-preserving completion. `dotnet-inspect.ts`
+per-surface identity checks, loading/error/result transitions, the graph
+modal's request-shaped state union, and focus-preserving completion.
+`dotnet-inspect.ts`
 validates the active selection, builds typed engine requests, supplies mutable
 state and rendering ports, and retains source presentation.
 `test/source-inspection.test.ts` gates hidden cancellation, stale member
 selection, visible failure, hidden type completion, graph close/cancellation,
-and graph failure; `test/spotlight-identity.test.js` gates engine and
-composition-root wiring.
+settled empty graph failure, and graph auto-load eligibility;
+`test/spotlight-identity.test.js` gates engine and composition-root wiring.
 
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
@@ -2261,14 +2262,16 @@ HTML and is not escaped).
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node), including its rendered close and bare-backdrop
 bindings.
-`source-inspection.ts` owns its sequence-guarded async lifecycle;
+`source-inspection.ts` owns its closed/loading/ready/failed/cancelled feature
+state and current-loading publication guard;
 `dotnet-inspect.ts` supplies `state`, the typed engine port, and the
-`highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
+`highlightCSharp` Prism wrapper, and passes the narrowed open state.
 `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status, plus button/backdrop close
-dispatch.
+dispatch. The focused state contract is
+[Inspect Web Graph Source State](../../docs/design/inspect-web-graph-source-state.md).
 
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload), including its
