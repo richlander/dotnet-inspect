@@ -27,6 +27,19 @@ The **Restored Project Dependency Facts Query** in
 The query does not accept a path, read a file, evaluate MSBuild, initiate
 restore or build, inspect a package cache, log, or choose a renderer.
 
+It also does not own root-relative traversal.
+[Restored Project Dependency Traversal](restored-project-dependency-traversal.md),
+tracked by [#5998](https://github.com/richlander/dotnet-inspect/issues/5998),
+owns the root, project-reference, and package relationship set, root-relative
+distance, depth boundaries, and its own topology identity. This owner walks
+project-reference branches to reach the packages behind them but publishes no
+project relationship, so two graphs differing only in project-only topology
+share one selection identity. That identity contract is unchanged; the
+traversal owner publishes a separate topology identity rather than broadening
+it. To keep assets admission, target selection, and the selected-target walk
+single-implementation, this query exposes one internal projection carrying both
+its published result and that project-relationship topology.
+
 ## Consumer and delivery
 
 The immediate concrete consumer is the **Package Dependency Evidence Query**
