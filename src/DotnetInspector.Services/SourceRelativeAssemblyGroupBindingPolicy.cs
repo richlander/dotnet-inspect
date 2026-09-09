@@ -364,6 +364,30 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return policySelection;
         }
 
+        if (policySelection
+            is AssemblyBindingSelection.CompositionRequired required)
+        {
+            ImmutableArray<ResolvedAssemblyReference> candidates =
+                required.Domain.Candidates;
+            if (candidates.Any(candidate =>
+                !IsCompatibleEntitled(requested, candidate)))
+            {
+                return policySelection;
+            }
+
+            ImmutableArray<ResolvedAssemblyReference>
+                handoffDesignatedCandidates =
+            [
+                .. candidates.Where(candidate =>
+                    candidate.Provenance
+                        is AssemblyResolutionProvenance.DesignatedAsset),
+            ];
+            return required.Domain.Finalize(
+                handoffDesignatedCandidates.IsEmpty
+                    ? candidates
+                    : handoffDesignatedCandidates);
+        }
+
         ImmutableArray<ResolvedAssemblyReference> policyCandidates =
             policySelection switch
             {

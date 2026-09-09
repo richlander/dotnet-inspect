@@ -189,6 +189,43 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_DesignatedPrecedenceFinalizesCompositionHandoff()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "composition handoff"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create(
+                [first, platform, second]);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.RequireComposition(domain));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+                (platform, (IAssemblyBindingPolicy)policy),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Same(platform, Assert.Single(ambiguous.ShadowedAssemblies));
+    }
+
+    [Fact]
     public void Select_RejectsForeignAndStaleContinuations()
     {
         var owner = NamedDescriptor("Owner");
