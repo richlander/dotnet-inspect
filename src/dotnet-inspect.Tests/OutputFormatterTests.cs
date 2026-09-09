@@ -5,7 +5,7 @@ using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Commands;
 using ILInspector.Analysis;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using InertText;
 using DotnetInspector.Inspectors;

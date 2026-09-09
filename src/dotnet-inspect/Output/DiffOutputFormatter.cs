@@ -1,7 +1,7 @@
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
-using ILInspector.Findings;
+using Inspector.Findings;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -655,24 +655,24 @@ public static class DiffOutputFormatter
             _ => throw new InvalidOperationException("Unavailable source carried complete evidence.")
         });
 
-    static string? SourceState(ILInspector.Findings.FindingComparison<string> comparison)
+    static string? SourceState(Inspector.Findings.FindingComparison<string> comparison)
     {
-        if (comparison is ILInspector.Findings.FindingComparison<string>.Failed failed)
+        if (comparison is Inspector.Findings.FindingComparison<string>.Failed failed)
             return failed.Failure;
 
         bool oldAbsent = comparison.OldInspection.Value
-            is ILInspector.Findings.FindingInspection<string>.Absent;
+            is Inspector.Findings.FindingInspection<string>.Absent;
         bool newAbsent = comparison.NewInspection.Value
-            is ILInspector.Findings.FindingInspection<string>.Absent;
+            is Inspector.Findings.FindingInspection<string>.Absent;
         if (!oldAbsent && !newAbsent)
             return null;
 
         string oldState = oldAbsent
-            ? ((ILInspector.Findings.FindingInspection<string>.Absent)
+            ? ((Inspector.Findings.FindingInspection<string>.Absent)
                 comparison.OldInspection.Value).Detail ?? "unavailable"
             : "complete";
         string newState = newAbsent
-            ? ((ILInspector.Findings.FindingInspection<string>.Absent)
+            ? ((Inspector.Findings.FindingInspection<string>.Absent)
                 comparison.NewInspection.Value).Detail ?? "unavailable"
             : "complete";
         return $"old: {oldState}; new: {newState}";

@@ -537,6 +537,11 @@ dotnet-inspect workspace-state decode "$w"
 dotnet-inspect workspace-state decode "$w" | jq
 dotnet-inspect workspace-state encode --file workspace-state.json
 dotnet-inspect workspace-state encode --file workspace-state.json --url
+dotnet-inspect member JsonConvert \
+  --package Newtonsoft.Json@13.0.4 \
+  SerializeObject:1 \
+  --tfm net6.0 \
+  --share url
 dotnet-inspect skill list
 dotnet-inspect demo list
 dotnet-inspect demo list -n 3 --json
@@ -546,6 +551,13 @@ dotnet-inspect demo list -n 3 --json
 for the existing share-packet JSON shape. Packet-only output remains the default.
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
+
+`member --share packet|url` projects one explicitly selected public member
+overload from an exact NuGet.org package version and target framework. The URL
+opens that member's API Overview in the published browser. Select an overload
+with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
+private-feed, non-public, multi-library, and other rendering or analysis modes
+fail visibly rather than producing a link the browser cannot restore.
 
 ## Requirements
 

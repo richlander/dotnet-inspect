@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Analysis;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Research;
 

@@ -1,7 +1,7 @@
 # Finding value semantics
 
 This document owns .NET equality and hashing for values issued by
-`ILInspector.Findings`. Equality answers whether two already-materialized
+`Inspector.Findings`. Equality answers whether two already-materialized
 values carry the same content. It does not establish correspondence between
 observations.
 
