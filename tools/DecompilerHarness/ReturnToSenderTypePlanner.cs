@@ -6,9 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Text;
-using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -1828,22 +1826,12 @@ public static class CompileBackSourceComposer
         ExternalInterfaceReferenceInfo interfaceReference,
         out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
     {
-        // Read the interface surface from the SAME frozen, filename-deduplicated dependency
-        // closure the recompile references (ReturnToSender.CreateCompilationClosure:
-        // resolver.ResolveAll() with ExcludeTargetAssembly, deduplicated by simple assembly
-        // name). Reading from that exact acquisition generation — rather than reopening paths
-        // or selecting a different identity/platform candidate — guarantees the validated
-        // members are precisely those C# requires against the reconstructed `: DisplayName`,
-        // and lets us prove the interface is defined by exactly one assembly in the closure
-        // (otherwise the unqualified base-list name is ambiguous, CS0433).
-        // Memoize per (target assembly, interface identity, interface full name): the same
-        // interface recurs across many targets and rescanning the closure per target is an
-        // unbounded slowdown. Negative results (unresolvable, ambiguous, or unrepresentable)
-        // are cached so they are not retried.
-        ReturnToSender.CompilationClosure closure =
-            compilationClosure
-            ?? ReturnToSender.CreateCompilationClosure(assemblyPath);
-        AssemblyDependencyResolver resolver = closure.Resolver;
+        if (compilationClosure is not { } closure)
+        {
+            requiredMethods = [];
+            return false;
+        }
+        CompileReferenceContext resolver = closure.Resolver;
         var cacheKey = new ExternalInterfaceSurfaceCacheKey(
             interfaceReference.AssemblyIdentity,
             interfaceReference.MetadataFullName);
@@ -1852,45 +1840,26 @@ public static class CompileBackSourceComposer
             static _ => []);
         var cached = surfaces.GetOrAdd(cacheKey, _ =>
         {
-            (ResolvedAssemblyReference Assembly, MetadataTypeDefinitionAddress Address)?
-                resolvedDefinition = null;
-            if (PlatformKeys.IsPlatform(
-                    interfaceReference.AssemblyIdentity.PublicKeyToken))
-            {
-                resolvedDefinition = ResolveExternalTypeDefinition(
-                    closure.TargetAssembly,
-                    interfaceReference.AssemblyIdentity,
-                    interfaceReference.MetadataFullName,
-                    resolver);
-                if (resolvedDefinition is null)
-                    return null;
-            }
+            var resolvedDefinition = ResolveExternalTypeDefinition(
+                closure.TargetAssembly,
+                interfaceReference.AssemblyIdentity,
+                interfaceReference.MetadataFullName,
+                resolver);
+            if (resolvedDefinition is null)
+                return null;
 
             // Locate the single closure assembly that defines the interface as a
             // TypeDefinition. Type forwarders are ExportedType rows (FindType returns null),
             // so a BCL interface defined once in CoreLib and forwarded elsewhere resolves to
             // exactly one definition. Zero, or more than one, definition declines.
             ResolvedAssemblyReference? definitionAssembly = null;
-            foreach (var dependency in resolver.ResolveAll())
+            foreach (var descriptor in resolver.SelectedDescriptors)
             {
-                ResolvedAssemblyReference? candidate =
-                    resolver.Acquire(dependency);
-                if (candidate is null)
+                ResolvedAssemblyReference candidate = descriptor.Image.Assembly;
+                using Stream probeStream = candidate.OpenRead();
+                using var probeReader = new PEReader(probeStream);
+                if (TypeProducer.FindType(probeReader.GetMetadataReader(), interfaceReference.MetadataFullName) is null)
                     continue;
-                try
-                {
-                    using Stream probeStream = candidate.OpenRead();
-                    using var probeReader = new PEReader(probeStream);
-                    if (!probeReader.HasMetadata)
-                        continue;
-                    if (TypeProducer.FindType(probeReader.GetMetadataReader(), interfaceReference.MetadataFullName) is null)
-                        continue;
-                }
-                catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException)
-                {
-                    // A dependency we cannot inspect cannot be shown to define the type; skip it.
-                    continue;
-                }
 
                 if (definitionAssembly is not null)
                     return null;
@@ -1914,9 +1883,7 @@ public static class CompileBackSourceComposer
                             reader,
                             out TypeDefinitionHandle resolvedHandle)
                         || resolvedHandle != interfaceHandle
-                        || !HaveSameImageContent(
-                            definition.Assembly,
-                            definitionAssembly)))
+                        || definition.Assembly.Registration != definitionAssembly.Registration))
                 {
                     return null;
                 }
@@ -1955,7 +1922,7 @@ public static class CompileBackSourceComposer
         string MetadataFullName);
 
     static readonly ConditionalWeakTable<
-        AssemblyDependencyResolver,
+        CompileReferenceContext,
         ConcurrentDictionary<
             ExternalInterfaceSurfaceCacheKey,
             IReadOnlyList<ExternalInterfaceRequiredMethod>?>>
@@ -2049,7 +2016,7 @@ public static class CompileBackSourceComposer
     static bool TryCollectExternalInterfaceMethods(
         ResolvedAssemblyReference requestingAssembly,
         ExternalInterfaceReferenceInfo interfaceReference,
-        AssemblyDependencyResolver resolver,
+        CompileReferenceContext resolver,
         HashSet<string> visited,
         List<ExternalInterfaceRequiredMethod> methods)
     {
@@ -2103,34 +2070,23 @@ public static class CompileBackSourceComposer
             ResolvedAssemblyReference requestingAssembly,
             AssemblyReferenceIdentity assemblyIdentity,
             string metadataFullName,
-            AssemblyDependencyResolver resolver)
+            CompileReferenceContext resolver)
     {
-        if (!PlatformKeys.IsPlatform(assemblyIdentity.PublicKeyToken))
+        AssemblyResolutionScope[] scopes = PlatformKeys.IsPlatform(
+                assemblyIdentity.PublicKeyToken)
+            ? [AssemblyResolutionScope.Platform]
+            : [AssemblyResolutionScope.Any, AssemblyResolutionScope.Platform];
+        foreach (AssemblyResolutionScope scope in scopes)
         {
-            ResolvedAssemblyReference? selected =
-                resolver.Resolve(
-                    assemblyIdentity,
-                    AssemblyResolutionScope.Any)
-                ?? resolver.Resolve(
-                    assemblyIdentity,
-                    AssemblyResolutionScope.Platform);
-            return selected is null
-                ? null
-                : ResolveExternalTypeDefinition(
-                    selected,
-                    metadataFullName,
-                    resolver);
+            var resolved = ResolveExternalTypeDefinition(
+                requestingAssembly, metadataFullName, resolver,
+                validName => TypeResolutionRequest.FromReference(
+                    assemblyIdentity, AssemblyBindingOrigin.FromAssembly(requestingAssembly),
+                    scope, validName));
+            if (resolved is not null)
+                return resolved;
         }
-
-        return ResolveExternalTypeDefinition(
-            requestingAssembly,
-            metadataFullName,
-            resolver,
-            validName => TypeResolutionRequest.FromReference(
-                assemblyIdentity,
-                AssemblyBindingOrigin.FromAssembly(requestingAssembly),
-                AssemblyResolutionScope.Platform,
-                validName));
+        return null;
     }
 
     internal static (
@@ -2139,7 +2095,7 @@ public static class CompileBackSourceComposer
         ResolveExternalTypeDefinition(
             ResolvedAssemblyReference assembly,
             string metadataFullName,
-            AssemblyDependencyResolver resolver)
+            CompileReferenceContext resolver)
     {
         foreach (AssemblyResolutionScope scope in
             new[] { AssemblyResolutionScope.Any, AssemblyResolutionScope.Platform })
@@ -2165,7 +2121,7 @@ public static class CompileBackSourceComposer
         ResolveExternalTypeDefinition(
             ResolvedAssemblyReference rootAssembly,
             string metadataFullName,
-            AssemblyDependencyResolver resolver,
+            CompileReferenceContext resolver,
             Func<MetadataTypeDefinitionName, TypeResolutionRequest> createRequest)
     {
         int separator = metadataFullName.LastIndexOf('.');
@@ -2182,7 +2138,7 @@ public static class CompileBackSourceComposer
         TypeResolutionRequest request = createRequest(valid.Name);
         using TypeResolutionContext structuredContext =
             TypeResolutionContext.Create(
-                resolver,
+                (IAssemblyBindingPolicy)resolver,
                 [rootAssembly],
                 [request]);
         if (structuredContext.Resolve(request)
@@ -2191,23 +2147,8 @@ public static class CompileBackSourceComposer
             return null;
         }
 
-        // Replay the complete initial binding and forwarding walk through
-        // Roslyn's sibling-first closure. Engage only when both paths reach the
-        // same defining image and durable TypeDef address.
-        using TypeResolutionContext compilationContext =
-            TypeResolutionContext.Create(
-                new CompilationClosureBindingPolicy(resolver),
-                [rootAssembly],
-                [request]);
-        if (compilationContext.Resolve(request)
-                is not TypeResolutionOutcome.Resolved compilationResolved
-            || compilationResolved.Definition.Assembly.Assembly.Identity
-                != resolved.Definition.Assembly.Assembly.Identity
-            || compilationResolved.Definition.Address
-                != resolved.Definition.Address
-            || !HaveSameImageContent(
-                compilationResolved.Definition.Assembly.Assembly,
-                resolved.Definition.Assembly.Assembly))
+        if (!resolver.SelectedDescriptors.Any(descriptor =>
+            descriptor.Image.MetadataRegistration == resolved.Definition.Assembly.Assembly.Registration))
         {
             return null;
         }
@@ -2217,78 +2158,11 @@ public static class CompileBackSourceComposer
             resolved.Definition.Address);
     }
 
-    static bool HaveSameImageContent(
-        ResolvedAssemblyReference left,
-        ResolvedAssemblyReference right)
-    {
-        if (left.Registration == right.Registration)
-            return true;
-
-        using Stream leftStream = left.OpenRead();
-        using Stream rightStream = right.OpenRead();
-        byte[] leftHash = SHA256.HashData(leftStream);
-        byte[] rightHash = SHA256.HashData(rightStream);
-        return leftHash.AsSpan().SequenceEqual(rightHash);
-    }
-
-    sealed class CompilationClosureBindingPolicy : IAssemblyBindingPolicy
-    {
-        readonly AssemblyDependencyResolver _resolver;
-        readonly Dictionary<string, ResolvedAssemblyReference> _references =
-            new(StringComparer.OrdinalIgnoreCase);
-
-        public CompilationClosureBindingPolicy(
-            AssemblyDependencyResolver resolver)
-        {
-            _resolver = resolver;
-            foreach (ResolvedAssemblyDependency dependency in resolver.ResolveAll())
-            {
-                ResolvedAssemblyReference? reference =
-                    resolver.Acquire(dependency);
-                if (reference is not null)
-                {
-                    _references.TryAdd(
-                        Path.GetFileNameWithoutExtension(dependency.Path),
-                        reference);
-                }
-            }
-        }
-
-        public AssemblyBindingPolicyVersion Version { get; } = new();
-
-        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
-        {
-            return new AssemblyBindingSelectionSnapshot(
-                Version,
-                SelectCore());
-
-            AssemblyBindingSelection SelectCore()
-            {
-                if (request.Target
-                        is AssemblyBindingTarget.AssemblyReference reference)
-                {
-                    return _references.TryGetValue(
-                        reference.Identity.Name,
-                        out ResolvedAssemblyReference? selected)
-                            ? AssemblyBindingSelection.Found(selected)
-                            : AssemblyBindingSelection.NotFound();
-                }
-
-                return _resolver.Select(
-                    new AssemblyBindingRequest(
-                        request.Target,
-                        request.Origin,
-                        AssemblyResolutionScope.Any)).Selection;
-
-            }
-        }
-    }
-
     static bool TryCollectRequiredInterfaceMethods(
         MetadataReader reader,
         ResolvedAssemblyReference assembly,
         TypeDefinitionHandle interfaceHandle,
-        AssemblyDependencyResolver resolver,
+        CompileReferenceContext resolver,
         string assemblyKey,
         HashSet<string> visited,
         List<ExternalInterfaceRequiredMethod> methods)

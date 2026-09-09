@@ -26,7 +26,7 @@ namespace ILInspector.DecompilerHarness;
 /// Prototype for the ReturnToSender compile-back architecture: build typed shell
 /// records, print them as source, compile with Roslyn, and compare opcodes.
 /// </summary>
-static class ReturnToSender
+static partial class ReturnToSender
 {
     const string CompilationAssemblyName = "return-to-sender";
 
@@ -116,6 +116,7 @@ static class ReturnToSender
         public byte[]? DonorPe { get; init; }
         internal ArtifactRequest? FinalRequest { get; init; }
         internal RebuildCompilationAttempt? CompilationAttempt { get; init; }
+        public CompileReferenceFailure? ReferenceFailure { get; init; }
     }
 
     public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
@@ -124,11 +125,6 @@ static class ReturnToSender
         Result Cluster,
         Result All,
         RoundTripScopeComparisonResult Comparison);
-
-    internal sealed record CompilationClosure(
-        AssemblyDependencyResolver Resolver,
-        ResolvedAssemblyReference TargetAssembly,
-        MetadataReference[] References);
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
@@ -451,24 +447,25 @@ static class ReturnToSender
     public static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets = int.MaxValue)
         => CompileBackPropertyGetters(assemblyPath, maxTargets, applyCompileBackFloor: true);
 
-    static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets, bool applyCompileBackFloor)
+    static IReadOnlyList<Result> CompileBackPropertyGetters(
+        string assemblyPath, int maxTargets, bool applyCompileBackFloor,
+        CompilationClosure? compilationClosure = null)
     {
         if (maxTargets <= 0)
             return [];
+        if (compilationClosure is null)
+            return DetachedCompilation(assemblyPath, operation =>
+                CompileBackPropertyGetters(assemblyPath, maxTargets, applyCompileBackFloor, operation.Closure));
 
         var results = new List<Result>();
-        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var pe = compilationClosure.SourceReader;
         if (!pe.HasMetadata)
             throw new InvalidOperationException("Assembly has no metadata.");
 
         var reader = pe.GetMetadataReader();
-        using var metadata = CorpusMetadata.Create([assemblyPath]);
-        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        var source = compilationClosure.BodySource;
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
-        CompilationClosure compilationClosure =
-            CreateCompilationClosure(assemblyPath);
-
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -567,10 +564,18 @@ static class ReturnToSender
     public static ScopePairResult CompileBackScopes(
         string assemblyPath,
         RequestedTarget target)
+        => WithCompilation(assemblyPath, operation =>
+        {
+            var pair = operation.CompileBackScopes(target);
+            return pair with { Cluster = Detach(pair.Cluster), All = Detach(pair.All) };
+        });
+
+    static ScopePairResult CompileBackScopes(
+        string assemblyPath,
+        RequestedTarget target,
+        CompilationClosure compilationClosure)
     {
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
-        CompilationClosure compilationClosure =
-            CreateCompilationClosure(assemblyPath);
         var cluster = AssertSingleScope(CompileBackTargets(
             assemblyPath,
             [target],
@@ -622,8 +627,7 @@ static class ReturnToSender
         if (result.MemberAnchor is not { } anchor)
             throw new InvalidOperationException("Scope result has no typed member anchor.");
 
-        using var stream = File.OpenRead(assemblyPath);
-        using var pe = new PEReader(stream);
+        var pe = finalRequest.CompilationClosure!.SourceReader;
         var reader = pe.GetMetadataReader();
         var module = reader.GetModuleDefinition();
         var address = MetadataMethodAddress.Create(reader, finalRequest.TargetMethod);
@@ -752,6 +756,9 @@ static class ReturnToSender
     {
         if (targets.Count == 0)
             return [];
+        if (compilationClosure is null)
+            return DetachedCompilation(assemblyPath, operation =>
+                CompileBackTargets(assemblyPath, targets, sourceIndex, applyCompileBackFloor, scope, bodyPolicy, operation.Closure));
         if (bodyPolicy == RoundTripBodyPolicy.Full && targets.Count != 1)
         {
             throw new NotSupportedException(
@@ -759,16 +766,13 @@ static class ReturnToSender
         }
 
         var results = new List<Result>();
-        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var pe = compilationClosure.SourceReader;
         if (!pe.HasMetadata)
             throw new InvalidOperationException("Assembly has no metadata.");
 
         var reader = pe.GetMetadataReader();
-        using var metadata = CorpusMetadata.Create([assemblyPath]);
-        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        var source = compilationClosure.BodySource;
         var memberAnchors = MemberAnchorsByMethodToken(pe);
-        compilationClosure ??=
-            CreateCompilationClosure(assemblyPath);
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
@@ -1647,8 +1651,6 @@ static class ReturnToSender
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
-        AssemblyDependencyResolver compilationResolver =
-            compilationClosure.Resolver;
         MetadataReference[] references = compilationClosure.References;
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
@@ -1752,6 +1754,10 @@ static class ReturnToSender
                 MaxIterations = 80,
             });
 
+        compilationResult = compilationResult with
+        {
+            Provenance = compilationClosure.WithReferenceProvenance(compilationResult.Provenance),
+        };
         var sourceResult = compilationResult.Artifact;
         var plan = sourceResult.Plan;
         string unit = sourceResult.Source;
@@ -1827,7 +1833,9 @@ static class ReturnToSender
         var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
             ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
             .ToArray();
-        var memberComparison = CompareMemberBodies(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+        var memberComparison = CompareMemberBodies(
+            assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName,
+            overload: 0, compilationClosure: compilationClosure);
         var ilDiff = GetIlDiff(memberComparison);
         var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
         var fidelityDiff = BuildIlDiff(
@@ -2202,7 +2210,8 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload,
-        IEnumerable<ResearchProducerKind>? producers = null)
+        IEnumerable<ResearchProducerKind>? producers = null,
+        CompilationClosure? compilationClosure = null)
     {
         ImmutableArray<ResearchProducerKind> selectedProducers = producers is null
             ? [ResearchProducerKind.IlBody]
@@ -2217,15 +2226,22 @@ static class ReturnToSender
             path: null,
             openRead: () => new MemoryStream(recompiledAssembly, writable: false),
             provenance: AssemblyResolutionProvenance.Local("ReturnToSender"));
-        var originalReference = ResolvedAssemblyReference.CreateFromPath(
+        var originalReference = compilationClosure?.TargetAssembly ?? ResolvedAssemblyReference.CreateFromPath(
             assemblyPath, AssemblyResolutionProvenance.Local("ReturnToSender"));
         // The memory-backed donor shares the original's sibling-resolution context.
-        var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
-        var policy = new AssemblyReferenceBindingPolicy(resolver);
+        var resolver = compilationClosure is null
+            ? MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath) : null;
+        IAssemblyBindingPolicy policy = compilationClosure is null
+            ? new AssemblyReferenceBindingPolicy(resolver!) : compilationClosure.Resolver;
         var before = new AssemblyContextParticipant(originalReference, policy);
         var after = new AssemblyContextParticipant(recompiledReference, policy);
         List<AssemblyContextParticipant> participants = [before, after];
-        if (selectedProducers.Contains(ResearchProducerKind.CSharp))
+        if (selectedProducers.Contains(ResearchProducerKind.CSharp) && compilationClosure is not null)
+        {
+            participants.AddRange(compilationClosure.Resolver.SelectedDescriptors
+                .Select(descriptor => new AssemblyContextParticipant(descriptor.Image.Assembly, policy)));
+        }
+        else if (selectedProducers.Contains(ResearchProducerKind.CSharp))
         {
             // The query can retain only registered selections, not fresh path-equivalent descriptors.
             var registrations = new HashSet<AssemblyAcquisitionRegistration>(ReferenceEqualityComparer.Instance)
@@ -2239,7 +2255,7 @@ static class ReturnToSender
                 if (ResolvedAssemblyReference.TryCreateFromPath(
                         siblingPath, AssemblyResolutionProvenance.Local("ReturnToSender sibling candidate"),
                         out var candidate)
-                    && resolver.Resolve(candidate.Identity, AssemblyResolutionScope.Any) is { } selected
+                    && resolver!.Resolve(candidate.Identity, AssemblyResolutionScope.Any) is { } selected
                     && registrations.Add(selected.Registration))
                 {
                     participants.Add(new(selected, policy));
@@ -2301,64 +2317,6 @@ static class ReturnToSender
             return null;
         var display = IlDiffPrinter.ToDisplayResult(diff.Diff);
         return display.IsEmpty ? null : display;
-    }
-
-    internal static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
-        => CreateCompilationClosure(targetPath).References;
-
-    internal static CompilationClosure CreateCompilationClosure(
-        string targetPath)
-    {
-        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
-        {
-            ExcludeTargetAssembly = true,
-            SnapshotAssemblyImages = true,
-            AllowPlatformAssemblyVersionRollForward = true,
-        });
-        ResolvedAssemblyReference targetAssembly =
-            resolver.AcquireTargetAssembly()
-            ?? throw new InvalidOperationException(
-                "The target assembly could not be acquired into the compilation closure.");
-        return new CompilationClosure(
-            resolver,
-            targetAssembly,
-            CompilationReferences(resolver).ToArray());
-    }
-
-    static IEnumerable<MetadataReference> CompilationReferences(
-        AssemblyDependencyResolver resolver)
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var dependency in resolver.ResolveAll())
-        {
-            string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
-            if (seen.Contains(simpleName))
-                continue;
-
-            MetadataReference reference;
-            try
-            {
-                ResolvedAssemblyReference? assembly =
-                    resolver.Acquire(dependency);
-                if (assembly is null)
-                    continue;
-                using Stream stream = assembly.OpenRead();
-                using var image = new MemoryStream();
-                stream.CopyTo(image);
-                reference =
-                    RoundTripCompilationEngine.CreateFrozenReference(
-                        image.ToArray(),
-                        dependency.Path);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
-            {
-                continue;
-            }
-
-            seen.Add(simpleName);
-            yield return reference;
-        }
     }
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)

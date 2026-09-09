@@ -22,6 +22,7 @@ public enum CompileReferenceFailureKind
     ReferencePlatformIdentityMismatch,
     ReferencePlatformAgreementMismatch,
     ReferencePlatformPolicyMismatch,
+    ReferenceDiscoveryFailed,
 }
 
 public sealed record CompileReferenceFailure(

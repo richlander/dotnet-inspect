@@ -71,25 +71,28 @@ public sealed class AuthoredRebuildFidelityTests
     [Trait("Speed", "Slow")]
     public void AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff()
     {
-        var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
-            FixtureCatalog.DiffPair.OldAssemblyPath());
-        var context = new RecordedBuildContext(
-            IsDeterministic: true,
-            CompleteOptions(),
-            CompleteReferences());
+        ReturnToSender.WithCompilation(FixtureCatalog.DiffPair.OldAssemblyPath(), operation =>
+        {
+            var decompiler = Assert.Single(operation.CompileBackPropertyGetters(1));
+            var context = new RecordedBuildContext(
+                IsDeterministic: true,
+                CompleteOptions(),
+                CompleteReferences());
 
-        var result = AuthoredRebuildFidelity.CompileAuthoredBody(
-            decompiler,
-            decompiler.TargetBody,
-            SourceChecksumVerification.Exact,
-            context);
+            var result = AuthoredRebuildFidelity.CompileAuthoredBody(
+                decompiler,
+                decompiler.TargetBody,
+                SourceChecksumVerification.Exact,
+                context);
 
-        Assert.True(
-            result.Outcome is AuthoredRebuildOutcome.Exact or AuthoredRebuildOutcome.IlDifferent,
-            result.Detail);
-        Assert.NotNull(result.MemberComparison);
-        Assert.Equal(SourceChecksumVerification.Exact, result.ChecksumVerification);
-        Assert.Equal(decompiler, result.DecompilerLane);
+            Assert.True(
+                result.Outcome is AuthoredRebuildOutcome.Exact or AuthoredRebuildOutcome.IlDifferent,
+                result.Detail);
+            Assert.NotNull(result.MemberComparison);
+            Assert.Equal(SourceChecksumVerification.Exact, result.ChecksumVerification);
+            Assert.Equal(decompiler, result.DecompilerLane);
+            return true;
+        }, cancellationToken: TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -110,30 +113,32 @@ public sealed class AuthoredRebuildFidelityTests
                 directory,
                 "fixture",
                 MetadataReference.CreateFromFile(dependencyPath));
-            ReturnToSender.Result decompiler =
-                ReturnToSender.CompileBackFirstPropertyGetter(
-                    assemblyPath);
+            ReturnToSender.WithCompilation(assemblyPath, operation =>
+            {
+                ReturnToSender.Result decompiler = Assert.Single(operation.CompileBackPropertyGetters(1));
 
-            CompileFixture(
-                "namespace D; public sealed class After { }",
-                directory,
-                "RtsAuthoredDependency");
-            var context = new RecordedBuildContext(
-                IsDeterministic: true,
-                CompleteOptions(),
-                CompleteReferences());
+                CompileFixture(
+                    "namespace D; public sealed class After { }",
+                    directory,
+                    "RtsAuthoredDependency");
+                var context = new RecordedBuildContext(
+                    IsDeterministic: true,
+                    CompleteOptions(),
+                    CompleteReferences());
 
-            AuthoredRebuildFidelityResult result =
-                AuthoredRebuildFidelity.CompileAuthoredBody(
-                    decompiler,
-                    decompiler.TargetBody,
-                    SourceChecksumVerification.Exact,
-                    context);
+                AuthoredRebuildFidelityResult result =
+                    AuthoredRebuildFidelity.CompileAuthoredBody(
+                        decompiler,
+                        decompiler.TargetBody,
+                        SourceChecksumVerification.Exact,
+                        context);
 
-            Assert.True(
-                result.Outcome is AuthoredRebuildOutcome.Exact
-                    or AuthoredRebuildOutcome.IlDifferent,
-                result.Detail);
+                Assert.True(
+                    result.Outcome is AuthoredRebuildOutcome.Exact
+                        or AuthoredRebuildOutcome.IlDifferent,
+                    result.Detail);
+                return true;
+            }, cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {

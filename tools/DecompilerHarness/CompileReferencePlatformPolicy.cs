@@ -61,12 +61,44 @@ public sealed class CompileReferencePlatformPolicy
     public AssemblyBindingPolicyVersion OwnerPolicyVersion { get; }
     public ImmutableArray<CompilePlatformBindingEvidence> Bindings { get; }
 
+    internal static bool MatchesPlatformIdentity(AssemblyReferenceIdentity requested, AssemblyReferenceIdentity selected)
+        => requested.Version is not null && selected.Version is { } version
+            && version >= requested.Version
+            && (requested with { Version = version }).IsEquivalentTo(selected);
+
     public static async ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareAsync(
         ArtifactSetSession owner,
         AssemblyDependencyResolver resolver,
         ResolvedAssemblyReference source,
         IEnumerable<AssemblyBindingRequest> requests,
         CancellationToken cancellationToken = default)
+        => await PrepareCoreAsync(owner, resolver, source, requests, [], cancellationToken);
+
+    internal static ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareInventoryAsync(
+        ArtifactSetSession owner,
+        AssemblyDependencyResolver resolver,
+        ResolvedAssemblyReference source,
+        AssemblyDependencyDiscoveryResult.Captured discovery,
+        IEnumerable<AssemblyBindingRequest> requests,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ReferenceEquals(discovery.Version, resolver.Version))
+            return ValueTask.FromResult(Reject(new(CompileReferenceFailureKind.ReferencePlatformPolicyMismatch)));
+        return PrepareCoreAsync(owner, resolver, source, requests,
+            discovery.Entries.Where(entry => !entry.IsTargetInput)
+                .Select(entry => entry.Acquisition)
+                .OfType<AssemblyDependencyAcquisition.Acquired>()
+                .Select(acquired => acquired.Assembly),
+            cancellationToken);
+    }
+
+    static async ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareCoreAsync(
+        ArtifactSetSession owner,
+        AssemblyDependencyResolver resolver,
+        ResolvedAssemblyReference source,
+        IEnumerable<AssemblyBindingRequest> requests,
+        IEnumerable<ResolvedAssemblyReference> candidates,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(resolver);
@@ -78,6 +110,8 @@ public sealed class CompileReferencePlatformPolicy
         try
         {
             ResolvedAssemblyReference retainedSource = capture.Retain(source);
+            foreach (ResolvedAssemblyReference candidate in candidates)
+                capture.Retain(candidate);
             var roots = new List<ResolvedAssemblyReference> { retainedSource };
             foreach (AssemblyBindingRequest request in declared)
             {
@@ -243,9 +277,7 @@ public sealed class CompileReferencePlatformPolicy
                 throw new PreparationFailure(new(CompileReferenceFailureKind.ReferencePlatformSelectionUnavailable,
                     RequestedIdentity: requested, BindingRequest: request, PolicySelection: platform));
             if (!FrozenPlatformBindings.IsSeed(selected.Occurrence.Lineage)
-                || selected.Assembly.Identity.Version is not { } version
-                || version < requested.Version
-                || !(requested with { Version = version }).IsEquivalentTo(selected.Assembly.Identity))
+                || !MatchesPlatformIdentity(requested, selected.Assembly.Identity))
                 throw new PreparationFailure(new(CompileReferenceFailureKind.ReferencePlatformIdentityMismatch,
                     RequestedIdentity: requested, BindingRequest: request, PolicySelection: platform));
 

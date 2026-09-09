@@ -7,7 +7,7 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// Scoped Metadata and Roslyn views of a frozen set. Use only within the
-/// CompileReferenceSet.Use callback; the source is never a compiler reference.
+/// CompileReferenceSet.Use or UseAsync callback; the source is never a compiler reference.
 /// </summary>
 public sealed class CompileReferenceContext : IAssemblyReferenceResolver, IAssemblyBindingPolicy
 {
@@ -24,6 +24,7 @@ public sealed class CompileReferenceContext : IAssemblyReferenceResolver, IAssem
     public ResolvedAssemblyReference Source { get; }
     public ImmutableArray<PortableExecutableReference> CompilerReferences { get; }
     public AssemblyBindingPolicyVersion Version => _set.BindingVersion;
+    internal ImmutableArray<CompileReferenceDescriptor> SelectedDescriptors => _set.References;
 
     /// <summary>Origin-free compatibility lookup remains exact and Any-scope only.</summary>
     public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)

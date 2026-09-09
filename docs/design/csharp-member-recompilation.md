@@ -664,10 +664,11 @@ source association and ordered selected registrations, content digests, full
 assembly identities, MVIDs, and compiler roles.
 
 The caller owns the original session and query lease through discovery,
-selection, and scoped `Use` operations. Each operation requires current
-authority; a scoped context is not a replacement for that authority. Metadata
-uses the selected guarded openers and Roslyn uses the matching retained
-immutable images. Source locations remain inert provenance, not reopen paths.
+selection, and scoped `Use` or `UseAsync` operations. Each operation requires
+current authority; a scoped context is not a replacement for that authority.
+Metadata uses the selected guarded openers and Roslyn uses the matching
+retained immutable images. Source locations remain inert provenance, not
+reopen paths.
 
 `CompileReferenceSetTests` gates this initial policy through exact-identity and
 ambiguity cases, generation-scoped keys, role-sensitive selection and compiler
@@ -787,6 +788,23 @@ The compatibility-preserving frozen-reference adoption path has four steps:
    in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
    its simple-name-first-wins reference enumeration and competing compiler
    binding projection on that path.
+
+For that migration, RTS forms exact requests from every acquired, non-source
+discovery registration that is not selected by the explicit platform policy.
+Repeated occurrences of one registration coalesce. Equivalent full identities
+from distinct registrations remain ambiguous, while different full identities
+remain selected and any Roslyn simple-name conflict stays visible. An identity
+selected by the platform policy is omitted from the exact request list so the
+policy-selected platform acquisition, not a byte-identical sibling, enters the
+compiler set.
+
+RTS owns one scoped compilation operation around source planning, initial
+compile-back, and any authored-rebuild replay. The synchronous and asynchronous
+forms both keep the artifact session, query lease, selected set, Metadata
+context, source reader, and Roslyn references live only for the callback.
+Ordinary convenience APIs return detached report evidence and do not retain the
+artifact request or live compiler context. Returning a scoped result does not
+extend its authority beyond the callback.
 
 The user-approved tools-first scope defers CLI/browser production adoption.
 The first step does not relabel the legacy ReturnToSender path as conforming,

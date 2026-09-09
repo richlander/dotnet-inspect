@@ -940,9 +940,8 @@ public class ReturnToSenderPrototypeTests
             Assert.False(all.UsedCompileBackFloor, all.Detail);
             Assert.NotNull(cluster.Compilation);
             Assert.NotNull(all.Compilation);
-            Assert.Same(
-                cluster.FinalRequest!.CompilationClosure,
-                all.FinalRequest!.CompilationClosure);
+            Assert.Null(cluster.FinalRequest);
+            Assert.Null(all.FinalRequest);
             Assert.NotNull(cluster.DonorPe);
             Assert.NotNull(all.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
@@ -1456,14 +1455,10 @@ public class ReturnToSenderPrototypeTests
                     "System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized",
                     0)]));
 
-            Assert.Contains(
-                "System_Text_Json_Serialization_IJsonOnDeserialized_OnDeserialized",
-                result.Source,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "IJsonOnDeserialized.OnDeserialized()",
-                result.Source,
-                StringComparison.Ordinal);
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Equal(CompileReferenceFailureKind.ReferencePlatformAgreementMismatch, result.ReferenceFailure?.Kind);
+            Assert.Empty(result.Source);
+            Assert.Null(result.CompilationAttempt);
         }
         finally
         {
@@ -1484,15 +1479,16 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            IReadOnlyList<ReturnToSender.Result> results =
-                ReturnToSender.CompileBackPropertyGetters(
-                    assemblyPath,
-                    maxTargets: 2);
+            ReturnToSender.WithCompilation(assemblyPath, operation =>
+            {
+                IReadOnlyList<ReturnToSender.Result> results = operation.CompileBackPropertyGetters(maxTargets: 2);
 
-            Assert.Equal(2, results.Count);
-            Assert.Same(
-                results[0].FinalRequest!.CompilationClosure,
-                results[1].FinalRequest!.CompilationClosure);
+                Assert.Equal(2, results.Count);
+                Assert.Same(
+                    results[0].FinalRequest!.CompilationClosure,
+                    results[1].FinalRequest!.CompilationClosure);
+                return true;
+            }, cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -1517,50 +1513,54 @@ public class ReturnToSenderPrototypeTests
             assemblyName: "fixture");
         try
         {
-            var closure = ReturnToSender.CreateCompilationClosure(assemblyPath);
+            ReturnToSender.WithCompilation(assemblyPath, operation =>
+            {
+                var closure = operation.Closure;
 
-            CompileFixture(
-                "public interface IAfter { void M(); }",
-                directory: fixtureDir,
-                assemblyName: "RtsSnapshotDependency");
+                CompileFixture(
+                    "public interface IAfter { void M(); }",
+                    directory: fixtureDir,
+                    assemblyName: "RtsSnapshotDependency");
 
-            ResolvedAssemblyReference frozen = Assert.IsType<ResolvedAssemblyReference>(
-                closure.Resolver.Resolve(
-                    dependency.Identity,
-                    AssemblyResolutionScope.Any));
-            using Stream frozenStream = frozen.OpenRead();
-            using var frozenPe = new PEReader(frozenStream);
-            Assert.True(
-                ContainsType(
-                    frozenPe.GetMetadataReader(),
-                    "IBefore"));
-            Assert.False(
-                ContainsType(
-                    frozenPe.GetMetadataReader(),
-                    "IAfter"));
+                ResolvedAssemblyReference frozen = Assert.IsType<ResolvedAssemblyReference>(
+                    closure.Resolver.Resolve(
+                        dependency.Identity,
+                        AssemblyResolutionScope.Any));
+                using Stream frozenStream = frozen.OpenRead();
+                using var frozenPe = new PEReader(frozenStream);
+                Assert.True(
+                    ContainsType(
+                        frozenPe.GetMetadataReader(),
+                        "IBefore"));
+                Assert.False(
+                    ContainsType(
+                        frozenPe.GetMetadataReader(),
+                        "IAfter"));
 
-            PortableExecutableReference roslynReference =
-                Assert.Single(
-                    closure.References.OfType<PortableExecutableReference>(),
-                    reference =>
-                    {
-                        var metadata =
-                            Assert.IsType<AssemblyMetadata>(
-                                reference.GetMetadata());
-                        var module = Assert.Single(metadata.GetModules());
-                        var reader = module.GetMetadataReader();
-                        return AssemblyReferenceIdentity
-                            .FromAssemblyDefinition(reader)
-                            == dependency.Identity;
-                    });
-            var roslynMetadata =
-                Assert.IsType<AssemblyMetadata>(
-                    roslynReference.GetMetadata());
-            var roslynReader =
-                Assert.Single(roslynMetadata.GetModules())
-                    .GetMetadataReader();
-            Assert.True(ContainsType(roslynReader, "IBefore"));
-            Assert.False(ContainsType(roslynReader, "IAfter"));
+                PortableExecutableReference roslynReference =
+                    Assert.Single(
+                        closure.References.OfType<PortableExecutableReference>(),
+                        reference =>
+                        {
+                            var metadata =
+                                Assert.IsType<AssemblyMetadata>(
+                                    reference.GetMetadata());
+                            var module = Assert.Single(metadata.GetModules());
+                            var reader = module.GetMetadataReader();
+                            return AssemblyReferenceIdentity
+                                .FromAssemblyDefinition(reader)
+                                == dependency.Identity;
+                        });
+                var roslynMetadata =
+                    Assert.IsType<AssemblyMetadata>(
+                        roslynReference.GetMetadata());
+                var roslynReader =
+                    Assert.Single(roslynMetadata.GetModules())
+                        .GetMetadataReader();
+                Assert.True(ContainsType(roslynReader, "IBefore"));
+                Assert.False(ContainsType(roslynReader, "IAfter"));
+                return true;
+            }, cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -1590,18 +1590,17 @@ public class ReturnToSenderPrototypeTests
         var facade = ResolvedAssemblyReference.CreateFromPath(
             facadePath,
             AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.NotNull(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            ReturnToSender.WithCompilation(assemblyPath, operation =>
+            {
+                var resolver = operation.Closure.Resolver;
+                var selectedFacade = Assert.IsType<ResolvedAssemblyReference>(
+                    resolver.Resolve(facade.Identity, AssemblyResolutionScope.Any));
+                Assert.NotNull(CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    selectedFacade, "System.Text.Json.JsonSerializer", resolver));
+                return true;
+            }, cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -1628,17 +1627,20 @@ public class ReturnToSenderPrototypeTests
             {
                 Version = new Version(runtimeIdentity.Version.Major - 1, 0, 0, 0),
             };
-            ReturnToSender.CompilationClosure closure =
-                ReturnToSender.CreateCompilationClosure(assemblyPath);
+            ReturnToSender.WithCompilation(assemblyPath, operation =>
+            {
+                ReturnToSender.CompilationClosure closure = operation.Closure;
 
-            var resolved = CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                closure.TargetAssembly,
-                priorRuntimeIdentity,
-                "System.IConvertible",
-                closure.Resolver);
+                var resolved = CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    closure.TargetAssembly,
+                    priorRuntimeIdentity,
+                    "System.IConvertible",
+                    closure.Resolver);
 
-            Assert.NotNull(resolved);
-            Assert.Equal("System.Private.CoreLib", resolved.Value.Assembly.Identity.Name);
+                Assert.NotNull(resolved);
+                Assert.Equal("System.Private.CoreLib", resolved.Value.Assembly.Identity.Name);
+                return true;
+            }, additionalPlatformReferences: [priorRuntimeIdentity], cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -1671,18 +1673,11 @@ public class ReturnToSenderPrototypeTests
         var facade = ResolvedAssemblyReference.CreateFromPath(
             facadePath,
             AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.Null(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            var failure = Assert.Throws<ReturnToSender.ReferencePreparationException>(
+                () => ReturnToSender.WithCompilation(assemblyPath, _ => true, cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(CompileReferenceFailureKind.ReferencePlatformAgreementMismatch, failure.Failure.Kind);
         }
         finally
         {
@@ -1712,18 +1707,11 @@ public class ReturnToSenderPrototypeTests
         var facade = ResolvedAssemblyReference.CreateFromPath(
             facadePath,
             AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.Null(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            var failure = Assert.Throws<ReturnToSender.ReferencePreparationException>(
+                () => ReturnToSender.WithCompilation(assemblyPath, _ => true, cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(CompileReferenceFailureKind.ReferencePlatformAgreementMismatch, failure.Failure.Kind);
         }
         finally
         {
@@ -1760,18 +1748,13 @@ public class ReturnToSenderPrototypeTests
         var facade = ResolvedAssemblyReference.CreateFromPath(
             facadePath,
             AssemblyResolutionProvenance.Local("test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ExcludeTargetAssembly = true,
-            });
         try
         {
-            Assert.Null(
-                CompileBackSourceComposer.ResolveExternalTypeDefinition(
-                    facade,
-                    "System.Text.Json.JsonSerializer",
-                    resolver));
+            var failure = Assert.Throws<ReturnToSender.ReferencePreparationException>(
+                () => ReturnToSender.WithCompilation(assemblyPath, _ => true, cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(CompileReferenceFailureKind.ReferencePlatformSelectionUnavailable, failure.Failure.Kind);
+            Assert.Equal("System.Text.Json",
+                Assert.IsType<AssemblyBindingTarget.AssemblyReference>(failure.Failure.BindingRequest!.Target).Identity.Name);
         }
         finally
         {
@@ -9793,7 +9776,11 @@ public class ReturnToSenderPrototypeTests
     // a sibling type `N.System` in the same namespace. Assembled with ilasm because no C#
     // compiler can produce a clean explicit-override name alongside an in-scope shadow.
     const string ShadowingSiblingIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime
+        {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 1:0:0:0
+        }
         .assembly shadowrepro { }
         .module shadowrepro.dll
 

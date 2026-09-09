@@ -101,109 +101,122 @@ static class AuthoredRebuildFidelity
             if (results.Count >= cap)
                 break;
 
-            IReadOnlyList<ReturnToSender.Result> decompilerResults;
+            bool compiling = true;
             try
             {
-                decompilerResults = ReturnToSender.CompileBackPropertyGetters(
-                    assemblyPath,
-                    cap - results.Count);
+                await ReturnToSender.WithCompilationAsync(assemblyPath, async operation =>
+                {
+                    var decompilerResults = operation.CompileBackPropertyGetters(cap - results.Count);
+                    compiling = false;
+
+                    SourceLinkService? source = null;
+                    Exception? pdbAcquisitionFailure = null;
+                    try
+                    {
+                        source = SourceLinkService.Open(assemblyPath);
+                        await AcquirePdbAsync(
+                            source,
+                            httpClient,
+                            pdbStore: pdbStore);
+                    }
+                    catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
+                    {
+                        pdbAcquisitionFailure = ex;
+                    }
+                    var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+                    RecordedBuildContext buildContext =
+                        source is null
+                            ? RecordedBuildContext.Failed(
+                                subject,
+                                "Portable PDB acquisition failed before build-context inspection.")
+                            : new RecordedBuildContext(
+                                SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
+                                MetadataFindings.InspectCompilationOptions(
+                                    source.Context,
+                                    subject),
+                                MetadataFindings.InspectCompilationReferences(
+                                    source.Context,
+                                    subject));
+
+                    using (source)
+                    {
+                        foreach (var decompilerResult in decompilerResults)
+                        {
+                            if (results.Count >= cap)
+                                break;
+
+                            AuthoredRebuildFidelityResult evaluated;
+                            if (pdbAcquisitionFailure is not null)
+                            {
+                                evaluated = new AuthoredRebuildFidelityResult(
+                                    decompilerResult,
+                                    AuthoredRebuildOutcome.SourceFailed,
+                                    ChecksumVerification: null,
+                                    buildContext,
+                                    "Portable PDB acquisition failed: "
+                                        + pdbAcquisitionFailure.Message,
+                                    MemberComparison: null);
+                            }
+                            else if (source is { Context.NeedsPdb: true })
+                            {
+                                evaluated = new AuthoredRebuildFidelityResult(
+                                    decompilerResult,
+                                    AuthoredRebuildOutcome.SourceAbsent,
+                                    ChecksumVerification: null,
+                                    buildContext,
+                                    source.Context.WindowsPdbDetected
+                                        ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
+                                        : "No matching portable PDB is available.",
+                                    MemberComparison: null);
+                            }
+                            else
+                            {
+                                if (source is null)
+                                {
+                                    throw new InvalidOperationException(
+                                        "PDB acquisition completed without a source context or failure.");
+                                }
+
+                                evaluated = await EvaluateAsync(
+                                    source,
+                                    fetcher,
+                                    decompilerResult,
+                                    buildContext);
+                            }
+
+                            results.Add(
+                                evaluated with
+                                {
+                                    DecompilerLane =
+                                        evaluated.DecompilerLane with
+                                        {
+                                            FinalRequest = null,
+                                        },
+                                });
+                        }
+                    }
+                    return true;
+                });
             }
-            catch (Exception ex) when (ex is IOException
+            catch (ReturnToSender.ReferencePreparationException failure) when (compiling)
+            {
+                var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+                results.Add(new(
+                    ReturnToSender.ReferenceFailureResult(assemblyPath, failure),
+                    AuthoredRebuildOutcome.ContextFailed,
+                    ChecksumVerification: null,
+                    RecordedBuildContext.Failed(subject, failure.Message),
+                    failure.Message,
+                    MemberComparison: null));
+            }
+            catch (Exception ex) when (compiling && ex is (IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
-                or InvalidOperationException)
+                or InvalidOperationException))
             {
                 Console.Error.WriteLine(
                     $"Warning: authored rebuild skipped '{assemblyPath}' "
                     + $"({ex.GetType().Name}: {ex.Message}).");
-                continue;
-            }
-
-            SourceLinkService? source = null;
-            Exception? pdbAcquisitionFailure = null;
-            try
-            {
-                source = SourceLinkService.Open(assemblyPath);
-                await AcquirePdbAsync(
-                    source,
-                    httpClient,
-                    pdbStore: pdbStore);
-            }
-            catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
-            {
-                pdbAcquisitionFailure = ex;
-            }
-            var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
-            RecordedBuildContext buildContext =
-                source is null
-                    ? RecordedBuildContext.Failed(
-                        subject,
-                        "Portable PDB acquisition failed before build-context inspection.")
-                    : new RecordedBuildContext(
-                        SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
-                        MetadataFindings.InspectCompilationOptions(
-                            source.Context,
-                            subject),
-                        MetadataFindings.InspectCompilationReferences(
-                            source.Context,
-                            subject));
-
-            using (source)
-            {
-                foreach (var decompilerResult in decompilerResults)
-                {
-                    if (results.Count >= cap)
-                        break;
-
-                    AuthoredRebuildFidelityResult evaluated;
-                    if (pdbAcquisitionFailure is not null)
-                    {
-                        evaluated = new AuthoredRebuildFidelityResult(
-                            decompilerResult,
-                            AuthoredRebuildOutcome.SourceFailed,
-                            ChecksumVerification: null,
-                            buildContext,
-                            "Portable PDB acquisition failed: "
-                                + pdbAcquisitionFailure.Message,
-                            MemberComparison: null);
-                    }
-                    else if (source is { Context.NeedsPdb: true })
-                    {
-                        evaluated = new AuthoredRebuildFidelityResult(
-                            decompilerResult,
-                            AuthoredRebuildOutcome.SourceAbsent,
-                            ChecksumVerification: null,
-                            buildContext,
-                            source.Context.WindowsPdbDetected
-                                ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
-                                : "No matching portable PDB is available.",
-                            MemberComparison: null);
-                    }
-                    else
-                    {
-                        if (source is null)
-                        {
-                            throw new InvalidOperationException(
-                                "PDB acquisition completed without a source context or failure.");
-                        }
-
-                        evaluated = await EvaluateAsync(
-                            source,
-                            fetcher,
-                            decompilerResult,
-                            buildContext);
-                    }
-
-                    results.Add(
-                        evaluated with
-                        {
-                            DecompilerLane =
-                                evaluated.DecompilerLane with
-                                {
-                                    FinalRequest = null,
-                                },
-                        });
-                }
             }
         }
 
@@ -848,15 +861,6 @@ static class AuthoredRebuildFidelity
         LocalComparisonQueryResult? memberComparison = null;
         try
         {
-            using var originalPe = new PEReader(File.OpenRead(request.AssemblyPath));
-            var originalReader = originalPe.GetMetadataReader();
-            request = ReturnToSender.WithReader(request, originalReader);
-            var authoredRequest = ReturnToSender.WithTargetBody(
-                request,
-                new ProductTargetBody(authoredBody, []));
-            var artifact = CompileBackSourceComposer.Compose(authoredRequest);
-            var parseOptions = ParseOptions(buildContext);
-            var compileOptions = CompilationOptions(buildContext);
             if (request.CompilationClosure is not { } compilationClosure)
             {
                 return new AuthoredRebuildFidelityResult(
@@ -867,6 +871,14 @@ static class AuthoredRebuildFidelity
                     "RTS did not retain its frozen compilation closure.",
                     MemberComparison: null);
             }
+            var originalReader = compilationClosure.SourceReader.GetMetadataReader();
+            request = ReturnToSender.WithReader(request, originalReader);
+            var authoredRequest = ReturnToSender.WithTargetBody(
+                request,
+                new ProductTargetBody(authoredBody, []));
+            var artifact = CompileBackSourceComposer.Compose(authoredRequest);
+            var parseOptions = ParseOptions(buildContext);
+            var compileOptions = CompilationOptions(buildContext);
             MetadataReference[] references =
                 compilationClosure.References;
             var compilation = RoundTripCompilationEngine.Compile(
@@ -878,7 +890,8 @@ static class AuthoredRebuildFidelity
                 static (_, _, _) => RoundTripGrowthResult.Stop("authored-recompile-failed"),
                 new RoundTripCompilationOptions { AssemblyName = "return-to-sender", MaxIterations = 1 });
             authoredAttempt = RebuildCompilationAttempt.Capture(
-                artifact, parseOptions, compileOptions, compilation.Provenance, references);
+                artifact, parseOptions, compileOptions,
+                compilationClosure.WithReferenceProvenance(compilation.Provenance), references);
             if (!compilation.Succeeded || compilation.PeImage is null)
             {
                 var error = compilation.Diagnostics.FirstOrDefault(diagnostic =>
@@ -904,7 +917,8 @@ static class AuthoredRebuildFidelity
                 compilation.PeImage,
                 request.FullType,
                 request.MethodName,
-                overload: 0);
+                overload: 0,
+                compilationClosure: compilationClosure);
             var (outcome, detail) = ClassifyComparison(memberComparison);
 
             return new AuthoredRebuildFidelityResult(

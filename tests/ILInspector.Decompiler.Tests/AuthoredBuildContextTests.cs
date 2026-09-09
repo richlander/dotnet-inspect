@@ -123,30 +123,34 @@ public sealed class AuthoredBuildContextTests
     [Fact]
     public void ReplacingAuthoredAttempt_DoesNotReuseItsContextOrVerdict()
     {
-        var decompiler = Decompile();
-        var debug = AuthoredRebuildFidelity.CompileAuthoredBody(
-            decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "debug")));
-        var release = AuthoredRebuildFidelity.CompileAuthoredBody(
-            decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "release")));
-        var failed = AuthoredRebuildFidelity.CompileAuthoredBody(
-            decompiler, "return MissingValue;", null, Context());
-        var different = AuthoredRebuildFidelity.CompileAuthoredBody(
-            decompiler, "return 43;", null, Context(new CompilationOptionInfo("optimization", "debug")));
+        ReturnToSender.WithCompilation(FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath(), operation =>
+        {
+            var decompiler = Assert.Single(operation.CompileBackPropertyGetters(1));
+            var debug = AuthoredRebuildFidelity.CompileAuthoredBody(
+                decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "debug")));
+            var release = AuthoredRebuildFidelity.CompileAuthoredBody(
+                decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "release")));
+            var failed = AuthoredRebuildFidelity.CompileAuthoredBody(
+                decompiler, "return MissingValue;", null, Context());
+            var different = AuthoredRebuildFidelity.CompileAuthoredBody(
+                decompiler, "return 43;", null, Context(new CompilationOptionInfo("optimization", "debug")));
 
-        Assert.Same(decompiler, debug.DecompilerLane);
-        Assert.Same(decompiler, release.DecompilerLane);
-        Assert.Same(decompiler, failed.DecompilerLane);
-        Assert.Same(decompiler, different.DecompilerLane);
-        Assert.Equal(AuthoredRebuildOutcome.IlDifferent, different.Outcome);
-        Assert.NotSame(debug.MemberComparison!.Identity!.Operation, different.MemberComparison!.Identity!.Operation);
-        Assert.Equal(BuildContextFactStatus.Agree, Fact(debug.AuthoredContext, "optimization").Status);
-        Assert.Equal(BuildContextFactStatus.Different, Fact(debug.DecompiledContext, "optimization").Status);
-        Assert.Equal("debug", Fact(debug.AuthoredContext, "optimization").Effective);
-        Assert.Equal("release", Fact(release.AuthoredContext, "optimization").Effective);
-        Assert.Equal(AuthoredRebuildOutcome.RecompileFailed, failed.Outcome);
-        Assert.NotNull(failed.AuthoredAttempt);
-        Assert.Null(failed.MemberComparison);
-        Assert.Equal("debug", Fact(debug.AuthoredContext, "optimization").Effective);
+            Assert.Same(decompiler, debug.DecompilerLane);
+            Assert.Same(decompiler, release.DecompilerLane);
+            Assert.Same(decompiler, failed.DecompilerLane);
+            Assert.Same(decompiler, different.DecompilerLane);
+            Assert.Equal(AuthoredRebuildOutcome.IlDifferent, different.Outcome);
+            Assert.NotSame(debug.MemberComparison!.Identity!.Operation, different.MemberComparison!.Identity!.Operation);
+            Assert.Equal(BuildContextFactStatus.Agree, Fact(debug.AuthoredContext, "optimization").Status);
+            Assert.Equal(BuildContextFactStatus.Different, Fact(debug.DecompiledContext, "optimization").Status);
+            Assert.Equal("debug", Fact(debug.AuthoredContext, "optimization").Effective);
+            Assert.Equal("release", Fact(release.AuthoredContext, "optimization").Effective);
+            Assert.Equal(AuthoredRebuildOutcome.RecompileFailed, failed.Outcome);
+            Assert.NotNull(failed.AuthoredAttempt);
+            Assert.Null(failed.MemberComparison);
+            Assert.Equal("debug", Fact(debug.AuthoredContext, "optimization").Effective);
+            return true;
+        }, cancellationToken: TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -276,8 +280,12 @@ public sealed class AuthoredBuildContextTests
     }
 
     static AuthoredRebuildFidelityResult Rebuild(RecordedBuildContext context)
-        => AuthoredRebuildFidelity.CompileAuthoredBody(
-            Decompile(), AuthoredBody(), SourceChecksumVerification.Exact, context);
+        => ReturnToSender.WithCompilation(FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath(), operation =>
+        {
+            var result = AuthoredRebuildFidelity.CompileAuthoredBody(
+                Assert.Single(operation.CompileBackPropertyGetters(1)), AuthoredBody(), SourceChecksumVerification.Exact, context);
+            return result with { DecompilerLane = ReturnToSender.Detach(result.DecompilerLane) };
+        });
 
     static RecordedBuildContext Context(params CompilationOptionInfo[] options)
         => new(true, Options(options), MetadataFindings.InspectCompilationReferences([], Subject));

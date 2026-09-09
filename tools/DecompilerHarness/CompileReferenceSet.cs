@@ -180,25 +180,8 @@ public sealed class CompileReferenceSet
         var streams = new List<Stream>();
         try
         {
-            foreach (CompileReferenceImage image in References.Select(reference => reference.Image).Prepend(Source))
-            {
-                if (Validate(_inventory, image, cancellationToken) is { } failure)
-                    return new CompileReferenceResult<T>.Rejected(failure);
-                try
-                {
-                    streams.Add(image.Assembly.OpenRead());
-                }
-                catch (Exception ex) when (ex is UnauthorizedAccessException or ObjectDisposedException)
-                {
-                    return new CompileReferenceResult<T>.Rejected(
-                        new(CompileReferenceFailureKind.ReferenceAuthorityUnavailable, image.InventoryId));
-                }
-                catch (IOException)
-                {
-                    return new CompileReferenceResult<T>.Rejected(
-                        new(CompileReferenceFailureKind.ReferenceContentUnavailable, image.InventoryId));
-                }
-            }
+            if (OpenSelectedContent(streams, cancellationToken) is { } failure)
+                return new CompileReferenceResult<T>.Rejected(failure);
             cancellationToken.ThrowIfCancellationRequested();
             return new CompileReferenceResult<T>.Ready(consume(new CompileReferenceContext(this)));
         }
@@ -207,6 +190,50 @@ public sealed class CompileReferenceSet
             foreach (Stream stream in streams)
                 stream.Dispose();
         }
+    }
+
+    /// <summary>Keeps selected content and scoped views live through an asynchronous consumer.</summary>
+    public async ValueTask<CompileReferenceResult<T>> UseAsync<T>(
+        Func<CompileReferenceContext, ValueTask<T>> consume,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(consume);
+        var streams = new List<Stream>();
+        try
+        {
+            if (OpenSelectedContent(streams, cancellationToken) is { } failure)
+                return new CompileReferenceResult<T>.Rejected(failure);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new CompileReferenceResult<T>.Ready(
+                await consume(new CompileReferenceContext(this)).ConfigureAwait(false));
+        }
+        finally
+        {
+            foreach (Stream stream in streams)
+                stream.Dispose();
+        }
+    }
+
+    CompileReferenceFailure? OpenSelectedContent(List<Stream> streams, CancellationToken cancellationToken)
+    {
+        foreach (CompileReferenceImage image in References.Select(reference => reference.Image).Prepend(Source))
+        {
+            if (Validate(_inventory, image, cancellationToken) is { } failure)
+                return failure;
+            try
+            {
+                streams.Add(image.Assembly.OpenRead());
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or ObjectDisposedException)
+            {
+                return new(CompileReferenceFailureKind.ReferenceAuthorityUnavailable, image.InventoryId);
+            }
+            catch (IOException)
+            {
+                return new(CompileReferenceFailureKind.ReferenceContentUnavailable, image.InventoryId);
+            }
+        }
+        return null;
     }
 
     static CompileReferenceFailure? Validate(
