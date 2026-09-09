@@ -1111,6 +1111,8 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
+let platformLibraryRetry: RetryAction = null;
+let platformCatalogRetry: RetryAction = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -1118,6 +1120,8 @@ interface CanonicalWorkspaceRestoreSnapshot {
   url: string;
   navigation: NavigationHistorySnapshot<WorkspaceView>;
   failedWorkspaceUrlState: FailedWorkspaceUrlState | null;
+  platformLibraryRetry: RetryAction;
+  platformCatalogRetry: RetryAction;
 }
 
 let retainedWorkspaces =
@@ -1199,6 +1203,8 @@ CanonicalWorkspaceRestoreSnapshot {
     failedWorkspaceUrlState: failedWorkspaceUrlState
       ? structuredClone(failedWorkspaceUrlState)
       : null,
+    platformLibraryRetry,
+    platformCatalogRetry,
   };
   if (snapshot.state.packages.length === 0 && !snapshot.state.platformSelection) {
     snapshot.state.workspaceSubjectOpen = true;
@@ -1311,6 +1317,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
     : null;
+  platformLibraryRetry = snapshot.platformLibraryRetry;
+  platformCatalogRetry = snapshot.platformCatalogRetry;
   spotlightCache = null;
   spotlightMemberCache = null;
   persistRecentPackages();
@@ -1351,6 +1359,8 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     failedWorkspaceUrlState: snapshot.failedWorkspaceUrlState
       ? structuredClone(snapshot.failedWorkspaceUrlState)
       : null,
+    platformLibraryRetry: snapshot.platformLibraryRetry,
+    platformCatalogRetry: snapshot.platformCatalogRetry,
   };
 }
 
@@ -2272,7 +2282,7 @@ async function restorePlatformHistoryView(
       tfm: view.platform?.tfm,
       version: view.platform?.version,
       retryAction: () =>
-        restorePlatformHistoryView(view, row, navigationSeq),
+        restorePlatformHistoryView(view, row, navigationSequence.current()),
     });
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!opened) {
@@ -8218,8 +8228,6 @@ const platformVersions = new Map<string, { values: string[] } & PlatformSubjectS
 const platformWarmups = new Map<string, PlatformSubjectStatus>();
 const platformPackages = new Map<string, AppPackage>();
 let platformCatalogSequence = 0;
-let platformLibraryRetry: RetryAction = null;
-let platformCatalogRetry: RetryAction = null;
 
 function selectedPlatformTarget(): PlatformCatalogTarget | null {
   const selection = state.platformSelection;

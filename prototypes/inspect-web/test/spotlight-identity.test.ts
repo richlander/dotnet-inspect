@@ -3233,6 +3233,15 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
   assert.match(
     restoreSnapshot,
     /clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);[\s\S]*state\.workspaceOccurrenceSignature = "";[\s\S]*state\.workspaceOccurrenceLoading = false;[\s\S]*state\.workspaceOccurrences = null;[\s\S]*state\.workspaceOccurrenceError = "";/);
+  assert.match(
+    appSource,
+    /platformLibraryRetry,\s*platformCatalogRetry,[\s\S]*platformLibraryRetry = snapshot\.platformLibraryRetry;\s*platformCatalogRetry = snapshot\.platformCatalogRetry;/);
+  assert.match(
+    appSource,
+    /platformLibraryRetry: snapshot\.platformLibraryRetry,\s*platformCatalogRetry: snapshot\.platformCatalogRetry,/);
+  assert.match(
+    appSource,
+    /retryAction: \(\) =>\s*restorePlatformHistoryView\(view, row, navigationSequence\.current\(\)\)/);
 
   const ensureOccurrence =
     appSource.match(/function ensureWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]

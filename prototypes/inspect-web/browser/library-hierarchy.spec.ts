@@ -1049,6 +1049,46 @@ test("missing shipped catalog opens a visible Platform failure without runtime a
   expect(await currentWorkspaceHistoryState(page)).toEqual(originalWorkspace);
 });
 
+test("restored Platform failure retries its own Library request", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await openPlatform(page, { libraryFailure: true });
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Could not open Platform Library: Library offline",
+  );
+  const firstWorkspace = await currentWorkspaceHistoryState(page);
+
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await page.keyboard.press("Control+p");
+  await page.locator("[data-sl-load-runtime]").click();
+  await page.getByRole("button", { name: /System.Facade Facade/ }).click();
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Could not open Platform Library: Library offline",
+  );
+
+  await page.goBack();
+  await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(firstWorkspace);
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Could not open Platform Library: Library offline",
+  );
+  await page.locator('[data-platform-retry="library"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+    JSON.stringify([
+      "net11.0",
+      platformVersion,
+      "System.Text.Json.dll",
+      "netcore.app",
+      "System.Text.Json.dll",
+    ]),
+  );
+});
+
 async function currentWorkspaceHistoryState(page: Page): Promise<{
   id: string | null;
   session: string | null;
