@@ -4203,7 +4203,9 @@ public sealed partial class BrowserEngineBoundaryTests
             await MetadataExports.QueryPackageHeapEntries(
                 packageId, "1.0.0", "net11.0", surface.Asset.Id,
                 "cli", "String"));
-        Assert.Contains(nameof(BrowserEngineBoundaryTests), heap.RootElement.GetRawText());
+        Assert.Contains(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Name!,
+            heap.RootElement.GetRawText());
 
         BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
             JsonSerializer.Deserialize(
@@ -5433,7 +5435,7 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
-        const string version = "11.0.104";
+        const string version = "11.0.304";
         const string framework = "net11.0-platform-home-demo-methods";
         byte[] nupkg = PlatformPackage(
             ("InspectWeb.Engine.Tests.dll",

@@ -1,0 +1,329 @@
+using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.Versioning;
+using System.Text.Json;
+using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
+using ILInspector.Analysis;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
+using InspectWeb.Engine;
+using InspectWeb.Engine.AnalysisFacade;
+
+[SupportedOSPlatform("browser")]
+public static partial class AnalysisExports
+{
+    /// <summary>
+    /// Runs one Library, Type, or Member Clone Candidates search over the exact
+    /// package participants supplied for the browser Workspace.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryCloneCandidates(
+        string requestJson)
+    {
+        BrowserCloneCandidateResult result =
+            await CloneCandidatesAsync(requestJson);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserAnalysisJsonContext.Default
+                .BrowserCloneCandidateResult);
+    }
+
+    static async Task<BrowserCloneCandidateResult> CloneCandidatesAsync(
+        string requestJson)
+    {
+        BrowserCloneCandidateRequest request =
+            JsonSerializer.Deserialize(
+                requestJson,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserCloneCandidateRequest)
+            ?? throw new ArgumentException(
+                "A Clone Candidates request is required.");
+        ValidateCloneCandidateRequest(request);
+
+        BrowserPackageRequest[] packages =
+        [
+            .. request.Packages.Select(package =>
+                new BrowserPackageRequest(
+                    package.PackageId,
+                    package.Version,
+                    package.TargetFramework)),
+        ];
+        await using BrowserScopeResolution resolution =
+            await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(packages);
+        BrowserInspectionScope scope = resolution.Lease.Scope;
+        if (resolution.RequestedCoordinates.Length != packages.Length)
+        {
+            throw new InvalidOperationException(
+                "The Clone Candidates Workspace did not preserve its "
+                    + "distinct package coordinates.");
+        }
+        BrowserPackageCoordinate coordinate =
+            scope.Coordinate(
+                resolution.RequestedCoordinates[
+                    request.SelectedPackageIndex]);
+        BrowserWorkspaceParticipant containingLibrary =
+            scope.LibraryParticipant(coordinate, request.Assembly);
+        StructuralCloneSearchSeed seed =
+            CreateCloneSeed(scope, containingLibrary, request.Seed);
+        WorkspaceStructuralCloneSearchResult queryResult =
+            await scope.QueryCloneCandidatesAsync(
+                containingLibrary,
+                seed,
+                Parse(request.Breadth),
+                Parse(request.Discovery));
+        return BrowserCloneCandidateWireProjection.Project(
+            request,
+            CloneCandidatePresentation.Create(queryResult));
+    }
+
+    static StructuralCloneSearchSeed CreateCloneSeed(
+        BrowserInspectionScope scope,
+        BrowserWorkspaceParticipant containingLibrary,
+        BrowserCloneCandidateSeedRequest request)
+    {
+        MetadataTypeDefinitionName? type = request.TypeDefinitionId is null
+            ? null
+            : ParseTypeDefinition(request.TypeDefinitionId);
+        return request.Kind switch
+        {
+            BrowserCloneCandidateSeedKind.Library =>
+                new StructuralCloneSearchSeed.Library(),
+            BrowserCloneCandidateSeedKind.Type =>
+                new StructuralCloneSearchSeed.Type(type!),
+            BrowserCloneCandidateSeedKind.Member =>
+                new StructuralCloneSearchSeed.Member(
+                    type!,
+                    CreateMemberAnchor(
+                        scope,
+                        containingLibrary,
+                        type!,
+                        request.Member!,
+                        request.Body)),
+            _ => throw new ArgumentOutOfRangeException(nameof(request)),
+        };
+    }
+
+    static MemberAnchor CreateMemberAnchor(
+        BrowserInspectionScope scope,
+        BrowserWorkspaceParticipant containingLibrary,
+        MetadataTypeDefinitionName type,
+        BrowserCloneMemberAnchor requested,
+        BrowserCloneCandidateBodySelection? body)
+    {
+        var logical = new MemberAnchor(
+            requested.StableSelector,
+            requested.CanonicalSignature,
+            requested.Fingerprint,
+            requested.TypeFullName,
+            requested.MemberName);
+        if (body is null)
+            return logical;
+
+        return BrowserSurfaceProjection.Require(
+            scope.UseImplementationParticipant(
+                containingLibrary,
+                (group, participant) =>
+                {
+                    ApiSurface surface =
+                        BrowserMemberResolution.ImplementationSurface(
+                            group,
+                            participant);
+                    CallGraphMemberResolution selected =
+                        BrowserMemberResolution
+                            .ResolveImplementationMember(
+                                surface,
+                                type.ToEscapedFullName(),
+                                body.MemberName,
+                                body.SelectorKey,
+                                body.MetadataToken);
+                    if (ApiMemberIdentity.GetMemberAnchor(
+                            selected.Type,
+                            selected.Member)
+                        != logical)
+                    {
+                        throw new ArgumentException(
+                            "The selected body does not belong to the "
+                                + "requested logical member.",
+                            nameof(body));
+                    }
+
+                    return AssemblyContextMethodAnchorQuery
+                        .ExecuteParticipant(
+                            group,
+                            participant,
+                            type,
+                            selected.BodyToken,
+                            selected.Member.IsExtension);
+                }),
+            $"Clone seed '{type.ToEscapedFullName()}."
+                + $"{body.MemberName}'");
+    }
+
+    static MetadataTypeDefinitionName ParseTypeDefinition(
+        string identity) =>
+        MetadataTypeDefinitionName.ParseSerialized(identity)
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : throw new ArgumentException(
+                    $"'{identity}' is not an exact metadata type-definition "
+                        + "identity.",
+                    nameof(identity));
+
+    static StructuralCloneCandidateBreadth Parse(
+        BrowserCloneCandidateBreadth breadth) =>
+        breadth switch
+        {
+            BrowserCloneCandidateBreadth.Self =>
+                StructuralCloneCandidateBreadth.Self,
+            BrowserCloneCandidateBreadth
+                .SelfAndRegisteredEcosystems =>
+                    StructuralCloneCandidateBreadth
+                        .SelfAndRegisteredEcosystems,
+            BrowserCloneCandidateBreadth.Everything =>
+                StructuralCloneCandidateBreadth.Everything,
+            _ => throw new ArgumentOutOfRangeException(nameof(breadth)),
+        };
+
+    static StructuralCloneCandidateDiscovery Parse(
+        BrowserCloneCandidateDiscovery discovery) =>
+        discovery switch
+        {
+            BrowserCloneCandidateDiscovery.SimilarNames =>
+                StructuralCloneCandidateDiscovery.SimilarNames,
+            BrowserCloneCandidateDiscovery.All =>
+                StructuralCloneCandidateDiscovery.All,
+            _ => throw new ArgumentOutOfRangeException(nameof(discovery)),
+        };
+
+    static void ValidateCloneCandidateRequest(
+        BrowserCloneCandidateRequest request)
+    {
+        if (request.SchemaVersion != 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                "The Clone Candidates request schema version is unsupported.");
+        }
+        if (request.Packages is not { Length: > 0 })
+        {
+            throw new ArgumentException(
+                "At least one exact package coordinate is required.",
+                nameof(request));
+        }
+        if (request.SelectedPackageIndex < 0
+            || request.SelectedPackageIndex >= request.Packages.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                "The selected package index is outside the request.");
+        }
+        if (!Enum.IsDefined(request.Breadth)
+            || !Enum.IsDefined(request.Discovery))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                "The Clone Candidates breadth or discovery value is invalid.");
+        }
+        if (request.Packages.Any(package =>
+                package is null
+                || string.IsNullOrWhiteSpace(package.PackageId)
+                || string.IsNullOrWhiteSpace(package.Version)
+                || string.IsNullOrWhiteSpace(package.TargetFramework)))
+        {
+            throw new ArgumentException(
+                "Every Clone Candidates package coordinate must be exact.",
+                nameof(request));
+        }
+        if (request.Packages
+            .GroupBy(
+                package => (
+                    package.PackageId,
+                    package.Version,
+                    package.TargetFramework),
+                EqualityComparer<(
+                    string PackageId,
+                    string Version,
+                    string TargetFramework)>.Default)
+            .Any(group => group.Skip(1).Any()))
+        {
+            throw new ArgumentException(
+                "A Clone Candidates request cannot repeat a package "
+                    + "coordinate.",
+                nameof(request));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Assembly);
+        ArgumentNullException.ThrowIfNull(request.Seed);
+        if (!Enum.IsDefined(request.Seed.Kind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                "The Clone Candidates seed kind is invalid.");
+        }
+
+        bool hasType =
+            !string.IsNullOrWhiteSpace(request.Seed.TypeDefinitionId);
+        bool hasMember = request.Seed.Member is not null;
+        bool hasBody = request.Seed.Body is not null;
+        bool validShape = request.Seed.Kind switch
+        {
+            BrowserCloneCandidateSeedKind.Library =>
+                !hasType && !hasMember && !hasBody,
+            BrowserCloneCandidateSeedKind.Type =>
+                hasType && !hasMember && !hasBody,
+            BrowserCloneCandidateSeedKind.Member =>
+                hasType && hasMember,
+            _ => false,
+        };
+        if (!validShape)
+        {
+            throw new ArgumentException(
+                "The Clone Candidates seed fields do not match its kind.",
+                nameof(request));
+        }
+
+        if (request.Seed.Member is { } member)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                member.StableSelector);
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                member.CanonicalSignature);
+            ArgumentException.ThrowIfNullOrWhiteSpace(member.Fingerprint);
+            ArgumentException.ThrowIfNullOrWhiteSpace(member.TypeFullName);
+            ArgumentException.ThrowIfNullOrWhiteSpace(member.MemberName);
+            if (!MemberAnchor.ComputeFingerprint(
+                    member.CanonicalSignature)
+                .Equals(
+                    member.Fingerprint,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "The Clone Candidates member fingerprint does not match "
+                        + "its canonical signature.",
+                    nameof(request));
+            }
+            if (!string.Equals(
+                    member.TypeFullName,
+                    request.Seed.TypeDefinitionId,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "The Clone Candidates member type does not match its "
+                        + "seed type.",
+                    nameof(request));
+            }
+        }
+        if (request.Seed.Body is { } body)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(body.MemberName);
+            ArgumentException.ThrowIfNullOrWhiteSpace(body.SelectorKey);
+            if ((body.MetadataToken & unchecked((int)0xff000000))
+                    != 0x06000000
+                || (body.MetadataToken & 0x00ffffff) == 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(request),
+                    "The Clone Candidates body token is not a MethodDef.");
+            }
+        }
+    }
+}
