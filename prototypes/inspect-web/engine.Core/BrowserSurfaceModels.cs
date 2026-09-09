@@ -76,6 +76,7 @@ internal sealed record BrowserMemberSurfaceInfo(
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
+    string AnchorTypeFullName,
     string GraphSelectorKey,
     BrowserMemberBodySelectorInfo[] BodySelectors);
 
