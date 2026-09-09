@@ -226,7 +226,8 @@ public sealed class PackageSourceClientTests
             PackageSourceCapabilities.Search
                 | PackageSourceCapabilities.VersionEnumeration
                 | PackageSourceCapabilities.Manifest
-                | PackageSourceCapabilities.PackagePayload,
+                | PackageSourceCapabilities.PackagePayload
+                | PackageSourceCapabilities.Catalog,
             runtime.Capabilities);
         PackageVersionResult versions = Succeeded(
             await runtime.GetVersionsAsync(
@@ -286,6 +287,28 @@ public sealed class PackageSourceClientTests
                 "user:token",
             ],
             handler.Authentication.Select(DecodeBasic));
+    }
+
+    [Fact]
+    public void CustomClientCannotAdvertiseAnUnforwardedCatalogCapability()
+    {
+        var descriptor = PackageSourceDescriptor.NuGetV3(
+            "custom",
+            "Custom",
+            new Uri(ServiceIndex));
+
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(
+                () => NuGetFetch.PackageSourceClientFactory.CreateCustom(
+                    descriptor,
+                    PackageSourceAssociation.Create(),
+                    factory => new FactoryOnlyPackageSourceClient(
+                        factory.Source,
+                        PackageSourceCapabilities.Catalog)));
+
+        Assert.Contains(
+            "cannot advertise the Catalog capability",
+            error.Message);
     }
 
     [Fact]
@@ -5548,12 +5571,14 @@ public sealed class PackageSourceClientTests
     }
 
     private sealed class FactoryOnlyPackageSourceClient(
-        PackageSourceResultIdentity source)
+        PackageSourceResultIdentity source,
+        PackageSourceCapabilities capabilities =
+            PackageSourceCapabilities.None)
         : IPackageSourceClient
     {
         public PackageSourceResultIdentity Source { get; } = source;
-        public PackageSourceCapabilities Capabilities =>
-            PackageSourceCapabilities.None;
+        public PackageSourceCapabilities Capabilities { get; } =
+            capabilities;
 
         public Task<PackageSourceOperationResult<PackageSearchResult>>
             SearchAsync(
