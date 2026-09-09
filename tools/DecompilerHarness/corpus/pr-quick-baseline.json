@@ -16665,13 +16665,20 @@
       "method": "MoveNext",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "controlFlowSites": "conditional-branch|15|0|1;conditional-branch|98|0|1;leave|130|0|1;leave|168|0|1;leave|193|0|1",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 36
+        }
+      ],
+      "controlFlowSites": "conditional-branch|15|0|0;conditional-branch|98|0|0;leave|130|0|1;leave|168|0|1;leave|193|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers.\u003CGetAnalyzerSyntaxDiagnosticsAsync\u003Ed__44::MoveNext#0"
     },
     {
@@ -19570,13 +19577,20 @@
       "method": "MoveNext",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "controlFlowSites": "switch-branch|15|0|1;conditional-branch|86|0|1;leave|118|0|1;conditional-branch|158|0|1;conditional-branch|187|0|1;branch|196|0|1;conditional-branch|213|0|1;branch|222|0|1;conditional-branch|309|0|1;conditional-branch|313|0|1;conditional-branch|319|0|1;branch|324|0|1;conditional-branch|333|0|1;conditional-branch|342|0|1;branch|347|0|1;conditional-branch|364|0|1;conditional-branch|406|0|1;leave|439|0|1;conditional-branch|480|0|1;conditional-branch|491|0|1;leave|529|0|1;branch|548|0|1;conditional-branch|573|0|1;conditional-branch|614|0|1;leave|646|0|1;conditional-branch|686|0|1;conditional-branch|706|0|1;leave|751|0|1;conditional-branch|762|0|1;leave|788|0|1;conditional-branch|830|0|1;leave|863|0|1;branch|904|0|1;conditional-branch|915|0|1;leave|941|0|1;branch|949|0|1;branch|968|0|1;leave|996|0|1",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 106
+        }
+      ],
+      "controlFlowSites": "switch-branch|15|0|0;conditional-branch|86|0|0;leave|118|0|1;conditional-branch|158|0|0;conditional-branch|187|0|0;branch|196|0|0;conditional-branch|213|0|0;branch|222|0|0;conditional-branch|309|0|0;conditional-branch|313|0|0;conditional-branch|319|0|0;branch|324|0|0;conditional-branch|333|0|0;conditional-branch|342|0|0;branch|347|0|0;conditional-branch|364|0|0;conditional-branch|406|0|0;leave|439|0|1;conditional-branch|480|0|0;conditional-branch|491|0|0;leave|529|0|0;branch|548|0|0;conditional-branch|573|0|0;conditional-branch|614|0|0;leave|646|0|1;conditional-branch|686|0|0;conditional-branch|706|0|0;leave|751|0|0;conditional-branch|762|0|0;leave|788|0|0;conditional-branch|830|0|0;leave|863|0|1;branch|904|0|0;conditional-branch|915|0|0;leave|941|0|0;branch|949|0|0;branch|968|0|0;leave|996|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader.\u003CParseCommentAsync\u003Ed__16::MoveNext#0"
     },
     {
@@ -19586,13 +19600,20 @@
       "method": "MoveNext",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "controlFlowSites": "switch-branch|15|0|1;conditional-branch|79|0|1;leave|111|0|1;conditional-branch|151|0|1;conditional-branch|192|0|1;leave|225|0|1;conditional-branch|295|0|1;conditional-branch|312|0|1;conditional-branch|354|0|1;leave|387|0|1;conditional-branch|428|0|1;branch|471|0|1;conditional-branch|483|0|1;branch|499|0|1;conditional-branch|508|0|1;conditional-branch|559|0|1;leave|592|0|1;branch|633|0|1;conditional-branch|639|0|1;branch|659|0|1;conditional-branch|668|0|1;branch|696|0|1;conditional-branch|702|0|1;branch|716|0|1;conditional-branch|842|0|1;leave|875|0|1;conditional-branch|931|0|1;branch|1013|0|1;leave|1027|0|1;leave|1052|0|1",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 116
+        }
+      ],
+      "controlFlowSites": "switch-branch|15|0|0;conditional-branch|79|0|0;leave|111|0|1;conditional-branch|151|0|0;conditional-branch|192|0|0;leave|225|0|1;conditional-branch|295|0|0;conditional-branch|312|0|0;conditional-branch|354|0|0;leave|387|0|1;conditional-branch|428|0|0;branch|471|0|0;conditional-branch|483|0|0;branch|499|0|0;conditional-branch|508|0|0;conditional-branch|559|0|0;leave|592|0|1;branch|633|0|0;conditional-branch|639|0|0;branch|659|0|0;conditional-branch|668|0|0;branch|696|0|0;conditional-branch|702|0|0;branch|716|0|0;conditional-branch|842|0|0;leave|875|0|1;conditional-branch|931|0|0;branch|1013|0|0;leave|1027|0|1;leave|1052|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader.\u003CParseConstructorAsync\u003Ed__25::MoveNext#0"
     },
     {
@@ -19602,12 +19623,19 @@
       "method": "SetStateMachine",
       "overload": 0,
       "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader.\u003CReadStringValueAsync\u003Ed__37::SetStateMachine#0"
     },
     {
