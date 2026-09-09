@@ -782,6 +782,44 @@ geometry, long names and identities, many/zero rows, pending and failed results,
 and Library navigation. Subject-strip behavior and other Library lenses are
 separate work.
 
+### Library Diff
+
+Library Diff fills the inspector area with the Package-targeted public-API
+comparison owned by
+[Inspect Web Library API Diff](inspect-web-library-api-diff.md). It does not
+retain the generic Library hero and does not introduce another version editor.
+
+```text
+Diff                         comparison version -> current version
+complete aggregate summary                         Change target
+changed-Type inventory      selected-Type compatibility and member detail
+Library asset and assembly identity              TFM · package@version
+```
+
+One scrolling region contains the endpoint summaries, aggregate counts, and
+master/detail comparison. The Type inventory retains the portable document's
+complete order while the detail pane exposes the selected Type's definition
+state, compatibility changes, and distinct member relations. **Change target**
+returns to Package Overview's existing Comparison targets.
+
+Loading, target-unavailable, canceled, failed, rejected, comparison-unavailable,
+successful empty, and successful changed results keep distinct presentations.
+An incomplete endpoint says **Not compared** and never presents equality or a
+one-sided change inventory. The fixed bottom row retains the selected Library
+asset and assembly identity plus the current package coordinate.
+
+At narrow widths the Type inventory and selected-Type detail stack inside the
+same local scroller. Long identities, signatures, and messages wrap without
+page-level horizontal overflow. Responsive presentation does not change the
+selected Type or start another managed request.
+
+Browser HTML lowers the portable typed document because this surface owns
+interactive Type selection and navigation. It does not reconstruct matching,
+compatibility, identities, or counts, and selecting a Type does not acquire
+Source. Focused renderer and published Firefox gates cover the responsive
+surface, real fixture comparison, empty success, unavailable comparison, target
+navigation, and retirement of the prior Source Diff modal.
+
 ### Library Integrations
 
 Library Integrations uses a quiet count/state header, an optional platform
@@ -1086,9 +1124,10 @@ This browser-only placement is milestone 5 of the six-step adoption path in
 [Inspect Web source-diff transport](inspect-web-source-diff-transport.md#purpose-and-delivery).
 It has one consumer, the Member Diff working surface, and one focused tracker,
 [#5685](https://github.com/richlander/dotnet-inspect/issues/5685). It adds no
-comparison, transport, navigation, or viewer architecture. The existing
-cross-version `Compare authored source` dialog and Method Body Diff remain
-separate experiences; this placement does not retire or redefine either.
+comparison, transport, navigation, or viewer architecture. Method Body Diff
+remains a separate experience. The former cross-version
+`Compare authored source` dialog was retired when [Library Diff](#library-diff)
+activated; Member Diff does not restore or redefine it.
 
 [VS Code](https://code.visualstudio.com/docs/sourcecontrol/overview) uses a
 dedicated side-by-side diff editor rather than embedding changed text in its

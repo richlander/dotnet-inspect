@@ -850,11 +850,11 @@ visibly unavailable. Settings are not included in shared links. The first
 version-selector adopter is the existing Gallery path, not custom sources or
 platform inputs.
 
-These controls prepare targets only: the Library Diff/Clone result inspectors
-remain follow-on work under #5083. The owner is
-[Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
-Diff baseline and Structural Clone Search Scope for the replacement Clone
-breadth and candidate discovery.
+These controls prepare targets only: the Library Clone result inspector
+remains follow-on work under #5083. Library Diff is described below. The
+owner is [Browser Diff targets](../../docs/design/inspect-web-diff-targets.md)
+for the Diff baseline and Structural Clone Search Scope for the replacement
+Clone breadth and candidate discovery.
 
 ## Method Body Diff
 
@@ -897,41 +897,56 @@ asset to include its compiled reference/implementation and accessor case.
 Only package acquisition is supplied with fixture bytes; comparison uses the
 published generated facade and product query.
 
-## Authored Source Diff
+## Library Diff
 
-Choose **Compare authored source** for a selected package method, enter the
-other version of the same package, and choose **Compare**. The launching
-version is Before; the entered version is After. Opening or editing the
-dialog does not fetch source, and comparing the same version is valid.
+Open a Library, choose the **Diff** inspector, and it automatically runs one
+bounded public-API comparison — ordinary Library navigation never executes
+it. The comparison target (Before) resolves from Package Overview's existing
+**Comparison targets**: an exact selected version, or the automatic previous
+listed release. The currently inspected Library is always After. A pending,
+failed, or predecessor-free target shows a visible no-request reason with
+**Change target**, which activates Package Overview's existing controls
+rather than adding a second version editor.
 
-The view uses checksum-accepted PDB source from each version, never a
-decompiled substitute. It distinguishes changed, unchanged, unavailable, and
-failed results. Native moved-line evidence retains both declaration-relative
-line numbers, including moves mixed with content edits. An available
-declaration and its provenance remain visible when the other endpoint has no
-source; that is not a deletion.
+The changed-Type inventory preserves document order; the first row is
+selected once a non-empty result arrives, and an explicit selection survives
+a rerender of the same result. A successful empty document is **No public API
+changes**, distinct from **Not compared** (an incomplete endpoint) and from
+loading, canceled, and failed states. The selected Type's detail pane shows
+its complete compatibility changes and distinct member relations, including
+role, pair kind, and match provenance — never a browser-reconstructed count
+or classification.
 
-The Source facade calls the shared paired query with two protected package
-contexts. The query resolves the logical member independently in each image.
-The browser receives structured native relations rather than CLI text or a
-second browser-computed diff.
+Changing the package coordinate, Library, Diff target, or leaving the Diff
+inspector for another one supersedes or cancels any in-flight comparison; a
+late result never publishes over a newer request. The managed query and
+presentation reuse the existing metadata facade's
+`QueryLibraryApiDiff`/`CancelLibraryApiDiff` exports — no new facade or
+Worker binding.
 
-Like Method Body Diff, this is a session-local contextual dialog. Changing
-After clears the previous result; dismissal or replacement of the launching
-context disposes its operation. Normal navigation and shared links retain
-their existing meaning. Platform inputs, accessors that cannot designate a
-whole method, arbitrary cross-package comparison, and portable comparison
-links are outside this bounded feature.
-
-See [Inspect Web Source Comparison](../../docs/design/inspect-web-source-comparison.md)
-for the contract and its S4/S5 adoption boundary.
+See [Inspect Web Library API Diff](../../docs/design/inspect-web-library-api-diff.md)
+for the full contract, including the atomic retirement of the prior
+**Compare authored source** dialog described below.
 
 After publishing the engine to `artifacts/inspect-web-publish`, run
-`eng/test-inspect-web-source-comparison-gate.sh` from the repository root.
-It resolves the cataloged version-pair package and SourceLink bytes and drives
-the real dialog in Firefox. For optional live-package evidence, set
-`INSPECT_WEB_SOURCE_DIFF_URL` to a published site and run
-`npm run test:browser -- browser/source-comparison-production.spec.ts`.
+`eng/test-inspect-web-library-api-diff-gate.sh` from the repository root. It
+acquires the real, compiler-produced `LibraryApiDiff.V1`/`V2` fixtures as a
+cataloged Gallery package and drives Package target resolution, the real
+managed query and presentation, and the Library Diff inventory/detail in
+Firefox — including a same-version empty result and an incomplete-endpoint
+case.
+
+## Retired: Authored Source Diff
+
+**Compare authored source**, its modal, and its frontend coordinator/view were
+atomically retired by
+[#6423](https://github.com/richlander/dotnet-inspect/issues/6423) when Library
+Diff activated as the browser's first Library-root comparison inspector. The
+shared paired Source query and its managed facade projection remain available
+for a later on-demand annotated comparison consumer; no placeholder browser
+action exists ahead of that consumer. See
+[Inspect Web Source Comparison](../../docs/design/inspect-web-source-comparison.md)
+for the retained managed contract and test coverage.
 
 ## Unsupported
 

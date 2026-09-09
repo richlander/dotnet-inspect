@@ -187,6 +187,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../playwright.worker-cpu.config.ts",
       "../playwright.package-adoption.config.ts",
       "../playwright.source-comparison.config.ts",
+      "../playwright.library-api-diff.config.ts",
     ],
   );
   // The toolchain scripts and the Vite config are Node programs rather than browser
@@ -2884,7 +2885,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
       + "playwright.config.ts playwright.worker.config.ts "
       + "playwright.worker-cpu.config.ts "
-      + "playwright.package-adoption.config.ts playwright.source-comparison.config.ts && "
+      + "playwright.package-adoption.config.ts playwright.source-comparison.config.ts "
+      + "playwright.library-api-diff.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });

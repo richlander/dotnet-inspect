@@ -49,7 +49,7 @@ import {
   type ParsedWorkspaceLocation,
 } from "../src/workspace-navigation.ts";
 import { createMethodBodyDiffState } from "../src/method-body-comparison.ts";
-import { createSourceDiffState } from "../src/source-comparison.ts";
+import { createLibraryApiDiffState } from "../src/library-api-diff.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -198,7 +198,7 @@ function harness() {
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     methodBodyDiff: createMethodBodyDiffState(),
-    sourceDiff: createSourceDiffState(),
+    libraryApiDiff: createLibraryApiDiffState(),
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
     spotlightPkgHits: [], history: [],
     spotlightOpen: false,
@@ -406,7 +406,7 @@ function harness() {
     },
     cancelFindingCensusRequest: () => {},
     methodBodyComparison: { dispose: () => {} },
-    sourceComparison: { dispose: () => {} },
+    libraryApiDiff: { dispose: () => {} },
     memberDetailInspection: { invalidate: () => {} },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
@@ -523,13 +523,13 @@ function harness() {
 test("canonical restoration preserves coordinator-owned comparison state identities", () => {
   const h = harness();
   const methodBodyDiff = h.state.methodBodyDiff;
-  const sourceDiff = h.state.sourceDiff;
+  const libraryApiDiff = h.state.libraryApiDiff;
   const snapshot: unknown = runInNewContext(
     "cloneCanonicalWorkspaceSnapshotForRetention(captureCanonicalWorkspaceRestoreSnapshot())",
     h.context);
 
   methodBodyDiff.open = true;
-  sourceDiff.open = true;
+  libraryApiDiff.loading = true;
   h.state.sourceRequestGeneration = 7;
   h.state.typeMetadataGeneration = 8;
   h.state.memberCallGraphSeq = 9;
@@ -540,9 +540,9 @@ test("canonical restoration preserves coordinator-owned comparison state identit
     { ...h.context, snapshot });
 
   assert.equal(h.state.methodBodyDiff, methodBodyDiff);
-  assert.equal(h.state.sourceDiff, sourceDiff);
+  assert.equal(h.state.libraryApiDiff, libraryApiDiff);
   assert.equal(methodBodyDiff.open, false);
-  assert.equal(sourceDiff.open, false);
+  assert.equal(libraryApiDiff.loading, false);
   assert.equal(h.state.sourceRequestGeneration, 8);
   assert.equal(h.state.typeMetadataGeneration, 9);
   assert.equal(h.state.memberCallGraphSeq, 10);

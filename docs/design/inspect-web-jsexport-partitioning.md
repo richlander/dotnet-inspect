@@ -189,7 +189,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 57 `[JSExport]` methods.
+The seven rooted export assemblies contain 67 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -246,9 +246,11 @@ coordinates, and the API surface initially loaded for a package or platform.
 surface without opening another artifact. It does not transfer type-matching
 semantics from the product query owner.
 
-### Metadata facade: 8 exports
+### Metadata facade: 10 exports
 
+- `CancelLibraryApiDiff`
 - `QueryGraphMemberSurface`
+- `QueryLibraryApiDiff`
 - `QueryPackageHeapEntries`
 - `QueryPackageMetadata`
 - `QueryPackageMetadataTable`
@@ -260,7 +262,11 @@ semantics from the product query owner.
 This facade adapts metadata images, tables, heaps, type projections, and the
 member surface selected from graph navigation. It consumes package or platform
 coordinates through `InspectWeb.Engine.Core`; it does not acquire artifacts
-independently.
+independently. `QueryLibraryApiDiff` and its keyed `CancelLibraryApiDiff`
+belong here because they adapt the shared selected-library API comparison and
+its portable `DotnetInspector.Presentation` diff document without adding an
+eighth facade or a sibling export-assembly dependency
+([#6423](https://github.com/richlander/dotnet-inspect/issues/6423)).
 
 ### Analysis facade: 8 exports
 

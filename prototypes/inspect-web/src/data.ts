@@ -42,7 +42,8 @@ export const libraryLenses = [
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
-  ["metadata", "Metadata"]
+  ["metadata", "Metadata"],
+  ["diff", "Diff"]
 ] as const;
 
 export type PackageLens = (typeof packageLenses)[number][0];

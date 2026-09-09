@@ -2,6 +2,44 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserLibraryApiChangeCategory = "Signature" | "Attribute" | number;
+
+export type BrowserLibraryApiChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | number;
+
+export type BrowserLibraryApiChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | number;
+
+export type BrowserLibraryApiChangeSubjectKind = "Type" | "Member" | number;
+
+export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+
+export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
+
+export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserLibraryApiDiffMetadataRootReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
+
+export type BrowserLibraryApiDiffOpenFailureKind = "Unreadable" | "InvalidImage" | "ResourceBudget" | "UnsupportedMetadataFormat" | number;
+
+export type BrowserLibraryApiDiffPresentationKind = "Available" | "Unavailable" | "Rejected" | number;
+
+export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "FindingComparisonFailed" | "CompatibilityInspectionFailed" | "MissingExactTypeIdentity" | "MissingMemberAnchor" | "DuplicateExactTypeIdentity" | "UnassociatedStructuredSubject" | "ContradictoryOccupiedSideTopology" | number;
+
+export type BrowserLibraryApiDiffResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+
+export type BrowserLibraryApiDiffTruncationLimit = "Participants" | "Types" | "Members" | "InspectionFailures" | "TypeForwarders" | "MetadataRows" | "RetainedTextCharacters" | number;
+
+export type BrowserLibraryApiDiffUnavailableKind = "BeforeIncomplete" | "AfterIncomplete" | "BothIncomplete" | number;
+
+export type BrowserLibraryApiMemberPairKind = "Changed" | "Added" | "Removed" | number;
+
+export type BrowserLibraryApiMemberRelationRole = "Before" | "After" | "Both" | number;
+
+export type BrowserLibraryApiSubjectChangeKind = "Diff" | "Addition" | "Deletion" | number;
+
+export type BrowserLibraryApiSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
+
+export type BrowserLibraryApiTypePairKind = "Present" | "Changed" | "Added" | "Removed" | number;
+
 export interface BrowserAssemblyMetadata {
   readonly assembly: string;
   readonly metadataRoots: ReadonlyArray<BrowserMetadataImage>;
@@ -42,6 +80,168 @@ export interface BrowserHeapListing {
   readonly rowsTruncated: boolean;
   readonly entriesTruncated: boolean;
   readonly error: string | null;
+}
+
+export interface BrowserLibraryApiChangeSubject {
+  readonly kind: BrowserLibraryApiChangeSubjectKind;
+  readonly beforeType: BrowserLibraryApiTypeIdentity | null;
+  readonly afterType: BrowserLibraryApiTypeIdentity | null;
+  readonly beforeMember: BrowserLibraryApiMemberIdentity | null;
+  readonly afterMember: BrowserLibraryApiMemberIdentity | null;
+}
+
+export interface BrowserLibraryApiCompatibilityChange {
+  readonly kind: BrowserLibraryApiChangeKind;
+  readonly classification: BrowserLibraryApiChangeClassification;
+  readonly category: BrowserLibraryApiChangeCategory;
+  readonly message: string;
+  readonly oldValue: string | null;
+  readonly newValue: string | null;
+  readonly subject: BrowserLibraryApiChangeSubject;
+}
+
+export interface BrowserLibraryApiDiff {
+  readonly request: BrowserLibraryApiDiffRequest;
+  readonly kind: BrowserLibraryApiDiffPresentationKind;
+  readonly before: BrowserLibraryApiDiffEndpointSummary;
+  readonly after: BrowserLibraryApiDiffEndpointSummary;
+  readonly summary: BrowserLibraryApiDiffSummary | null;
+  readonly document: BrowserLibraryApiDiffDocument | null;
+  readonly unavailableKind: BrowserLibraryApiDiffUnavailableKind | null;
+  readonly rejectionKind: BrowserLibraryApiDiffRejectionKind | null;
+}
+
+export interface BrowserLibraryApiDiffAssemblyIdentity {
+  readonly name: string;
+  readonly version: string | null;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface BrowserLibraryApiDiffCancellation {
+  readonly kind: BrowserLibraryApiDiffCancellationKind;
+  readonly reason: string | null;
+}
+
+export interface BrowserLibraryApiDiffDocument {
+  readonly identifier: string;
+  readonly display: string;
+  readonly subjects: ReadonlyArray<BrowserLibraryApiTypeSubject>;
+}
+
+export interface BrowserLibraryApiDiffEndpointIssue {
+  readonly kind: BrowserLibraryApiDiffEndpointIssueKind;
+  readonly truncation: BrowserLibraryApiDiffTruncation | null;
+  readonly openFailureKind: BrowserLibraryApiDiffOpenFailureKind | null;
+  readonly detail: string | null;
+  readonly metadataRootReason: BrowserLibraryApiDiffMetadataRootReason | null;
+  readonly count: number | null;
+}
+
+export interface BrowserLibraryApiDiffEndpointSummary {
+  readonly identity: BrowserLibraryApiDiffAssemblyIdentity;
+  readonly scope: BrowserLibraryApiSurfaceScope;
+  readonly isComplete: boolean;
+  readonly issues: ReadonlyArray<BrowserLibraryApiDiffEndpointIssue>;
+}
+
+export interface BrowserLibraryApiDiffRequest {
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly comparisonVersion: string;
+  readonly assembly: string;
+}
+
+export interface BrowserLibraryApiDiffResult {
+  readonly version: number;
+  readonly kind: BrowserLibraryApiDiffResultKind;
+  readonly value: BrowserLibraryApiDiff | null;
+  readonly failureKind: BrowserLibraryApiDiffFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserLibraryApiDiffSummary {
+  readonly changedTypeCount: number;
+  readonly addedTypeCount: number;
+  readonly removedTypeCount: number;
+  readonly changedMemberCount: number;
+  readonly breakingCount: number;
+  readonly additiveCount: number;
+  readonly potentiallyBreakingCount: number;
+}
+
+export interface BrowserLibraryApiDiffTruncation {
+  readonly limit: BrowserLibraryApiDiffTruncationLimit;
+  readonly bound: number;
+  readonly projectedParticipants: number;
+  readonly omittedParticipants: number;
+  readonly projectedTypes: number;
+  readonly projectedMembers: number;
+  readonly projectedInspectionFailures: number;
+  readonly projectedTypeForwarders: number;
+  readonly inspectedMetadataRows: number;
+  readonly projectedRetainedTextCharacters: number;
+}
+
+export interface BrowserLibraryApiMatchProvenance {
+  readonly tierId: string;
+  readonly tierConfidence: number;
+  readonly confidence: number;
+}
+
+export interface BrowserLibraryApiMemberAnchor {
+  readonly stableSelector: string;
+  readonly canonicalSignature: string;
+  readonly fingerprint: string;
+  readonly typeFullName: string;
+  readonly memberName: string;
+}
+
+export interface BrowserLibraryApiMemberDiff {
+  readonly relation: BrowserLibraryApiMemberRelation;
+  readonly role: BrowserLibraryApiMemberRelationRole;
+}
+
+export interface BrowserLibraryApiMemberIdentity {
+  readonly declaringType: BrowserLibraryApiTypeIdentity;
+  readonly anchor: BrowserLibraryApiMemberAnchor;
+  readonly display: string;
+}
+
+export interface BrowserLibraryApiMemberRelation {
+  readonly identifier: string;
+  readonly pairKind: BrowserLibraryApiMemberPairKind;
+  readonly before: BrowserLibraryApiMemberIdentity | null;
+  readonly after: BrowserLibraryApiMemberIdentity | null;
+  readonly match: BrowserLibraryApiMatchProvenance | null;
+}
+
+export interface BrowserLibraryApiTypeDiff {
+  readonly before: BrowserLibraryApiTypeIdentity | null;
+  readonly after: BrowserLibraryApiTypeIdentity | null;
+  readonly pairKind: BrowserLibraryApiTypePairKind;
+  readonly typeDefinitionChanged: boolean | null;
+  readonly compatibilityChanges: ReadonlyArray<BrowserLibraryApiCompatibilityChange>;
+  readonly members: ReadonlyArray<BrowserLibraryApiMemberDiff>;
+  readonly breakingCount: number;
+  readonly additiveCount: number;
+  readonly potentiallyBreakingCount: number;
+  readonly changedMemberCount: number;
+}
+
+export interface BrowserLibraryApiTypeIdentity {
+  readonly identifier: string;
+  readonly display: string;
+}
+
+export interface BrowserLibraryApiTypeSubject {
+  readonly identifier: string;
+  readonly display: string;
+  readonly change: BrowserLibraryApiSubjectChangeKind;
+  readonly typeDiff: BrowserLibraryApiTypeDiff;
 }
 
 export interface BrowserMemberBodySelector {
@@ -290,7 +490,9 @@ export interface BrowserTypeSurface {
 
 type $ManagedExports = {
   readonly "MetadataExports": {
+    readonly "CancelLibraryApiDiff.271973316": (operationId: string, reason: string) => string;
     readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+    readonly "QueryLibraryApiDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
     readonly "QueryPackageHeapEntries.649160465": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string) => Promise<string>;
     readonly "QueryPackageMetadata.1579276339": (packageId: string, version: string, targetFramework: string, assemblyFileName: string) => Promise<string>;
     readonly "QueryPackageMetadataTable.1945598111": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
@@ -346,9 +548,25 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "CancelLibraryApiDiff.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027MetadataExports.CancelLibraryApiDiff.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "MetadataExports");
     value = $ownDataProperty(value, "QueryGraphMemberSurface.1542089313");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027MetadataExports.QueryGraphMemberSurface.1542089313\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryLibraryApiDiff.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027MetadataExports.QueryLibraryApiDiff.451505237\u0027 is not callable.");
     }
   }
   {
@@ -444,10 +662,22 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+export function cancelLibraryApiDiff(operationId: string, reason: string): BrowserLibraryApiDiffCancellation {
+  const $result = $requireManagedExports()["MetadataExports"]["CancelLibraryApiDiff.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryApiDiffCancellation;
+}
+
 export async function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface> {
   const $result = await $requireManagedExports()["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserGraphMemberSurface;
+}
+
+export async function queryLibraryApiDiff(operationId: string, requestJson: string): Promise<BrowserLibraryApiDiffResult> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, requestJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryApiDiffResult;
 }
 
 export async function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing> {

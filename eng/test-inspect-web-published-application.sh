@@ -16,6 +16,7 @@ export INSPECT_WEB_WORKER_SITE="$site"
 export INSPECT_WEB_WORKER_SOURCE_DLL="$repo_root/artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll"
 export INSPECT_WEB_PACKAGE_ADOPTION_SITE="$site"
 export INSPECT_WEB_SOURCE_DIFF_SITE="$site"
+export INSPECT_WEB_LIBRARY_API_DIFF_SITE="$site"
 export INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD=1
 
 if ! "$dotnet" build "$resolver" -c Release --nologo; then
@@ -42,6 +43,9 @@ package_pid=$!
 "$repo_root/eng/test-inspect-web-source-comparison-gate.sh" &
 source_pid=$!
 
+"$repo_root/eng/test-inspect-web-library-api-diff-gate.sh" &
+library_api_diff_pid=$!
+
 "$dotnet" run "$repo_root/eng/validate-inspect-web-promotion.cs" -- --self-test &
 promotion_pid=$!
 
@@ -51,6 +55,7 @@ for gate in \
   "Worker browser gates:$worker_pid" \
   "package adoption:$package_pid" \
   "Authored Source comparison:$source_pid" \
+  "Library API Diff:$library_api_diff_pid" \
   "promotion validation:$promotion_pid"; do
   name="${gate%%:*}"
   pid="${gate##*:}"
