@@ -809,7 +809,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.equal(
     appSource.match(
-      /state\.memberAnnotated = null;\s*state\.memberAnnotated(?:Key = "";\s*state\.memberAnnotated)?Error = "";\s*state\.annotatedDestinationError = "";/g,
+      /state\.memberAnnotated = null;\s*state\.memberAnnotated(?:Key = "";\s*state\.memberAnnotated)?Error = "";\s*state\.memberFindingInteraction = null;\s*state\.memberFindingSelectionError = "";\s*state\.annotatedDestinationError = "";/g,
     )?.length,
     7,
   );

@@ -314,6 +314,10 @@ selection (`command -v dotnet`, `dotnet --version`) before installing one or
 changing `PATH`. If `dotnet` is centrally installed, stop and ask before
 replacing or shadowing it. Follow `README.md#repository-development-sdk`.
 
+The primary dependencies are the .NET SDK, `Microsoft.CodeAnalysis.CSharp`,
+and Markout. For major dependency updates, check all three; update the .NET SDK
+and `Microsoft.CodeAnalysis.CSharp` together.
+
 Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;

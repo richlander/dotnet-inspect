@@ -75,7 +75,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Self-test change detection
         shell: bash
@@ -296,8 +296,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -355,8 +354,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -395,8 +393,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -433,8 +430,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -471,8 +467,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -502,8 +497,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -531,8 +525,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install .NET 10 runtime (inspect-web test target)
         run: |
@@ -599,8 +592,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -721,8 +713,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Publish MSDL managed API
         run: >
@@ -788,8 +779,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -817,8 +807,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -876,8 +865,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1203,8 +1191,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1239,8 +1226,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1311,8 +1297,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
       # here. The completeness check compares a discovery listing against XML
@@ -1432,8 +1417,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1533,8 +1517,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1637,8 +1620,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Pack pointer package
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
