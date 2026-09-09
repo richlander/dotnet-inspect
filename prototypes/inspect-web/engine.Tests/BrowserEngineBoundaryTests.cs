@@ -17,7 +17,7 @@ using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
 

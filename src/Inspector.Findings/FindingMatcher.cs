@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>How an old/new occurrence pair (or singleton) is related across versions.</summary>
 public enum FindingEdgeKind

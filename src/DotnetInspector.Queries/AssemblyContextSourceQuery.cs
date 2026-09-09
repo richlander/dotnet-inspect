@@ -6,7 +6,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;

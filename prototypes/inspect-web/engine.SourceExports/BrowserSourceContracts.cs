@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Research;
 
 namespace InspectWeb.Engine.SourceFacade;

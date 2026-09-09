@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>
 /// AOT-safe structured JSON for comparison documents with caller-generated payload metadata.
