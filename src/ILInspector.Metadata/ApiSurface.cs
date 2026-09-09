@@ -670,6 +670,20 @@ public class ApiParameter
         : $"{Modifier} {EffectiveCanonicalType}";
 }
 
+[Flags]
+[JsonConverter(typeof(JsonStringEnumConverter<ApiMethodSemanticsKind>))]
+public enum ApiMethodSemanticsKind
+{
+    None = 0,
+    PropertyGetter = 1 << 0,
+    PropertySetter = 1 << 1,
+    PropertyOther = 1 << 2,
+    EventAdder = 1 << 3,
+    EventRemover = 1 << 4,
+    EventRaiser = 1 << 5,
+    EventOther = 1 << 6,
+}
+
 public class ApiAccessor
 {
     public string Kind { get; set; } = "";
@@ -814,6 +828,10 @@ public class ApiType
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiTypeLayout? Layout { get; set; }
+
+    /// <summary>Raw type-layout observations; null means unavailable, including older surfaces.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiTypeLayoutFacts? LayoutDetails { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiModuleMemorySafetyFacts? MemorySafety { get; set; }
@@ -999,6 +1017,19 @@ public class ApiMember
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
+
+    /// <summary>
+    /// The property or event MethodSemantics role for this MethodDef.
+    /// <see cref="ApiMethodSemanticsKind.None"/> is a positive full-extraction
+    /// result; null means the relationship was not retained or could not be
+    /// trusted.
+    /// </summary>
+    [JsonIgnore]
+    public ApiMethodSemanticsKind? MethodSemantics { get; set; }
+
+    /// <summary>Raw field-layout observation; null means unavailable or not a field.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiFieldLayoutFacts? FieldLayout { get; set; }
 
     /// <summary>
     /// Display spelling of the member's type. Deliberately raw: after a JSON

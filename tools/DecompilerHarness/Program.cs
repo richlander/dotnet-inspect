@@ -1513,7 +1513,8 @@ static class Program
                 continue;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, per-pass diff)");
-            Console.Write(StageDump.FormatDiff(IrPasses.RunWithStages(function, ImportSeam(source))));
+            Console.Write(StageDump.FormatDiff(
+                IrPasses.RunWithStages(function, ImportSeam(source), source.AreProvablyDisjoint)));
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
@@ -1539,7 +1540,8 @@ static class Program
 
             string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
-            var stepper = IrPasses.RunWithSteps(function, stepLimit, ImportSeam(source));
+            var stepper = IrPasses.RunWithSteps(
+                function, stepLimit, ImportSeam(source), source.AreProvablyDisjoint);
 
             Console.WriteLine();
             Console.WriteLine($"==== steps ({stepper.Count} recorded) ====");

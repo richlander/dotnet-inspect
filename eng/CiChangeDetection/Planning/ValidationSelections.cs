@@ -7,9 +7,6 @@ namespace CiChangeDetection.Planning;
 /// </summary>
 internal readonly record struct RoutingSelections(
     bool Code,
-    bool CodeqlActions,
-    bool CodeqlCSharp,
-    bool CodeqlJavaScript,
     bool CSharpDiff,
     bool Decompiler,
     bool Docs,
@@ -18,6 +15,7 @@ internal readonly record struct RoutingSelections(
     bool Packaging,
     bool Shipped,
     bool Web,
+    bool WebComprehensive,
     bool Skills,
     bool Tla)
 {
@@ -25,8 +23,8 @@ internal readonly record struct RoutingSelections(
     /// Gets the selections that a change set of every routed kind produces.
     /// </summary>
     internal static RoutingSelections All { get; } = new(
-        true, true, true, true, true, true, true,
-        true, true, true, true, true, true, true);
+        true, true, true, true, true, true,
+        true, true, true, true, true, true);
 }
 
 /// <summary>
@@ -37,6 +35,7 @@ internal sealed class ValidationSelections
 {
     internal ValidationSelections(
         bool test,
+        bool repositoryGuards,
         bool dependencyPolicy,
         bool cSharpDiffSmoke,
         bool decompilerGates,
@@ -46,11 +45,9 @@ internal sealed class ValidationSelections
         bool pack,
         bool buildNet10,
         bool inspectWeb,
+        bool inspectWebComprehensive,
         bool skillGate,
-        bool tla,
-        bool codeqlActions,
-        bool codeqlCSharp,
-        bool codeqlJavaScript)
+        bool tla)
     {
         if (ilRoundTrip && !test)
         {
@@ -59,7 +56,15 @@ internal sealed class ValidationSelections
                 "ilRoundTrip requires test");
         }
 
+        if (inspectWebComprehensive && !inspectWeb)
+        {
+            throw new PlanRefusalException(
+                PlanRefusalCategory.PlanSerialization,
+                "inspectWebComprehensive requires inspectWeb");
+        }
+
         Test = test;
+        RepositoryGuards = repositoryGuards;
         DependencyPolicy = dependencyPolicy;
         CSharpDiffSmoke = cSharpDiffSmoke;
         DecompilerGates = decompilerGates;
@@ -69,14 +74,14 @@ internal sealed class ValidationSelections
         Pack = pack;
         BuildNet10 = buildNet10;
         InspectWeb = inspectWeb;
+        InspectWebComprehensive = inspectWebComprehensive;
         SkillGate = skillGate;
         Tla = tla;
-        CodeqlActions = codeqlActions;
-        CodeqlCSharp = codeqlCSharp;
-        CodeqlJavaScript = codeqlJavaScript;
     }
 
     internal bool Test { get; }
+
+    internal bool RepositoryGuards { get; }
 
     internal bool DependencyPolicy { get; }
 
@@ -96,35 +101,19 @@ internal sealed class ValidationSelections
 
     internal bool InspectWeb { get; }
 
+    internal bool InspectWebComprehensive { get; }
+
     internal bool SkillGate { get; }
 
     internal bool Tla { get; }
 
     /// <summary>
-    /// Gets a value indicating whether CodeQL analyzes GitHub Actions
-    /// workflows.
-    /// </summary>
-    internal bool CodeqlActions { get; }
-
-    /// <summary>
-    /// Gets a value indicating whether CodeQL analyzes C# sources.
-    /// </summary>
-    internal bool CodeqlCSharp { get; }
-
-    /// <summary>
-    /// Gets a value indicating whether CodeQL analyzes JavaScript and
-    /// TypeScript sources.
-    /// </summary>
-    internal bool CodeqlJavaScript { get; }
-
-    /// <summary>
-    /// Applies the repository's event rules to raw routing selections. A push
-    /// runs the focused dependency-policy composition gate rather than the
-    /// pre-merge test matrix; documentation lint, the Browser/Wasm lane, the
-    /// TLA+ lane, and the CodeQL lanes have no event gate. CodeQL keeps
-    /// running on a push because code scanning alerts are reported against
-    /// the default branch: gating it on the pre-merge event would leave that
-    /// baseline frozen at whatever last ran before the merge.
+    /// Applies the repository's event rules to raw routing selections. Every
+    /// pre-merge candidate runs the focused repository guards because their
+    /// tests scan the repository beyond ordinary path ownership. A push runs
+    /// the focused dependency-policy composition gate rather than the
+    /// pre-merge test matrix or repository guards; documentation lint, the
+    /// Browser/Wasm lane and the TLA+ lane have no event gate.
     /// </summary>
     /// <param name="selections">The raw routing selections.</param>
     /// <param name="kind">The provenance kind supplying the event rule.</param>
@@ -136,6 +125,7 @@ internal sealed class ValidationSelections
         bool preMerge = kind != PlanEventKind.Push;
         return new ValidationSelections(
             test: selections.Code && preMerge,
+            repositoryGuards: preMerge,
             dependencyPolicy: kind == PlanEventKind.Push,
             cSharpDiffSmoke: selections.CSharpDiff && preMerge,
             decompilerGates: selections.Decompiler && preMerge,
@@ -145,10 +135,9 @@ internal sealed class ValidationSelections
             pack: selections.Packaging && preMerge,
             buildNet10: selections.Shipped && preMerge,
             inspectWeb: selections.Web,
+            inspectWebComprehensive:
+                selections.Web && selections.WebComprehensive && preMerge,
             skillGate: selections.Skills && preMerge,
-            tla: selections.Tla,
-            codeqlActions: selections.CodeqlActions,
-            codeqlCSharp: selections.CodeqlCSharp,
-            codeqlJavaScript: selections.CodeqlJavaScript);
+            tla: selections.Tla);
     }
 }

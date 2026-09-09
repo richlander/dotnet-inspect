@@ -69,8 +69,8 @@ development model and rationale. The binding summary:
 - **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
   `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
 - **Use bounded adversarial review to find design and implementation gaps.**
-  Every non-trivial change gets two seats; repeated findings are evidence to
-  revisit design, and six rounds ends the current review block.
+  Every non-trivial change gets one seat, GPT-6 Astra; repeated findings are
+  evidence to revisit design, and six rounds ends the current review block.
 - **Keep security work inside the repository threat model.** Focus on
   untrusted internet-origin data and construction-time containment, not local
   or intra-repository actors unless an owning design explicitly opts in.
@@ -314,6 +314,10 @@ selection (`command -v dotnet`, `dotnet --version`) before installing one or
 changing `PATH`. If `dotnet` is centrally installed, stop and ask before
 replacing or shadowing it. Follow `README.md#repository-development-sdk`.
 
+The primary dependencies are the .NET SDK, `Microsoft.CodeAnalysis.CSharp`,
+and Markout. For major dependency updates, check all three; update the .NET SDK
+and `Microsoft.CodeAnalysis.CSharp` together.
+
 Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
@@ -332,12 +336,12 @@ threshold, placement convention, and existing consumers.
 | Artifact contracts | `dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
-| Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
+| Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
 | Additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
-| Inspection queries | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
-| Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
+| Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
+| Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
 
@@ -487,10 +491,10 @@ as a normal round), and **merge conflict requiring semantic resolution**
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-6 Astra**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
+| Everything else | **GPT-6 Astra**, one seat. |
 
-When uncertain, use the standard round. Second-seat selection by prior clean
-count lives in
+When uncertain, use the standard round. Substitution when GPT-6 Astra is
+unavailable lives in
 [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch IDs live
 in [Agent model mapping](docs/agent-models.md). A MAI-Code
 quick read on unsettled work is neither tier: it gets no isolated worktree or
@@ -501,8 +505,8 @@ feedback, since the settled PR still requires its full round.
 
 Start every reviewer prompt with the complete canonical
 [adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
-paraphrase, reorder, or precede it with domain instructions. Append the same
-self-contained candidate instructions for every seat, directly or with the
+paraphrase, reorder, or precede it with domain instructions. Append the
+self-contained candidate instructions for the seat, directly or with the
 optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.

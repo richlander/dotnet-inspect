@@ -111,6 +111,84 @@ compiled without friend access; only the dedicated catalog suite is an assembly
 friend. See the [ecosystem boundary](design/ecosystem-packs.md#dependency-boundary) and
 [package-set registry gates](design/package-set-registry.md#required-gates).
 
+### IL substrate and diff tests
+
+Run the instruction-substrate and IL comparison suites:
+
+```bash
+dotnet run --project tests/ILInspector.Instructions.Tests -c Release
+dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
+```
+
+Both are xUnit in-process executables and retain separate assemblies and
+`artifacts/` outputs. Their compiler-produced sample types stay with their test
+hosts; the ILDiff suite also retains its test-only Roslyn dependency for source
+inspection. See the [instruction substrate](../src/ILInspector.Instructions/README.md)
+and [IL comparison boundary](../src/ILInspector.ILDiff/README.md).
+
+### Model-bound C# tests
+
+Run the C# formatting, declaration, and type-shell suite:
+
+```bash
+dotnet run --project tests/ILInspector.CSharp.Tests -c Release
+```
+
+This is an xUnit in-process executable with its built output under `artifacts/`.
+Its compiler-produced sample types stay with the test host, including the types
+inspected through its own assembly. Keep this suite distinct from the model-free
+`tests/CSharpText.Tests` suite. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Analysis tests
+
+Build the solution before running the analysis suite so every FixtureCatalog
+binary is available, and always use Release because compiler-generated IL is
+part of the evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Required PR lanes exclude
+`Speed=Slow` after `--`; Deep Inspect runs the complete suite. Compiler-produced
+runtime-async specimens remain inside the test assembly, while independently
+compiled analysis inputs remain under `fixtures/analysis/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Inspection query tests
+
+Build the solution before running the inspection-query suite so every
+FixtureCatalog binary is available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source and embedded
+resources live under `tests/`; the independently compiled binaries it inspects
+remain under `fixtures/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Shared services tests
+
+Build the solution before running the shared-services suite so its route-learning
+FixtureCatalog binaries are available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its source lives under
+`tests/`; independently compiled route-learning inputs and static signed-package
+archives remain under `fixtures/services/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
 ## Test tooling activation
 
 The CLI and decompiler suites skip `ilasm`/`ildasm` checks when those tools are

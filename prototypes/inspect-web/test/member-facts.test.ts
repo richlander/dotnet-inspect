@@ -2,13 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import type { MemberFacts } from "../src/member-detail-inspection.ts";
-import { allocationFactsFixture, callFactsFixture, memberFactsFixture, safetyFactsFixture } from "./member-facts-fixture.ts";
+import {
+  selectFindingInstance,
+} from "../src/finding-interaction.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "./member-facts-fixture.ts";
+import {
+  memberFindingInteractionFixture,
+} from "./member-finding-census-fixture.ts";
 
 function render(facts: MemberFacts = memberFactsFixture()) {
   return renderMemberFacts({
     memberFacts: facts,
     memberFactsLoading: false,
     memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: memberFindingInteractionFixture(),
+    memberFindingSelectionError: "",
   });
 }
 
@@ -75,28 +85,103 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   assert.match(html, /<h2 id="safety-facts-title">Safety facts<\/h2><span>0 facts<\/span>/);
   assert.match(html, /No unsafe operations or declaration evidence were found\./);
   assert.doesNotMatch(html, /<ol class="safety-rows">/);
+  assert.match(html, /<h2 id="exception-regions-title">Exception regions<\/h2><span>0 regions<\/span>/);
+  assert.match(html, /No exception regions were found in this method\./);
+  assert.doesNotMatch(html, /<ol class="exception-rows">/);
 
   const loading = renderMemberFacts({
     memberFacts: memberFactsFixture(),
     memberFactsLoading: true,
     memberFactsError: "",
+    memberAnnotatedLoading: true,
+    memberAnnotatedError: "",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
   });
   assert.match(loading, /Analyzing method/);
-  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts/);
+  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts|exception-regions/);
 
   const failure = renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
     memberFactsError: "Could not decode <method>.",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "Finding projection failed.",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
-  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts/);
+  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts|exception-regions/);
   assert.match(renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
     memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
   }), /No facts result was returned/);
+});
+
+test("Finding rows preserve display-identical instances and exact selection", () => {
+  const interaction = memberFindingInteractionFixture();
+  const selected = selectFindingInstance(
+    interaction,
+    interaction.census.factCensusReceipt,
+    42,
+  ).interaction;
+  const html = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: selected,
+    memberFindingSelectionError: "",
+  });
+
+  assert.match(html, /<h2 id="finding-facts-title">Findings<\/h2><span>3 Findings<\/span>/);
+  assert.equal((html.match(/data-finding-instance=/g) ?? []).length, 2);
+  assert.match(
+    html,
+    /class="finding-row">\s*<button[^>]*data-finding-instance="41"[^>]*aria-pressed="false"/,
+  );
+  assert.match(
+    html,
+    /class="finding-row selected">\s*<button[^>]*data-finding-instance="42"[^>]*aria-pressed="true"/,
+  );
+  assert.equal((html.match(/<strong>allocation<\/strong>/g) ?? []).length, 2);
+  assert.match(html, /#41/);
+  assert.match(html, /#42/);
+  assert.match(html, /member-header/);
+  assert.match(html, /Source identity unavailable/);
+});
+
+test("Finding census failures and selection mismatches remain visible", () => {
+  const failure = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "Receipt mismatch.",
+    memberFindingInteraction: null,
+    memberFindingSelectionError: "",
+  });
+  assert.match(failure, /Finding census failed/);
+  assert.match(failure, /Receipt mismatch\./);
+
+  const selectionFailure = renderMemberFacts({
+    memberFacts: memberFactsFixture(),
+    memberFactsLoading: false,
+    memberFactsError: "",
+    memberAnnotatedLoading: false,
+    memberAnnotatedError: "",
+    memberFindingInteraction: memberFindingInteractionFixture(),
+    memberFindingSelectionError: "The selected Finding belongs to a stale census.",
+  });
+  assert.match(selectionFailure, /role="alert"/);
+  assert.match(selectionFailure, /stale census/);
 });
 
 test("member Facts escapes summary evidence and all relocated detail sections", () => {
@@ -242,5 +327,50 @@ test("safety facts preserve returned order and repeated records", () => {
     [...html.matchAll(/class="safety-location">(?:<code>([^<]*)<\/code>|<span class="safety-no-offset">([^<]+)<\/span>)/g)]
       .map(match => match[1] ?? match[2]),
     safety.map(fact => fact.offset ?? "No IL offset"),
+  );
+});
+
+test("exception regions preserve all six fields and distinguish entries from shared try ranges", () => {
+  const facts = exceptionRegionsFixture();
+  const html = render(facts);
+  assert.match(html, /<h2 id="exception-regions-title">Exception regions<\/h2><span>4 regions<\/span>/);
+  const rows = [...html.matchAll(/<li class="exception-row">([\s\S]*?)<\/li>/g)]
+    .map(match => match[1]!);
+  assert.equal(rows.length, 4);
+  for (const [index, region] of facts.exceptionRegions.entries()) {
+    const row = rows[index]!;
+    assert.ok(row.includes(`<span>Region <code>${region.region}</code></span>`));
+    assert.ok(row.includes(`<code class="exception-clause">${region.clause}</code>`));
+    for (const [label, value] of [
+      ["Caught type", region.caughtType],
+      ["Try", region.tryRange],
+      ["Handler", region.handlerRange],
+      ["Filter", region.filterRange],
+    ] as const) {
+      assert.ok(summaryRow(row, label).includes(`>${value ?? "not supplied"}</`));
+    }
+  }
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render({ ...facts, exceptionRegions: [facts.exceptionRegions[0]!] }),
+    /<span>1 region<\/span>/);
+});
+
+test("exception regions preserve supplied numbers, returned order, repeats, and null caught types", () => {
+  const facts = exceptionRegionsFixture();
+  const exceptionRegions = [
+    facts.exceptionRegions[1]!,
+    { ...facts.exceptionRegions[0]!, region: 17, caughtType: null },
+    facts.exceptionRegions[1]!,
+  ];
+  const html = render({ ...facts, exceptionRegions });
+  assert.match(html, /<span>3 regions<\/span>/);
+  assert.deepEqual(
+    [...html.matchAll(/class="exception-identity"><span>Region <code>([^<]+)<\/code>/g)]
+      .map(match => Number(match[1])),
+    [2, 17, 2],
+  );
+  assert.equal(
+    (html.match(/<dt>Caught type<\/dt><dd><span class="exception-unavailable">not supplied<\/span>/g) ?? []).length,
+    3,
   );
 });

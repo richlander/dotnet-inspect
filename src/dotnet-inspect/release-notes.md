@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
+  grouping identical rendered Kind/Match values with occurrence counts.
+  `Body Shapes` retains individual member/token/rendered-C# locations.
+  Column projection remains presentational; summary row limits select groups
+  without truncating their counts. Type `--member` filters now bound both
+  summary and occurrence evidence before rendering (#6186).
+- **Breaking:** Zero-arity CLI options now consistently reject supplied
+  values, including attached Boolean forms previously accepted by the parser.
+  For example, `package System.CommandLine --versions 2` reports
+  `--versions does not accept a value`; use `--versions -n 2` instead.
+  Valid positional arguments after flags and optional-valued Boolean options
+  keep their existing behavior (#6173).
 - Online single-package inspection now selects latest and wildcard versions
   from configured local and HTTP authorities, including `--preview`.
   Selection requires fresh, complete discovery and acquires only from sources
@@ -72,6 +84,11 @@
 
 ### Source and implementation evidence
 
+- Type Body Shapes now opens its body-search metadata source through the
+  selected root or forwarded supplier descriptor, including effective discovery
+  and projected output. Explicitly named library roots retain their designation,
+  preserving core-library identity and shape rows. Body-opening failures after PDB acquisition are visible
+  errors instead of successful path retries; member behavior is unchanged (#6081).
 - Type Exception Regions now opens the selected root or forwarded supplier
   descriptor in normal/projected output and effective discovery. Opening
   failures are visible command errors rather than successful path retries;
@@ -101,6 +118,14 @@
 
 ### Package acquisition and audit
 
+- **Breaking:** `--versions` and `--versions-with-feed` are now zero-arity
+  selectors. Use `--versions -n N` or `--versions-with-feed -n N` to select
+  complete semantic rows; use `-n N --lines` only for explicit rendered-line
+  clipping. Version rows are selected after source aggregation and
+  completeness classification, including authenticated multi-source queries
+  (#5786). On these lenses, `--rows` accepts only `A..B`, `A..`, and `..B`;
+  use `-n N` for the first N rows. Rendered-line selection is unavailable with
+  document JSON because clipping would produce an invalid document.
 - Online metadata-only package version queries now support configured folder
   feeds for pinned verification, latest and range selection, listing status,
   and per-feed rows (#5400).
@@ -121,7 +146,6 @@
   incomplete evidence. Fix or exclude the failing source, or use raw
   `--versions` to inspect explicitly partial results. Online version queries
   bypass legacy producer-keyed caches; offline behavior is unchanged (#5400).
-
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify
   control or bidi text, package-source declarations, cleared restore sources,

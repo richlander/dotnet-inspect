@@ -78,26 +78,36 @@ The immediate adopter is CLI `diff --pdb-source` with one explicitly selected
 method represented by an exact MethodDef anchor and one assembly on each side.
 Accessor selections that cannot retain that anchor stay on the existing
 enrichment path rather than being promoted to their owning declaration.
-The shared query remains available to
-the planned browser two-version Source view. Existing broader CLI enrichment
+The shared query also supplies the
+[browser two-version Source view](inspect-web-source-comparison.md).
+Existing broader CLI enrichment
 is not claimed migrated or removed by this bounded cutover.
 
 The single delivery ledger is
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706):
 S1 contract alignment (landed), S2 this query, S3 CLI adoption, S4 browser
-facade, S5 browser view/state, S6 scoped retirement. Six milestones total;
+facade, S5 browser view/state, and S6 scoped retirement in
+[#6250](https://github.com/richlander/dotnet-inspect/issues/6250). Six
+milestones total;
 CLI adoption uses S1-S3 and browser adoption S1/S2/S4/S5. S2 and S3 travel
 together in [#5970](https://github.com/richlander/dotnet-inspect/issues/5970)
 rather than leaving another unconsumed substrate. Browser ownership
 remains under [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+
+S6 removes the now-uncalled Research member-plus-PDB wrapper and its
+Source-specific member-result scaffolding. It deliberately retains broad CLI
+assembly enrichment, typed unavailable and failed Source rows, ordinary
+single-version Source, and same-member PDB-versus-decompiled comparison.
 
 CLI rendering consumes the typed pair alongside unchanged native C#/IL
 results and lowers into its existing Markout Implementation Diff rows.
 Retained line moves remain visible with their old and new declaration-relative
 line numbers, including when no line content changed or moves coexist with
 content edits. Only an exact pair receives an unchanged Source row. The
-browser will consume the same pair and shared text-diff presentation; no
-browser transport or interaction contract is defined here.
+browser consumes the same pair as structured native line relations before
+its interactive DOM lowering; its feature design owns that deliberate
+host-specific presentation choice. No browser transport or interaction
+contract is defined here.
 
 ## Outcome gates
 
@@ -108,8 +118,8 @@ other endpoint is acquired. Source-only execution does not invoke local
 producers. Ordinary PDB-first/decompiled-fallback behavior is retained.
 
 ```bash
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
-  -class '*AssemblyContextSourceQueryTests'
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*AssemblyContextSourceQueryTests'
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
   --filter-class '*SelectedSourceDiffTests' --filter-class '*DiffCommandTests'
 ```

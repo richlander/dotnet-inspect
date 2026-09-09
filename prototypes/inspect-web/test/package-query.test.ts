@@ -2,19 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  appendAssessment,
   appendFailure,
   appendProgress,
   appendRows,
+  createAssemblyQueryRequest,
   createPackageQueryController,
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
+  shouldExecuteQuery,
   toggleFacet,
   withCompletion,
+  withEditorDraft,
   withFacet,
+  withInputKind,
+  withSourceSelection,
   withScopeQuery,
   withoutFacet,
   type PackageQueryDataSource,
+  type QueryAssemblyAssessment,
   type QueryCompletion,
   type QueryFacetTerm,
   type QueryResultRow,
@@ -75,10 +82,24 @@ function row(packageId: string): QueryResultRow {
     packageId,
     version: "1.0.0",
     tier: "nuspec",
-    evidence: ["net45"],
+    evidence: [{
+      id: "test.package",
+      text: "net45",
+      scope: "package",
+      summary: null,
+    }],
     totalDownloads: 100,
   };
 }
+
+const NO_MATCH_ASSESSMENT: QueryAssemblyAssessment = {
+  packageId: "Contoso.Library",
+  version: "1.2.3",
+  disposition: "NoMatch",
+  message: "No decoded string literal contained the requested operand.",
+  assetPath: "lib/net10.0/Contoso.Library.dll",
+  rootRequest: "{\"kind\":\"package\"}",
+};
 
 test("withFacet is idempotent by key and withoutFacet removes by key", () => {
   const base = createQueryRequest("Microsoft.");
@@ -95,22 +116,69 @@ test("createQueryRequest gives candidate and match limits independent defaults",
 
   assert.equal(defaults.requestedLimit, 200);
   assert.equal(defaults.requestedMatchLimit, 100);
+  assert.equal(defaults.inputKind, "package");
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.packageType, null);
   assert.equal(defaults.sourceOrderId, null);
   assert.equal(defaults.includePrerelease, false);
 });
 
-test("browse and free-text requests preserve source intent without resolving source defaults", () => {
+test("package requests preserve editor spelling without resolving source defaults", () => {
   for (const text of ["", "  hosting dependency injection  ", "System.*"]) {
     assert.equal(createQueryRequest(text).scopeQuery, text);
+    assert.equal(createQueryRequest(text).inputKind, "package");
     assert.equal(createQueryRequest(text).sourceOrderId, null);
+  }
+});
+
+test("assembly requests preserve the literal operand and exclude Gallery semantics", () => {
+  const operand = "  Exact Literal * [value]  ";
+  const coordinates = ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"];
+  const request = createAssemblyQueryRequest(
+    "package.query.assembly.ldstr-contains",
+    operand,
+    coordinates,
+    "net10.0");
+
+  assert.equal(request.scopeQuery, "");
+  assert.equal(request.packageType, null);
+  assert.equal(request.sourceOrderId, null);
+  assert.equal(request.includePrerelease, false);
+  assert.deepEqual(request.facets, []);
+  assert.deepEqual(request.assemblyPattern, {
+    patternId: "package.query.assembly.ldstr-contains",
+    operand,
+    packageCoordinates: coordinates,
+    targetFramework: "net10.0",
+  });
+  coordinates.push("Mutated@9.9.9");
+  assert.deepEqual(request.assemblyPattern.packageCoordinates, [
+    "Contoso.One@1.2.3",
+    "Contoso.Two@4.5.6",
+  ]);
+});
+
+test("Gallery query transformations clear assembly mode instead of mixing semantics", () => {
+  const assembly = createAssemblyQueryRequest(
+    "package.query.assembly.ldstr-contains",
+    "literal",
+    ["Contoso.Library@1.2.3"],
+    "net10.0");
+
+  for (const gallery of [
+    withScopeQuery(assembly, "Contoso"),
+    withFacet(assembly, TFM_FACET),
+    withFacet({ ...assembly, facets: [TFM_FACET] }, TFM_FACET),
+    toggleFacet(assembly, TFM_FACET),
+    withoutFacet({ ...assembly, facets: [TFM_FACET] }, TFM_FACET.key),
+  ]) {
+    assert.equal(gallery.assemblyPattern, undefined);
   }
 });
 
 test("inspection changes retain opaque source selections and independent match limits", () => {
   const request = {
-    ...createQueryRequest(" hosting libraries "),
+    ...createQueryRequest(" hosting libraries ", "gallery"),
     packageType: "Producer.CustomType",
     sourceOrderId: "producer.order.custom",
     includePrerelease: true,
@@ -127,6 +195,7 @@ test("inspection changes retain opaque source selections and independent match l
     assert.equal(changed.sourceOrderId, request.sourceOrderId);
     assert.equal(changed.includePrerelease, true);
     assert.equal(changed.requestedMatchLimit, 7);
+    assert.equal(changed.inputKind, "gallery");
   }
   assert.deepEqual(browse.facets, [TFM_FACET]);
   assert.equal(browse.scopeQuery, "");
@@ -161,10 +230,10 @@ test("withScopeQuery preserves facets and bounds while changing search text", ()
   });
 });
 
-test("controller runs blank browse with source selection and nullable metadata", async () => {
+test("controller runs explicit blank Gallery discovery with source selection and nullable metadata", async () => {
   const state = initialQueryState();
   const request = {
-    ...createQueryRequest(""),
+    ...createQueryRequest("", "gallery"),
     packageType: "Producer.Type",
     sourceOrderId: "producer.order",
     includePrerelease: true,
@@ -175,7 +244,12 @@ test("controller runs blank browse with source selection and nullable metadata",
       onPage([{
         ...row("Browse.Result"),
         tier: "search-metadata",
-        evidence: ["Producer source selection and order"],
+        evidence: [{
+          id: "producer.source-selection",
+          text: "Producer source selection and order",
+          scope: "query",
+          summary: null,
+        }],
         totalDownloads: null,
       }]);
       return { kind: "bounded", reason: "one finite Gallery response" };
@@ -189,6 +263,65 @@ test("controller runs blank browse with source selection and nullable metadata",
   assert.equal(state.outcome.rows[0]?.tier, "search-metadata");
   assert.equal(state.outcome.rows[0]?.totalDownloads, null);
   assert.equal(state.outcome.completion.kind, "bounded");
+});
+
+test("controller configures blank package input as idle while retaining facets", () => {
+  const state = initialQueryState();
+  let runs = 0;
+  const controller = createPackageQueryController(
+    state,
+    {
+      async run() {
+        runs++;
+        return { kind: "exhausted" };
+      },
+    },
+    () => {},
+  );
+  const configured = withFacet(createQueryRequest(""), TFM_FACET);
+
+  controller.configure(configured);
+
+  assert.equal(runs, 0);
+  assert.equal(state.request?.inputKind, "package");
+  assert.deepEqual(state.request?.facets, [TFM_FACET]);
+  assert.equal(state.outcome.completion.kind, "idle");
+});
+
+test("input-kind changes preserve selected facets and source configuration", () => {
+  const configured = {
+    ...withFacet(createQueryRequest("Newtonsoft.Json"), TFM_FACET),
+    packageType: "Producer.Type",
+    sourceOrderId: "producer.order",
+    includePrerelease: true,
+  };
+
+  assert.deepEqual(withInputKind(configured, "gallery"), {
+    ...configured,
+    inputKind: "gallery",
+  });
+});
+
+test("blank package input stays idle while explicit discovery and later controls retain mode", () => {
+  const configuredPackage = withFacet(createQueryRequest(""), TFM_FACET);
+  assert.equal(shouldExecuteQuery(configuredPackage), false);
+
+  const discovery = withInputKind(configuredPackage, "gallery");
+  assert.equal(shouldExecuteQuery(discovery), true);
+  assert.equal(withEditorDraft(discovery, "Newtonsoft.Json").scopeQuery, "");
+  assert.equal(toggleFacet(discovery, SKILL_FACET).inputKind, "gallery");
+  assert.equal(withSourceSelection(discovery, {
+    packageType: "Producer.Type",
+    sourceOrderId: "producer.order",
+    includePrerelease: true,
+  }).inputKind, "gallery");
+
+  const packageAgain = withInputKind(discovery, "package");
+  assert.equal(
+    withEditorDraft(packageAgain, "Newtonsoft.Json").scopeQuery,
+    "Newtonsoft.Json");
+  assert.equal(shouldExecuteQuery(packageAgain), false);
+  assert.deepEqual(packageAgain.facets, [TFM_FACET]);
 });
 
 test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {
@@ -230,6 +363,16 @@ test("appendRows and appendFailure accumulate without mutating prior outcome", (
   assert.equal(withRows.rows.length, 2);
   assert.equal(withBoth.failures.length, 1);
   assert.deepEqual(withBoth.rows.map(r => r.packageId), ["A", "B"]);
+});
+
+test("appendAssessment retains semantic misses separately from rows and failures", () => {
+  const start = emptyOutcome();
+  const assessed = appendAssessment(start, NO_MATCH_ASSESSMENT);
+
+  assert.deepEqual(start.assessments, []);
+  assert.deepEqual(assessed.assessments, [NO_MATCH_ASSESSMENT]);
+  assert.deepEqual(assessed.rows, []);
+  assert.deepEqual(assessed.failures, []);
 });
 
 test("appendProgress replaces one phase while retaining rows and other phases", () => {
@@ -384,6 +527,39 @@ test("controller publishes progress without clearing streamed rows", async () =>
   ]);
 });
 
+test("controller retains assembly assessments without spending row credit", async () => {
+  const state = initialQueryState();
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 1,
+    requestMore: () => assert.fail("an assessment must not request match credit"),
+    async run(
+      _request,
+      _onPage,
+      _onFailure,
+      _onProgress,
+      _abortSignal,
+      onAssessment,
+    ) {
+      onAssessment?.(NO_MATCH_ASSESSMENT);
+      return {
+        kind: "bounded",
+        reason: "1 explicitly selected package; primary implementation assembly",
+      };
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+
+  await controller.run(createAssemblyQueryRequest(
+    "package.query.assembly.ldstr-contains",
+    "literal",
+    ["Contoso.Library@1.2.3"],
+    "net10.0"));
+  controller.requestMore();
+
+  assert.deepEqual(state.outcome.assessments, [NO_MATCH_ASSESSMENT]);
+  assert.deepEqual(state.outcome.rows, []);
+});
+
 test("a data source that rejects transitions to a visible 'failed' completion, not a stuck 'streaming' one", async () => {
   const state = initialQueryState();
   const rejectingSource: PackageQueryDataSource = {
@@ -528,9 +704,9 @@ test("changing only source selection supersedes browse work without changing sea
     },
   };
   const controller = createPackageQueryController(state, source, () => {});
-  const first = controller.run(createQueryRequest(""));
+  const first = controller.run(createQueryRequest("", "gallery"));
   await controller.run({
-    ...createQueryRequest(""),
+    ...createQueryRequest("", "gallery"),
     sourceOrderId: "producer.order.custom",
   });
   assert.equal(firstSignal?.aborted, true);
@@ -637,6 +813,43 @@ test("a superseded run's late progress never lands in the newer outcome", async 
   assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["fresh"]);
   assert.deepEqual(state.outcome.progress, []);
   assert.equal(state.outcome.completion.kind, "exhausted");
+});
+
+test("a superseded run's late assessment never lands in the newer outcome", async () => {
+  const state = initialQueryState();
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const source: PackageQueryDataSource = {
+    async run(
+      request,
+      onPage,
+      _onFailure,
+      _onProgress,
+      _abortSignal,
+      onAssessment,
+    ) {
+      if (request.assemblyPattern) {
+        await firstGate;
+        onAssessment?.(NO_MATCH_ASSESSMENT);
+        return { kind: "cancelled" };
+      }
+      onPage([row("fresh")]);
+      return { kind: "exhausted" };
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const firstRun = controller.run(createAssemblyQueryRequest(
+    "package.query.assembly.ldstr-contains",
+    "literal",
+    ["Contoso.Library@1.2.3"],
+    "net10.0"));
+
+  await controller.run(createQueryRequest("fresh"));
+  releaseFirst();
+  await firstRun;
+
+  assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["fresh"]);
+  assert.deepEqual(state.outcome.assessments, []);
 });
 
 test("cancel() marks a streaming completion cancelled without clearing already-streamed rows", async () => {

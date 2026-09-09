@@ -1,5 +1,4 @@
 using ILInspector.Metadata;
-using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -74,7 +73,7 @@ public class SourceLinkIndexCacheTests
     /// <remarks>
     /// <para>
     /// Raised in review, and reproduced with this repository's own output: both assemblies below
-    /// declare a <c>SourceLinkResolver</c>, they carry the same origin, and through a shared cache
+    /// declare a <c>CacheInfo</c>, they carry the same origin, and through a shared cache
     /// the second was answered with the first's file. The assertion is on the files rather than on
     /// the key, so it fails for the defect rather than for the fix's shape, and it holds whether
     /// or not SourceLink data is present -- when it is absent no key is formed and each index is
@@ -88,28 +87,28 @@ public class SourceLinkIndexCacheTests
     [Fact]
     public void TwoAssembliesFromOneOrigin_DoNotShareACachedTypeIndex()
     {
-        string fetchPath = typeof(SLF.SourceLinkResolver).Assembly.Location;
-        string sourceLinkPath = typeof(SourceLinkService).Assembly.Location;
-        Assert.NotEqual(fetchPath, sourceLinkPath);
+        string corePath = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
+        string nugetPath = typeof(NuGetFetch.ResponseCache).Assembly.Location;
+        Assert.NotEqual(corePath, nugetPath);
 
         var shared = new RecordingIndexCache();
 
-        string[] fromFetch;
-        using (var first = SourceLinkService.Open(fetchPath, null, shared))
-            fromFetch = first.GetTrackedFilesForType("SourceLinkResolver");
+        string[] fromCore;
+        using (var first = SourceLinkService.Open(corePath, null, shared))
+            fromCore = first.GetTrackedFilesForType("CacheInfo");
 
-        string[] fromSourceLink;
-        using (var second = SourceLinkService.Open(sourceLinkPath, null, shared))
-            fromSourceLink = second.GetTrackedFilesForType("SourceLinkResolver");
+        string[] fromNuGet;
+        using (var second = SourceLinkService.Open(nugetPath, null, shared))
+            fromNuGet = second.GetTrackedFilesForType("CacheInfo");
 
         // Non-vacuity: both assemblies really do declare the type, so an empty result would mean
         // the probe stopped exercising the collision rather than that the collision is gone.
-        Assert.NotEmpty(fromFetch);
-        Assert.NotEmpty(fromSourceLink);
+        Assert.NotEmpty(fromCore);
+        Assert.NotEmpty(fromNuGet);
 
-        Assert.Contains(fromFetch, f => f.Replace('\\', '/').Contains("/SourceLinkFetch/"));
-        Assert.Contains(fromSourceLink, f => f.Replace('\\', '/').Contains("/ILInspector.SourceLink/"));
-        Assert.DoesNotContain(fromSourceLink, f => f.Replace('\\', '/').Contains("/SourceLinkFetch/"));
+        Assert.Contains(fromCore, f => f.Replace('\\', '/').EndsWith("/DotnetInspector.Core/CoreCache.cs"));
+        Assert.Contains(fromNuGet, f => f.Replace('\\', '/').EndsWith("/NuGetFetch/ResponseCache.cs"));
+        Assert.DoesNotContain(fromNuGet, f => f.Replace('\\', '/').EndsWith("/DotnetInspector.Core/CoreCache.cs"));
 
         // And when keys were formed at all, the two assemblies formed different ones.
         Assert.True(shared.Keys.Count is 0 or 2, $"expected 0 or 2 keys, saw {shared.Keys.Count}");

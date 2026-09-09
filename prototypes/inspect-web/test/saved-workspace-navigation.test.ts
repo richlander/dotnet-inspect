@@ -4,6 +4,11 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { createCatalogRequests, type DotnetRelease } from "../src/catalog-requests.ts";
+import {
+  createPackageComparisonTargets,
+  type ComparisonPackage,
+} from "../src/package-comparison-targets.ts";
 import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
@@ -11,6 +16,7 @@ import {
   typeLensesFor,
 } from "../src/data.ts";
 import type {
+  BrowserHomeDemoResolveResult,
   BrowserWorkspaceShareDecodeResult,
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
@@ -26,7 +32,10 @@ import {
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
-import { isProductHomeDemosPath } from "../src/product-home-demos.ts";
+import {
+  isProductHomeDemosPath,
+  productHomeDemoLocationHref,
+} from "../src/product-home-demos.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
@@ -53,7 +62,7 @@ const hostNames = new Set([
   "failWorkspaceCatalogAction", "afterCurrentNavigationFrame",
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
-  "errorMessage", "isRecord", "runHomeDemo", "failDemoWorkspaceOpen",
+  "errorMessage", "isRecord", "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "canRestoreWorkbenchFocus", "isTextEntry",
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
@@ -71,16 +80,14 @@ assert.ok(acquisitionDeclaration);
 const hostDeclarations = [...hostFunctions, acquisitionDeclaration]
   .map(node => appSource.slice(node.start, node.end)).join("\n");
 
-interface Package {
-  id: string;
-  version: string;
-  activeFramework: string;
+interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
   types: { id: string }[];
 }
 
 const sourcePackage: Package = {
   id: "Source", version: "1.2.3", activeFramework: "net10.0", types: [],
+  source: { kind: "nuget.org" },
 };
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
 const saved = Object.freeze({ name: "My Workspace", packet });
@@ -137,6 +144,28 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function resolvedDemo(): BrowserHomeDemoResolveResult {
+  const members = sharedState().tabs.map(tab => ({
+    kind: "package",
+    id: tab.source,
+    version: tab.version,
+    framework: tab.framework,
+    assembly: null,
+  }));
+  return {
+    found: true,
+    demo: {
+      id: "demo",
+      title: "Example demo",
+      summary: "Open a two-package workspace.",
+      workspaceMembers: members,
+      tabs: members.map((member, index) => ({ id: `demo-${index}`, member })),
+      focusTabIndex: 1,
+      view: { library: null, type: null, memberAnchor: null, memberKey: null, section: null },
+    },
+  };
+}
+
 function harness() {
   const state = {
     home: false, credits: false, packageQueryOpen: false,
@@ -155,7 +184,7 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
-    packageVersions: {}, packageVersionsLoading: {},
+    dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -169,6 +198,19 @@ function harness() {
     workspaceOccurrenceSignature: "", workspaceOccurrenceLoading: false,
     workspaceOccurrences: null as object | null, workspaceOccurrenceError: "",
   };
+  const catalogRequests = createCatalogRequests({
+    state,
+    queryDotnetReleases: async () => [],
+    queryPackageVersions: async pkg => ({
+      versions: [pkg.version],
+      currentVersionInsertionIndex: 0,
+      previousVersion: null,
+      previousVersionUnavailableReason: null,
+    }),
+    updatePlatformVersionSelect: () => {},
+    updatePackageVersionSelect: () => {},
+  });
+  const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
   const navigationSequence = createNavigationSequence();
   const navigationHistory = createNavigationHistory({
     capture: () => state.package ? {
@@ -204,6 +246,8 @@ function harness() {
     resets: number;
   } = { current: null, opens: 0, resets: 0 };
   const operations: Promise<unknown>[] = [];
+  const demoResolutions: string[] = [];
+  const callGraphRuns: { id: string; navigationSeq: number }[] = [];
   const controls = {
     share: sharedState(),
     encodeResult: {
@@ -214,6 +258,9 @@ function harness() {
     acquisition: async (_id: string): Promise<boolean> => true,
     queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
     selection: async (): Promise<void> => {},
+    resolveHomeDemo: async (_id: string): Promise<BrowserHomeDemoResolveResult> => resolvedDemo(),
+    demoHref: productHomeDemoLocationHref,
+    callGraph: async (): Promise<void> => {},
     savedFocusAvailable: true,
   };
   function decode(value: string): BrowserWorkspaceShareDecodeResult {
@@ -252,6 +299,7 @@ function harness() {
   };
   const context = {
     state, location, history, document, workspaceLocation,
+    catalogRequests, packageComparisonTargets,
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
@@ -300,8 +348,9 @@ function harness() {
       cancelCurrentRequest: () => {},
       clearGraphSource: () => {},
     },
-    cancelAnnotatedSourceRequest: () => {},
+    cancelFindingCensusRequest: () => {},
     methodBodyComparison: { dispose: () => {} },
+    sourceComparison: { dispose: () => {} },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -321,7 +370,10 @@ function harness() {
       acquisitions.push(`${id}@${version}/${framework}`);
       const succeeded = await controls.acquisition(id);
       if (!navigationSequence.isCurrent(options.navigationSeq) || !succeeded) return null;
-      const pkg = { id, version, activeFramework: framework, types: [] };
+      const pkg = {
+        id, version, activeFramework: framework, types: [],
+        source: { kind: "nuget.org" },
+      };
       state.packages.push(pkg);
       return pkg;
     },
@@ -347,8 +399,20 @@ function harness() {
         navigationHistory.record();
       }
     },
-    inspectResolveHomeDemo: () => ({ found: true, demo: {} }),
-    productHomeDemoLocationHref: () => `/?w=${encodeURIComponent(packet)}#workspace`,
+    engineClient: {
+      catalog: {
+        resolveHomeDemo: (id: string) => {
+          demoResolutions.push(id);
+          return controls.resolveHomeDemo(id);
+        },
+      },
+    },
+    productHomeDemoLocationHref: (...args: Parameters<typeof productHomeDemoLocationHref>) =>
+      controls.demoHref(...args),
+    runCallGraphDemo: (id: string, _snapshot: unknown, navigationSeq: number) => {
+      callGraphRuns.push({ id, navigationSeq });
+      return controls.callGraph();
+    },
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
   };
   runInNewContext(stripTypeScriptTypes(hostDeclarations), context);
@@ -356,6 +420,8 @@ function harness() {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
     queries, retained, recent, invalidations, toasts, picker, previousEntries,
+    catalogRequests, packageComparisonTargets,
+    demoResolutions, callGraphRuns,
     capture: (): string => {
       const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
@@ -384,6 +450,7 @@ test("capture uses the original share projection and retains Workspace presentat
   const basis = sharedState();
   h.state.packages = basis.tabs.map(tab => ({
     id: tab.source, version: tab.version!, activeFramework: tab.framework!, types: [],
+    source: { kind: "nuget.org" },
   }));
   h.state.package = h.state.packages[1]!;
   h.state.workspaceShareBasis = basis;
@@ -451,8 +518,10 @@ for (const platform of [false, true]) {
     };
     h.state.packages = [
       { id: platform ? ":Platform" : "Alpha", version: "2.3.4",
-        activeFramework: "net10.0", isRuntimePack: platform, types: [] },
-      { id: "Beta", version: "5.6.7", activeFramework: "net9.0", types: [] },
+        activeFramework: "net10.0", isRuntimePack: platform, types: [],
+        source: { kind: platform ? "platform" : "nuget.org" } },
+      { id: "Beta", version: "5.6.7", activeFramework: "net9.0", types: [],
+        source: { kind: "nuget.org" } },
     ];
     h.state.package = h.state.packages[1]!;
     h.state.workspaceShareBasis = basis;
@@ -557,6 +626,60 @@ for (const failure of ["decode", "decoder-throw", "empty", "acquisition", "view"
   });
 }
 
+for (const failure of ["acquisition", "selection"] as const) {
+  test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {
+    const h = harness();
+    const other = { ...sourcePackage, id: "Comparison.Target" };
+    h.state.packages.push(other);
+    await h.catalogRequests.ensurePackageVersions(sourcePackage);
+    const inventory = h.catalogRequests.packageVersions(sourcePackage);
+    h.packageComparisonTargets.selectDiff(
+      sourcePackage, { kind: "exact", version: sourcePackage.version }, inventory);
+    h.packageComparisonTargets.selectClone(
+      sourcePackage, { kind: "package", package: other });
+    if (failure === "acquisition")
+      h.controls.acquisition = async id => id !== "Beta";
+    else
+      h.controls.selection = async () => { throw new Error("View unavailable"); };
+
+    h.open();
+    await h.settle();
+
+    const restored = h.state.packages.find(pkg => pkg.id === sourcePackage.id);
+    const restoredTarget = h.state.packages.find(pkg => pkg.id === other.id);
+    assert.ok(restored);
+    assert.ok(restoredTarget);
+    assert.notEqual(restored, sourcePackage);
+    assert.notEqual(restoredTarget, other);
+    assert.equal(h.state.package, restored);
+    assert.deepEqual(h.packageComparisonTargets.get(restored).diff, {
+      kind: "exact", version: sourcePackage.version,
+    });
+    const clone = h.packageComparisonTargets.get(restored).clone;
+    assert.equal(clone.kind, "package");
+    if (clone.kind === "package") assert.equal(clone.package, restoredTarget);
+    assert.deepEqual(h.catalogRequests.packageVersions(restored), inventory);
+    assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
+  });
+}
+
+test("successful saved Open retires comparison settings with the discarded Package models", async () => {
+  const h = harness();
+  await h.catalogRequests.ensurePackageVersions(sourcePackage);
+  h.packageComparisonTargets.selectDiff(sourcePackage, {
+    kind: "exact", version: sourcePackage.version,
+  }, h.catalogRequests.packageVersions(sourcePackage));
+  h.open();
+  await h.settle();
+
+  assert.ok(h.state.package);
+  assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
+    diff: { kind: "previous" }, clone: { kind: "workspace" },
+  });
+  assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
+  assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
+});
+
 test("acquisition retry reopens the retained saved packet through a new transaction", async () => {
   const h = harness();
   h.controls.acquisition = async () => false;
@@ -652,6 +775,137 @@ test("neighboring demo opening retains the shared transactional failure orchestr
   assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
 });
 
+test("demo resolution waits before acquisition and commits its complete location with the same navigation sequence", async () => {
+  const h = harness();
+  const resolution = deferred<BrowserHomeDemoResolveResult>();
+  h.controls.resolveHomeDemo = () => resolution.promise;
+  const href = h.location.href;
+  const entryState = h.history.state;
+  h.demo();
+  const sequence = h.navigationSequence.current();
+  assert.equal(h.state.loading, true);
+  assert.equal(h.state.package, sourcePackage);
+  assert.equal(h.location.href, href);
+  assert.equal(h.history.state, entryState);
+  assert.equal(h.writes.length, 0);
+  assert.deepEqual(h.acquisitions, []);
+  assert.deepEqual(h.decoded, []);
+  assert.deepEqual(h.focus, []);
+  assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
+
+  resolution.resolve(resolvedDemo());
+  await h.settle();
+  assert.equal(h.navigationSequence.current(), sequence);
+  assert.equal(h.state.package?.id, "Beta");
+  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+  assert.equal(h.location.searchParams.get("w"), packet);
+  assert.equal(h.context.pendingDemoNavigation, null);
+  h.flushFocus();
+  assert.deepEqual(h.focus, ["heading"]);
+});
+
+for (const failure of ["resolution", "unknown", "projection", "decode"] as const) {
+  test(`demo ${failure} failure retains the source location and existing retry/focus policy`, async () => {
+    const h = harness();
+    const href = h.location.href;
+    const entryState = h.history.state;
+    if (failure === "resolution")
+      h.controls.resolveHomeDemo = async () => { throw new Error("Resolution unavailable"); };
+    if (failure === "unknown")
+      h.controls.resolveHomeDemo = async () => ({ found: false, demo: null });
+    if (failure === "projection")
+      h.controls.demoHref = () => { throw new Error("Projection unavailable"); };
+    if (failure === "decode")
+      h.controls.decodeError = new Error("Decoder unavailable");
+    h.demo();
+    await h.settle();
+    assert.equal(h.location.href, href);
+    assert.equal(h.history.state, entryState);
+    assert.equal(h.writes.length, 0);
+    assert.deepEqual(h.state.packages, [sourcePackage]);
+    assert.equal(h.state.loading, false);
+    assert.match(h.state.queryNotice, /^Demo failed:/);
+    assert.equal(Boolean(h.state.queryNoticeRetryAction), failure === "resolution");
+    assert.equal(h.context.pendingDemoNavigation, null);
+    assert.deepEqual(h.acquisitions, []);
+    assert.deepEqual(h.callGraphRuns, []);
+    h.flushFocus();
+    assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
+  });
+}
+
+test("a demo resolution retry reacquires the result under a new navigation sequence", async () => {
+  const h = harness();
+  h.controls.resolveHomeDemo = async () => { throw new Error("Try again"); };
+  h.demo();
+  await h.settle();
+  const failedSequence = h.navigationSequence.current();
+  assert.ok(h.state.queryNoticeRetryAction);
+  h.controls.resolveHomeDemo = async () => resolvedDemo();
+  h.state.queryNoticeRetryAction();
+  await h.settle();
+  assert.ok(h.navigationSequence.current() > failedSequence);
+  assert.deepEqual(h.demoResolutions, ["demo", "demo"]);
+  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+  h.flushFocus();
+  assert.deepEqual(h.focus, ["heading"]);
+});
+
+for (const outcome of ["success", "unknown", "failure"] as const) {
+  test(`superseded demo resolution ${outcome} cannot disturb a newer saved-workspace open`, async () => {
+    const h = harness();
+    const resolution = deferred<BrowserHomeDemoResolveResult>();
+    const selection = deferred<void>();
+    h.controls.resolveHomeDemo = () => resolution.promise;
+    h.demo();
+    h.controls.selection = () => selection.promise;
+    h.open();
+    await new Promise(resolve => setImmediate(resolve));
+    const pending = h.context.pendingDemoNavigation;
+    const snapshot = structuredClone(h.state);
+    const effects = [...h.effects];
+    const acquisitions = [...h.acquisitions];
+    if (outcome === "failure") resolution.reject(new Error("Stale failure"));
+    else resolution.resolve(outcome === "unknown" ? { found: false, demo: null } : resolvedDemo());
+    await h.operations[0];
+    assert.equal(h.context.pendingDemoNavigation, pending);
+    assert.deepEqual(structuredClone(h.state), snapshot);
+    assert.deepEqual(h.effects, effects);
+    assert.deepEqual(h.acquisitions, acquisitions);
+    assert.deepEqual(h.callGraphRuns, []);
+    assert.equal(h.writes.length, 0);
+    h.flushFocus();
+    assert.deepEqual(h.focus, []);
+    selection.resolve();
+    await h.settle();
+    assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+    h.flushFocus();
+    assert.deepEqual(h.focus, ["heading"]);
+  });
+}
+
+test("call-graph demo execution receives the resolution navigation sequence and stays observed", async () => {
+  const h = harness();
+  const resolution = deferred<BrowserHomeDemoResolveResult>();
+  const execution = deferred<void>();
+  h.controls.resolveHomeDemo = () => resolution.promise;
+  h.controls.demoHref = () => null;
+  h.controls.callGraph = () => execution.promise;
+  h.demo();
+  const sequence = h.navigationSequence.current();
+  assert.deepEqual(h.callGraphRuns, []);
+  resolution.resolve(resolvedDemo());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.callGraphRuns, [{ id: "demo", navigationSeq: sequence }]);
+  assert.equal(h.navigationSequence.current(), sequence);
+  assert.equal(h.context.pendingDemoNavigation?.navigationSeq, sequence);
+  assert.equal(h.operations.length, 1);
+  assert.equal(h.writes.length, 0);
+  execution.resolve();
+  await h.settle();
+  assert.equal(h.context.pendingDemoNavigation, null);
+});
+
 function inspectionSelection(h: ReturnType<typeof harness>) {
   const s = h.state;
   return {
@@ -681,6 +935,7 @@ function seedInspectionSelection(h: ReturnType<typeof harness>) {
 function fillWorkspace(h: ReturnType<typeof harness>, count = MAX_WORKSPACE_PACKAGES) {
   h.state.packages = [sourcePackage, ...Array.from({ length: count - 1 }, (_, index) => ({
     id: `Resident.${index}`, version: "1.0.0", activeFramework: "net10.0", types: [],
+    source: { kind: "nuget.org" },
   }))];
   for (const pkg of h.state.packages) {
     h.state.workspaceDependencies[workspaceDependencyKey(pkg)] = { resident: pkg.id };
@@ -700,6 +955,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   const h = harness();
   h.state.packages.unshift({
     id: "Earlier", version: "2.0.0", activeFramework: "net9.0", types: [],
+    source: { kind: "nuget.org" },
   });
   seedInspectionSelection(h);
   const previous = [...h.state.packages];

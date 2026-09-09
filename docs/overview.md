@@ -6,6 +6,12 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The [library family boundaries](design/library-family-boundaries.md) define
+what `Inspector`, `ILInspector`, `DotnetInspector`, independent domain roots,
+and host namespaces mean. Those subject families are independent from
+dependency altitude and from component roles such as Fetch, Service, and
+House.
+
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
@@ -66,12 +72,27 @@ substrates, and inspection producers that will extend that space.
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,
   and exact manifest results into one depth-bounded graph with root-relative
-  reachability. The source query owns a Decompiler fallback over retained
-  assembly content; the
+  reachability. The
+  [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
+  is the target host-neutral composition for resolving one exact `AssemblyRef`
+  through its referencing context, an applicable platform, and owner-issued
+  package dependency routes without mutating a sealed assembly-context group.
+  The source query owns a Decompiler fallback over retained assembly content;
+  the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
-  owns an explicit two-endpoint attempt over one resolved member. The project
-  has no Markout, console, or filesystem-path dependency.
+  owns an explicit two-endpoint attempt over one resolved member. The proposed
+  [ecosystem change report](design/ecosystem-change-report.md) owns a bounded
+  package-activity report's request, evidence categories, selection, and
+  coverage, including the six-week default and qualified security overlay.
+  The proposed
+  [structural clone search scope](design/structural-clone-search-scope.md)
+  owner defines Library, Type, and Member seed populations plus the shared
+  `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
+  independently from `SimilarNames` or `All` candidate discovery. It composes
+  exact Workspace revision and Metadata name evidence without redefining
+  Analysis retrieval.
+  The project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -82,8 +103,10 @@ substrates, and inspection producers that will extend that space.
   Queries-to-Research population receipt to one already admitted terminal
   Research attempt.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), assembly details, and the sibling [ReadyToRun image projection](design/readytorun-image-projection.md) for PE-envelope discovery, headers, and section directories. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
-- `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
-- `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
+- `src/ILInspector.SourceLink/` sits above Metadata. It owns SourceLink map
+  extraction and matching, canonical document paths, URL decoration,
+  provenance grammar, high-level type/member/IL-offset resolution,
+  source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/ILInspector.MetadataPrimitives/` is the dependency-free leaf for shared
   SRM mechanics and neutral name matching. `StringDistance` lives there so
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
@@ -91,17 +114,31 @@ substrates, and inspection producers that will extend that space.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
+  Its decoded string-literal producer uses the `InertText` leaf for
+  construction-time containment of artifact-authored evidence. Semantic
+  matching uses the original decoded text, never its contained display form.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
-- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.Findings/` (target `Inspector.Findings`) contains the
+  domain-free observation, inspection, matching, transition, comparison,
+  complete analysis-diff, whole-census correlation, and exact-identity
+  correlation contracts shared by product producers. The `timeline` command
+  composes Metadata and Analysis producers over those same correlation
+  contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
-- `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
+- `src/ILInspector.Text/` (target `Inspector.Text`) provides the reusable
+  `TextFindings` API for exact, ordered line inspection and generic text
+  comparison on the shared Finding spine, plus deterministic LF construction.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution.
+  resolution. Its
+  [platform package supply policy](design/platform-package-supply-policy.md)
+  owns the host-neutral decision from a Packages-owned coordinate and an
+  independently owned target-bound prune inventory to preserved supply
+  evidence and conservative platform delegation.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Host adapter
@@ -121,7 +158,11 @@ substrates, and inspection producers that will extend that space.
   Definitions retains demo records, resolution, run plans, and execution. Only
   the CLI and the managed inspect-web facade may consume this application
   assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
-  not reference it.
+  not reference it. The
+  [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
+  is the focused one-way projection from a selected application pack and the
+  authored product-default sequence into lower immutable declarations; it does
+  not move catalog identity, display actions, or source execution downward.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -135,13 +176,18 @@ substrates, and inspection producers that will extend that space.
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
   package assemblies.
-- `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
-  floor for generation-scoped artifact identity, typed provenance and
-  diagnostics, acquisition outcomes, and owner-issued guarded access.
-- `src/DotnetInspector.Services/` contains shared services such as assembly-set
+- `src/DotnetInspector.Artifacts/` (target `Inspector.Artifacts`) is the
+  package- and Metadata-free contract floor for generation-scoped artifact
+  identity, typed provenance and diagnostics, acquisition outcomes, and
+  owner-issued guarded access.
+- `src/DotnetInspector.Services/` is a transitional assembly containing shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing. It owns the accepted package/metadata XML structure
+  and nuspec parsing. `AssemblyDependencyResolver` owns the
+  [assembly dependency candidate inventory](design/assembly-dependency-candidate-inventory.md):
+  explicit undiscarded discovery evidence, target-input association and
+  acquisition outcomes before consumer selection.
+  Services owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
   Its [package metadata persistence](design/package-metadata-persistence.md)
@@ -151,10 +197,16 @@ substrates, and inspection producers that will extend that space.
   acquisition](design/local-repository-source-acquisition.md): when a
   caller-supplied Git clone may satisfy one PDB document request with verified
   bytes, or decline so acquisition can continue.
-- `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
-  Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
-  `AsyncCache`), the single `HttpClientFactory` seam with offline and
-  network-policy enforcement, network telemetry, and hardened XML/JSON readers.
+  Its `SourceFetch` implementation targets an independent `SourceFetch` root
+  alongside `NuGetFetch`: it owns bounded host-authorized source-byte
+  transport, redirect and origin enforcement, content-store integration, and
+  typed transport outcomes. `PdbSourceHouse` retains local, repository, and
+  remote ordering, PDB checksum verification, decoding, and settled
+  PDB-source outcomes.
+- `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
+  Packages, Services, and the CLI. Its cache, networking, untrusted-document,
+  CLI telemetry, and single-consumer helpers move to subject owners under
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
   and Decompiler: its registry orders fact producers, joins R1 analysis
@@ -178,16 +230,35 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
-- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
-  operator-approved cross-owner target experience for subjects, traversal
-  permissions, operation demand, Browser defaults, and ecosystem-assisted
-  retrieval. It is not a new runtime owner; component contracts and their
-  focused adoption remain with the participating owners.
+- [Workspace registration and call-graph focal
+  length](design/workspace-registration-and-call-graph-scope.md) is the
+  operator-approved cross-owner target experience for inert registration,
+  shared fresh-Workspace ecosystem defaults, and consumer-selected call-graph
+  breadth. It retires traversal approval and permission semantics. Its
+  owner-issued route prerequisite is the
+  [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md);
+  its catalog boundary is the
+  [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md).
+  Component contracts and their focused adoption remain with the participating
+  owners.
 - [Inspect Web Workspace Editing](design/inspect-web-workspace-editing.md)
   owns the proposed Browser editor execution-eligibility and leave-decision
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
+  session-local Package Diff baseline, inheritance during subject navigation,
+  and target-setting controls. Clone candidate scope has transferred to the
+  shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
+  owner. The Browser owner does not own acquisition authority, comparison
+  execution, or portable Workspace fields.
+- [Library API diff presentation](design/library-api-diff-presentation.md)
+  owns the portable Library-root and changed-Type projection of one complete
+  selected-library API comparison. It preserves Metadata identity,
+  correspondence, and compatibility classification without owning Browser
+  transport or text rendering. Its Browser adopter retires #6076's transient
+  Compare-authored-source interaction with zero compatibility rather than
+  adding a parallel Diff experience.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,
@@ -306,6 +377,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Library family boundaries](design/library-family-boundaries.md): subject
+  families for shared inspection substrate, compiled-program inspection,
+  ecosystem composition, independent domains, and product hosts.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
   section lenses and caller-owned execution contexts.
@@ -394,6 +468,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   static shipped-pack manifest that compose package-set identity, typed
   package-prefix requests, and opaque Integration-owned semantic-scanner
   bindings without making reusable infrastructure depend on the catalog.
+- [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md):
+  explicit application-pack correspondence, lower immutable retrieval,
+  population, and Integration contributions, typed projection outcomes, and
+  one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package or non-package Root, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
@@ -438,6 +516,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member source diff presentation](design/member-source-diff-presentation.md):
   canonical placement-aligned endpoint text, source-line analysis and statistics,
   Markout mapped-text lowering, and the CLI Source Diff first adoption.
+- [Library API diff presentation](design/library-api-diff-presentation.md):
+  portable Library-root changed-Type composition, complete compatibility
+  changes, and distinct changed-member summaries for shared host adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
@@ -460,11 +541,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, authority composition, source-bound caches, selection, and
   enrichment.
-- [Package dependency evidence](design/package-dependency-evidence.md):
-  normalized declared dependency observations across typed package-manifest
-  and restored-project inputs, additive resolution and owner evidence,
-  cross-input equivalence, completion, and query-result `InertString`
-  containment.
+- [Package input and dependency evidence](design/package-dependency-evidence.md):
+  common package declarations and produced relationships across authored
+  project, package-manifest, restored-project, and runtime-dependency inputs,
+  preserving authorship, requested versus resolved versions, processing
+  evidence, equivalence, independent completion, and query-result
+  `InertString` containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes
@@ -485,6 +567,15 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   search-selector catalog, typed metadata observations, and Gallery-specific
   row-delegation evidence. Row meaning, generic source contracts, and host
   adoption remain with their focused owners.
+- [Package Query input selection](design/package-query-input-selection.md):
+  shared Query interpretation of exact-ID, explicit-prefix, and explicit
+  Gallery candidate inputs, consuming existing source intent and acquisition
+  contracts without implicit input substitution. Browser adoption is implemented;
+  general CLI query execution remains tracked separately.
+- [Package Query inspection evidence](design/package-query-inspection-evidence.md):
+  shared inspection-produced item counts and bounded previews, separated from
+  query-wide source context; acquisition, matching, and host presentation retain
+  their existing owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

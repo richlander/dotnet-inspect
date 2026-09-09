@@ -30,7 +30,19 @@ public class TypeView
     [JsonIgnore]
     public List<MarkoutField>? Summary { get; set; }
 
-    // Top fields (rendered inline for -v:q compact summary only)
+    [MarkoutSkipNull] public string? Package { get; set; }
+    [MarkoutSkipNull] public string? Version { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Library")]
+    public string? Assembly { get; set; }
+
+    [MarkoutSkipNull] public string? Source { get; set; }
+
     [MarkoutSkipNull] public string? Kind { get; set; }
     [MarkoutSkipNull] public string? Modifiers { get; set; }
 
@@ -43,14 +55,6 @@ public class TypeView
     public string? TypeParametersInline { get; set; }
 
     [MarkoutIgnore] public string? Implements { get; set; }
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("Library")]
-    public string? Assembly { get; set; }
-
-    [MarkoutSkipNull] public string? Package { get; set; }
-    [MarkoutSkipNull] public string? Version { get; set; }
-    [MarkoutSkipNull] public string? Source { get; set; }
 
     [MarkoutIgnore]
     [JsonIgnore]
@@ -75,10 +79,6 @@ public class TypeView
     [MarkoutIgnore]
     [JsonIgnore]
     public bool CallGraphIncomplete { get; set; }
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("Samples")]
@@ -287,6 +287,10 @@ public class TypeView
     [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = "No matching body shapes found.")]
     [JsonIgnore]
     public List<ApiBodyShapeRow>? BodyShapeRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.BodyShapeSummary, EmptyText = "No matching body shapes found.")]
+    [JsonIgnore]
+    public List<ApiBodyShapeSummaryRow>? BodyShapeSummaryRows { get; set; }
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
@@ -1317,6 +1321,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
 [MarkoutContext(typeof(ApiBodyShapeRow))]
+[MarkoutContext(typeof(ApiBodyShapeSummaryRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -1332,6 +1337,17 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ApiInfoSection))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {
+}
+
+[MarkoutSerializable]
+public sealed record ApiBodyShapeSummaryRow(string Kind, string Match, int Count)
+{
+    public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
+    public string Match { get; init; } = MarkoutInline.Code(Match);
+    public int Count { get; init; } = Count;
+
+    internal static ApiBodyShapeSummaryRow FromSummary(Output.BodyShapeSummary summary)
+        => new(summary.Kind, summary.Match, summary.Count);
 }
 
 [MarkoutSerializable]

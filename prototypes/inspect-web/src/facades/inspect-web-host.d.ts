@@ -14,3 +14,6 @@ export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]
 export declare function asyncLoweringCanary(): Promise<string>;
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function configureHost(origin: string): void;
+export declare function drainEpochWorkReporter(): Promise<void>;
+export declare function registerEpochWorkReporter(allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined): void;
+export declare function unregisterEpochWorkReporter(): void;

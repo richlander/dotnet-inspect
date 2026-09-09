@@ -21,7 +21,7 @@ The host-neutral request model, structural capability catalog, planner, typed
 rejections, and retained validated plan are implemented in
 `src/DotnetInspector.Queries/AnalysisRequest.cs`. The properties in
 [Verification](#verification) are enforced by the named gates in
-`src/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
+`tests/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.

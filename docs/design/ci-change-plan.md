@@ -194,6 +194,25 @@ focused consumer rebuilds and checks the composed Release graph after merge;
 pull-request and merge-group candidates instead run the same policy inside
 their selected pre-merge test job.
 
+A validation's selection set must cover its entire scan set. A repository-wide
+scan therefore selects every pre-merge candidate rather than deriving
+relevance from narrower project ownership. Accordingly, every pull-request and
+merge-group candidate selects `repositoryGuards` independently of changed
+paths. Its focused consumer runs tests whose asserted surfaces are wider than
+their owning projects: the tracked repository tree for line endings and every
+non-excluded top-level source root for legacy package-source identity. This
+does not broaden the ordinary `test` lane for documentation-only or
+inspect-web-only candidates.
+
+`inspectWeb` selects the fast, parallel Browser/Wasm PR topology.
+`inspectWebComprehensive` is a narrower pre-merge selection for changes to the
+generated-facade tooling, multi-facade canary, managed-operation bridge canary,
+or their direct owners. It implies `inspectWeb` and selects the same complete
+version-invariance, mutation, and Mono/CoreCLR modes that run in the daily Deep
+Inspect `inspect-web` lane. Push events retain the fast post-merge backstop;
+scheduled comprehensive evidence is owned by Deep Inspect rather than inferred
+from a push change set.
+
 Two conservative inventory policies are current and named. When
 `eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
 change broadens to the Browser/Wasm lane. When
@@ -210,59 +229,10 @@ Inventory roots are unique canonical repository-relative lines. A duplicate
 root makes the inventory malformed even though the legacy shell reader would
 tolerate it; the conservative policy above then applies.
 
-The three CodeQL lanes route on file-extension families rather than a project
-inventory, because CodeQL's unit of analysis is a language, not a project:
-`codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on the
-input families the C# extractor enumerates for itself, and `codeqlJavaScript`
-on the JavaScript extractor's own published default inclusion set. Both
-language lanes mirror the extractor rather than the file types this repository
-happens to contain, so that the lists do not drift as the repository gains file
-types; families that are absent simply never match. The C# set is wider than
-C# sources: buildless extraction still resolves dependencies, so it covers
-MSBuild and solution inputs, Razor views, resource files, and the
-`global.json`, `NuGet.Config`, and `packages.config` inputs that decide which
-packages and feeds participate. The enumerated families deliberately not
-routed are DLL files, which are build outputs rather than tracked sources, and
-small non-binary files. That last family is every text file in the repository —
-3,662 of 3,704 tracked files when this policy was written. The extractor scans
-it for package references and project settings that can influence dependency
-inference, so excluding it is a real narrowing of the mirror rather than a
-technicality: a documentation example containing a `PackageReference` element
-does not select the lane. It is excluded because routing it would select C#
-analysis on nearly every candidate, reinstating the ten-minute cost on
-documentation-only changes that this policy exists to remove. Both exclusions
-are bounded by the weekly scan rather than by per-candidate routing.
-The
-JavaScript set is wider than JavaScript and TypeScript sources: it also covers
-HTML and its templates, YAML,
-and named inputs such as `package.json` and `tsconfig.json`. YAML therefore
-selects both `codeqlActions` and `codeqlJavaScript`.
-The one documented inclusion deliberately not
-routed is "all extension-less files", which would select the lane for ordinary
-metadata on nearly every candidate. Matching folds ASCII case, so an
-uppercase spelling of either an extension or a named input such as
-`NuGet.Config` cannot silently skip a lane. Like `markdownlint`,
-`inspectWeb`, and `tla`, these lanes carry no pre-merge event condition, so a
-push to `main` analyzes whichever languages that push touched.
-
-Push-time analysis is skipped for Dependabot-authored commits. This repository
-allows only squash merging, so merging a Dependabot pull request produces a
-Dependabot-authored commit on `main`, and GitHub gives workflows running on
-such a commit read-only permissions. Because uploading SARIF for a branch
-requires `security-events: write`, the lane would fail rather than publish, so
-the workflow does not start it. The condition tests both the actor and the head
-commit's author, because they differ: on a squash merge the actor is the
-maintainer who merged rather than Dependabot, so an actor-only guard would
-never fire. The pull-request run still analyzes the change,
-since code scanning always accepts uploads from a `pull_request` event; only
-the default-branch baseline refresh is deferred to the weekly scan.
-
-Routing a whole-program analyzer is a scheduling decision rather than a
-coverage one. The weekly scan in `codeql-scheduled.yml` analyzes all three
-languages unconditionally, so a language this policy fails to select on some
-candidate delays a finding to the next scheduled scan rather than dropping it.
-That bound is what makes extension-family routing acceptable here even though
-it is coarser than the project-closure inventories used elsewhere.
+CodeQL does not consume the change plan. Its daily workflow analyzes Actions,
+C#, and JavaScript/TypeScript unconditionally against the default branch.
+Keeping the whole-program analyzer outside pull-request CI preserves alert
+publication while removing a rarely-changing signal from the merge gate.
 
 Jobs and named in-job validation units consume selections, not paths.
 Domain-specific interpretation begins only after routing. For example, the
@@ -290,7 +260,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -303,6 +273,7 @@ Conceptually:
   },
   "validations": {
     "test": true,
+    "repositoryGuards": true,
     "dependencyPolicy": false,
     "markdownlint": false,
     "ilRoundtrip": true,
@@ -326,13 +297,13 @@ Path corpora and refusal diagnostics remain outside the plan.
 Concretely, the serialized plan is one compact UTF-8 JSON object containing
 only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
-carries every field — `test`, `dependencyPolicy`, `csharpDiffSmoke`,
-`decompilerGates`, `markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`,
-`buildNet10`, `inspectWeb`, `skillGate`, `tla`, `codeqlActions`,
-`codeqlCSharp`, and `codeqlJavaScript` — so a consumer never distinguishes
-"false" from "absent". `ilRoundTrip` implies `test` as a construction
-invariant. A scope descriptor names its artifact, record framing, record
-count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan
+carries every field — `test`, `repositoryGuards`, `dependencyPolicy`,
+`csharpDiffSmoke`, `decompilerGates`, `markdownlint`, `ilDiffSmoke`,
+`ilRoundTrip`, `pack`, `buildNet10`, `inspectWeb`, `skillGate`, and `tla`, so a
+consumer never distinguishes "false" from "absent". `ilRoundTrip` implies
+`test` as a construction invariant. A scope descriptor names its artifact,
+record framing, record count, and digest; the TLA+ artifact is
+`ci-plan-tla-paths0`. The plan
 publisher writes scoped evidence and then the single plan line only after the
 serialized bytes have been re-parsed and revalidated by the strict plan
 reader, so a plan a consumer would reject never reaches one.
@@ -467,8 +438,8 @@ The planner implementation gate must also cover:
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
   refusal; and
-- a neighboring docs-only candidate that selects documentation validation
-  without unrelated content gates.
+- a neighboring docs-only candidate that selects documentation validation and
+  repository-wide guards without ordinary content gates.
 
 Workflow-adoption evidence separately demonstrates that GitHub accepts the
 workflow, the non-matrix producer publishes exactly one compact plan, and
@@ -477,12 +448,14 @@ event or path policy. Review checks the fail-closed publication boundary,
 execution-local conditions such as matrix placement, and aggregate handling of
 a planner job that fails, is skipped, is cancelled, or never starts.
 
-The repository intentionally does not parse workflow YAML to pin the projection
-text or reimplement GitHub expression semantics. The actual PR workflow run and
-adversarial review are the wiring evidence, while planner values and aggregate
-result safety remain persistently gated. Consequently, the absence of
-arbitrary future duplicate routing expressions is specified and review-owned,
-not claimed as a persistently enforced repository invariant.
+The workflow contract parses YAML to pin consumers to their intended
+`validations.*` projections and reject independently routed consumer steps. It
+does not reimplement GitHub expression semantics. The actual PR workflow run
+and adversarial review are the execution evidence, while planner values and
+aggregate result safety remain persistently gated. Consequently, the absence
+of arbitrary future duplicate routing expressions outside covered consumers
+is specified and review-owned, not claimed as a persistently enforced
+repository invariant.
 
 The demo is one planner invocation for the #5347 rename-into-model fixture. Its
 plan selects TLA+, and the TLA+ job verifies and consumes the planner-assigned

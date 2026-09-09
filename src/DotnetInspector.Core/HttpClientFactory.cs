@@ -147,7 +147,7 @@ public static class HttpClientFactory
     /// <summary>
     /// Test-only: substitutes the transport used by untrusted-source fetches so acquisition
     /// paths (including failure) can be exercised without network access. This replaces only
-    /// the transport; callers still run the real <c>SourceFetcher</c>, so scheme restriction,
+    /// the transport; callers still run the real <c>SourceFetch</c>, so scheme restriction,
     /// caching, and status handling stay under test. Pass null to restore the real client.
     /// </summary>
     internal static void SetUntrustedFetchForTesting(HttpClient? client) => _untrustedFetchOverride = client;

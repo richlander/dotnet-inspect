@@ -153,8 +153,9 @@ The linked records preserve the inputs, dates, procedures, and qualifications.
 They do not establish a general API speed ranking. In particular, the time to
 fetch a known Catalog leaf, scan a bounded interval, bootstrap an inventory,
 and query a warm derived index are four different measurements. First/last
-comparisons for Catalog enumeration and inventory alternatives remain
-**unmeasured**.
+comparisons for maintained Catalog inventory alternatives remain
+**unmeasured**. The bounded event-window experiment below measures a different,
+smaller question.
 The narrower exact-version service-return comparison below is measured; it
 does not measure Catalog enumeration, an inventory, or either host's UI.
 
@@ -242,6 +243,253 @@ explicitly authorizes advisory acquisition. It does not clear the user's cache.
 Live timings are design evidence, not a CI performance threshold. The
 Registration contract below is enforced by hermetic Release cases.
 
+### Bounded Catalog change-window experiment
+
+[#6104](https://github.com/richlander/dotnet-inspect/issues/6104) preserves a
+research probe for "which package-version events were committed in this
+interval?" This section owns the experiment and its API-selection evidence,
+not a new product Catalog query, cursor store, or inventory architecture.
+The user approved this evidence-only step after #5980; the consumer is the
+file-based research harness. Its three steps are the bounded probe and
+offline cases, fixed-window measurements, and this decision record. Product
+adoption would need a separate shared implementation and CLI/browser tracker.
+
+The [probe](../../tools/CatalogChangeBenchmark.cs) uses an exclusive UTC start
+and inclusive UTC end, at most 42 days apart. It discovers Catalog through
+the nuget.org service index, follows advertised pages in commit order, and
+selects events using commit time, not `published`. A page's index timestamp is
+its maximum, so the page crossing the upper boundary must also be inspected.
+The index must already advertise a horizon at or beyond the requested end.
+
+`events` requires ID, version, details/delete kind, commit ID/time, and leaf
+URL, all supplied by Catalog pages. `snapshots` additionally follows each
+selected leaf and binds its coordinate, kind, and commit back to the page
+event before returning nullable listing state and the leaf's `published`
+timestamp. These modes supply different evidence; their costs are not an
+equivalent-query speed competition. Missing optional `listed` remains unknown.
+A false value describes a snapshot, not proof that this event was caused by
+unlisting. `PackageDetails` does not distinguish push, relist, unlist,
+deprecation, reflow, or vulnerability updates.
+
+The result unit is an **event**, not a distinct coordinate or current package.
+Repeated coordinates remain separate events; a unique-coordinate count is
+supplemental. `T_first` and `T_n` observe typed rows at the **probe consumer**,
+immediately before JSONL serialization, not CLI publication or browser paint.
+Page order and then event commit order are chronological; ordinal URL is a
+deterministic within-page tie-breaker, not an ordering promised by the server.
+`result-limit` means the requested `n` arrived, not that the interval was
+exhausted or a commit was fully processed. `window-exhausted` means all pages
+that can cover the interval were processed. Fewer than `n` results leaves
+`T_n` unavailable, including on empty windows and failures.
+
+The original up-to-24-hour profile imposes 128 fetched pages, 512 requests,
+64 MiB total decoded bodies, and a two-minute operation deadline. Longer
+windows use an explicit research profile of 512 pages, 1,024 requests,
+512 MiB total decoded bodies, and five minutes. Both retain 16 MiB per decoded
+body and a 30-second HTTP timeout. Summaries expose the selected budgets.
+These are research budgets, not NuGet limits. Exhaustion,
+HTTP/JSON failure, unsupported endpoint, or mismatched leaf ends visibly as
+`failed`, preserves partial counts/timings, and returns a nonzero exit code.
+Only HTTPS `api.nuget.org` endpoints are supported; credential-free,
+no-redirect transport and duplicate-rejecting `HardenedJson` are used. This is
+not a configured-feed implementation. Typed rows and summaries lower directly
+through source-generated JSON serialization; machine-readable measurement
+data does not use the product's multi-format Markout rendering.
+
+The offline `--self-test` mode exercises 15 outcome-level boundary/failure
+cases in Release, including both time bounds, a crossing page, upper-bound
+commit ties, repeated coordinates, result limits, empty results, unlisted
+and deleted snapshots, unobserved horizons, partial acquisition failure,
+page/request/body budgets, leaf identity, malformed JSON, case-insensitive
+literal prefixes, matching-result limits, and no-match acquisition costs.
+CI runs that mode; live timings are evidence, not a CI performance threshold.
+The original 12-case command took 0.83 seconds with the already built probe
+on the measured host.
+
+The analogous [NuGet sample][catalog-sample] collects all matching page
+entries before globally sorting and processing them, then persists a cursor.
+It supports the page-only evidence tier but does not measure first-result
+latency or impose a fixed upper horizon. This probe deliberately processes
+ordered pages incrementally and persists no cursor. No sample code or new
+runtime dependency was copied.
+
+#### Fixed-window observations
+
+On 2026-09-06 at 05:28 UTC, the same Ryzen 9 9900X / Ubuntu 24.04.4 x64 host
+and Release .NET 11 preview 7 runtime used above measured
+`(2026-09-04T00:00:00Z, 2026-09-05T00:00:00Z]`. The measured probe's SHA-256 is
+`82915728af3486848727eb89612894ecc9c6edcd147f563fdff11dbeef25eb71`.
+These observations predate the six-week/prefix extension below; use the
+probe at [#6117](https://github.com/richlander/dotnet-inspect/pull/6117) to
+reproduce that exact measured implementation.
+[All 14 raw summaries](../evidence/catalog-change-window-2026-09-04.jsonl)
+preserve per-stage requests, consumed decoded body bytes, acquisition/parse
+time, observed Catalog horizon, completion scope, and projection hashes.
+
+Each mode ran three trials selecting the first 100 events. Each trial starts
+with a fresh client, then repeats using that same connection pool. Neither run
+uses an application response cache; "cold" does not mean cold OS DNS, CDN, or
+runtime. Modes ran sequentially, events before snapshots, not interleaved.
+These are descriptive samples, not a causal or statistical API speed ranking.
+The table shows medians in milliseconds; requests and bytes were identical
+across repeated runs of each mode.
+
+| Required row | Client state | `T_first` | `T_100` | `T_terminal` | Requests | Decoded bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Page event | Cold client | 1004.305 | 1016.636 | 1016.985 | 3 | 5,310,949 |
+| Page event | Warm connection | 530.830 | 531.031 | 531.050 | 3 | 5,310,949 |
+| Enriched snapshot | Cold client | 1058.417 | 3037.618 | 3037.666 | 103 | 6,286,396 |
+| Enriched snapshot | Warm connection | 512.661 | 2273.307 | 2273.331 | 103 | 6,286,396 |
+
+All 100-event runs ended `result-limit`, not `window-exhausted`. The common
+ID/version/kind/commit/leaf projection selected by both modes matched; each
+mode's full projection hash also matched across its six runs. The first 100
+events were details snapshots and all enriched listing flags were true.
+There is no live unlisting observation in that sample; the offline case
+establishes how a false listing flag is reported without inferring a cause.
+
+The service index cost 9,272 decoded bytes, the Catalog index 4,417,893,
+and the first selected page 883,784. The enriched mode added 100 leaf requests
+and 975,447 bytes. The first page had 2,749 entries: no 550-item assumption
+from old example documentation is built into the probe. Body counts exclude
+compression, headers, and transport framing. The typed-row callback includes
+earlier rows' JSONL output overhead; terminal accounting precedes summary
+serialization.
+
+A separate one-trial page-only census requested up to 100,000 events and
+exhausted the window after **17,801 events / 17,572 distinct coordinates**:
+17,782 details and **19 deletions**. It examined 19,215 page entries in seven
+pages, plus the service and Catalog indexes: **9 requests and 10,450,308
+decoded bytes**, with no leaf fetches. The cold/warm-connection observations
+were `T_first` 900.361/893.856 ms, last-result 1517.960/1324.697 ms, and terminal
+1518.486/1324.823 ms. `T_100000` was unattained, not relabeled as the last
+returned event. Both census projections matched. This is one pair of
+observations, not a median or a full-history inventory benchmark.
+
+The first event was `AutoSDK.CLI@0.34.7-dev.7` at
+`2026-09-04T00:00:35.2351445Z`. A neighboring kind was the deletion of
+`Esri.ArcGISRuntime.WinUI@200.8.3` at `2026-09-04T05:58:35.9359475Z`.
+Neither event establishes current availability or the state of versions that
+had no event in this interval. For a concrete counterexample,
+`Newtonsoft.Json@13.0.3` had no census event, while a separate Flat Container
+manifest HEAD request returned HTTP 200. That availability observation is
+outside the timed experiment and is not inferred from Catalog absence.
+There is no baseline ingestion, persisted
+cursor, incremental refresh, or warm derived-index measurement here.
+
+**Decision:** Catalog merits a focused bounded-change-query capability
+proposal. Page-only discovery can answer an event-history question at modest
+observed request cost; leaf enrichment should be requested only for fields
+that need it. In these samples, the 4.4 MB global index is a material initial
+cost, while per-event enrichment increases the request count and `T_100`.
+Search remains appropriate for ranked current-package discovery and cannot
+answer the same historical/deletion question. This evidence does not justify
+replacing Search, implementing an inventory service, or claiming CLI/browser
+latency. A later proposal must settle result and completion semantics and
+track both host adopters before adding product code.
+
+Reproduce, with JSONL output redirected to a file when measuring:
+
+```bash
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  events 2026-09-04T00:00:00Z 2026-09-05T00:00:00Z 100 3
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  snapshots 2026-09-04T00:00:00Z 2026-09-05T00:00:00Z 100 3
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  events 2026-09-04T00:00:00Z 2026-09-05T00:00:00Z 100000 1
+```
+
+The historical interval is fixed; the live service/Catalog indexes, their
+byte sizes, and transport timings will change on later reproduction. No local
+or shared package cache is cleared. The fixed horizon excludes later events
+but is not a claim that the source has ingested every upstream operation by
+wall-clock time.
+
+#### Six-week ecosystem-scope experiment
+
+The user scenario is now an on-demand ecosystem change report with a security
+overlay, defaulting to **last six weeks (42 days)** and displaying the exact
+date bounds. [#6124](https://github.com/richlander/dotnet-inspect/issues/6124)
+tracks eight separate owner-scoped delivery steps through CLI and browser.
+[#6126](https://github.com/richlander/dotnet-inspect/issues/6126) owns this
+research extension, not that product implementation or its security semantics.
+
+The additional optional argument is a literal, case-insensitive package-ID
+prefix. It is applied before result selection and leaf acquisition, but only
+after Catalog pages have been fetched. It is not a namespace predicate,
+wildcard, ownership assertion, curated package-set membership, or executable
+ecosystem-pack binding. Existing ecosystem namespace hints cannot silently
+become package membership. Omitting the argument retains all in-window events.
+`windowEventsSeen` reports in-window entries in acquired pages, including
+nonmatches and entries beyond a reached result limit; it is not an exhaustive
+window count until `window-exhausted`.
+
+This is the same approved research-harness consumer, with three steps:
+extend its bounded inputs/offline cases, measure scoped default-window cost,
+and record the adoption consequence. Source, security evidence, shared report,
+presentation, and host implementation remain separate tracks under #6124.
+
+The fixed input was `(2026-07-25T00:00:00Z, 2026-09-05T00:00:00Z]` and literal
+prefix `Aspire.`, including prerelease versions. It is a measurable proxy
+scope, not a declaration of official Aspire ecosystem membership. It was run
+on the same host/runtime on 2026-09-06 at 05:53-05:56 UTC using probe SHA-256
+`e9044cf45b56820c41bf8a80a4a7cbd15855aa9708e27ee125eee9387ddb62da`.
+The [ten preserved summaries](../evidence/catalog-six-week-aspire-2026-09-05.jsonl)
+add only a `campaign` annotation to distinguish the initial pair, three
+subsequent trial pairs, and the complete-window pair.
+
+| Operation | Observation | `T_first` | `T_100` | `T_terminal` |
+| --- | --- | ---: | ---: | ---: |
+| First 100 matches | Initial fresh client | 8.842 s | 38.884 s | 38.884 s |
+| First 100 matches | Initial warm connection | 1.247 s | 4.085 s | 4.085 s |
+| First 100 matches | Subsequent fresh-client median, 3 trials | 3.510 s | 9.541 s | 9.541 s |
+| First 100 matches | Subsequent warm-connection median, 3 trials | 1.469 s | 5.459 s | 5.459 s |
+| Complete prefix window | One fresh-client observation | 2.049 s | Not selected | 31.186 s |
+| Complete prefix window | One warm-connection observation | 1.535 s | Not selected | 7.607 s |
+
+The first-100 operations fetched **115 pages / 117 requests** and processed
+**312,600 in-window source entries** to select 100 matching events. They
+consumed 102,937,932-102,937,934 decoded bytes and ended at `result-limit`.
+All eight first-100 projections matched. Their first matching event was
+committed on July 29, four days into the requested window.
+
+The complete-window pair fetched **210 pages / 212 requests**, consuming
+183,947,327-183,947,329 decoded bytes. It examined 573,394 page entries,
+570,633 within the interval, and returned **531 events / 529 coordinates**.
+Both projections matched and both ended `window-exhausted`. All matching
+events were details events, not deletions; no leaf enrichment or security
+classification was performed. Their requested `n=100000` was unattained.
+Last-result times were 29.465/7.166 s; terminal accounting also includes
+later nonmatching pages needed to establish window exhaustion.
+
+**Consequence:** the six-week scenario is feasible as a bounded acquisition,
+but selective filtering does not make it a small upstream query. Roughly
+570,000 source entries were examined for 531 prefix events. Product adoption
+must retain acquisition progress, cancellation, explicit partial completion,
+and the difference between reaching a row limit and completing the interval.
+The evidence does not establish an instant browser experience or justify
+hiding this cost behind a nominally small result count.
+
+These runs are chronological, oldest-first, like the original change-stream
+probe; they do not measure newest-first report publication or a security-only
+selection. The initial slower observation is retained rather than hidden by
+later medians. "Fresh client" is still not a cold-CDN assertion; the pilot
+and earlier trials may warm upstream caches. There is no application response
+cache in this experiment, and decoded bytes are **not compressed transfer
+bytes**. The two-byte variations came from the live Catalog index, not the
+fixed historical result projection. No cache architecture, server index,
+or new product performance guarantee follows from these samples.
+
+Reproduce the repeated first-100 and complete-window observations:
+
+```bash
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  events 2026-07-25T00:00:00Z 2026-09-05T00:00:00Z 100 3 Aspire.
+dotnet run tools/CatalogChangeBenchmark.cs -c Release -- \
+  events 2026-07-25T00:00:00Z 2026-09-05T00:00:00Z 100000 1 Aspire.
+```
+
 ### Next comparisons, not presumed winners
 
 Use the smallest experiment that can change a scenario decision:
@@ -259,8 +507,9 @@ Use the smallest experiment that can change a scenario decision:
   Container plus Registration for the same listed/stable/SemVer population.
   Include unlisted and SemVer 2 versions; a smaller response that omits required
   versions is not a faster answer to the same question.
-- **Catalog discovery:** separately measure a bounded recent-change request,
-  initial inventory construction, and resumed cursor consumption. Pin the
+- **Catalog discovery:** extend the bounded-window evidence across additional
+  windows and budgets. Separately measure initial inventory construction and
+  resumed cursor consumption if those scenarios are proposed. Pin the
   baseline/horizon and distinguish event rows from distinct current packages.
   Include a package with no event in the recent interval so the experiment
   cannot accidentally equate "recently changed" with "all current packages."
@@ -775,4 +1024,5 @@ This is the authoritative source for .NET runtime/SDK CVEs but requires navigati
 [vulnerability-info]: https://learn.microsoft.com/en-us/nuget/api/vulnerability-info
 [package-content]: https://learn.microsoft.com/en-us/nuget/api/package-base-address-resource
 [catalog]: https://learn.microsoft.com/en-us/nuget/api/catalog-resource
+[catalog-sample]: https://github.com/NuGet/Samples/blob/ec30a2b7c54c2d09e5a476444a2c7a8f2f289d49/CatalogReaderExample/CatalogReaderExample/Program.cs
 [autocomplete]: https://learn.microsoft.com/en-us/nuget/api/search-autocomplete-service-resource

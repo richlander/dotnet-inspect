@@ -34,10 +34,23 @@ public static class CommandLineBuilder
     public static bool UsesTypedItemLimit(
         System.CommandLine.ParseResult result)
     {
-        return result.CommandResult.Command.Name == PackageSearchCommand.Name
-            && result.CommandResult.Parent is
-                System.CommandLine.Parsing.CommandResult parentCommand
-            && parentCommand.Command.Name == PackageCommand.Name;
+        if (HasParsedOption(result, "--lines")
+            || HasParsedOption(result, "--tail-lines"))
+        {
+            return false;
+        }
+
+        return (result.CommandResult.Command.Name
+                    == PackageSearchCommand.Name
+                && result.CommandResult.Parent is
+                    System.CommandLine.Parsing.CommandResult parentCommand
+                && parentCommand.Command.Name == PackageCommand.Name)
+            || (result.CommandResult.Command.Name
+                    == PackageCommand.Name
+                && (HasParsedOption(result, "--versions")
+                    || HasParsedOption(
+                        result,
+                        "--versions-with-feed")));
     }
 
     /// <summary>
@@ -47,12 +60,42 @@ public static class CommandLineBuilder
         => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
 
     /// <summary>
-    /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleArgumentError"/>. This is the
-    /// pre-parse choke point the entry point calls, so a removed spelling is answered with its
-    /// replacement rather than with a bare "Unrecognized option".
+    /// Reports stale direction syntax using the active command's count unit.
     /// </summary>
     public static bool TryGetStaleArgumentError(string[] args, out string? error)
-        => ArgumentPreprocessor.TryGetStaleArgumentError(args, out error);
+        => TryGetStaleArgumentError(
+            args,
+            CreateRootCommand(),
+            out error);
+
+    internal static bool TryGetStaleArgumentError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        ParseResult rawParse = rootCommand.Parse(args);
+        bool isImplicitPackageVersionCandidate =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(
+                args,
+                UsesImplicitVersionDirectionPresence(args, rootCommand));
+        string[] ownershipArgs = args;
+        ParseResult ownershipParse = rawParse;
+        if (isImplicitPackageVersionCandidate)
+        {
+            ownershipArgs = [PackageCommand.Name, .. args];
+            ownershipParse = rootCommand.Parse(ownershipArgs);
+        }
+
+        if (CliRowSelectionCommandRegistry.OwnsShortLimit(
+                ownershipParse,
+                ownershipArgs))
+        {
+            error = null;
+            return false;
+        }
+
+        return ArgumentPreprocessor.TryGetStaleDirectionFlagError(ownershipArgs, out error);
+    }
 
     /// <summary>
     /// Known commands for implicit package command detection.
@@ -74,13 +117,58 @@ public static class CommandLineBuilder
         string[] args,
         RootCommand rootCommand)
     {
-        string[] processed = ArgumentPreprocessor.PreprocessArgs(args);
-        if (processed.FirstOrDefault() == "router")
+        string[] processed = ArgumentPreprocessor.PreprocessArgs(
+            args,
+            UsesImplicitVersionDirectionPresence(args, rootCommand));
+        if (args.FirstOrDefault()?.StartsWith('-') == true
+            && processed.FirstOrDefault() == "router")
+        {
+            string[] packageArguments = [PackageCommand.Name, .. args];
+            ParseResult packageParse = rootCommand.Parse(packageArguments);
+            if ((HasParsedOption(packageParse, "--versions")
+                    || HasParsedOption(packageParse, "--versions-with-feed"))
+                && RouterCommandDefinition.IsAcquisitionFreePackageRoute(
+                    processed[1..], rootCommand))
+            {
+                // These lenses already select the package route. Keep the original
+                // positional order rather than hoisting a target across its flags.
+                return ArgumentPreprocessor.PreprocessArgs(packageArguments);
+            }
+        }
+
+        ParseResult parseResult = rootCommand.Parse(processed);
+        if (processed.FirstOrDefault() == "router"
+            || CliRowSelectionCommandRegistry.OwnsShortLimit(
+                parseResult,
+                processed))
+        {
             return processed;
+        }
 
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
-            rootCommand.Parse(processed),
+            parseResult,
             processed);
+    }
+
+    private static bool UsesImplicitVersionDirectionPresence(
+        string[] args,
+        RootCommand rootCommand)
+    {
+        if (args.Length == 0
+            || !args[0].StartsWith('-')
+            || !args.Any(static argument => argument is "--head" or "--tail"))
+            return false;
+
+        int firstPositional = ArgumentPreprocessor.FindFirstPositionalArgument(args);
+        if (firstPositional >= 0 && KnownCommands.Contains(args[firstPositional]))
+            return false;
+        if (!ArgumentPreprocessor.IsImplicitPackageCandidate(args, directionPresence: true))
+            return false;
+
+        string[] packageArgs = [PackageCommand.Name, .. args];
+        return CliRowSelectionCommandRegistry.OwnsShortLimit(
+            rootCommand.Parse(packageArgs),
+            packageArgs);
     }
 
     public static void ApplyParsedLineWindow(
@@ -137,33 +225,98 @@ public static class CommandLineBuilder
         string[]? rawArgs,
         bool installLineWindow)
     {
-        ApplyParsedLineWindow(parseResult, rawArgs);
+        ArgumentPreprocessor.SetLineWindow(
+            headLines: null,
+            tailLines: null);
+        CliRowSelectionPreparation rowSelection;
+        try
+        {
+            rowSelection = CliRowSelectionCommandRegistry.Prepare(
+                parseResult,
+                rawArgs);
+        }
+        catch (OperationCanceledException)
+        {
+            // Format validation reports its diagnostic before canceling preparation.
+            return 1;
+        }
+        parseResult = rowSelection.ParseResult;
+
+        // The adopted format guard retains its precedence over positional validation.
+        if (rowSelection.HasCompatibilityError)
+        {
+            CommandError.Write(rowSelection.Error!);
+            return 1;
+        }
+
+        if (CliOptionValueValidation.FindError(
+                parseResult,
+                rowSelection.Arguments ?? rawArgs
+                    ?? [.. parseResult.Tokens.Select(static token => token.Value)],
+                rowSelection.PresenceOptions) is { } optionValueError)
+        {
+            CommandError.Write(optionValueError);
+            return 1;
+        }
 
         if (WriteParseErrors(parseResult))
             return 1;
 
-        if (!installLineWindow)
+        if (rowSelection.Error is not null)
+        {
+            CommandError.Write(rowSelection.Error);
+            return 1;
+        }
+
+        int? headLines = null;
+        int? tailLines = null;
+        if (rowSelection.Lowering?.LineIntent is { } lineIntent)
+        {
+            if (lineIntent.Direction
+                == CliLineSelectionDirection.Tail)
+            {
+                tailLines = lineIntent.Count;
+            }
+            else
+            {
+                headLines = lineIntent.Count;
+            }
+
+            ArgumentPreprocessor.SetLineWindow(
+                headLines,
+                tailLines);
+        }
+        else if (!rowSelection.IsActive)
+        {
+            ApplyParsedLineWindow(parseResult, rawArgs);
+            headLines = HeadLines;
+            tailLines = TailLines;
+        }
+
+        if (!installLineWindow
+            && rowSelection.Lowering?.LineIntent is null)
             return await InvokeCoreAsync(parseResult);
 
         TextWriter originalWriter = Console.Out;
         TailLineLimitingTextWriter? tailWriter = null;
         bool replaceWriter = false;
-        if (!HasParsedOption(parseResult, "--rows")
-            && !UsesTypedItemLimit(parseResult))
+        if (rowSelection.IsActive
+            || !HasParsedOption(parseResult, "--rows")
+                && !UsesTypedItemLimit(parseResult))
         {
-            if (HeadLines is int headLines)
+            if (headLines is int selectedHeadLines)
             {
                 Console.SetOut(
                     new LineLimitingTextWriter(
                         originalWriter,
-                        headLines));
+                        selectedHeadLines));
                 replaceWriter = true;
             }
-            else if (TailLines is int tailLines)
+            else if (tailLines is int selectedTailLines)
             {
                 tailWriter = new TailLineLimitingTextWriter(
                     originalWriter,
-                    tailLines);
+                    selectedTailLines);
                 Console.SetOut(tailWriter);
                 replaceWriter = true;
             }

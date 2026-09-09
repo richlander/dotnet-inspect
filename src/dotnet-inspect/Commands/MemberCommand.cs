@@ -362,7 +362,9 @@ public static class MemberCommand
                 }
             }
 
-            var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
+            var acquisition = new ApiCommand.TypeAcquisitionContext(
+                loaded.GetLibraryAssetPath(source.PackageExtractPath),
+                packageName, packageVersion ?? source.ApiVersion, apiSource, selectedTfm);
 
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions effectiveOptions = options;
@@ -683,7 +685,7 @@ public static class MemberCommand
                         FileSystemPdbStore.CreateDefault(),
                         new SourcePolicyPackageSourceAuthorization(
                             effectiveOptions.SourceOptions),
-                        new SourceFetcher(
+                        new SourceFetch(
                             DotnetInspector.Core.HttpClientFactory
                                 .SharedUntrustedFetch))
                     {
@@ -819,8 +821,7 @@ public static class MemberCommand
                         executionPlan.Selection.Catalog,
                         executionPlan.Intent.Members.OverloadIndex),
                     effectiveOptions,
-                    new ApiCommand.TypeAcquisitionContext(
-                        foundIn, packageName, packageVersion, apiSource, selectedTfm));
+                    acquisition);
             }
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
@@ -878,7 +879,9 @@ public static class MemberCommand
                 api,
                 apiType,
                 effectiveOptions.MemberFilter);
-            var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
+                apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
+                acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
 
@@ -1136,7 +1139,10 @@ public static class MemberCommand
             return false;
         if (options.BodyKindQuery.HasFilter)
         {
-            sections = [SectionNames.BodyShapes];
+            sections = options.IncludeSections is { Count: > 0 } bodySections
+                ? bodySections.Where(section => BodyKindQueryOptions.Sections.Contains(
+                    section, StringComparer.OrdinalIgnoreCase)).ToList()
+                : [SectionNames.BodyShapes];
             return true;
         }
         if (options.EffectiveDiscovery
@@ -1209,6 +1215,7 @@ public static class MemberCommand
         SectionNames.CallGraph,
         SectionNames.UnsafeOperations,
         SectionNames.BodyShapes,
+        SectionNames.BodyShapeSummary,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
         SectionNames.Facts,
@@ -1222,6 +1229,7 @@ public static class MemberCommand
         SectionNames.AnnotatedSourceDocument,
         SectionNames.FindingCensus,
         SectionNames.BodyShapes,
+        SectionNames.BodyShapeSummary,
         SectionNames.Facts,
     ];
 

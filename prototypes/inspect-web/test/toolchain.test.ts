@@ -185,6 +185,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../playwright.config.ts",
       "../playwright.worker.config.ts",
       "../playwright.package-adoption.config.ts",
+      "../playwright.source-comparison.config.ts",
     ],
   );
   // The toolchain scripts and the Vite config are Node programs rather than browser
@@ -2450,8 +2451,9 @@ test("no authored document sits where the lint glob cannot reach it", () => {
 // Neither is visible to `no-unused-disable`, because both suppressions are genuinely used.
 //
 // So the directives are inventoried and pinned as a set, action included. This project
-// needs exactly one, for one element, for one rule.
-test("authored documents carry only the one suppression this project explains", () => {
+// needs the Wasm preload exception plus the Vite stylesheet and module references in
+// the production entry page and nine browser harness entry pages.
+test("authored documents carry only the suppressions this project explains", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const documents = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots);
   assert.ok(documents.length > 0,
@@ -2469,11 +2471,31 @@ test("authored documents carry only the one suppression this project explains", 
     });
   }).sort();
 
-  assert.deepEqual(found, [
+  const browserHarnesses = [
+    "browser/annotated-source.html",
+    "browser/dependency-graph-explorer.html",
+    "browser/finding-interaction.html",
+    "browser/graph-explorer.html",
+    "browser/package-removal.html",
+    "browser/saved-workspaces.html",
+    "browser/type-graph-explorer.html",
+    "browser/workspace-add-package.html",
+    "browser/workspace-titlebar.html",
+  ];
+  const expected = [
+    ...browserHarnesses.flatMap(document => [
+      `${document}: disable-next require-sri`,
+      `${document}: disable-next require-sri`,
+    ]),
     "index.html: disable-next element-required-attributes",
-  ], "a directive is stock analysis switched off for the markup underneath it; a second "
-    + "one, a different rule, or a wider action than `disable-next` is a rule this "
-      + "project stopped running with nothing else here reporting the change");
+    "index.html: disable-next require-sri",
+    "index.html: disable-next require-sri",
+  ].sort();
+
+  assert.deepEqual(found, expected,
+    "a directive is stock analysis switched off for the markup underneath it; an "
+      + "unlisted directive, a different rule, or a wider action than `disable-next` "
+      + "is a rule this project stopped running with nothing else reporting the change");
 });
 
 // Every gate above reasons about where a control file may sit, which extension a glob
@@ -2589,6 +2611,10 @@ test("the committed html-validate configuration rejects what it is kept for", ()
       "<head><script src=\"https://cdn.example/x.js\" "
         + "crossorigin=\"anonymous\"></script></head>",
     ],
+    [
+      "require-sri",
+      "<head><script src=\" https://cdn.example/x.js\"></script></head>",
+    ],
     ["attribute-allowed-values", "<body><input type=\"nonsense\" /></body>"],
   ] as const;
 
@@ -2606,20 +2632,12 @@ test("the committed html-validate configuration rejects what it is kept for", ()
   }
 });
 
-// `require-sri` is the one rule this project configures away from its default, and the
-// reason is the only same-origin case that would otherwise fail: the local stylesheet and
-// the module entry point are files Vite emits, not third-party bytes to pin.
-//
-// The whole `rules` object is pinned, not that one entry. Round 2 (Sol, seat A) added
-// `"no-dup-id": "off"` beside it and kept `npm run lint` and all 35 tests green: an
-// assertion about one key says nothing about a second one added next to it, and every
-// specimen below names a rule that was still on. Pinning the object makes any further
-// relaxation of the stock presets land here.
-test("html-validate still demands a digest on third-party bytes", () => {
-  assert.deepEqual(htmlValidateConfig.rules, {
-    "require-sri": ["error", { target: "crossorigin" }],
-  }, "the only intended relaxation is same-origin; `target: all`, the rule being off, or "
-    + "a second rule configured beside it are all different properties");
+// This project uses the stock rule configuration. Same-origin references Vite rewrites
+// carry scoped source directives instead of weakening `require-sri` globally. Pinning
+// the absence of a `rules` object makes any project-wide relaxation land here.
+test("html-validate keeps its standard rule configuration", () => {
+  assert.equal(htmlValidateConfig.rules, undefined,
+    "stock rules must not be disabled, narrowed, or reconfigured project-wide");
   assert.deepEqual([...(htmlValidateConfig.extends ?? [])],
     ["html-validate:standard", "html-validate:document", "html-validate:a11y"],
     "the presets are what this adoption is for; narrowing them is not a config tweak");
@@ -2627,14 +2645,11 @@ test("html-validate still demands a digest on third-party bytes", () => {
     "without this html-validate walks up and merges configuration from outside the "
       + "project, so the committed file is not the one that runs");
 
-  // Rules are not the only way this file weakens the presets. Round 3 (Sol, both seats)
-  // added an `elements` entry that dropped `<button>`'s `type` metadata: the presets
-  // still resolved, every rule above was still on, and `attribute-allowed-values` simply
-  // had nothing left to check that element against. `plugins`, `transform` and `aria`
-  // reach the same place by other routes, so the key set is pinned rather than the three
-  // keys that happen to be interesting.
+  // Rules are not the only way this file can weaken the presets. `elements`, `plugins`,
+  // `transform`, and `aria` can change what the stock rules check without changing the
+  // preset list, so the whole key set is pinned.
   assert.deepEqual(Object.keys(htmlValidateConfig).sort(),
-    ["$schema", "extends", "root", "rules"],
+    ["$schema", "extends", "root"],
     "a key here that is not one of these -- `elements`, `plugins`, `transform`, `aria` "
       + "-- changes what the stock presets are checking against without changing any "
       + "rule, preset or severity the assertions above read");
@@ -2867,7 +2882,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/facades engine/facades "
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
       + "playwright.config.ts playwright.worker.config.ts "
-      + "playwright.package-adoption.config.ts && "
+      + "playwright.package-adoption.config.ts playwright.source-comparison.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });

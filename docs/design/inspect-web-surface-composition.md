@@ -77,8 +77,8 @@ This document consumes, without redefining:
   and shell-replacement behavior owned by
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#application-menu);
   and
-- the Slideable Subject Strip's inventories, representations, internal
-  allocation, terminal-deficit behavior, and focus contract owned by
+- the subject and inspector groups' inventories, adaptive Tabs/Chooser
+  representations, internal allocation, and focus contract owned by
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
   and
@@ -105,10 +105,8 @@ subject/inspector region, which receives the primary flexible allocation. The
 Shell Interaction-owned history and Search cluster follows it. Search
 progresses from its full label to its compact label and then disappears;
 the application-scope strip yields next, while history remains available until
-a narrower width. History then disappears before the Slideable Subject Strip
-starts reducing active Subject or Inspector identity. Once those controls have
-yielded, the SlideStrip resolves its own normal, control-free, and
-terminal-deficit states inside the remaining page boundary.
+a narrower width. History then disappears before the subject and inspector
+groups adapt from complete tablists to their current-label choosers.
 
 The application-scope strip uses a distinct quiet treatment and may be removed
 at constrained widths only after focus has left it. Query remains reachable
@@ -128,7 +126,7 @@ application-menu placement, as recorded by
 [Shell Interaction](inspect-web-shell-interaction.md#convention-and-comparison-evidence).
 It occupies the non-shrinking inline-end slot in row one, after Search. It
 remains visible at every supported viewport width and is not part of either
-tablist, their overflow viewport, or their allocation ladder.
+tablist or chooser.
 
 Row two starts the inspected target at the shell's inline edge and reserves its
 trailing capacity for optional page-level contextual actions. Separating the
@@ -137,7 +135,8 @@ collapse row-one navigation. Navigation Presentation owns target rendering and
 elision inside its allocation.
 
 The optional working-surface action region exists only when the active surface
-supplies page-level contextual actions. It is not part of either SlideStrip and
+supplies page-level contextual actions. It is not part of either navigation
+group and
 does not add items to the Application menu. Source supplies Copy and optional
 Open there; Annotated Source supplies Copy and Explore there. The target yields
 space while the complete action group remains visible.
@@ -198,8 +197,8 @@ inside their result row because that row is the context they act on.
 Before implementation claims this placement contract, it must add and pass
 these named browser tests in `workspace-titlebar.spec.ts`:
 
-- `application menu keeps a fixed trailing slot outside SlideStrip overflow`
-  proves the wide, control-free, terminal-deficit, overflowing-content, and
+- `application menu keeps a fixed trailing slot outside adaptive navigation`
+  proves the all-Tabs, mixed, dual-Chooser, overflowing-content, and
   horizontally scrolling data-bar cases without page-level overflow or menu
   clipping.
 - `application and contextual actions preserve focus across responsive layout`
@@ -392,7 +391,26 @@ safety verdicts, or inferred navigation.
 This trades some vertical density for complete visible evidence. A successful
 empty result retains the section, zero count, and existing absence message;
 it does not assert that the method is safe. Loading and failure remain separate
-top-level Facts states. Exception regions and subsequent detail sections retain
+top-level Facts states.
+
+Exception regions continues the same readable measure and separator treatment.
+Each returned metadata entry retains its supplied Region number and raw Clause,
+with labeled Caught type, Try, Handler, and Filter values. All six fields remain
+visible in returned order, including shared ranges and repeated records.
+Constrained panes place region identity above the properties; long types,
+region numbers, and range strings wrap within the row.
+
+Null Caught type and Filter values are explicitly `not supplied`, not inferred
+`not applicable` or a wildcard catch. Range strings retain their supplied
+spelling; the presentation does not parse them, infer nesting, reconstruct
+C# try/catch blocks, or create navigation targets.
+
+The section count describes returned region entries, not distinct try blocks
+or runtime exceptions. The successful empty section retains its zero count
+and existing absence message, which does not assert that the method cannot
+throw. Loading and failure remain separate top-level Facts states.
+The additional row height is an explicit trade for complete visible values
+without horizontal scrolling. Performance opportunities and diagnostics retain
 their existing presentation.
 
 #### Graph Explore
@@ -574,9 +592,10 @@ Admitted libraries with no public types retain their named Library Overview.
 connects both production browser Overview consumers to this shared frame and
 retires their generic hero composition and Package's inset coordinate editor.
 The user explicitly approved this browser-only presentation scope and requested
-matching local name/icon treatment for Package and Library. Existing typed data supplies the
-content and counts; browser HTML rendering remains the lowering boundary rather
-than Markout because this slice arranges interactive controls and navigation.
+matching local name/icon treatment for Package and Library. Existing typed data
+supplies the content and counts; browser HTML rendering remains the lowering
+boundary rather than Markout because this slice arranges interactive controls
+and navigation.
 The frame reuses the current package-surface conventions, not a new general
 rendering architecture. Other Package and Library lenses remain separate consumers.
 
@@ -630,6 +649,129 @@ strings. The surface creates no page-level horizontal overflow. This slice
 does not change dependency selection, graph construction or navigation,
 Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
 the Metadata Explorer.
+
+### Library References
+
+Library References fills the inspector area without the generic Library hero or
+an inset reference-section heading. The subject path retains navigation context.
+
+```text
+References                                  direct reference count or state
+reference names, versions, cultures, and public-key tokens
+Library asset and assembly identity              TFM · package@version
+```
+
+One independently scrolling region begins with the reference rows and uses the
+available width. The quiet header and bottom context remain in place while the
+list scrolls. Full Library assembly identity and asset path remain available in
+the footer rather than being discarded with the old heading.
+
+Loading, query failure, inspection failure, and successful zero-reference results
+retain the same frame and remain visibly distinct. Existing Library selection,
+query freshness, direct AssemblyRef semantics, counts, order, and field values
+are unchanged.
+
+At narrow widths the existing Types return control shares the quiet header.
+Reference names and identity fields wrap within rows; header status and footer
+values may elide as complete strings with their full text retained. Long values
+and many rows create local scrolling, not page-level horizontal overflow.
+
+The browser-only presentation scope was explicitly approved for
+[the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
+Its one production consumer is Library References; adoption retires only that
+consumer's generic hero and inset reference section. Browser HTML lowering
+continues over the existing typed `BrowserPackageDependencies` reference result.
+This is a placement change, not a new query or rendering architecture. Metadata
+and Package Dependencies are the local composition precedents.
+
+Focused renderer and production-composition browser gates cover wide/narrow
+geometry, long names and identities, many/zero rows, pending and failed results,
+and Library navigation. Subject-strip behavior and other Library lenses are
+separate work.
+
+### Library Integrations
+
+Library Integrations uses a quiet count/state header, an optional platform
+Library selector, one full-area results scroller, and bottom assembly context.
+It replaces the generic Library hero, repeated summary heading/noninteractive
+category chips, and inset signal cards.
+
+```text
+Integrations                             category/signal count or state
+optional platform Library selector
+category headings and full-width signal rows
+Library asset and assembly identity              TFM · package@version
+```
+
+Existing category order, type-first signal sorting, name/qualifier splitting,
+shape/kind badges, and category/total counts remain. The platform selector stays
+above scrolling results and keeps its existing acquisition and selection
+behavior. The footer retains the Library asset path, full assembly identity,
+and package/version/framework context.
+
+Loading and query failure retain the same frame. Incomplete results retain their
+available categories and diagnostics, visibly marked as partial. An incomplete
+scan with no returned signals does not claim established absence; only a
+complete empty result says no integrations were detected.
+
+At narrow widths the existing Types/details control shares the quiet header.
+Category names, signal names/qualifiers, and kind text wrap within the pane.
+Many rows scroll locally while header, selector, and bottom context stay put.
+
+The explicitly approved browser-only presentation scope has
+[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6202):
+wire production Library Integrations to this frame and retire only that
+consumer's old composition. Browser HTML lowering consumes the existing typed
+`BrowserPackageIntegrations` result. References and Metadata supply the local
+layout conventions; this is not a new inspection or rendering architecture.
+
+Focused renderer and production-composition browser gates cover wide/narrow,
+long/many results, state distinctions, Library switching, and platform controls.
+Scan classification, catalog ownership, other lenses, and subject-strip
+interaction remain separate work.
+
+### Library Opportunities
+
+Library Opportunities uses a quiet count/state header, an optional platform
+Library selector, one full-area results scroller, and bottom assembly context.
+It replaces the generic Library hero, repeated summary/noninteractive category
+chips, and inset opportunity cards while retaining every live row action.
+
+```text
+Opportunities                           area/suggestion count or state
+optional platform Library selector
+compact interaction guidance
+category headings and full-width opportunity rows
+Library asset and assembly identity              TFM · package@version
+```
+
+Existing category and opportunity order, type navigation, suggested-package
+loading, "look for" search actions, and exact/unknown/legacy source identity
+remain. The platform selector stays above scrolling results and keeps its
+existing acquisition and selection behavior. The footer retains the Library
+asset path, full assembly identity, and package/version/framework context.
+
+Loading and query failure retain the same frame. Incomplete results retain their
+available categories and diagnostics, visibly marked as partial. An incomplete
+scan with no returned suggestions does not claim established absence; only a
+complete empty result says no integration opportunities were found.
+
+At narrow widths the existing Types/details control shares the quiet header.
+Category names, API identities, integration-kind text, package names, and search
+hints wrap within the pane. Many rows scroll locally while header, selector, and
+bottom context stay put.
+
+The explicitly approved browser-only presentation scope has
+[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6273):
+wire production Library Opportunities to this frame and retire only that
+consumer's old composition. Browser HTML lowering consumes the existing typed
+`BrowserPackageOpportunities` result. Integrations and References supply the
+local layout conventions; this is not a new analysis or rendering architecture.
+
+Focused renderer and production-composition browser gates cover wide/narrow,
+long/many results, live actions, state distinctions, Library switching, and
+platform controls. Opportunity classification, catalog ownership, other lenses,
+and subject-strip interaction remain separate work.
 
 ### Package Metadata
 
@@ -827,20 +969,20 @@ One information hierarchy adapts across viewport sizes:
   their respective rows;
 - row-one Back and Forward sit immediately left of Search, and the Application
   menu terminates the row; the navigation cluster yields from full Search, to
-  a `Search` button, to arrows, to nothing before the Slideable Subject Strip
-  starts reducing active identity;
+  a `Search` button, to arrows, to nothing before the subject and inspector
+  groups adapt;
 - subject and inspector representations adapt through Navigation
-  Presentation's measurement-driven Slideable Subject Strip contract rather
-  than a fixed shell breakpoint;
+  Presentation's measurement-driven Tabs/Chooser contract rather than a fixed
+  shell breakpoint;
 - row one's fixed trailing Application menu slot remains visible while the
-  Slideable Subject Strip adapts entirely inside its assigned region;
+  subject and inspector groups adapt entirely inside their assigned region;
 - the row-two inspected target elides independently of row-one Search;
 - page-level contextual action groups occupy row two; result-local action
   groups stay with their working surfaces and may move below descriptive text
   as a complete group rather than entering either shell navigation inventory
   or disappearing;
-- subject and inspector navigation follows Navigation Presentation's
-  contiguous horizontal window contract instead of wrapping;
+- subject and inspector tablists never wrap or scroll; a group that cannot fit
+  its complete inventory uses its current-label chooser;
 - subject-path segments and optional advertisements elide visually without
   losing the complete accessible subject path or segment-level copy controls;
   the Search label may collapse from its scoped label to `Search` before the
@@ -935,10 +1077,9 @@ outcomes.
 2. Confirm that row two contains the left-aligned inspected target followed by
    page-level contextual actions when supplied.
 3. Narrow the viewport and confirm that Search progresses from full to compact
-   to hidden, then history hides, before the Slideable Subject Strip starts
-   reducing active identity. Continue through its normal, control-free, and
-   terminal-deficit states; confirm that the Application menu remains visible
-   and the page does not overflow horizontally.
+   to hidden, then history hides, before the subject and inspector groups adapt
+   from complete tablists to one or two Choosers. Confirm that the Application
+   menu remains visible and the page does not overflow horizontally.
 4. Overflow the subject strip, working surface, source content, and data bar,
    then open the Application menu. Confirm that it is anchored to the button,
    constrained to the viewport, rendered above those regions, and neither
@@ -952,7 +1093,7 @@ outcomes.
    Application menu button without opening the menu.
 7. Focus the Application menu button and resize repeatedly. Confirm that the
    same row-one control remains focused and is not cloned or included in
-   SlideStrip overflow.
+   either navigation group.
 8. Confirm that Source and Annotated Source actions occupy a dedicated row-two
    group without entering either navigation inventory or the Application menu.
    Confirm that Package query and contextual Decompiler style
@@ -1080,9 +1221,9 @@ with the absence of a synthesized `Default feed` control.
    that the visible detail-return action still restores the prior detail.
 4. Confirm that both persistent shell rows remain single-line rather than
    wrapping. Confirm that the row-two target elides while preserving its
-   complete accessible path, only the Slideable Subject Strip uses contiguous
-   windows and edge disclosure, and the Application menu retains its row-one
-   trailing slot.
+   complete accessible path, subject and inspector tablists become Choosers
+   rather than wrapping or scrolling, and the Application menu retains its
+   row-one trailing slot.
 5. Activate the selected Type row and confirm that detail returns, focus moves
    to `Types`, and URL and browser history remain unchanged. Activate a
    different row and confirm that its ordinary product navigation semantics

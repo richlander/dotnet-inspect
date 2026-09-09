@@ -1,4 +1,22 @@
 import type { MemberDetailInspectionState, MemberFacts } from "./member-detail-inspection.ts";
+import type {
+  BrowserMemberFindingFact,
+} from "./facades/inspect-web-source.d.ts";
+
+type MemberFactsRenderState = Pick<
+  MemberDetailInspectionState,
+  | "memberFacts"
+  | "memberFactsLoading"
+  | "memberFactsError"
+  | "memberAnnotatedLoading"
+  | "memberAnnotatedError"
+  | "memberFindingInteraction"
+  | "memberFindingSelectionError"
+>;
+
+export interface MemberFactsBindingActions {
+  onSelectFinding(receipt: string, instanceKey: number): void;
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -10,11 +28,34 @@ function escapeHtml(value: unknown) {
 }
 
 export function renderMemberFacts(
-  state: Pick<
-    MemberDetailInspectionState,
-    "memberFacts" | "memberFactsLoading" | "memberFactsError"
-  >,
+  state: MemberFactsRenderState,
 ) {
+  return `
+    ${renderAnalysisFacts(state)}
+    ${renderFindingFacts(state)}`;
+}
+
+export function bindMemberFacts(
+  root: ParentNode,
+  actions: MemberFactsBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-finding-instance]").forEach(
+    element => {
+      element.addEventListener("click", event => {
+        const target = event.currentTarget;
+        if (!(target instanceof HTMLElement)) return;
+        const receipt = target.dataset.findingReceipt;
+        const instanceKey = Number(target.dataset.findingInstance);
+        if (!receipt || !Number.isSafeInteger(instanceKey) || instanceKey <= 0) {
+          return;
+        }
+        actions.onSelectFinding(receipt, instanceKey);
+      });
+    },
+  );
+}
+
+function renderAnalysisFacts(state: MemberFactsRenderState): string {
   if (state.memberFactsLoading) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing method…</h2><p>Decoding the selected overload and deriving method evidence and performance opportunities.</p></section>`;
   }
@@ -55,11 +96,7 @@ export function renderMemberFacts(
     ${renderAllocationFacts(facts.allocations)}
     ${renderCallFacts(facts.calls)}
     ${renderSafetyFacts(facts.safety)}
-    ${renderFactTable("Exception regions", facts.exceptionRegions, [
-      ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
-      ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
-      ["Caught type", row => row.caughtType || ""]
-    ], "No exception regions were found in this method.")}
+    ${renderExceptionRegions(facts.exceptionRegions)}
     <section class="document-section performance-facts">
       <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
       ${facts.performanceOpportunities.length
@@ -74,6 +111,71 @@ export function renderMemberFacts(
     ${facts.diagnostics.length
       ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
       : ""}`;
+}
+
+function renderFindingFacts(state: MemberFactsRenderState): string {
+  if (state.memberAnnotatedLoading) {
+    return `<section class="document-section source-progress finding-facts-progress"><span class="loader"></span><h2>Collecting Findings…</h2><p>Projecting one identity-preserving Finding census for Facts and Annotated Source.</p></section>`;
+  }
+  const interaction = state.memberFindingInteraction;
+  if (!interaction) {
+    return `<section class="document-section finding-facts-failure" role="alert"><h2>Finding census failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No Finding census result was returned.")}</p></section>`;
+  }
+
+  const facts = interaction.census.facts;
+  const receipt = interaction.census.factCensusReceipt;
+  const selectionError = state.memberFindingSelectionError
+    ? `<p class="finding-selection-error" role="alert">${escapeHtml(state.memberFindingSelectionError)}</p>`
+    : "";
+  return `
+    <section class="finding-facts" aria-labelledby="finding-facts-title">
+      <header><h2 id="finding-facts-title">Findings</h2><span>${facts.length} ${facts.length === 1 ? "Finding" : "Findings"}</span></header>
+      ${selectionError}
+      ${facts.length
+        ? `<ol class="finding-rows">${facts.map(fact =>
+            renderFindingFact(
+              fact,
+              receipt,
+              interaction.selectedInstanceKey,
+            )).join("")}</ol>`
+        : '<p class="finding-empty">No Research Findings were reported for this member.</p>'}
+    </section>`;
+}
+
+function renderFindingFact(
+  fact: BrowserMemberFindingFact,
+  receipt: string,
+  selectedInstanceKey: number | null,
+): string {
+  const selected =
+    fact.instanceKey !== null && fact.instanceKey === selectedInstanceKey;
+  const content = `
+    <span class="finding-location">
+      ${fact.ilOffset === null
+        ? '<span>Member</span>'
+        : `<code>${escapeHtml(`IL_${fact.ilOffset.toString(16).padStart(4, "0").toUpperCase()}`)}</code>`}
+      ${fact.cSharpLine === null
+        ? ""
+        : `<span>line ${escapeHtml(fact.cSharpLine)}</span>`}
+    </span>
+    <span class="finding-main">
+      <strong>${escapeHtml(fact.id)}</strong>
+      ${fact.detail ? `<span>${escapeHtml(fact.detail)}</span>` : ""}
+      <small>${escapeHtml(fact.category)} · ${escapeHtml(fact.conditionality)} · ${escapeHtml(fact.anchor)}</small>
+    </span>
+    ${fact.instanceKey === null
+      ? '<span class="finding-identity-unavailable">Source identity unavailable</span>'
+      : `<code class="finding-instance-key">#${escapeHtml(fact.instanceKey)}</code>`}`;
+  return fact.instanceKey === null
+    ? `<li class="finding-row finding-row-unkeyed"><div>${content}</div></li>`
+    : `<li class="finding-row${selected ? " selected" : ""}">
+        <button type="button"
+          data-finding-instance="${fact.instanceKey}"
+          data-finding-receipt="${escapeHtml(receipt)}"
+          aria-pressed="${selected}">
+          ${content}
+        </button>
+      </li>`;
 }
 
 function renderAllocationFacts(allocations: MemberFacts["allocations"]) {
@@ -143,23 +245,27 @@ function renderSafetyFacts(safety: MemberFacts["safety"]) {
   </section>`;
 }
 
-type FactTableColumn<T> =
-  readonly [label: string, field: keyof T | ((row: T) => unknown)];
-
-function renderFactTable<T extends object>(
-  title: string,
-  rows: readonly T[],
-  columns: readonly FactTableColumn<T>[],
-  emptyText: string,
-) {
-  return `<section class="document-section fact-group">
-    <div class="section-title"><h2>${escapeHtml(title)}</h2><span>${rows.length}</span></div>
-    ${rows.length
-      ? `<div class="fact-table" style="--fact-columns:${columns.length}">${columns.map(([label]) => `<strong>${escapeHtml(label)}</strong>`).join("")}${rows.map(row => columns.map(([, field]) => {
-          const value = typeof field === "function" ? field(row) : row[field];
-          return `<code>${escapeHtml(value ?? "")}</code>`;
-        }).join("")).join("")}</div>`
-      : `<div class="empty-fact-group">${escapeHtml(emptyText)}</div>`}
+function renderExceptionRegions(regions: MemberFacts["exceptionRegions"]) {
+  return `<section class="exception-regions" aria-labelledby="exception-regions-title">
+    <header><h2 id="exception-regions-title">Exception regions</h2><span>${regions.length} ${regions.length === 1 ? "region" : "regions"}</span></header>
+    ${regions.length
+      ? `<ol class="exception-rows">${regions.map(region => `
+        <li class="exception-row">
+          <div class="exception-identity"><span>Region <code>${escapeHtml(region.region)}</code></span><code class="exception-clause">${escapeHtml(region.clause)}</code></div>
+          <div class="exception-main">
+            <dl class="exception-type"><div><dt>Caught type</dt><dd>${region.caughtType == null
+              ? '<span class="exception-unavailable">not supplied</span>'
+              : `<code>${escapeHtml(region.caughtType)}</code>`}</dd></div></dl>
+            <dl class="exception-ranges">${[
+              ["Try", region.tryRange],
+              ["Handler", region.handlerRange],
+              ["Filter", region.filterRange],
+            ].map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value == null
+              ? '<span class="exception-unavailable">not supplied</span>'
+              : `<code>${escapeHtml(value)}</code>`}</dd></div>`).join("")}</dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="exception-empty">No exception regions were found in this method.</p>'}
   </section>`;
 }
 

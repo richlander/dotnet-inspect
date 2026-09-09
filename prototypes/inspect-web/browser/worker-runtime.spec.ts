@@ -1,16 +1,35 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test, type Page, type Worker } from "@playwright/test";
-import type { createEngineWorkerProbe } from "../src/engine-worker-client.ts";
+import type {
+  createEngineWorkerProbe,
+  createEngineWorkerStartupClient,
+} from "../src/engine-worker-client.ts";
+import {
+  fixtureFramework,
+  galleryDownloadPath,
+  healthyNupkg,
+} from "./package-adoption-nupkg.ts";
 
 type WorkerProbe = ReturnType<typeof createEngineWorkerProbe>;
 type WorkerClient = typeof import("../src/engine-worker-client.ts");
 
 declare global {
+  var engineWorkerEpochReporterGate: Pick<
+    typeof import("/inspect-web-host.js"),
+    "registerEpochWorkReporter" | "drainEpochWorkReporter" | "unregisterEpochWorkReporter"
+  >;
+  var engineWorkerStartupGate: {
+    host: Pick<typeof import("/inspect-web-host.js"), "buildIdentity">;
+    catalog: Pick<typeof import("/inspect-web-catalog.js"), "listVocabulary" | "listHomeDemos">;
+    package: Pick<typeof import("/inspect-web-package.js"), "listPackageQueryFacets" | "listGalleryDiscoveryCatalog">;
+  };
   interface Window {
     engineWorkerProbe: WorkerProbe;
     engineWorkerEvents: string[];
     engineWorkerPending: ReturnType<WorkerProbe["probe"]> | null;
+    engineWorkerStartup: ReturnType<typeof createEngineWorkerStartupClient>;
+    engineWorkerStartupPending: Promise<PromiseSettledResult<unknown>[]>;
   }
 }
 
@@ -28,6 +47,20 @@ if (typeof entry !== "object" || entry === null
   throw new Error("Published Worker client entry has no asset.");
 }
 const clientUrl = `/${entry.file}`;
+const sourcePackageId = "InspectWeb.Worker.Source";
+const sourceVersion = "1.0.0";
+const sourceAssemblyName = "TsJsExport.Contracts.dll";
+const sourceAssemblyPath = process.env.INSPECT_WEB_WORKER_SOURCE_DLL;
+if (!sourceAssemblyPath) {
+  throw new Error(
+    "INSPECT_WEB_WORKER_SOURCE_DLL must point at the built "
+      + "TsJsExport.Contracts.dll used by the Worker Type Source gate.",
+  );
+}
+const sourceArchive = healthyNupkg(
+  readFileSync(resolve(sourceAssemblyPath)),
+  sourceAssemblyName,
+);
 
 async function start(page: Page, startupBudgetMilliseconds = 60_000) {
   await page.goto("/worker-runtime-gate.html");
@@ -78,7 +111,132 @@ async function canary(page: Page) {
   });
 }
 
-test("published generated facades boot in a real Worker and serve cold and warm managed calls", async ({ page }) => {
+async function typeSourceBoundary(page: Page) {
+  return page.evaluate(async coordinate => {
+    const result = window.engineWorkerProbe.typeSource({
+      packageId: coordinate.packageId,
+      version: coordinate.version,
+      framework: coordinate.framework,
+      assembly: coordinate.assembly,
+      type: "TsJsExport.JsExportRootAttribute",
+      taste: "[]",
+      signature: "worker-binding-gate",
+      isVisible: () => true,
+    });
+    if (result.kind !== "started")
+      throw new Error(`Type Source refused: ${result.reason.kind}`);
+    const outcome = await result.handle.outcome;
+    await result.handle.quiesced;
+    return outcome;
+  }, {
+    packageId: sourcePackageId,
+    version: sourceVersion,
+    framework: fixtureFramework,
+    assembly: sourceAssemblyName,
+  });
+}
+
+async function startStartupClient(page: Page) {
+  await page.goto("/worker-runtime-gate.html");
+  await page.evaluate(async url => {
+    const imported: unknown = await import(url);
+    function isClient(value: unknown): value is WorkerClient {
+      return typeof value === "object" && value !== null
+        && "createEngineWorkerStartupClient" in value
+        && typeof value.createEngineWorkerStartupClient === "function";
+    }
+    if (!isClient(imported)) throw new Error("Published startup Worker client is missing.");
+    window.engineWorkerEvents = [];
+    window.engineWorkerStartup = imported.createEngineWorkerStartupClient(location.origin, {
+      callbacks: {
+        failure: failure => { window.engineWorkerEvents.push(`failure:${failure.kind}`); },
+        diagnostic: diagnostic => { window.engineWorkerEvents.push(`diagnostic:${diagnostic.kind}`); },
+        realmReleased: epoch => { window.engineWorkerEvents.push(`released:${epoch}`); },
+      },
+      operationDiagnostic: diagnostic => { window.engineWorkerEvents.push(`operation:${diagnostic.kind}`); },
+    });
+    const client = window.engineWorkerStartup.client;
+    window.engineWorkerStartupPending = Promise.allSettled([
+      client.host.buildIdentity(), client.catalog.listVocabulary(), client.catalog.listHomeDemos(),
+      client.package.listPackageQueryFacets(), client.package.listGalleryDiscoveryCatalog(),
+    ]);
+  }, clientUrl);
+}
+
+test("five concurrent startup reads preserve actual generated results in one Worker", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate", value: "observe-startup", url: "http://127.0.0.1:4186",
+  }]);
+  const workers: Worker[] = [];
+  page.on("worker", worker => workers.push(worker));
+  const workerReady = page.waitForEvent("worker");
+  await startStartupClient(page);
+  const outcomes = await page.evaluate(() => window.engineWorkerStartupPending);
+  const worker = await workerReady;
+  const expected = await worker.evaluate(() => {
+    const facades = globalThis.engineWorkerStartupGate;
+    return [
+      facades.host.buildIdentity(), facades.catalog.listVocabulary(), facades.catalog.listHomeDemos(),
+      facades.package.listPackageQueryFacets(), facades.package.listGalleryDiscoveryCatalog(),
+    ];
+  });
+  expect(outcomes).toEqual(expected.map(value => ({ status: "fulfilled", value })));
+  expect(workers).toHaveLength(1);
+  expect(await page.evaluate(() => window.engineWorkerStartup.client.host.buildIdentity())).toEqual(expected[0]);
+  await page.evaluate(() => window.engineWorkerStartup.dispose());
+  const afterDisposal = await page.evaluate(async () => {
+    try {
+      await window.engineWorkerStartup.client.host.buildIdentity();
+      return "unexpected success";
+    } catch (error: unknown) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  expect(afterDisposal).toContain("epoch-unavailable");
+  expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1"]);
+});
+
+test("startup client shares a visible bootstrap rejection across all five reads", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate", value: "reject-bootstrap", url: "http://127.0.0.1:4186",
+  }]);
+  const workers: Worker[] = [];
+  page.on("worker", worker => workers.push(worker));
+  await startStartupClient(page);
+  const outcomes = await page.evaluate(async () =>
+    (await window.engineWorkerStartupPending).map(outcome =>
+      outcome.status === "fulfilled" ? "unexpected success"
+        : outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)));
+  expect(outcomes).toEqual(Array.from({ length: 5 }, () => "Worker startup failed."));
+  expect(workers).toHaveLength(1);
+  expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["failure:startup", "released:1"]);
+  await page.evaluate(() => window.engineWorkerStartup.dispose());
+});
+
+test("published generated facades boot in a real Worker and serve cold, warm, and Type Source calls", async ({ page, context }) => {
+  await context.route("https://globalcdn.nuget.org/**", async route => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({
+        status: 204,
+        headers: { "access-control-allow-origin": "*" },
+      });
+      return;
+    }
+    const pathname = new URL(request.url()).pathname;
+    if (pathname !== galleryDownloadPath(sourcePackageId, sourceVersion)) {
+      await route.fulfill({ status: 404 });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "access-control-allow-origin": "*",
+        "content-type": "application/octet-stream",
+      },
+      body: sourceArchive,
+    });
+  });
   const workers: Worker[] = [];
   page.on("worker", worker => workers.push(worker));
   expect((await start(page)).kind).toBe("started");
@@ -88,6 +246,16 @@ test("published generated facades boot in a real Worker and serve cold and warm 
   expect(await canary(page)).toEqual({
     kind: "succeeded", value: "inspect-web-async-lowering-ok",
   });
+  const sourceOutcome = await typeSourceBoundary(page);
+  expect(sourceOutcome).toMatchObject({
+    kind: "succeeded",
+    value: { provider: "decompiled" },
+  });
+  if (sourceOutcome.kind !== "succeeded")
+    throw new Error("Type Source did not succeed through the Worker.");
+  expect(sourceOutcome.value.text).toContain(
+    "sealed class JsExportRootAttribute",
+  );
   expect(workers).toHaveLength(1);
   const worker = workers[0];
   if (worker === undefined) throw new Error("The runtime did not create a Worker.");
@@ -113,6 +281,39 @@ test("restart destroys the old realm and explicitly boots a new epoch", async ({
   expect((await canary(page)).kind).toBe("succeeded");
   await page.evaluate(() => window.engineWorkerProbe.dispose());
   expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1", "released:2"]);
+});
+
+test("Worker Ready includes the managed reporter and its generated lifecycle exports", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "worker-runtime-gate",
+    value: "observe-epoch-reporter",
+    url: "http://127.0.0.1:4186",
+  }]);
+  const workerReady = page.waitForEvent("worker");
+  expect((await start(page)).kind).toBe("started");
+  expect((await canary(page)).kind).toBe("succeeded");
+  const worker = await workerReady;
+  const receipt = await worker.evaluate(async () => {
+    const host = globalThis.engineWorkerEpochReporterGate;
+    let duplicateRejected = false;
+    try {
+      host.registerEpochWorkReporter("unused", () => undefined, () => undefined);
+    } catch {
+      duplicateRejected = true;
+    }
+    await host.drainEpochWorkReporter();
+    host.unregisterEpochWorkReporter();
+    let reuseRejected = false;
+    try {
+      host.registerEpochWorkReporter("unused", () => undefined, () => undefined);
+    } catch {
+      reuseRejected = true;
+    }
+    return { duplicateRejected, reuseRejected };
+  });
+  expect(receipt).toEqual({ duplicateRejected: true, reuseRejected: true });
+  await page.evaluate(() => window.engineWorkerProbe.dispose());
+  expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1"]);
 });
 
 test("a generated-facade bootstrap rejection fails held work and releases the partial realm", async ({ page, context }) => {

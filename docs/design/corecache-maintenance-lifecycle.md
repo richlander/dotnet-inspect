@@ -134,7 +134,7 @@ the model's `Safety.cfg` configuration exactly (`AllowTornWrite = FALSE`,
 `BrokenTornReadOnly.cfg`, and `BrokenTornWriteOnly.cfg` no longer describe
 shipped behavior; they remain in the model as negative controls proving the
 lock is load-bearing, not incidental.
-`src/DotnetInspector.Services.Tests/CacheMaintenanceProgressTests.cs` proves
+`tests/DotnetInspector.Services.Tests/CacheMaintenanceProgressTests.cs` proves
 the fix directly: it fails reliably against the pre-fix implementation and
 passes against the fix, for both the destructive (`TakeSnapshot`) and
 non-destructive (`Snapshot`) reader paths.

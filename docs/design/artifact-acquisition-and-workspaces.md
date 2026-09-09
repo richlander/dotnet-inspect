@@ -2197,6 +2197,34 @@ correspondence are gated by
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
+#### Durable package-content identity adoption
+
+[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) tracks the
+durable content-identity prerequisite for the existing CLI
+`PackageInspector -> PackageIndexCache` consumer. The user
+[approved CLI-first production adoption on 2026-09-06](https://github.com/richlander/dotnet-inspect/issues/5484#issuecomment-5560862576).
+This exception concerns the initial consumer and host, not portability:
+acquisition remains host-neutral and all existing Browser/Wasm compatibility
+requirements remain in force. No browser persistent-result cache, UI, or
+browser delivery commitment is introduced.
+
+The package-index workstream of
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) has two
+remaining production-adoption steps:
+
+1. Acquisition supplies the retained-content identity tracked by #5484,
+   reusing the existing configured authority and acquired-payload carriers.
+2. The CLI producer/cache path adopts that subject under the
+   [package-index contract](package-index-cache.md), retiring the predecessor
+   namespace and establishing its cold/warm-equivalence gate.
+
+This is sequencing between owners, not a new definition of either owner's
+internals. The existing extraction result already carries `Authority` and
+`AcquiredPayload`; their presence does not itself supply the durable identity
+or bind a filesystem-scanning producer to one retained subject. The durable
+identity and consumer adoption remain unimplemented. Rendering is unchanged:
+the prerequisite carries typed acquisition evidence, not presentation.
+
 #### Sparse selected-assembly projection
 
 [#5798](https://github.com/richlander/dotnet-inspect/issues/5798) owns the

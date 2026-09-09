@@ -177,7 +177,7 @@ static partial class ReturnToSenderSourceProbe
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         NuGetCache.Initialize("dotnet-inspect");
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
         var results = await EvaluateSourceCorrespondenceAsync(
             assemblies,
             cap,
@@ -372,7 +372,7 @@ static partial class ReturnToSenderSourceProbe
             IReadOnlyList<string> assemblies,
             int cap,
             HttpClient httpClient,
-            SourceFetcher fetcher,
+            SourceFetch fetcher,
             IReadOnlyList<string>? repositoryPaths = null,
             IReadOnlyDictionary<string, NuGetPackageCoordinate>? packageCoordinates = null,
             IPdbStore? pdbStore = null)
@@ -479,14 +479,14 @@ static partial class ReturnToSenderSourceProbe
 
     internal static async Task<SourceAcquisitionAttempt> AcquireSourceAsync(
         SourceLinkService source,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         ProbeTarget target,
         IReadOnlyList<string>? repositoryPaths = null)
     {
         var subject = new FindingSubject(
             TargetId(target.Target),
             TargetDisplay(target.Target));
-        PdbMemberSourceInspection authored = await PdbSourceAcquisition.AcquireMemberAsync(
+        PdbMemberSourceInspection authored = await PdbSourceHouse.AcquireMemberAsync(
             source,
             target.MetadataToken,
             target.Target.Method,

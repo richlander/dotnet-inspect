@@ -681,21 +681,25 @@ public abstract record RealizedMemberCoordinate
             || character is >= 'a' and <= 'f');
 
     /// <summary>
-    /// True when <paramref name="value"/> can be a content-cache producer key:
-    /// a short, lowercase, opaque token of ASCII letters, digits, and hyphens.
+    /// True when <paramref name="value"/> is either the current bounded
+    /// NuGet.org producer key or a legacy content-cache producer key.
     /// </summary>
     /// <remarks>
-    /// The grammar is what makes a producer safe to carry in a portable value.
-    /// A URL, a credential, a user-info segment, and a filesystem path each
-    /// contain a character this rejects, so a caller cannot smuggle a locator
-    /// or a secret into a coordinate by passing one where a key belongs.
+    /// Package Query currently admits only NuGet.org, so it can carry that
+    /// owner-issued modern key without claiming that every configured endpoint
+    /// or local-path producer key fits the bounded portable Root format. The
+    /// smaller legacy grammar remains accepted during source-model migration.
     /// </remarks>
     public static bool IsCanonicalProducer(string? value) =>
-        value is { Length: > 0 and <= 64 }
-        && value.All(static character =>
-            char.IsAsciiDigit(character)
-            || character is >= 'a' and <= 'z'
-            || character is '-');
+        string.Equals(
+            value,
+            PackageProducerIdentity.NuGetOrg.Key,
+            StringComparison.Ordinal)
+        || value is { Length: > 0 and <= 64 }
+            && value.All(static character =>
+                char.IsAsciiDigit(character)
+                || character is >= 'a' and <= 'z'
+                || character is '-');
 
     /// <summary>
     /// True when <paramref name="value"/> names a product-owned platform

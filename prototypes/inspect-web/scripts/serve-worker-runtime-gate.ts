@@ -46,13 +46,32 @@ createServer((request, response) => {
     response.end();
     return;
   }
+  const observeEpochReporter = pathname === "/inspect-web-host.js"
+    && request.headers.cookie?.split("; ")
+      .includes("worker-runtime-gate=observe-epoch-reporter");
+  const observeStartup = request.headers.cookie?.split("; ")
+    .includes("worker-runtime-gate=observe-startup");
+  const startupCaptures: Readonly<Record<string, string>> = {
+    "/inspect-web-host.js": "host = { buildIdentity }",
+    "/inspect-web-catalog.js": "catalog = { listVocabulary, listHomeDemos }",
+    "/inspect-web-package.js": "package = { listPackageQueryFacets, listGalleryDiscoveryCatalog }",
+  };
+  const startupCapture = observeStartup ? startupCaptures[pathname] : undefined;
   void readFile(file).then(
     contents => {
       response.writeHead(200, {
         "Content-Type": contentTypes[extname(file)] ?? "application/octet-stream",
         "Cache-Control": "no-store",
       });
-      response.end(contents);
+      // Capture the generated functions during ordinary module loading, not
+      // by asking the Firefox Worker debugger to import another module.
+      if (observeEpochReporter) {
+        response.end(`${contents.toString("utf8")}\nglobalThis.engineWorkerEpochReporterGate = { registerEpochWorkReporter, drainEpochWorkReporter, unregisterEpochWorkReporter };\n`);
+      } else if (startupCapture !== undefined) {
+        response.end(`${contents.toString("utf8")}\nglobalThis.engineWorkerStartupGate ??= {};\nglobalThis.engineWorkerStartupGate.${startupCapture};\n`);
+      } else {
+        response.end(contents);
+      }
       return undefined;
     },
     (error: unknown) => {
