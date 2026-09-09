@@ -1,8 +1,8 @@
 using System.CommandLine;
-using DotnetInspector.CommandLine;
-using DotnetInspector.Views;
+using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Views;
 
-namespace DotnetInspector.Tests;
+namespace DotnetInspect.Cli.Tests;
 
 public class HelpWriterTests
 {
