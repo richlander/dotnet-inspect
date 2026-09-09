@@ -9,6 +9,10 @@ using InspectWeb.Engine.PackageFacade;
 
 namespace InspectWeb.Engine.Tests;
 
+[CollectionDefinition("Package query operations", DisableParallelization = true)]
+public sealed class PackageQueryOperationCollection;
+
+[Collection("Package query operations")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageQueryOperationsTests
 {
@@ -449,44 +453,143 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task Coordinator_SupersedesAndCancelsSourceWork()
+    public async Task Coordinator_TargetsCancellationAndCreditByOperationId()
     {
-        using BrowserPackageQueryOperationLease first =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync(
-                initialMatchCredit: 20);
+        BrowserManagedOperationId firstId =
+            BrowserManagedOperationId.From(Guid.NewGuid().ToString());
+        BrowserManagedOperationId secondId =
+            BrowserManagedOperationId.From(Guid.NewGuid().ToString());
+        var releaseFirst =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstReceivedCredit =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReceivedCredit =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondObservedCancellation =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecond =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        ValueTask<BrowserPackageQueryOperationLease> secondPending =
-            BrowserPackageQueryOperationCoordinator.BeginAsync(
-                initialMatchCredit: 20);
-        Assert.True(first.CancellationToken.IsCancellationRequested);
+        Task<BrowserManagedOperationResult<int, string, string>> first =
+            BrowserPackageQueryOperationCoordinator.RunAsync<int, object>(
+                firstId,
+                initialMatchCredit: 1,
+                eventCallback: null,
+                async (credit, _, token) =>
+                {
+                    await credit.WaitAsync(token);
+                    await credit.WaitAsync(token);
+                    firstReceivedCredit.SetResult();
+                    await releaseFirst.Task.WaitAsync(token);
+                    return 1;
+                });
+        Task<BrowserManagedOperationResult<int, string, string>> second =
+            BrowserPackageQueryOperationCoordinator.RunAsync<int, object>(
+                secondId,
+                initialMatchCredit: 1,
+                eventCallback: null,
+                async (credit, _, token) =>
+                {
+                    await credit.WaitAsync(token);
+                    try
+                    {
+                        await credit.WaitAsync(token);
+                        secondReceivedCredit.SetResult();
+                        return 2;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        secondObservedCancellation.SetResult();
+                        await releaseSecond.Task;
+                        throw;
+                    }
+                });
 
-        first.Dispose();
-        using BrowserPackageQueryOperationLease second = await secondPending;
-        Assert.False(second.CancellationToken.IsCancellationRequested);
+        var granted = Assert.IsType<
+            BrowserPackageQueryMatchCreditRequestResult.Granted>(
+                BrowserPackageQueryOperationCoordinator.RequestMatches(
+                    firstId,
+                    additionalMatchCredit: 1));
+        Assert.Equal(1, granted.AdditionalMatchCredit);
+        await firstReceivedCredit.Task;
+        Assert.False(secondReceivedCredit.Task.IsCompleted);
 
-        BrowserPackageQueryOperationCoordinator.CancelCurrent();
-        Assert.True(second.CancellationToken.IsCancellationRequested);
+        var requested = Assert.IsType<
+            BrowserManagedCancellationRequestResult.Requested>(
+                BrowserPackageQueryOperationCoordinator.RequestCancellation(
+                    secondId,
+                    BrowserManagedOperationCancelReason.User));
+        Assert.Equal(BrowserManagedOperationCancelReason.User, requested.Reason);
+        await secondObservedCancellation.Task;
+        var repeated = Assert.IsType<
+            BrowserManagedCancellationRequestResult.AlreadyRequested>(
+                BrowserPackageQueryOperationCoordinator.RequestCancellation(
+                    secondId,
+                    BrowserManagedOperationCancelReason.Timeout));
+        Assert.Equal(BrowserManagedOperationCancelReason.User, repeated.Reason);
+
+        releaseSecond.SetResult();
+        var canceled = Assert.IsType<
+            BrowserManagedOperationResult<int, string, string>.Canceled>(
+                await second);
+        Assert.Equal(BrowserManagedOperationCancelReason.User, canceled.Reason);
+        Assert.False(first.IsCompleted);
+
+        releaseFirst.SetResult();
+        Assert.IsType<
+            BrowserManagedOperationResult<int, string, string>.Succeeded>(
+                await first);
+        Assert.IsType<BrowserPackageQueryMatchCreditRequestResult.NotActive>(
+            BrowserPackageQueryOperationCoordinator.RequestMatches(firstId, 1));
+        Assert.IsType<BrowserPackageQueryMatchCreditRequestResult.NotActive>(
+            BrowserPackageQueryOperationCoordinator.RequestMatches(secondId, 1));
     }
 
     [Fact]
-    public async Task Coordinator_AddsMatchCreditOnlyToTheCurrentOperation()
+    public async Task Coordinator_RejectsDuplicateActiveIdAndReadmitsAfterRelease()
     {
-        using BrowserPackageQueryOperationLease operation =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync(
-                initialMatchCredit: 1);
+        BrowserManagedOperationId id =
+            BrowserManagedOperationId.From(Guid.NewGuid().ToString());
+        var release =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<BrowserManagedOperationResult<int, string, string>> original =
+            BrowserPackageQueryOperationCoordinator.RunAsync<int, object>(
+                id,
+                initialMatchCredit: 1,
+                eventCallback: null,
+                async (_, _, token) =>
+                {
+                    await release.Task.WaitAsync(token);
+                    return 1;
+                });
 
-        await operation.MatchCredit.WaitAsync(
-            TestContext.Current.CancellationToken);
-        Assert.True(
-            BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(2));
-        await operation.MatchCredit.WaitAsync(
-            TestContext.Current.CancellationToken);
-        await operation.MatchCredit.WaitAsync(
-            TestContext.Current.CancellationToken);
+        var error = await Assert.ThrowsAsync<
+            BrowserManagedOperationBoundaryException>(
+                () => BrowserPackageQueryOperationCoordinator.RunAsync<int, object>(
+                    id,
+                    initialMatchCredit: 1,
+                    eventCallback: null,
+                    (_, _, _) => Task.FromResult(2)));
+        Assert.Equal("duplicate-active-operation", error.FailureKind);
+        Assert.False(original.IsCompleted);
 
-        operation.Dispose();
-        Assert.False(
-            BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(1));
+        release.SetResult();
+        Assert.IsType<
+            BrowserManagedOperationResult<int, string, string>.Succeeded>(
+                await original);
+        Assert.IsType<BrowserManagedCancellationRequestResult.NotActive>(
+            BrowserPackageQueryOperationCoordinator.RequestCancellation(
+                id,
+                BrowserManagedOperationCancelReason.User));
+
+        var readmitted = Assert.IsType<
+            BrowserManagedOperationResult<int, string, string>.Succeeded>(
+                await BrowserPackageQueryOperationCoordinator.RunAsync<int, object>(
+                    id,
+                    initialMatchCredit: 1,
+                    eventCallback: null,
+                    (_, _, _) => Task.FromResult(3)));
+        Assert.Equal(3, readmitted.Value);
     }
 
     [Fact]
