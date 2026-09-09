@@ -21,8 +21,10 @@ the lowerer. #5786 installs that adapter for plural package-version listings,
 renders its L3 failures before package acquisition, and carries typed intent
 through L2 row-cohort selection after source aggregation. The general implicit
 route envelope is implemented by #5784 as a pure pre-acquisition classifier;
-candidate-set construction, router wiring, remaining command adoptions, and
-shared universal guidance remain unimplemented.
+issue #6327 constructs candidates from the real package, library, type, and
+member commands and each selected lens declaration, then runs the envelope
+before the commandless router enters target acquisition. Remaining command
+adoptions and shared universal guidance remain unimplemented.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -648,6 +650,7 @@ The implemented implicit-route envelope is enforced by:
 | Gate | Property |
 | --- | --- |
 | `CliRowSelectionRouterPreflightTests` | Request-free invocations preserve ordinary routing; common row grammar failures and uniformly unsupported requests survive unrelated route deferral; mixed declaration or capability requires an explicit command; required-value disagreement defers dependent decisions; bare `-N` is common only when every candidate binds `-n`; original raw-argv positions are preserved. |
+| `CliRowSelectionRouterIntegrationTests` | The production commandless router constructs candidates from real commands and selected lenses; common malformed and uniformly unsupported requests stop before router rewrite and acquisition; mixed real declarations require an explicit command; required-value disagreement defers; and `NoRequest` and `Success` continue to authoritative routing. |
 
 The remaining implementation must satisfy:
 

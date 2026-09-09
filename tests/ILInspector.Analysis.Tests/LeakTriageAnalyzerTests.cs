@@ -9,7 +9,7 @@ using System.Runtime.CompilerServices;
 
 using ILInspector.Analysis;
 using ILInspector.AnalysisHarness;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Tests;

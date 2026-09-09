@@ -4,7 +4,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace DotnetInspector.Inspectors;
 

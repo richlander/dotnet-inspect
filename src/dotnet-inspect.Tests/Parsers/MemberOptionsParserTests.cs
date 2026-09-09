@@ -41,6 +41,7 @@ public class MemberOptionsParserTests
         var compactOption = new Option<bool>("--compact");
         var unsafeOption = new Option<bool>("--unsafe");
         var indexOption = new Option<int?>("--index");
+        var shareOption = new Option<string?>("--share");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
         var binOption = new Option<string[]>("--bin") { AllowMultipleArgumentsPerToken = true };
@@ -72,6 +73,7 @@ public class MemberOptionsParserTests
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
+        memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
@@ -94,7 +96,7 @@ public class MemberOptionsParserTests
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
-            unsafeOption, indexOption, kindOption,
+            unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
             shapeOption, routerDeferredTargetOption);
 
@@ -175,6 +177,25 @@ public class MemberOptionsParserTests
         Assert.Null(options.PackagePath);
         Assert.Null(options.AssemblyPath);
         Assert.Null(options.PlatformAssembly);
+    }
+
+    [Theory]
+    [InlineData("packet", MemberShareFormat.Packet)]
+    [InlineData("url", MemberShareFormat.Url)]
+    public async Task Share_SetsRequestedFormat(
+        string value,
+        MemberShareFormat expected)
+    {
+        var options = await ParseSuccessAsync(
+            "member",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json",
+            "Serialize:1",
+            "--share",
+            value);
+
+        Assert.Equal(expected, options.ShareFormat);
     }
 
     [Fact]

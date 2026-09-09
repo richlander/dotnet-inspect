@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>How subject identifiers are interpreted within one comparison document.</summary>
 public enum SubjectCoordinateBasis

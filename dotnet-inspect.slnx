@@ -39,6 +39,9 @@
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync/ILInspector.Decompiler.Fixtures.RuntimeAsync.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldCaller/ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines/ILInspector.Decompiler.Fixtures.ClassicStateMachines.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.Ladder/ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
@@ -129,12 +132,12 @@
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
+    <Project Path="src/Inspector.Findings/Inspector.Findings.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <Project Path="src/ILInspector.CallGraph/ILInspector.CallGraph.csproj" />
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
-    <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
     <Project Path="src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
     <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />

@@ -1409,6 +1409,33 @@ fallback drift requires a fresh token and rejects retired continuations.
 Metadata composition: a caller forwarding to a different target definition
 must remain ruled out with either seed or policy-issued fallback occurrences.
 
+**Research publication-guard adoption (#6345).** The existing
+`DotnetInspector.ResearchQueries` publishers retain the
+`AssemblyContextAnalysisSource.BindingPolicyResolver` that supplies their
+policy-dependent evidence and validate it at the final query publication
+boundary. `DirectMemberComparisonQuery` validates each borrowed endpoint
+before its result leaves that endpoint's group callback.
+`AssemblyContextTypeProjectionQuery` and
+`AssemblyContextMemberProjectionQuery` validate the resolver immediately
+before returning their typed participant result; the member projection uses
+one resolver for both its Analysis index and Metadata source.
+
+This is one host-neutral production-adoption step under #5274. CLI
+`match --body` and Inspect Web method-body comparison consume
+`DirectMemberComparisonQuery`; Inspect Web type and annotated-source endpoints
+consume the Research projection queries. A policy replacement during Research
+work must therefore produce the existing query-level failure rather than
+publish a success derived from the retired group snapshot. The neighboring
+unchanged-policy behavior is preserved.
+
+`DirectMemberComparisonQueryTests` and
+`AssemblyContextResearchProjectionQueryTests` gate version replacement after
+the final ordinary binding selection and immediately before publication. They
+exercise the public production queries, not only the resolver guard. The
+existing selection/version model remains bounded supporting evidence for the
+consumed version transition; this adoption adds no new state transition,
+retry, workspace replacement, result arm, or host rendering path.
+
 #### Resolver-lineage continuations
 
 > **Status: implemented, with CLI and Browser endpoint evidence.**

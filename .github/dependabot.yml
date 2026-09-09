@@ -38,8 +38,9 @@ updates:
   # `/` expands dotnet-inspect.slnx, and 17 tracked projects are outside that
   # solution, so the two that matter are listed explicitly:
   #
-  #   eng/CiChangeDetection     opts out of central package management and pins
-  #                             YamlDotNet inline, so `/` governs nothing here.
+  #   eng/CiChangeDetection     the only referrer of the centrally managed
+  #                             YamlDotNet version; `/` does not discover this
+  #                             standalone project.
   #   inspect-web/msdl-proxy    the only referrer of the three
   #                             Microsoft.Azure.Functions.Worker* versions, and
   #                             it is deployed by the inspect-web workflows.

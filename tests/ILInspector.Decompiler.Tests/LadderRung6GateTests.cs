@@ -4,7 +4,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
