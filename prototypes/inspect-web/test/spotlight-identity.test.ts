@@ -811,7 +811,7 @@ test("runtime graph acquisition ignores a resident pack from another TFM", () =>
     "unique");
   assert.equal(
     appSource.match(
-      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*state\.package\?\.activeFramework \|\| ""\)/g)?.length,
+      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/g)?.length,
     2);
   assert.match(
     appSource,
