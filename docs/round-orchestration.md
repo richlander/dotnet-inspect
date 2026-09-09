@@ -291,11 +291,11 @@ for every non-trivial change; there is no second seat and no clean-count-based
 selection. Use [Agent model mapping](agent-models.md) to resolve the name to a
 dispatch ID.
 
-If GPT-6 Astra is unavailable, substitute another model at its highest
-available quality, preferring a different family than the author, report the
-substitution and its reasoning on the PR, and proceed without approval — a
-substituted seat still counts as filled. One round evaluates one settled head
-with its required reviewer.
+If GPT-6 Astra is unavailable, substitute another available GPT model of
+sufficient quality, report the substitution and its reasoning on the PR, and
+proceed without approval — a substituted seat still counts as filled. Non-GPT
+models are prohibited when the harness advertises GPT models. One round
+evaluates one settled head with its required reviewer.
 
 ### Dispatch
 
@@ -403,9 +403,9 @@ than one handed a list of strings to retry.
 
 When a reviewer returns empty or near-empty, suspect the prompt before the
 model. Check the worktree for artifacts, then re-dispatch the same work to a
-model from a different family: filters differ, and one may state the reason
-where another fails silently. Do not propose repinning a roster seat on
-empty-response evidence alone.
+different GPT model: filters may differ, and one may state the reason where
+another fails silently. Do not propose repinning a roster seat on empty-response
+evidence alone.
 
 ### Reconciliation
 
