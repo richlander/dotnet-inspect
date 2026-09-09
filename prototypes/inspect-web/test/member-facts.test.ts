@@ -6,6 +6,7 @@ import {
   selectFindingInstance,
 } from "../src/finding-interaction.ts";
 import {
+  analysisDiagnosticsFixture,
   allocationFactsFixture,
   callFactsFixture,
   exceptionRegionsFixture,
@@ -107,6 +108,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   assert.match(html, /<h2 id="performance-facts-title">Performance opportunities<\/h2><span>0 opportunities<\/span>/);
   assert.match(html, /No curated performance opportunities were found for this method\./);
   assert.doesNotMatch(html, /<ol class="performance-rows">/);
+  assert.doesNotMatch(html, /class="analysis-diagnostics"/);
 
   const loading = renderMemberFacts({
     memberFacts: memberFactsFixture(),
@@ -118,7 +120,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFindingSelectionError: "",
   });
   assert.match(loading, /Analyzing method/);
-  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts|exception-regions|performance-facts/);
+  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts|exception-regions|performance-facts|analysis-diagnostics/);
 
   const failure = renderMemberFacts({
     memberFacts: null,
@@ -131,7 +133,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
-  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts|exception-regions|performance-facts/);
+  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts|exception-regions|performance-facts|analysis-diagnostics/);
   assert.match(renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
@@ -449,4 +451,40 @@ test("performance opportunities preserve returned order and repeated records", (
     (html.match(/class="performance-no-offset"/g) ?? []).length,
     0,
   );
+});
+
+test("analysis diagnostics preserve complete opaque strings, order, and repeats", () => {
+  const facts = analysisDiagnosticsFixture();
+  const diagnostics = [
+    facts.diagnostics[1]!,
+    facts.diagnostics[0]!,
+    facts.diagnostics[1]!,
+  ];
+  const html = render({ ...facts, diagnostics });
+  assert.match(
+    html,
+    /<h2 id="analysis-diagnostics-title">Analysis diagnostics<\/h2><span>3 diagnostics<\/span>/,
+  );
+  assert.match(
+    html,
+    /Some method analysis could not complete\. Available evidence remains shown above\./,
+  );
+  const rows = [...html.matchAll(
+    /<li class="analysis-diagnostic-row">([\s\S]*?)<\/li>/g,
+  )].map(match => match[1]!);
+  assert.equal(rows.length, 3);
+  for (const [index, diagnostic] of diagnostics.entries()) {
+    assert.match(
+      rows[index]!,
+      new RegExp(`<span class="analysis-diagnostic-label">Diagnostic ${index + 1}</span>`),
+    );
+    assert.ok(rows[index]!.includes(
+      `<code class="analysis-diagnostic-value">${escaped(diagnostic)}</code>`,
+    ));
+  }
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render({
+    ...facts,
+    diagnostics: [facts.diagnostics[0]!],
+  }), /<span>1 diagnostic<\/span>/);
 });
