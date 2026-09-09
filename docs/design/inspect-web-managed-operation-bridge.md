@@ -812,10 +812,12 @@ quiescence and `EpochWorkFinished` comes from producer finalization.
 
 ## Migration
 
-Current inspect-web source and package-query coordinators serialize one current
-operation behind a static slot and expose parameterless `CancelCurrent()`.
-Those coordinators are evidence for token propagation and cooperative
-cancellation, not the target identity contract.
+At migration start, inspect-web Source and Package Query coordinators serialized
+one current operation behind a static slot and exposed parameterless
+`CancelCurrent()`. Those coordinators were evidence for token propagation and
+cooperative cancellation, not the target identity contract. Package Query
+retires its singleton in #6390; the remaining Source callers retain theirs
+until the second Source adoption slice.
 
 Implementation proceeds in independently coherent slices:
 
@@ -832,8 +834,8 @@ Implementation proceeds in independently coherent slices:
 5. migrate shared acquisition waits through broker subscriptions and
    epoch-work leases where needed, then complete the aggregate
    `inspect-web-managed-operation-bridge` gate; and
-6. remove singleton coordinators only after every caller uses keyed operation
-   identity.
+6. remove each singleton coordinator after every caller in that feature uses
+   keyed operation identity.
 
 The migration must not thread browser operation IDs into host-neutral
 inspection models. IDs terminate at the browser host adapter.
@@ -879,6 +881,66 @@ The end-to-end Worker adoption scenario is
 [#5095](https://github.com/richlander/dotnet-inspect/issues/5095). This direct
 facade adoption does not move work off the DOM thread or establish a
 responsiveness or prompt physical-cancellation claim.
+
+### Package Query adoption and singleton retirement
+
+Package Query is the next production consumer, tracked by
+[#6390](https://github.com/richlander/dotnet-inspect/issues/6390). Its direct
+page adapter issues one opaque operation ID per run and passes that same ID to
+the generated Package facade for run, cancellation, and match-credit control.
+The ID terminates at the browser-host adapter and does not enter package-query
+plans, events, rows, or other host-neutral product models.
+
+The managed bridge owns operation-keyed admission, first-reason cancellation,
+callback close, terminal classification, and active-entry release. The Package
+Query adapter owns a separate operation-keyed match-credit table because credit
+amounts and checkpoints are feature policy rather than generic lifecycle.
+Credit acknowledgment is `Granted` only when the addressed active operation's
+credit semaphore accepted the exact positive amount. An unknown, settling, or
+released ID returns `NotActive`; finding an operation ID or posting a future
+Worker message is not a grant.
+
+The Package facade returns three concrete source-generated contracts:
+
+- a versioned run result containing succeeded completion, failed error and
+  diagnostic, or the normalized cancellation reason;
+- cancellation status containing requested, already requested, or not active,
+  with the first reason when one exists; and
+- match-credit status containing granted plus the exact amount, or not active.
+
+The page retains one current Package Query as feature policy. Starting a new
+run aborts the old adapter with `superseded`, and explicit cancellation uses
+`user`; each abort listener captures its own ID, so a late old-run action cannot
+target the replacement. Managed admission nevertheless supports multiple IDs
+at once so exact targeting does not depend on page serialization. Duplicate
+active IDs fail visibly without replacement. Release removes both bridge and
+credit entries, after which controls report inactive and the same ID may be
+admitted again.
+
+An unexpected managed failure is reported through the page diagnostic path
+before current-generation suppression. Superseding a run may prevent its stale
+failure from replacing the new view, but it does not make that managed boundary
+failure silent.
+
+Package Query's durable match, item-failure, assessment, progress, completion,
+credit amount, replenishment threshold, batching, and rendering semantics
+remain feature-owned. This slice preserves the direct synchronous callback and
+does not move Package Query to a Worker. Worker control identity and
+acknowledgment are separately owned by
+[#6376](https://github.com/richlander/dotnet-inspect/issues/6376); the later
+Package Query Worker adapter must combine that protocol with this keyed managed
+boundary and the existing durable-event contract before
+[#5987](https://github.com/richlander/dotnet-inspect/issues/5987) can activate
+the production runtime.
+
+`BrowserPackageQueryOperationsTests` gates concurrent IDs, exact cancellation
+and credit targeting, first-reason preservation, duplicate rejection, release,
+and readmission in the Release engine suite.
+`test/package-query-source.test.ts` gates exact ID forwarding, acknowledged
+credit, old-run cancellation isolation, concrete terminal decoding, and the
+unchanged event projection. Generated-facade verification gates the published
+DTOs and signatures. These gates do not claim Worker placement,
+responsiveness, or durable transport.
 
 ### Shared package acquisition adoption
 
