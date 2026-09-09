@@ -2310,7 +2310,8 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
     /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
   assert.match(
     appSource,
-    /case "rtpack-suggest":[\s\S]*observeAsync\(activateRuntimePack\(\), "Loading the runtime pack"\)/);
+    /case "rtpack-suggest":\s*observeAsync\(openPlatformSubject\(\), "Opening Platform"\)/);
+  assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
@@ -3318,15 +3319,12 @@ test("Platform Spotlight distinguishes resident content from core readiness", ()
     /const target = selectedPlatformTarget\(\);[\s\S]*kind: "platform", tfm: target\.tfm, version: target\.version/);
 });
 
-test("Platform Spotlight keeps loaded navigation in place and publishes warm-up separately", () => {
+test("Platform Spotlight keeps loaded navigation in place and opens the catalog-first root", () => {
   const roster =
     appSource.match(/function platformLibraryRoster\(query: string\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
   const picker =
     appSource.match(/function pickSpotlightResult\(result: SpotlightResult\) \{[\s\S]*?\n}\n/)?.[0]
-    ?? "";
-  const warmup =
-    appSource.match(/async function activateRuntimePack\(\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
   const openLibrary =
     appSource.match(/async function openPlatformLibrary\([\s\S]*?\n}\n\nfunction pickSpotlightLoadedPackage/)?.[0]
@@ -3345,8 +3343,9 @@ test("Platform Spotlight keeps loaded navigation in place and publishes warm-up 
     picker,
     /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{ inPlace: result\.loaded === true, tfm: result\.tfm, version: result\.version \}\)/);
   assert.match(
-    warmup,
-    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*spotlight\.reset\(\);\s*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadRuntimePack\([\s\S]*selectWorkspacePackage\(result\.packageModel, \{ navigationSeq \}\);[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*spotlight\.open\(query, spotlightScope\)/);
+    picker,
+    /case "rtpack-suggest":\s*observeAsync\(openPlatformSubject\(\), "Opening Platform"\)/);
+  assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
   assert.match(
     openLibrary,
     /if \(createsWorkspace\) spotlight\.reset\(\);\s*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null/);

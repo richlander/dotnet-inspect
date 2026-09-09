@@ -9004,9 +9004,7 @@ function pickSpotlightResult(result: SpotlightResult) {
       observeAsync(openPlatformSubject(result.tfm, result.version), "Opening Platform");
       break;
     case "rtpack-suggest":
-      state.spotlightScope = "runtime";
-      state.spotlightIndex = 0;
-      observeAsync(activateRuntimePack(), "Loading the runtime pack");
+      observeAsync(openPlatformSubject(), "Opening Platform");
       break;
     case "platform-lib":
       observeAsync(
@@ -9090,66 +9088,6 @@ async function loadPackageFromSpotlight(
     render({ synchronizeUrl: false });
     focusTypeList(navigationGeneration, focusGeneration);
   }
-}
-
-// Loads the runtime pack into a fresh Workspace, then reopens Spotlight over that
-// published Platform Workspace so its types and members become searchable.
-async function activateRuntimePack() {
-  if (platformSurfaceLoaded() || state.runtimePackLoading) {
-    spotlight.refresh();
-    return;
-  }
-  if (!canPublishRetainedWorkspace()) {
-    appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
-    spotlight.reset();
-    render({ synchronizeUrl: false });
-    afterCurrentNavigationFrame(focusWorkbenchSearchOrHeading);
-    return;
-  }
-  const framework = state.package?.activeFramework || "";
-  const query = state.spotlightQuery;
-  const spotlightScope = state.spotlightScope;
-  beginSpotlightNavigation();
-  const navigationSeq = navigationSequence.begin();
-  spotlight.reset();
-  const construction =
-    captureWorkspaceConstructionSnapshots(navigationSeq);
-  prepareUnpublishedWorkspace();
-  state.home = false;
-  state.loading = true;
-  state.loadingMessage = "Loading the .NET runtime pack…";
-  state.loadingSubtitle = framework || DEFAULT_REQUESTED_FRAMEWORK;
-  render({ synchronizeUrl: false });
-  const result = await loadRuntimePack(
-    framework,
-    () => navigationSequence.isCurrent(navigationSeq));
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!result.packageModel) {
-    failWorkspaceCatalogAction(
-      result.failureMessage || "The .NET runtime pack could not be loaded.",
-      construction.supersessionSnapshot,
-      activateRuntimePack,
-      focusWorkbenchSearchOrHeading,
-    );
-    return;
-  }
-  state.loading = false;
-  selectWorkspacePackage(result.packageModel, { navigationSeq });
-  let destination: string;
-  try {
-    destination = buildStateUrl().toString();
-  } catch (error) {
-    failWorkspaceCatalogAction(
-      `Couldn’t open the .NET Platform: ${errorMessage(error)}`,
-      construction.supersessionSnapshot,
-      activateRuntimePack,
-      focusWorkbenchSearchOrHeading,
-    );
-    return;
-  }
-  publishCurrentWorkspace(construction.retainedSnapshot);
-  workspaceLocation.push(destination);
-  spotlight.open(query, spotlightScope);
 }
 
 // Only an exact catalog row creates demand for the shared Library inspection surface.

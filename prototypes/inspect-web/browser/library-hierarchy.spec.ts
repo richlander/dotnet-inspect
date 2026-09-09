@@ -249,6 +249,7 @@ async function installFacades(
         return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
       }
       export async function loadRuntimePack(framework, version) {
+        document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
         const surface = surfaceFor("Microsoft.NETCore.App");
         return JSON.stringify({ ...surface, activeFramework: framework, version: version || surface.version });
       }
@@ -1033,25 +1034,18 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page).toHaveURL(platformLocation);
 });
 
-test("runtime-pack suggestion publishes a separate Workspace before reopening Spotlight", async ({ page }) => {
-  await installFacades(page, surface, [{
-    ...surface,
-    package: "Microsoft.NETCore.App",
-    version: "10.0.1",
-  }]);
+test("missing shipped catalog opens a visible Platform failure without runtime acquisition", async ({ page }) => {
+  await installFacades(page);
   await page.goto(root);
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
   const originalWorkspace = await currentWorkspaceHistoryState(page);
   await page.keyboard.press("Control+p");
-  await page.locator("#spotlight-input").fill("Widget");
   await page.locator("[data-sl-load-runtime]").click();
-  await expect(page.locator("#spotlight-input")).toHaveValue("Widget");
-  await expect(page.locator('[data-sl-scope="runtime"]')).toHaveClass(/\bactive\b/);
-  await expect(page.locator('[data-sl-type*="Example.Widget"]')).toBeVisible();
-  expect((await currentWorkspaceHistoryState(page)).id).not.toBe(originalWorkspace.id);
-  await page.keyboard.press("Escape");
-  await page.goBack();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel")).toContainText("The Platform catalog could not be loaded.");
+  await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
+  await expect(page.locator(".platform-library-row")).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-runtime-pack-request");
   expect(await currentWorkspaceHistoryState(page)).toEqual(originalWorkspace);
 });
 
