@@ -15,6 +15,27 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void Evaluate_RetainsGenerationRequestAndSelection()
+    {
+        IPackageContent content = InMemory(
+            "lib/net8.0/Example.dll",
+            "ref/net8.0/Example.dll");
+
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                "net8.0",
+                "linux-x64");
+
+        Assert.Same(content.GenerationIdentity, receipt.Generation);
+        Assert.Equal("Example", receipt.PackageId);
+        Assert.Equal("net8.0", receipt.RequestedTargetFramework);
+        Assert.Equal("linux-x64", receipt.RequestedRuntimeIdentifier);
+        Assert.True(receipt.Selection.IsSelected);
+    }
+
+    [Fact]
     public void InMemorySelection_PrefersReferenceAssetsAndPackageNamedDefault()
     {
         IPackageContent content = InMemory(
