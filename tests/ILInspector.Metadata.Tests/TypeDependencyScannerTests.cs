@@ -118,6 +118,23 @@ public class TypeDependencyScannerTests
     }
 
     [Fact]
+    public void Relationships_RetainEverySharedDagEdge()
+    {
+        TypeDependencyResult result =
+            TypeDependencyScanner.BuildDependencyTree(
+                "Int128",
+                RefAssemblies);
+
+        Assert.Equal(CountNodes(result.Tree), result.Relationships.Count);
+        Assert.Contains(
+            result.Relationships
+                .GroupBy(
+                    static relationship => relationship.TargetTypeName,
+                    StringComparer.OrdinalIgnoreCase),
+            static incoming => incoming.Count() > 1);
+    }
+
+    [Fact]
     public void ConcreteType_ResolvesTypeArguments()
     {
         // Int128 implements interfaces with concrete type arguments
@@ -186,4 +203,8 @@ public class TypeDependencyScannerTests
             }
         }
     }
+
+    private static int CountNodes(IReadOnlyList<TypeDependencyNode> nodes) =>
+        nodes.Count
+        + nodes.Sum(static node => CountNodes(node.Children));
 }
