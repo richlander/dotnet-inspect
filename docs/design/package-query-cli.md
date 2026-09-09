@@ -192,9 +192,10 @@ bespoke logic the way it did before that split existed.
 [Website-first adoption #6019](https://github.com/richlander/dotnet-inspect/issues/6019)
 extends the shared Package Query input, not the CLI grammar. Its claim is that
 local package-facet evaluation and match selection preserve the exact bounded
-Gallery input supplied by NuGetFetch. The concrete first consumer is the
-Package Query website; [#5919](https://github.com/richlander/dotnet-inspect/issues/5919)
-retains the eight-milestone path through CLI adoption.
+Gallery input supplied by NuGetFetch. The Package Query website was the first
+consumer; #6341 later retired that Browser gesture while retaining the shared
+input. [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) retains
+the eight-milestone path through CLI adoption.
 
 The [Gallery discovery owner](nuget-gallery-discovery.md) supplies optional
 search text, package-type selection, source order, and one fully admitted

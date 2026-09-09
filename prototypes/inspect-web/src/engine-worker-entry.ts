@@ -6,6 +6,10 @@ import {
   engineWorkerText,
 } from "./engine-worker-contract.ts";
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
+import {
+  registerEngineWorkerTypeSourceOperation,
+  type EngineWorkerTypeSourceFacade,
+} from "./engine-worker-source.ts";
 import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
@@ -26,6 +30,12 @@ registerEngineWorkerStartupOperations(operations, {
   async listGalleryDiscoveryCatalog() {
     return (await import("/inspect-web-package.js")).listGalleryDiscoveryCatalog();
   },
+});
+let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
+registerEngineWorkerTypeSourceOperation(operations, () => {
+  if (sourceFacade === undefined)
+    throw new Error("Type Source facade is unavailable before Worker readiness.");
+  return sourceFacade;
 });
 operations.register({
   kind: engineWorkerCanaryKind,
@@ -52,8 +62,12 @@ const bootstrap = createEngineWorkerBootstrap(
     fail: detail => realm.fail(detail),
   },
 );
+const bootstrapWorker = async (value: string): Promise<void> => {
+  await bootstrap.bootstrap(value);
+  sourceFacade = await import("/inspect-web-source.js");
+};
 const realm = new WorkerRuntimeRealm({
-  bootstrap: { decoder: engineWorkerText, bootstrap: bootstrap.bootstrap },
+  bootstrap: { decoder: engineWorkerText, bootstrap: bootstrapWorker },
   diagnostic: engineWorkerDiagnostic,
   unknownOperationRejection: kind => ({
     error: `Unknown Worker operation: ${kind}`,
