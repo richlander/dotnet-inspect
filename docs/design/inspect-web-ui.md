@@ -38,7 +38,7 @@ boundary. It does not own:
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors, including adaptive full-label Tabs or current-label Choosers for subject and inspector navigation. |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
-| [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
+| [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces including Member Diff, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
 
 Each focused document states its own Ownership and boundaries, Inputs or
 consumed contracts, Non-claims, and (where applicable) implementation gates
@@ -46,7 +46,7 @@ and acceptance scenarios. This document does not repeat those contracts.
 
 ## Product dependencies
 
-This document composes four adjacent owner contracts without defining them:
+This document composes six adjacent owner contracts without defining them:
 
 - [Inspection Subject Navigation](inspection-subject-navigation.md) owns
   Workspace-bound Package or non-package Root, Library, Type, and Member
@@ -70,6 +70,13 @@ This document composes four adjacent owner contracts without defining them:
 - [Browser package sources](browser-package-sources.md#default-feed-decision)
   owns browser source selection and the decision that first-run Gallery
   bootstrap does not become default-feed or acquisition-preference semantics.
+- [Member source diff presentation](member-source-diff-presentation.md) owns
+  canonical comparison endpoints, analytical relations, statistics, and the
+  shared mapped-text presentation consumed by Member Diff.
+- [Inspect Web source-diff transport](inspect-web-source-diff-transport.md)
+  owns the complete typed worker payload, admission, closed outcomes,
+  provenance, and optional authorized endpoint destinations consumed by the
+  browser surface.
 
 Inspect Web renders those owner-issued descriptors and outcomes. Their product
 semantics are not prerequisites for reviewing the UI composition in this
@@ -94,6 +101,7 @@ independent cosmetic changes.
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Keep compact provenance in the bottom footer and page-owned Copy/Open actions in the separate working-surface action group |
+| Member Diff | Place the same-member PDB-versus-decompiled viewer beside Source and Annotated Source as a full-area Member working surface; keep mode, change navigation, position, and authorized endpoint Open actions outside its scroller |
 | Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
@@ -119,11 +127,12 @@ retirement decision under #6158; its windowing contract is no longer part of
 the target subject/inspector composition.
 
 The page-level action line keeps working-surface actions distinct from the
-Application menu: Source and Annotated Source supply contextual groups between
-the navigation region and the fixed application control. Surface Composition
-owns that placement and the transition from legacy direct application controls
-without changing either action inventory. Shell Interaction owns the
-Application menu's identity, inventory, and behavior.
+Application menu: Source, Annotated Source, and Member Diff supply contextual
+groups between the navigation region and the fixed application control.
+Surface Composition owns that placement and the transition from legacy direct
+application controls without changing any action's semantics or availability.
+Shell Interaction owns the Application menu's identity, inventory, and
+behavior.
 
 ## Cross-document relationships
 
@@ -152,11 +161,16 @@ every user action:
    the persistent live region and focus anchor the consumer targets.
 4. [Inspect Web Surface Composition](inspect-web-surface-composition.md)
    places the working surfaces those other owners render -- Source,
-   Annotated Source, Package query, Settings, and Diagnostics -- into the
-   page layout, deferring their internal behavior to each surface's existing
-   focused owner (`package-query-experience.md`, `package-query-cli.md`,
+   Annotated Source, Member Diff, Package query, Settings, and Diagnostics --
+   into the page layout, deferring their internal behavior to each surface's
+   existing focused owner (`package-query-experience.md`,
+   `package-query-cli.md`,
    [Annotated Source viewer interaction](annotated-source-viewer-interaction.md),
-   and [Browser package sources](browser-package-sources.md)).
+   [Member source diff presentation](member-source-diff-presentation.md),
+   [Inspect Web source-diff transport](inspect-web-source-diff-transport.md),
+   the Diff viewer interaction tracked by
+   [#5686](https://github.com/richlander/dotnet-inspect/issues/5686), and
+   [Browser package sources](browser-package-sources.md)).
 
 No focused document redefines another's contract. A change to one owner's
 rendering, interaction, or placement rules does not require reopening the

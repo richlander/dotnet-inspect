@@ -59,6 +59,7 @@ public sealed partial class CSharpPrinter
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
     readonly IrNode _stackSlotTelemetryScope;
+    readonly List<ConsumedMemberEvidence> _consumedMembers = [];
 
     CSharpPrinter(
         IrFunction function,
@@ -3188,34 +3189,49 @@ public sealed partial class CSharpPrinter
     /// ordinary <c>fixed</c> statements, and <c>sizeof</c> are safe under the new
     /// rules.
     /// </summary>
-    bool IsUnsafeOperation(IrNode node) => node switch
+    bool IsUnsafeOperation(IrNode node)
     {
-        CallIndirect => true,
-        StackAllocate => true,
-        // A stackalloc-backed Span (raised to `stackalloc T[n]` by
-        // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
-        // under [SkipLocalsInit], where the stack space is uninitialized.
-        StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
-        Call c => MethodRequiresUnsafe(c.Callee)
-            || CallRendersPointerDereference(c),
-        NewObject n => MethodRequiresUnsafe(n.Constructor)
-            || ArgumentsRenderPointerDereference(n.Arguments, n.Constructor.ParameterTypes),
-        IncrementDecrement i => MethodRequiresUnsafe(i.ConsumedMethod),
-        Convert c => IsUnboxPointerConversion(c),
-        LoadField f => IsPointerReceiver(f.Instance),
-        StoreField f => IsPointerReceiver(f.Instance),
-        LoadFieldAddress f => IsPointerReceiver(f.Instance),
-        LoadProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
-        StoreProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
-        EventSubscription e => AccessorRequiresUnsafe(e.Accessor, e.Instance),
-        FixedBufferElementAddress => true,
-        LoadIndirect { Address: FixedBufferElementAddress } => true,
-        StoreIndirect { Address: FixedBufferElementAddress } => true,
-        LoadIndirect l => RendersAsPointerDeref(l.Address),
-        StoreIndirect s => RendersAsPointerDeref(s.Address),
-        InitObject o => RendersAsPointerDeref(o.Address),
-        _ => IsRaisedUnsafeOperation(node),
-    };
+        if (ConsumedFieldsRequireUnsafe(node))
+            return true;
+
+        return node switch
+        {
+            CallIndirect => true,
+            StackAllocate => true,
+            // A stackalloc-backed Span (raised to `stackalloc T[n]` by
+            // StackAllocSpanPass) is governed by the stackalloc rule — unsafe
+            // only under [SkipLocalsInit], where the stack space is
+            // uninitialized.
+            StackAllocArray sa =>
+                _skipLocalsInit
+                || sa.ResultType?.Kind == TypeRefKind.Pointer,
+            Call c => MethodRequiresUnsafe(c.Callee)
+                || CallRendersPointerDereference(c),
+            NewObject n => MethodRequiresUnsafe(n.Constructor)
+                || ArgumentsRenderPointerDereference(
+                    n.Arguments,
+                    n.Constructor.ParameterTypes),
+            IncrementDecrement i =>
+                MethodRequiresUnsafe(i.ConsumedMethod),
+            Convert c => IsUnboxPointerConversion(c),
+            LoadField f => IsPointerReceiver(f.Instance),
+            StoreField f => IsPointerReceiver(f.Instance),
+            LoadFieldAddress f => IsPointerReceiver(f.Instance),
+            LoadProperty p =>
+                AccessorRequiresUnsafe(p.Accessor, p.Instance),
+            StoreProperty p =>
+                AccessorRequiresUnsafe(p.Accessor, p.Instance),
+            EventSubscription e =>
+                AccessorRequiresUnsafe(e.Accessor, e.Instance),
+            FixedBufferElementAddress => true,
+            LoadIndirect { Address: FixedBufferElementAddress } => true,
+            StoreIndirect { Address: FixedBufferElementAddress } => true,
+            LoadIndirect l => RendersAsPointerDeref(l.Address),
+            StoreIndirect s => RendersAsPointerDeref(s.Address),
+            InitObject o => RendersAsPointerDeref(o.Address),
+            _ => IsRaisedUnsafeOperation(node),
+        };
+    }
 
     bool IsRaisedUnsafeOperation(IrNode node) => node switch
     {
@@ -3267,6 +3283,19 @@ public sealed partial class CSharpPrinter
 
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);
+
+    bool ConsumedFieldsRequireUnsafe(IrNode node)
+    {
+        _consumedMembers.Clear();
+        ConsumedMemberEvidence.AddFrom(node, _consumedMembers);
+        return _consumedMembers.Any(item => item.Field is { } field
+            && FieldMemorySafetyContract.RequiresUnsafe(
+                field,
+                _newMemorySafetyRules,
+                legacyShapeRequiresUnsafe:
+                    field.FixedBuffer is null
+                    && ContainsPointer(field.Type)));
+    }
 
     bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
         => target is
