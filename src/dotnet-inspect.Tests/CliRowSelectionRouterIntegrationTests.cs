@@ -81,6 +81,34 @@ public sealed class CliRowSelectionRouterIntegrationTests
     }
 
     [Fact]
+    public async Task CompatibilityDiagnosticPrecedesCommonZeroArityDiagnostic()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync(
+                "System.CommandLine",
+                "--versions",
+                "--tail-lines",
+                "false",
+                "-n",
+                "2",
+                "--json",
+                "--offline");
+
+        Assert.Equal(1, invocation.ExitCode);
+        Assert.Empty(invocation.Output);
+        Assert.Equal(
+            "Error: --lines and --tail-lines cannot be combined with JSON "
+                + "output; use semantic -n to select complete JSON rows.",
+            invocation.Error.Trim());
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-row-selection");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-rewrite");
+    }
+
+    [Fact]
     public async Task UniformlyUnsupportedRequestFailsBeforeRouterRewrite()
     {
         RouteInvocation invocation =
@@ -99,6 +127,57 @@ public sealed class CliRowSelectionRouterIntegrationTests
             observation =>
                 observation.Stage == "router-row-selection"
                 && observation.Detail == "UnsupportedCapability");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-rewrite");
+    }
+
+    [Fact]
+    public async Task AllLibrariesUnsupportedRequestFailsBeforeStructuralRoute()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync(
+                "NoSuchRouteTarget",
+                "--all-libraries",
+                "-n",
+                "2",
+                "--offline");
+
+        Assert.Equal(1, invocation.ExitCode);
+        Assert.Empty(invocation.Output);
+        Assert.Equal(
+            "Error: -n is not available for this command.",
+            invocation.Error.Trim());
+        Assert.Contains(
+            invocation.Observations,
+            observation =>
+                observation.Stage == "router-row-selection"
+                && observation.Detail == "UnsupportedCapability");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-structural");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-rewrite");
+    }
+
+    [Fact]
+    public async Task AllLibrariesWithoutRowRequestUsesStructuralRoute()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync(
+                "NoSuchRouteTarget",
+                "--all-libraries",
+                "--offline");
+
+        Assert.Contains(
+            invocation.Observations,
+            observation =>
+                observation.Stage == "router-row-selection"
+                && observation.Detail == "NoRequest");
+        Assert.Contains(
+            invocation.Observations,
+            observation => observation.Stage == "router-structural");
         Assert.DoesNotContain(
             invocation.Observations,
             observation => observation.Stage == "router-rewrite");

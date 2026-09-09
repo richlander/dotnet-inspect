@@ -165,6 +165,15 @@ public static class RouterCommandDefinition
                     structuralDiscovery,
                     out CommandlessStructuralRoute? structuralRoute))
             {
+                if (!structuralDiscovery
+                    && TryWriteRowSelectionFailure(
+                        tokens,
+                        rootCommand,
+                        rowSelectionCommands))
+                {
+                    return 1;
+                }
+
                 string[] structuralTokens =
                     CommandLineBuilder.PreprocessArgs(
                         structuralRoute!.RewrittenTokens,
@@ -294,28 +303,13 @@ public static class RouterCommandDefinition
                 }
             }
 
-            IReadOnlyList<Command> rowSelectionCandidates =
-                GetRowSelectionCandidates(
+            if (TryWriteRowSelectionFailure(
                     tokens,
                     rootCommand,
-                    rowSelectionCommands);
-            if (CliRowSelectionRouterPreflight.FindCommonOptionValueError(
-                    tokens,
-                    rowSelectionCandidates) is { } optionValueError)
+                    rowSelectionCommands))
             {
-                CommandError.Write(optionValueError);
                 return 1;
             }
-
-            CliRowSelectionRouteEnvelopeResult rowSelection =
-                CliRowSelectionRouterPreflight.Evaluate(
-                    tokens,
-                    rowSelectionCandidates);
-            RequestTelemetry.Breadcrumb(
-                "router-row-selection",
-                rowSelection.Outcome.ToString());
-            if (CliRowSelectionRouterPreflight.TryWriteFailure(rowSelection))
-                return 1;
 
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
@@ -343,6 +337,34 @@ public static class RouterCommandDefinition
         });
 
         return routerCommand;
+    }
+
+    private static bool TryWriteRowSelectionFailure(
+        string[] tokens,
+        RootCommand rootCommand,
+        IReadOnlyList<Command> rowSelectionCommands)
+    {
+        IReadOnlyList<Command> rowSelectionCandidates =
+            GetRowSelectionCandidates(
+                tokens,
+                rootCommand,
+                rowSelectionCommands);
+        if (CliRowSelectionRouterPreflight.FindCommonOptionValueError(
+                tokens,
+                rowSelectionCandidates) is { } optionValueError)
+        {
+            CommandError.Write(optionValueError);
+            return true;
+        }
+
+        CliRowSelectionRouteEnvelopeResult rowSelection =
+            CliRowSelectionRouterPreflight.Evaluate(
+                tokens,
+                rowSelectionCandidates);
+        RequestTelemetry.Breadcrumb(
+            "router-row-selection",
+            rowSelection.Outcome.ToString());
+        return CliRowSelectionRouterPreflight.TryWriteFailure(rowSelection);
     }
 
     internal static IReadOnlyList<Command> GetRowSelectionCandidates(

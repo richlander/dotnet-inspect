@@ -59,6 +59,9 @@ internal static class CliRowSelectionRouterPreflight
                     CliRowSelectionCommandRegistry.Prepare(
                         parseResult,
                         arguments);
+                if (preparation.HasCompatibilityError)
+                    return preparation.Error;
+
                 return CliOptionValueValidation.FindError(
                     preparation.ParseResult,
                     preparation.Arguments ?? arguments,
