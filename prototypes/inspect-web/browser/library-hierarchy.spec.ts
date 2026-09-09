@@ -1300,7 +1300,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
   });
 }
 
-for (const width of [1440, 390]) {
+for (const width of [1440, 800, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page);
@@ -1346,6 +1346,8 @@ for (const width of [1440, 390]) {
       expect(Math.abs(selection!.x - heading!.x)).toBeLessThan(1);
       expect(selection!.y).toBeGreaterThan(heading!.y + heading!.height);
     }
+    expect(await overview.locator(".overview-scroll").evaluate(scroll =>
+      scroll.scrollWidth - scroll.clientWidth)).toBe(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     if (width === 390) {
