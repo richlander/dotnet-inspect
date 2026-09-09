@@ -82,6 +82,7 @@ fixtures/shared/DotnetInspector.Fixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
+src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
@@ -95,12 +96,12 @@ src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/TsJsExport.Contracts
-src/dotnet-inspect
 src/mdi
 src/runfaster
 src/ts-jsexport
 tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
+tests/DotnetInspect.Cli.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
@@ -110,6 +111,7 @@ tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Platforms.Tests
 tests/DotnetInspector.Presentation.Tests
+tests/DotnetInspector.Queries.Consumer
 tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests
@@ -134,7 +136,6 @@ tests/Inspector.Artifacts.Tests
 tests/Inspector.Text.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
-tests/dotnet-inspect.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
 tests/runfaster.Tests

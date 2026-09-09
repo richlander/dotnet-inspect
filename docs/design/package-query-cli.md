@@ -243,7 +243,7 @@ Core. Concretely:
   This is what makes the facet engine reachable from a second consumer (the
   browser/Wasm engine) without re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
-- **L2 — `Sections` (currently `src/dotnet-inspect/Sections`).** Row
+- **L2 — `Sections` (currently `src/DotnetInspect.Cli/Sections`).** Row
   declaration, `--where` predicate evaluation, and the shape-ladder
   projection into a Table belong here.
   [inspection-layers.md](inspection-layers.md) already places row predicates

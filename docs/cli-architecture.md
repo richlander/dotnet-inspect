@@ -462,7 +462,7 @@ commands and output modes.
 ## Implementation map
 
 ```text
-src/dotnet-inspect/
+src/DotnetInspect.Cli/
 ├── CommandLine/    command definitions, option binding, and help
 ├── Commands/       command orchestration and host policy
 ├── Options/        parsed command option records

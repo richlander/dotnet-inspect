@@ -24,7 +24,7 @@ Relevant build-log excerpts, recorded on 2026-09-06:
 ```text
 2026-06-27T16:10:12.4679910Z HEAD is now at 8681f6e Release 0.14.0: version bump and CLI usability fixes (#1690) (#1697)
 2026-06-27T16:10:16.5699415Z dotnet-install: Installed version is 11.0.100-preview.5.26302.115
-2026-06-27T16:11:00.8414980Z Run dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+2026-06-27T16:11:00.8414980Z Run dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 2026-06-27T16:11:03.0968435Z /usr/share/dotnet/sdk/11.0.100-preview.5.26302.115/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET.
 2026-06-27T16:11:42.2984749Z Successfully created package '/home/runner/work/dotnet-inspect/dotnet-inspect/src/../artifacts/package/release/dotnet-inspect.any.0.14.0.nupkg'.
 2026-06-27T16:11:44.0094600Z SHA256 digest of uploaded artifact is be5a1f6fb2ba338c8e1e56c4b64c0582756380c114bc79c856d6765ae45c83ec

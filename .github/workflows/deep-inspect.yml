@@ -65,7 +65,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare top-package slice
         shell: bash
@@ -136,7 +136,7 @@ jobs:
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
 
       - name: Run CLI tests (including slow integration)
-        run: dotnet run --project tests/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
         run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
@@ -233,7 +233,7 @@ jobs:
       # reporting every affected suite makes the scheduled failure actionable.
       - name: Run CLI tests (all)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 
       - name: Run CSharpText tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -424,7 +424,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare real-world corpus
         run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt

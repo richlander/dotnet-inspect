@@ -1,0 +1,121 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>dotnet-inspect</AssemblyName>
+    <ArtifactsProjectName>dotnet-inspect</ArtifactsProjectName>
+    <RootNamespace>DotnetInspect.Cli</RootNamespace>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <IsTool>true</IsTool>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>dotnet-inspect</ToolCommandName>
+    <VersionPrefix>0.25.0</VersionPrefix>
+    <PackageId>dotnet-inspect</PackageId>
+    <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- RID-specific tool packaging: Native AOT for common platforms, CoreCLR fallback for others -->
+    <ToolPackageRuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-arm64;any</ToolPackageRuntimeIdentifiers>
+    <PublishAot>true</PublishAot>
+    <!-- Keep debug symbols (.pdb/.dbg and the macOS .dSYM bundle) out of the
+         published tool package. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <!-- Native AOT publish settings. This group must come after PublishAot is set
+       above: MSBuild evaluates properties top to bottom, so a group conditioned on
+       PublishAot that sits earlier in the file is silently inert for a plain
+       `dotnet publish -r <rid>` (where PublishAot comes from this file rather than
+       from a global property or OfficialAotBuild). -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Speed, not Size. Worth a measured 6-7% on real commands for about 9% more
+         binary size (issue #3675). The setting moves scalar codegen, which is what
+         this tool is: metadata walking is small reads, integer decoding and
+         dictionary lookups. Raising the x64 instruction-set baseline was measured
+         alongside it and deliberately not taken: it moves vectorized codegen
+         only, which is a null result here and would have cost pre-2013 hardware. -->
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OfficialBuild)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <DebugType>embedded</DebugType>
+    <Deterministic>true</Deterministic>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="release-notes.md" />
+    <EmbeddedResource Include="../../skills/dotnet-inspect/SKILL.md" LogicalName="dotnet-inspect.SKILL.md" />
+    <EmbeddedResource Include="../../skills/query/SKILL.md" LogicalName="dotnet-inspect.skills.query.md" />
+    <EmbeddedResource Include="../../skills/package-skills/SKILL.md" LogicalName="dotnet-inspect.skills.package-skills.md" />
+    <EmbeddedResource Include="../../skills/private-feeds/SKILL.md" LogicalName="dotnet-inspect.skills.private-feeds.md" />
+    <EmbeddedResource Include="../../skills/compatibility/SKILL.md" LogicalName="dotnet-inspect.skills.compatibility.md" />
+    <EmbeddedResource Include="../../skills/correctness/SKILL.md" LogicalName="dotnet-inspect.skills.correctness.md" />
+    <EmbeddedResource Include="../../skills/signals/SKILL.md" LogicalName="dotnet-inspect.skills.signals.md" />
+    <EmbeddedResource Include="../../skills/sourcelink/SKILL.md" LogicalName="dotnet-inspect.skills.sourcelink.md" />
+    <EmbeddedResource Include="../../skills/metadata/SKILL.md" LogicalName="dotnet-inspect.skills.metadata.md" />
+    <EmbeddedResource Include="../../skills/decompiler/SKILL.md" LogicalName="dotnet-inspect.skills.decompiler.md" />
+    <EmbeddedResource Include="../../skills/performance/SKILL.md" LogicalName="dotnet-inspect.skills.performance.md" />
+    <EmbeddedResource Include="../../skills/relationships/SKILL.md" LogicalName="dotnet-inspect.skills.relationships.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="\" />
+    <None Include="../../THIRD-PARTY-NOTICES.TXT" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="CSharpText" />
+    <Using Include="ILInspector.SourceLink" />
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
+    <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
+    <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
+    <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
+    <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
+    <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="..\Inspector.Text\Inspector.Text.csproj" />
+    <ProjectReference Include="..\CSharpText.MemberSlicing\CSharpText.MemberSlicing.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="..\InertText\InertText.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MarkdownTable.Formatting" />
+    <PackageReference Include="Markout" />
+    <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>
