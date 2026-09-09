@@ -35,9 +35,9 @@ and a presentation-neutral result. The analogous
 [member source comparison query](member-source-comparison-query.md) preserves
 endpoint outcomes without turning failure into empty text. Its one-member,
 PDB-versus-decompilation operation is not this two-method, local C#/IL operation.
-`ImplementationDiff.CompareMembers` is the behavioral baseline for explicit
-pairing; its direct caller-to-Research orchestration is the retirement target,
-not the native C# or IL algorithms.
+`ImplementationDiff.CompareMembers` was the behavioral baseline for explicit
+pairing when this adapter was designed. Its direct caller-to-Research
+orchestration is retired after adoption; the native C# and IL algorithms remain.
 
 The adapter exists to replace repeated caller orchestration with one exact
 association and failure-preserving boundary. It does not need a second
@@ -174,8 +174,8 @@ for unrelated package-role, whole-assembly, body-signal, or Source migrations.
 It does not invoke root-to-terminal forwarding composition. Those scenarios
 remain separate; a physical `ExactAddress` is not retargeted.
 
-The selected route has **8 delivery milestones: 6 complete, 2 remaining** at
-this update. These are outcomes, not a promise of eight PRs:
+The selected route has **8 delivery milestones, all complete**. These are
+outcomes, not a count of pull requests:
 
 | Tracker step | Selected outcome | Status |
 | --- | --- | --- |
@@ -185,16 +185,16 @@ this update. These are outcomes, not a promise of eight PRs:
 | 6 | Implement the physical-pair Queries adapter | Complete: #5967 |
 | 8 | Cut over CLI `match --body`, including presentation and removal of its replaced dispatch/wrapper | Complete: #5967 |
 | 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Complete: #5990 |
-| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | #6044 retires the unconsumed body-signal population profile |
-| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Remaining after #6250 removes the uncalled member-plus-PDB wrapper; assembly/generalized callers still constrain deletion; #5125 identity cleanup landed in #6099 |
+| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | Complete: #6044 / #6047 |
+| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | Complete: #5125 / #6099, #6250 / #6251, and #6283 |
 
 Each host path contains **5 milestones, all complete**:
 1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
 not all global retirement in #4706.
 
-Landing the scoped Queries cleanup completes seven of this route's eight
-milestones. It does not complete whole-assembly or body-signal execution
-migration, comparison-tool adoption, or global Queries retirement.
+The two scoped cleanups complete this bounded route. They do not complete
+whole-assembly or body-signal execution migration or global Queries/Research
+retirement.
 
 Keep the first publication and adapter runtime together with the CLI
 adopting change; the bounded first-adopter exception permits that focused
@@ -236,7 +236,10 @@ its Source-specific member-result scaffolding are removed by #6250 after the
 paired CLI and browser adopters landed. Native result translations still serve
 CLI or harness presentation. These are retained caller obligations, not unused
 placeholders. The focused Research body-index association cleanup #5125 landed
-in #6099; neither that cleanup nor this Source cleanup completes broader
+in #6099. #6283 removes the remaining uncalled `CompareMembers` wrapper and
+`ImplementationMemberDiffResult`. `ImplementationDiff.Compare`,
+`WithPdbSourceComparisons`, and `ToIlChanges` remain for their assembly-wide,
+Source, and harness callers; this scoped completion does not claim broader
 retirement.
 
 ### Broader migration snapshot
@@ -266,7 +269,8 @@ and deletion commits to the tracker.
 | Browser managed facade and explicit two-member workspace comparison | Browser step 9, coordinated with #5083 | Expose the same public query as observable browser behavior. Inventory actual routes then; this plan does not invent a currently existing legacy browser caller. Remove a replaced route if one exists. |
 | `ImplementationComparisonQuery.Execute`, `DiffCommand`, and `DiffSections` assembly-wide paths | Steps 7-9; Source tail 13-15 | Separate from rank 5. Their public execution and result/output adoption precede final shared-shape retirement. |
 | `ImplementationDiff.CompareMembersWithPdbSource` | Source steps 12-15 and Research retirement step 17 | Removed by #6250 after the selected CLI and browser Source consumers adopted `AssemblyContextMemberSourcePairQuery`; broad assembly enrichment remains on `WithPdbSourceComparisons`. |
-| `ImplementationDiff.CompareMembers`, dependent legacy member-result shapes, and independent old/new query forms | Queries step 16 and Research step 17 | Delete superseded orchestration and shapes after the refreshed caller inventory, including Source and tests, has a disposition. Preserve only APIs justified by a current owner-local contract. #5125 was reconciled independently by the identity cleanup in #6099. |
+| `ImplementationDiff.CompareMembers` and `ImplementationMemberDiffResult` | Research step 17 | Removed by #6283 after CLI, browser, RoundTripCompilation, ReturnToSender, AuthoredRebuildFidelity, and Source callers received dispositions. |
+| Independent old/new assembly query forms | Generalized Queries step 16 and Research step 17 | Retain while `ImplementationComparisonQuery`, `DiffCommand`, and `DiffSections` use them; remove only after those assembly-wide callers migrate. |
 
 Native `CSharpBodyDiff`, `IlAssemblyDiff`, Findings payloads, and useful aligned
 hunks are not deletion targets merely because they are below Queries.
@@ -275,9 +279,9 @@ not blanket removal of its containing class.
 
 An adapter-only runtime landing can complete step 6 but is **not production
 adoption**. CLI, browser, and tool adoption close only when their actual
-consumers move and their replaced dispatch is removed. Overall retirement
-remains open through steps 16-17 and the Source-dependent tail. This design
-does not claim that unused legacy APIs have already been removed.
+consumers move and their replaced dispatch is removed. This bounded route is
+complete; generalized assembly-wide Queries/Research retirement and the
+broader Source-dependent architecture remain open.
 
 ## Demo and outcome gates
 
@@ -306,8 +310,9 @@ differently named pair remains `SelectionDrift`, covered by prerequisite #5877.
 The Queries gates below run in `DirectMemberComparisonQueryTests` in Release.
 CLI adoption is covered by `MatchCommandTests` and `MatchDiscoveryTests`.
 Browser gates landed in #5990, including published-Wasm acceptance and
-`BrowserMethodBodyOperationTests`. Comparison-tool adoption gates remain
-**unimplemented and unverified**.
+`BrowserMethodBodyOperationTests`. Comparison-tool adoption gates landed for
+RoundTripCompilation in #6141 and ReturnToSender/AuthoredRebuildFidelity in
+PR #6181.
 These names describe outcomes, not test seams or a source-scanning policy.
 
 | Gate owner | Required observable outcome |
@@ -319,9 +324,8 @@ These names describe outcomes, not test seams or a source-scanning policy.
 | CLI and browser adoption gates in steps 8-9 | Real host invocations show the designated pair and visible unavailable/failure evidence using the public query, including ordinary output selection and the browser facade. |
 | Comparison-tool adoption gates in step 10 | Existing member, scope, and authored-rebuild scenarios consume the public query without changing correspondence or oracle meaning. |
 
-Deletion evidence is the actual migration/removal diff and a refreshed caller
-inventory attached to the tracker. This design adds no universal repository
-API-absence claim or source-policing gate.
+The migration and deletion pull requests are the retirement record. This
+design adds no universal repository API-absence claim or source-policing gate.
 
 ## Non-goals
 

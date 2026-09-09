@@ -15,7 +15,10 @@ Release suite, and under
 [#6306](https://github.com/richlander/dotnet-inspect/issues/6306) by the
 Presentation-owned
 [Clone Candidates document](clone-candidate-presentation.md) and adapter.
-Stages 4 through 7 are **not implemented**, so the host-facing acceptance
+Stage 4 is implemented under
+[#6314](https://github.com/richlander/dotnet-inspect/issues/6314) by the CLI
+`Clone Candidates` section for exact Library, Type, and Member subjects.
+Stages 5 through 7 are **not implemented**, so the Browser-facing acceptance
 scenarios below remain **unverified**.
 
 Clone separates two request dimensions:
@@ -495,10 +498,14 @@ The counted production-adoption path under #5083 has seven stages:
    registration slice supplies the concrete producer.
 3. Add the host-neutral portable clone result and presentation adapter.
    Landed as `CloneCandidateDocument` and
-   `CloneCandidatePresentation`; the planned host result-section name is
+   `CloneCandidatePresentation`; the canonical host result-section name is
    `Clone Candidates`.
 4. Adopt the shared request and result in the CLI over an explicit Workspace
-   scope.
+   scope. Landed as the explicit `Clone Candidates` section and
+   `Query: Clone Candidates` companion on `library`, `type`, and `member`.
+   The current CLI snapshot contains the selected exact library only; requested
+   breadth remains visible, and output discloses that finite participant scope
+   rather than inferring ecosystem membership or relabeling the request.
 5. Add the managed Browser facade and transport.
 6. Replace Inspect Web's Package-specific Clone selector with the breadth and
    candidate-discovery controls and add the Library, Type, and Member
@@ -548,12 +555,15 @@ property and event accessors, overloaded-indexer selection, the field bodyless
 outcome, and cross-type accessor association;
 `WorkspaceStructuralCloneSearchQueryTests` supplies that gate.
 `CloneCandidatePresentationTests` gates portable request, row, identity,
-coverage, failure, suppression, and receipt projection. CLI tests later gate
-section/query discovery and structured output. Browser original-host and
-Firefox suites gate the breadth and discovery controls, subject narrowing,
-stale-result exclusion, master/detail navigation, and retirement of the
-Package-specific selector. The design remains unverified until those focused
-host adoptions land.
+coverage, failure, suppression, and receipt projection.
+`CloneCandidatesSectionTests` and `QueryDiscoveryTests` gate CLI
+section/query discovery, all request combinations, exact Type and logical
+Member seeds, property/event expansion, the field bodyless outcome, portable
+JSON identity, projection, row windows, stream formats, and finite-scope
+disclosure. Browser original-host and Firefox suites gate the breadth and
+discovery controls, subject narrowing, stale-result exclusion, master/detail
+navigation, and retirement of the Package-specific selector. The design
+remains unverified until those focused Browser adoptions land.
 
 ## Non-claims
 

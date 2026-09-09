@@ -37,6 +37,7 @@ T:ILInspector.Instructions.IlAssemblyDiff;Raw IL stream comparison belongs to pr
 T:ILInspector.Decompiler.CSharpBodyDiff;Path-based decompiler comparison belongs to product queries, not the browser host.
 T:ILInspector.Decompiler.CSharpFindings;Path-based decompiler Finding comparison belongs to product queries, not the browser host.
 T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.
+T:ILInspector.Metadata.ApiMemberMetadataAnchor;Path-based API member identity reconstruction belongs to product queries or non-browser hosts.
 T:ILInspector.Metadata.ApiSurfaceExtractor;API projection belongs to a product query, never to the browser host.
 T:ILInspector.Metadata.AssemblyDetailScanner;Path-based assembly detail inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.AssemblyIdentityScanner;Path-based assembly identity inspection belongs to product queries, not the browser host.

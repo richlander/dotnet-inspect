@@ -88,10 +88,9 @@ allocation:
 
 Row one contains no workspace tabs, indexed workspace selectors, or
 separate Platform workspace, active-package title, or package coordinate
-selector. Most sessions contain one workspace, so retained coordinate
-management belongs to the Workspace subject rather than permanent
-high-distraction chrome. Platform libraries are capabilities or content of the
-current workspace.
+selector. Live Workspace selection and deletion belong inside the Workspace
+subject rather than permanent high-distraction chrome. Platform libraries are
+capabilities or content of the active Workspace.
 
 The Navigation Presentation-owned Subject and Inspector region shares row one
 with those shell controls. `Share`, `Settings`, `Keyboard help`, and contextual
@@ -323,6 +322,16 @@ Spotlight reacts to every supported way its input value changes, including
 typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
+
+Spotlight's package action is one-shot Workspace composition. Selecting an
+external package constructs a fresh unnamed Workspace with one explicit
+package Root in addition to the default ecosystem registrations, publishes and
+activates it, and makes that package active in the subject strip. Existing
+Workspaces remain available in the Workspace subject. Selecting a loaded
+coordinate, Library, Type, or Member instead performs ordinary Navigation
+within the active Workspace. Spotlight exposes no **Add to current Workspace**
+gesture; multi-package and multi-ecosystem composition remains on the Workspace
+editor.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.

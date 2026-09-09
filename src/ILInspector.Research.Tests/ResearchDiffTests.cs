@@ -2227,53 +2227,6 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ImplementationDiff_CompareMembers_SameMemberIsExact()
-    {
-        using var source = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
-        var stable = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "Stable");
-
-        var diff = ImplementationDiff.CompareMembers(source, stable, source, stable);
-
-        Assert.True(diff.IsExact);
-        Assert.Equal("Stable", diff.Subject.MemberName);
-        Assert.NotNull(diff.CSharpDiff);
-        Assert.True(diff.CSharpDiff.IsExact);
-        Assert.NotNull(diff.IlDiff);
-        Assert.True(diff.IlDiff.Diff.IsExact);
-        Assert.Empty(diff.Changes);
-        Assert.True(Assert.Single(diff.RetainedComparisons.Get<CSharpCanonicalLine>(
-            CSharpFindings.LineDescriptor)).IsExact);
-        Assert.True(Assert.Single(diff.RetainedComparisons.Get<CanonicalIlOperation>(
-            IlFindings.OperationDescriptor)).IsExact);
-    }
-
-    [Fact]
-    public void ImplementationDiff_CompareMembers_GroupsCSharpAndIlEvidence()
-    {
-        using var oldSource = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
-        using var newSource = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.NewAssemblyPath());
-        var oldMethod = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "ConstantValue");
-        var newMethod = FindMethodHandle(FixtureCatalog.DiffPair.NewAssemblyPath(), "DiffFixtureSample.DiffSample", "ConstantValue");
-
-        var diff = ImplementationDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-
-        Assert.False(diff.IsExact);
-        Assert.Equal("ConstantValue", diff.Subject.MemberName);
-        Assert.True(diff.HasCSharpChanges);
-        Assert.True(diff.HasIlChanges);
-        Assert.Contains(diff.Changes, change =>
-            change.Mechanism == ResearchChangeMechanism.CSharp
-            && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("return 1", StringComparison.Ordinal)));
-        Assert.Contains(diff.Changes, change =>
-            change.Mechanism == ResearchChangeMechanism.IlBody
-            && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
-        Assert.False(Assert.Single(diff.RetainedComparisons.Get<CSharpCanonicalLine>(
-            CSharpFindings.LineDescriptor)).IsExact);
-        Assert.False(Assert.Single(diff.RetainedComparisons.Get<CanonicalIlOperation>(
-            IlFindings.OperationDescriptor)).IsExact);
-    }
-
-    [Fact]
     public void ImplementationDiff_PdbSourcePreservesAbsentStateWithoutChangingCSharp()
     {
         var subject = new ResearchSubjectKey(

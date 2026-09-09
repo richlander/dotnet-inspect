@@ -1,4 +1,4 @@
-namespace DotnetInspector.CSharpBodySlicer.Tests;
+namespace CSharpText.MemberSlicing.Tests;
 
 internal partial class PartialExtensionBlockCorpusFixture
 {
