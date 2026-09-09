@@ -6,6 +6,7 @@ import {
   engineWorkerText,
 } from "./engine-worker-contract.ts";
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
+import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
@@ -14,6 +15,10 @@ import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.t
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
+registerEngineWorkerCpuOperation(
+  operations,
+  () => import("/inspect-web-host.js"),
+);
 registerEngineWorkerStartupOperations(operations, {
   async buildIdentity() {
     return (await import("/inspect-web-host.js")).buildIdentity();

@@ -17,6 +17,9 @@ import {
 import {
   createEngineWorkerTypeSourceHostRegistration,
 } from "./engine-worker-source.ts";
+import {
+  bindEngineWorkerCpuProbe,
+} from "./engine-worker-cpu.ts";
 import type {
   WorkerRuntimeHost,
   WorkerRuntimeHostOptions,
@@ -85,6 +88,7 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   });
   const typeSourceAdapter = registerEngineWorkerTypeSourceAdapter(host);
   const page = createOperationAuthorityPage();
+  const cpu = bindEngineWorkerCpuProbe(host, page, options.operationDiagnostic);
   const session = page.createSession<
     string, string, string, string, WorkerRuntimePreparationError
   >({
@@ -104,11 +108,13 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   return {
     host,
     probe: () => session.start("", adapter),
+    cpuProbe: () => cpu.start(),
     typeSource: (request: TypeSourceLoadRequest) =>
       typeSourceSession.start(request, typeSourceAdapter),
     dispose: () => {
       session.dispose();
       typeSourceSession.dispose();
+      cpu.dispose();
       host.dispose();
     },
   };

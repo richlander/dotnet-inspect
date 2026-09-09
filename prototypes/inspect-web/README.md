@@ -1148,10 +1148,26 @@ The gate uses Firefox and the complete published artifact, covering cold and
 warm managed calls, reporter registration and generated cleanup exports,
 all five typed startup reads against their generated facade results, restart,
 one decompiled Type Source result through the prepared typed adapter, bootstrap
-rejection, and input during stalled Wasm initialization. It does not yet prove
-responsiveness during managed CPU work or complete the Worker lifecycle gate;
-lifecycle composition, production Source activation, and direct page-runtime
-retirement remain focused follow-on slices under #5418, #5987, and #5420.
+rejection, and input during stalled Wasm initialization. It does not itself
+prove responsiveness during managed CPU work or complete the Worker lifecycle
+gate.
+
+The focused managed CPU sub-gate reuses that published artifact:
+
+```bash
+npm run inspect-web-worker-cpu-isolation
+```
+
+It runs a fixed-count deterministic managed checksum in the Worker and proves
+that real page input and a two-animation-frame render opportunity occur before
+managed completion. It also covers an untuned neighboring operation,
+same-epoch diagnostic cache retention, planned restart cancellation, native
+old-Worker closure, watchdog detection of silent Worker loss, explicit
+replacement, and replacement-epoch cache reset. It does not claim painted
+pixels, feature progress, cooperative cancellation, supersession, or production
+activation. Lifecycle composition, production Source activation, and direct
+page-runtime retirement remain focused follow-on slices under #5418, #5987,
+and #5420.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies

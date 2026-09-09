@@ -1485,6 +1485,24 @@ not the complete lifecycle or managed CPU responsiveness gate.
   is destroyed; and
 - explicit replacement-worker creation with stale old-epoch events.
 
+`inspect-web-worker-cpu-isolation` is a focused Release real-browser sub-gate.
+It runs a fixed-count deterministic managed checksum operation in the published
+Worker and uses absolute page and Worker timestamps to establish that a real
+input event and two animation-frame callbacks occur after managed entry and
+before managed completion. An existing async-lowering operation runs beside
+the checksum without setting its work size or any liveness bound. The same gate
+also proves same-epoch diagnostic cache retention, planned restart
+cancellation as `worker-restarted`, native old-Worker closure, watchdog
+classification of silent unexpected Worker loss, explicit replacement, and
+cache reset in each replacement epoch.
+
+This sub-gate establishes page input and a render opportunity during pinned
+managed CPU work, plus hard realm release and diagnostic epoch-cache
+revocation. Animation-frame callbacks are not painted-pixel evidence. The
+sub-gate does not provide feature progress, cooperative cancellation,
+supersession, production composition, or the complete
+`inspect-web-worker-responsiveness` claim.
+
 `inspect-web-worker-responsiveness` is a Release real-browser gate. It runs
 pinned managed CPU work in the worker while asserting document paint and input
 on the main thread. It includes one neighboring operation not used to tune any
