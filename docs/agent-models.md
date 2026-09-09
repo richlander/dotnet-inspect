@@ -15,28 +15,28 @@ availability in another session or agent host.
 | Name in guidance | Display name | Dispatch model ID |
 | --- | --- | --- |
 | GPT-6 Astra | GPT-6 Astra | `gpt-6-astra` |
-| Claude Opus | Claude Opus 5 | `claude-opus-5` |
-| MAI-Code | MAI-Code 1.1 Flash | `mai-code-1.1-flash` |
-| Gemini Pro | Resolve an available Pro model | Not pinned; use the runtime-advertised Pro ID. |
+| GPT-5.6 Sol | GPT-5.6 Sol | `gpt-5.6-sol` |
+| GPT-5.6 Terra | GPT-5.6 Terra | `gpt-5.6-terra` |
+| GPT-5.6 Luna | GPT-5.6 Luna | `gpt-5.6-luna` |
 
-GPT-6 Astra holds the sole review seat and replaces GPT-5.6 Sol in current
-guidance. Claude Opus and Gemini Pro remain mapped as substitutes when GPT-6
-Astra is unavailable; MAI-Code is the quick-read model, which fills no review
-seat. Historical review attributions keep their original model names.
+This policy applies to agent harnesses that advertise GPT models. In those
+harnesses, only OpenAI GPT models may be used; all other models are prohibited.
+Every model or mode labeled Fast and extra-high (`xhigh`) reasoning are also
+prohibited. GPT-5.6 Sol is the default for coding and review. GPT-6 Astra may
+review complex changes; GPT-5.6 Terra or Luna may review relatively simple
+changes that still require review. Another advertised non-Fast GPT model may be
+selected when the agent judges it sufficient for the task. Historical review
+attributions keep their original model names.
 
 ## Resolving a dispatch
 
 Use the exact ID accepted by the active dispatch tool. Confirm a mapped ID
 against that tool's available-model list before invoking it; never construct
 an ID by changing spaces, punctuation, capitalization, or version numbers in
-a display name.
-
-Claude Opus, Gemini Pro, and MAI-Code are family-level names. Where guidance
-requests the highest available quality, resolve the appropriate current family
-member from the runtime rather than treating this table as a permanent version
-pin. Gemini Flash is not Gemini Pro. If the requested model or family is
-unavailable, follow the roster's substitution policy and record the exact
-substitute ID and reason on the PR.
+a display name. Never select a model or mode labeled Fast or request extra-high
+(`xhigh`) reasoning. If the preferred GPT model is unavailable, follow the
+roster's GPT-only substitution policy and record the exact substitute ID and
+reason on the PR.
 
 When updating a mapping, copy the ID from the dispatch tool's advertised model
 list. Keep current mappings here rather than duplicating tables across
