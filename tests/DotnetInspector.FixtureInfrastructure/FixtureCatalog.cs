@@ -134,6 +134,7 @@ public static class FixtureIds
     public const string SourceLinkMalformed = "sourcelink.malformed";
     public const string SourceLinkPartiallyMalformed = "sourcelink.partially-malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
+    public const string SourceLinkVisualBasic = "sourcelink.visual-basic";
 
     public const string ResearchTargetSample = "research.target-sample";
     public const string ResearchTargetCorrespondenceV1 =
@@ -285,6 +286,13 @@ public static class FixtureCatalog
         "DotnetInspector.SourceLinkNormalizedFixtures.dll",
         Boundaries(FixtureBoundary.SourceLinkMap),
         "sourcelink", "normalized-map");
+
+    public static readonly FixtureDefinition SourceLinkVisualBasic = Fixture(
+        FixtureIds.SourceLinkVisualBasic,
+        "DotnetInspector.SourceLinkVisualBasicFixtures",
+        "DotnetInspector.SourceLinkVisualBasicFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "sourcelink", "vb", "bodyless-type");
 
     public static readonly FixtureDefinition DiffV1 = Fixture(
         FixtureIds.DiffV1,
@@ -850,6 +858,7 @@ public static class FixtureCatalog
         SourceLinkMalformed,
         SourceLinkPartiallyMalformed,
         SourceLinkNormalized,
+        SourceLinkVisualBasic,
         DiffV1,
         DiffV2,
         SourceDiffV1,
@@ -1252,6 +1261,7 @@ public static class FixtureCatalog
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
             "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",
+            "DotnetInspector.SourceLinkVisualBasicFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures",
             "DotnetInspector.Services.RouteLearning.Base" => "fixtures/services/DotnetInspector.Services.RouteLearning.Base",
             "DotnetInspector.Services.RouteLearning.Consumer" => "fixtures/services/DotnetInspector.Services.RouteLearning.Consumer",
             "DotnetInspector.Services.RouteLearning.Contract" => "fixtures/services/DotnetInspector.Services.RouteLearning.Contract",
