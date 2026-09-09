@@ -757,7 +757,7 @@ public class IlToolsActivationTests
             "-c Release -- --long-running 60 --xunit-diagnostics on",
             job);
         Assert.Contains(
-            "run: dotnet run --project src/ILInspector.Research.Tests " +
+            "run: dotnet run --project tests/ILInspector.Research.Tests " +
             "-c Release -- --fail-skips on",
             job);
 

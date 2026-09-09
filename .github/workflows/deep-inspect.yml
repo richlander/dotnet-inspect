@@ -288,7 +288,7 @@ jobs:
 
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- --fail-skips on
+        run: dotnet run --project tests/ILInspector.Research.Tests -c Release -- --fail-skips on
 
       - name: Check ilasm/ildasm/mdv result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}

@@ -1109,15 +1109,23 @@ cleanup stops admission, drains retained work, and unregisters only after
 drainage; hard Worker termination remains a separate release boundary.
 Feature brokers still need to opt into this source as part of their migration.
 
-Worker protocol version 2 additionally carries nonempty batches of at most 64
-progress or durable events. Each operation registers its own bounded payload
-decoders; the whole batch is validated before any entry reaches operation
-authority. Batches are posted immediately and preserve order before managed
-settlement, while authority still decides whether each entry can update the
-current view. The Worker does not buffer partial batches or implement feature
-credit policy. `npm run inspect-web-worker-protocol` covers this transport.
-Package Query's production adapter and the single-runtime cutover remain
-separate adoption work under #5987 and #5420.
+Worker protocol version 3 retains version 2's nonempty batches of at most 64
+progress or durable events and adds operation-addressed typed feature control.
+Each operation registers its own bounded payload decoders; a whole event batch
+is validated before any entry reaches operation authority. Batches are posted
+immediately and preserve order before managed settlement, while authority
+still decides whether each entry can update the current view.
+
+A control-capable adapter permits one outstanding request for its own retained
+operation. The Worker returns the feature handler's explicit acknowledgment or
+`not-active`; concurrent requests fail visibly as busy rather than entering a
+queue. Cancellation, settlement, and `not-active` close later control
+admission, while a request already posted remains a response obligation and
+may be acknowledged after settlement. The protocol owns that transport and
+correlation, not feature credit policy. `npm run inspect-web-worker-protocol`
+covers the event and control transport. Package Query's production adapter and
+the single-runtime cutover remain separate adoption work under issues #5987
+and #5420.
 
 The Worker bootstrap also prepares the typed Type Source operation. Its
 page-side adapter posts only package ID, version, framework, assembly, type
@@ -1794,7 +1802,7 @@ The shared product paths are gated by:
   participant minted from in-memory content is acquired by the group, and one
   minted with a placeholder identity is rejected — which is why acquisition must
   decode identity first.
-- `ContentShapedMemberProjectionTests` in `src/ILInspector.Research.Tests` gates
+- `ContentShapedMemberProjectionTests` in `tests/ILInspector.Research.Tests` gates
   the two product seams the Research queries stand on: projecting a member from a
   path-less, stream-backed assembly reference, and supplying the whole-assembly
   analysis context that path-keyed resolution cannot provide.

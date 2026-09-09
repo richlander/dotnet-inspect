@@ -1307,10 +1307,12 @@ const sourceComparison = createSourceComparisonCoordinator({
 const packageQueryController = createPackageQueryController(
   state.packageQueryState,
   createBrowserPackageQueryDataSource({
-    cancel: () => cancelPackageQuery(),
-    requestMatches: additionalMatchCredit =>
-      inspectRequestPackageQueryMatches(additionalMatchCredit),
+    cancel: (operationId, reason) =>
+      cancelPackageQuery(operationId, reason),
+    requestMatches: (operationId, additionalMatchCredit) =>
+      inspectRequestPackageQueryMatches(operationId, additionalMatchCredit),
     runAssembly: (
+      operationId,
       patternId,
       operand,
       packageCoordinatesJson,
@@ -1318,6 +1320,7 @@ const packageQueryController = createPackageQueryController(
       initialMatchCredit,
       eventSink,
     ) => inspectRunPackageAssemblyQuery(
+      operationId,
       patternId,
       operand,
       packageCoordinatesJson,
@@ -1325,6 +1328,7 @@ const packageQueryController = createPackageQueryController(
       initialMatchCredit,
       eventSink),
     run: (
+      operationId,
       prefix,
       facetIdsJson,
       maximumCandidates,
@@ -1336,6 +1340,7 @@ const packageQueryController = createPackageQueryController(
       sourceOrderId,
       discovery,
     ) => inspectRunPackageQuery(
+      operationId,
       prefix,
       facetIdsJson,
       maximumCandidates,
@@ -1346,6 +1351,12 @@ const packageQueryController = createPackageQueryController(
       packageType,
       sourceOrderId,
       discovery),
+  }, {
+    reportUnexpectedFailure: (operationId, error, diagnostic) => {
+      console.error(
+        `Package Query managed operation '${operationId}' failed unexpectedly.`,
+        diagnostic ?? error);
+    },
   }),
   updateKind => {
     if (!state.packageQueryOpen) return;
