@@ -18,7 +18,7 @@ import type {
 } from "./worker-runtime-protocol.ts";
 import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 
-export const engineWorkerCloneCandidateKind = "clone-candidates";
+const engineWorkerCloneCandidateKind = "clone-candidates";
 
 const maximumCloneRequestCharacters = 512 * 1024;
 const maximumCloneResultCharacters = 8 * 1024 * 1024;

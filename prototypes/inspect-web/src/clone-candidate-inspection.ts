@@ -11,11 +11,11 @@ export type CloneCandidateBreadth =
 export type CloneCandidateDiscovery =
   Exclude<BrowserCloneCandidateDiscovery, number>;
 
-export const DEFAULT_CLONE_BREADTH: CloneCandidateBreadth = "Everything";
-export const DEFAULT_CLONE_DISCOVERY: CloneCandidateDiscovery =
+const DEFAULT_CLONE_BREADTH: CloneCandidateBreadth = "Everything";
+const DEFAULT_CLONE_DISCOVERY: CloneCandidateDiscovery =
   "SimilarNames";
 
-export interface CloneCandidatePackageCoordinate {
+interface CloneCandidatePackageCoordinate {
   readonly id: string;
   readonly version: string;
   readonly framework: string;
