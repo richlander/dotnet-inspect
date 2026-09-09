@@ -409,6 +409,30 @@ async function installFacades(
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
 
+async function currentWorkspaceHistoryState(page: Page): Promise<{
+  id: string | null;
+  session: string | null;
+}> {
+  return page.evaluate(() => {
+    const isRecord = (
+      candidate: unknown,
+    ): candidate is Record<string, unknown> =>
+      typeof candidate === "object" && candidate !== null;
+    const value: unknown = history.state;
+    if (!isRecord(value)) {
+      return { id: null, session: null };
+    }
+    return {
+      id: typeof value.inspectWorkspaceId === "string"
+        ? value.inspectWorkspaceId
+        : null,
+      session: typeof value.inspectWorkspaceSession === "string"
+        ? value.inspectWorkspaceSession
+        : null,
+    };
+  });
+}
+
 for (const preferred of [other, empty]) {
   for (const width of [900, 480]) {
     test(`implicit package entry selects product-default ${preferred.name} at ${width}px`, async ({ page }) => {
@@ -1602,29 +1626,20 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
 
-  const previousSession = await page.evaluate(
-    () => history.state?.inspectWorkspaceSession);
+  const previousSession = (await currentWorkspaceHistoryState(page)).session;
   await page.reload();
-  await expect.poll(() => page.evaluate(
-    () => history.state?.inspectWorkspaceSession)).not.toBe(previousSession);
-  const reloadedWorkspace = await page.evaluate(
-    () => ({
-      id: history.state?.inspectWorkspaceId,
-      session: history.state?.inspectWorkspaceSession,
-    }));
+  await expect.poll(async () =>
+    (await currentWorkspaceHistoryState(page)).session).not.toBe(previousSession);
+  const reloadedWorkspace = await currentWorkspaceHistoryState(page);
   await page.goBack();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
-  await expect.poll(() => page.evaluate(() => ({
-    id: history.state?.inspectWorkspaceId,
-    session: history.state?.inspectWorkspaceSession,
-  }))).toEqual(reloadedWorkspace);
+  await expect.poll(() =>
+    currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
 
   await page.goForward();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await expect.poll(() => page.evaluate(() => ({
-    id: history.state?.inspectWorkspaceId,
-    session: history.state?.inspectWorkspaceSession,
-  }))).toEqual(reloadedWorkspace);
+  await expect.poll(() =>
+    currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
   await page.locator('[data-application-scope="workspace"]').click();
   await expect(page.locator(".workspace-card")).toHaveCount(1);
   await expect(page.locator(".query-notice-text", {
