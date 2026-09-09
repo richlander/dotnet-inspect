@@ -35,6 +35,10 @@ Every successful path must satisfy the shared Portable PDB checksum verifier
 becomes evidence. Local-clone acquisition reads the addressed Git blob rather
 than the working-tree file. A missing revision, path, or checksum match in one
 clone continues through the remaining clones and then to the remote source.
+Remote acquisition follows HTTP redirects. A final successful response becomes
+PDB source only when its bytes satisfy the document checksum; an unsuccessful
+response or transport failure remains a typed acquisition failure, after which
+`AssemblyContextSourceQuery` uses decompiled source when available.
 
 [Local repository source acquisition](design/local-repository-source-acquisition.md)
 owns that adapter's locator interpretation, byte admission, optional-lookup
@@ -50,10 +54,10 @@ but when no valid entry resolves the document, a rejected conformant key that
 matches that document is a mapping failure. An unrelated usable entry in the
 same map does not turn that failure into absence. Once a URL resolves, HTTP 404
 is definitive document absence; transport failures, other unsuccessful HTTP
-responses, rejected origins, oversized responses, checksum mismatches, and
-storage failures remain acquisition failures. This boundary cannot distinguish
-a deliberately concealed private GitHub document that returns HTTP 404 from a
-missing public document; both are absence.
+responses, unauthorized initial destinations, oversized responses, checksum
+mismatches, and storage failures remain acquisition failures. This boundary
+cannot distinguish a deliberately concealed private GitHub document that
+returns HTTP 404 from a missing public document; both are absence.
 
 At the reusable service boundary, callers supply optional fully qualified
 repository paths to member or type acquisition. The desktop CLI exposes those

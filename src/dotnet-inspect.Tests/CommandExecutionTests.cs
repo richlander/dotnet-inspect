@@ -15538,7 +15538,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SourceFiles_PrintRow_RejectsCrossOriginResponse()
+    public async Task Type_SourceFiles_PrintRow_RedirectedChecksumMismatchIsHardError()
     {
         using var client = new HttpClient(new SourceResponseHandler(
             "redirected content"u8.ToArray(),
@@ -15556,7 +15556,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("Could not verify the final SourceLink response origin", error);
+            Assert.Contains("does not match the portable-PDB checksum", error);
             Assert.DoesNotContain("spsprodeus27", error);
         }
         finally

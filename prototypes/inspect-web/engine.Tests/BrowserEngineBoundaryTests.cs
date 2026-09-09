@@ -1480,7 +1480,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects()
+    public void SourceFetchPolicy_OmitsCredentialsAndFollowsRedirects()
     {
         using var request =
             new HttpRequestMessage(
@@ -1494,7 +1494,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 "WebAssemblyFetchOptions"),
             out IDictionary<string, object>? options));
         Assert.Equal("omit", options["credentials"]);
-        Assert.Equal("error", options["redirect"]);
+        Assert.Equal("follow", options["redirect"]);
     }
 
     [Fact]

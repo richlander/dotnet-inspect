@@ -188,7 +188,7 @@ public class SourceLinkQueryServiceTests
     }
 
     [Fact]
-    public void BrowserTransport_FailsClosedOnlyForAttributedSourceUrls()
+    public void UnreliableFinalUrl_FailsClosedOnlyForAttributedSourceAudits()
     {
         const string Attributed =
             "https://raw.githubusercontent.com/dotnet/runtime/"

@@ -264,11 +264,12 @@ acquisition has no ambient filesystem requirement.
 
 The same checksum evidence is carried through type, member-location, and
 IL-offset projections when those views can print or derive output from source
-content. Network responses are used only after the final response URL preserves
-the requested URL's attributable SourceLink origin and the bytes match the
-portable-PDB checksum. URLs outside the known provenance grammars carry no
-repository claim but still require the checksum before their content is
-rendered.
+content. Source acquisition follows redirects and uses a successful response
+only after the bytes match the portable-PDB checksum. Host policy authorizes
+the initial destination and transport containment; availability and integrity
+audits separately retain final-origin validation. URLs outside the known
+provenance grammars carry no repository claim but still require the checksum
+before their content is rendered.
 
 Compilation options and references describe available rebuild context. They do
 not claim that the context is complete enough to reproduce the original build.

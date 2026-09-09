@@ -260,8 +260,6 @@ public static class PdbSourceHouse
                 {
                     SourceFetchFailureKind.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.AttributedOriginUnverified =>
-                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched PDB source does not match the portable-PDB checksum.",
                     SourceFetchFailureKind.StorageFailed =>
@@ -465,8 +463,6 @@ public static class PdbSourceHouse
                 {
                     SourceFetchFailureKind.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.AttributedOriginUnverified =>
-                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.StorageFailed =>
                         "The source-content store failed.",
                     _ => "Could not fetch PDB source.",
@@ -557,8 +553,6 @@ public static class PdbSourceHouse
                 {
                     SourceFetchFailureKind.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.AttributedOriginUnverified =>
-                        "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched source does not match the portable-PDB checksum.",
                     SourceFetchFailureKind.StorageFailed =>
