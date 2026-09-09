@@ -7989,7 +7989,6 @@ function platformLibraryRoster(query: string) {
   const tfm = platformScopeTfm();
   const lower = query.trim().toLowerCase();
   const rt = runtimePackPackage();
-  const loadedKeys = new Set((rt?.assemblies || []).map(a => (a.name || "").replace(/\.dll$/i, "")));
   const rows: Array<{
     assembly: string;
     pack: string;
@@ -8005,7 +8004,7 @@ function platformLibraryRoster(query: string) {
         assembly: row.assembly,
         pack,
         publicTypes: row.publicTypes,
-        loaded: loadedKeys.has(row.assembly),
+        loaded: runtimeAssemblyIsResident(rt, row.assembly, pack),
         ranges: computeHighlightRanges(row.assembly, lower),
       });
     }
@@ -8509,10 +8508,17 @@ function pickSpotlightResult(result: SpotlightResult) {
     case "member":
       observeAsync(pickSpotlightMember(result), "Opening a Spotlight member");
       break;
-    case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
+    case "rtpack-suggest":
+      state.spotlightScope = "runtime";
+      state.spotlightIndex = 0;
+      observeAsync(activateRuntimePack(), "Loading the runtime pack");
+      break;
     case "platform-lib":
       observeAsync(
-        openPlatformLibrary(result.assembly, result.pack),
+        openPlatformLibrary(
+          result.assembly,
+          result.pack,
+          { inPlace: result.loaded === true }),
         "Opening a platform library");
       break;
     case "rtpack-status": break;
@@ -8590,27 +8596,64 @@ async function loadPackageFromSpotlight(
   }
 }
 
-// Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
-// spotlight in place so the loading row and, once resolved, the platform types appear
-// without tearing down the dialog.
-function activateRuntimePack() {
+// Loads the runtime pack into a fresh Workspace, then reopens Spotlight over that
+// published Platform Workspace so its types and members become searchable.
+async function activateRuntimePack() {
   if (runtimePackLoaded() || state.runtimePackLoading) {
     spotlight.refresh();
     return;
   }
+  if (!canPublishRetainedWorkspace()) {
+    appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
+    spotlight.reset();
+    render({ synchronizeUrl: false });
+    afterCurrentNavigationFrame(focusWorkbenchSearchOrHeading);
+    return;
+  }
   const framework = state.package?.activeFramework || "";
-  const navigationSeq = navigationSequence.current();
-  const pending = loadRuntimePack(
+  const query = state.spotlightQuery;
+  const spotlightScope = state.spotlightScope;
+  beginSpotlightNavigation();
+  const navigationSeq = navigationSequence.begin();
+  spotlight.reset();
+  const construction =
+    captureWorkspaceConstructionSnapshots(navigationSeq);
+  prepareUnpublishedWorkspace();
+  state.home = false;
+  state.loading = true;
+  state.loadingMessage = "Loading the .NET runtime pack…";
+  state.loadingSubtitle = framework || DEFAULT_REQUESTED_FRAMEWORK;
+  render({ synchronizeUrl: false });
+  const result = await loadRuntimePack(
     framework,
-    () => navigationSequence.isCurrent(navigationSeq)); // sets runtimePackLoading synchronously
-  spotlight.refresh();
-  observeAsync(
-    pending.then(() => {
-      if (!state.spotlightOpen && !state.home) return undefined;
-      spotlight.refresh();
-      return undefined;
-    }),
-    "Loading the runtime pack");
+    () => navigationSequence.isCurrent(navigationSeq));
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!result.packageModel) {
+    failWorkspaceCatalogAction(
+      result.failureMessage || "The .NET runtime pack could not be loaded.",
+      construction.supersessionSnapshot,
+      activateRuntimePack,
+      focusWorkbenchSearchOrHeading,
+    );
+    return;
+  }
+  state.loading = false;
+  selectWorkspacePackage(result.packageModel);
+  let destination: string;
+  try {
+    destination = buildStateUrl().toString();
+  } catch (error) {
+    failWorkspaceCatalogAction(
+      `Couldn’t open the .NET Platform: ${errorMessage(error)}`,
+      construction.supersessionSnapshot,
+      activateRuntimePack,
+      focusWorkbenchSearchOrHeading,
+    );
+    return;
+  }
+  publishCurrentWorkspace(construction.retainedSnapshot);
+  workspaceLocation.push(destination);
+  spotlight.open(query, spotlightScope);
 }
 
 // Drill into one platform library from the index-first Platform scope: lazily fetch just
@@ -8647,11 +8690,12 @@ async function openPlatformLibrary(
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
   const platformVersion = runtimePackPackage()?.version ?? "";
+  if (createsWorkspace) spotlight.reset();
   const construction = createsWorkspace
     ? captureWorkspaceConstructionSnapshots(navigationSeq)
     : null;
   if (construction) prepareUnpublishedWorkspace();
-  spotlight.reset();
+  else spotlight.reset();
   const alreadyLoaded = !createsWorkspace && runtimeAssemblyIsResident(
     runtimePackPackage(),
     key,
@@ -8785,11 +8829,12 @@ async function pickSpotlightMember(
       || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!pkg || !type) { closeSpotlight(); return; }
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
+  spotlight.reset();
   const rollbackSnapshot = retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
-  const navigationGeneration = beginSpotlightNavigation();
-  const focusGeneration = documentFocusGeneration;
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -8804,7 +8849,6 @@ async function pickSpotlightMember(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  spotlight.reset();
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
@@ -8828,11 +8872,12 @@ async function pickSpotlight(
     closeSpotlight();
     return;
   }
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
+  spotlight.reset();
   const rollbackSnapshot = retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
-  const navigationGeneration = beginSpotlightNavigation();
-  const focusGeneration = documentFocusGeneration;
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -8861,7 +8906,6 @@ async function pickSpotlight(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  spotlight.reset();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;

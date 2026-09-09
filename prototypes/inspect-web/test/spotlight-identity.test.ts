@@ -2294,7 +2294,7 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
   assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /if \(!state\.spotlightOpen && !state\.home\) return undefined;[\s\S]*spotlight\.refresh\(\)/);
+    /case "rtpack-suggest":[\s\S]*observeAsync\(activateRuntimePack\(\), "Loading the runtime pack"\)/);
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
@@ -3266,6 +3266,45 @@ test("Platform Spotlight distinguishes resident content from core readiness", ()
   assert.match(
     results,
     /if \(!roster\.length && !runtimePackLoaded\(\)\)/);
+});
+
+test("Platform Spotlight keeps loaded navigation in place and publishes warm-up separately", () => {
+  const roster =
+    appSource.match(/function platformLibraryRoster\(query: string\) \{[\s\S]*?\n}\n/)?.[0]
+    ?? "";
+  const picker =
+    appSource.match(/function pickSpotlightResult\(result: SpotlightResult\) \{[\s\S]*?\n}\n/)?.[0]
+    ?? "";
+  const warmup =
+    appSource.match(/async function activateRuntimePack\(\) \{[\s\S]*?\n}\n\n\/\/ Drill into one platform library/)?.[0]
+    ?? "";
+  const openLibrary =
+    appSource.match(/async function openPlatformLibrary\([\s\S]*?\n}\n\nfunction pickSpotlightLoadedPackage/)?.[0]
+    ?? "";
+  const memberSelection =
+    appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
+    ?? "";
+  const typeSelection =
+    appSource.match(/async function pickSpotlight\([\s\S]*?\n}\n\nfunction executeCommand/)?.[0]
+    ?? "";
+
+  assert.match(
+    roster,
+    /loaded: runtimeAssemblyIsResident\(rt, row\.assembly, pack\)/);
+  assert.match(
+    picker,
+    /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{ inPlace: result\.loaded === true \}\)/);
+  assert.match(
+    warmup,
+    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*spotlight\.reset\(\);\s*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadRuntimePack\([\s\S]*selectWorkspacePackage\(result\.packageModel\);[\s\S]*destination = buildStateUrl\(\)\.toString\(\);[\s\S]*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*spotlight\.open\(query, spotlightScope\)/);
+  assert.match(
+    openLibrary,
+    /if \(createsWorkspace\) spotlight\.reset\(\);\s*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null/);
+  for (const selection of [memberSelection, typeSelection]) {
+    assert.match(
+      selection,
+      /beginSpotlightNavigation\(\);[\s\S]*spotlight\.reset\(\);\s*const rollbackSnapshot = retainedWorkspaces\.activeWorkspaceId === null\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)/);
+  }
 });
 
 test("Package query is a routed Spotlight action with typed workspace handoff", () => {
