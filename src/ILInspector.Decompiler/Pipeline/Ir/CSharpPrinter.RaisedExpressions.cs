@@ -382,7 +382,8 @@ public sealed partial class CSharpPrinter
 
     string? LambdaStatement(IrNode node) => node switch
     {
-        Return { Value: { } value } => $"return {Expression(value)};",
+        Return { Value: { } value }
+            => $"return {UnsafeExpressionText(value, Expression(value))};",
         Return => "return;",
         _ => Statement(node),
     };

@@ -3974,15 +3974,19 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => UnsupportedStatement(e, u),
-            // A user-defined checked ++/-- as a statement spells checked(x++),
-            // which is CS0201 in statement position; use a checked { ... } block.
+            { } expr when ShouldDiscardForUnsafeExpression(expr)
+                => DiscardStatement(e, expr),
+            // A safe user-defined checked ++/-- as a statement spells
+            // checked(x++), which is CS0201 in statement position; use a
+            // checked { ... } block. Unsafe-required operators take the
+            // discard-expression path above so one wrapper contains both
+            // contexts.
             IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(e, id),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
             // operator-spelled call (`a != b`) — is CS0201 as a statement, so
             // spell the discard explicitly with `_ =`, which is always valid.
-            { } expr when ShouldDiscardForUnsafeExpression(expr) => DiscardStatement(e, expr),
             { } expr when !IsStatementExpression(expr) => DiscardStatement(e, expr),
             { } expr => $"{Expression(expr)};",
         },

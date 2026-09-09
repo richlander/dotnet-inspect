@@ -1447,6 +1447,142 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_CheckedUnsafeIncrementStatement_UsesUnsafeExpression()
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var counter = TypeRef.Definition(
+            "Synthetic",
+            "",
+            "Counter",
+            ValueTypeHint.ValueType);
+        var increment = new MethodRef(
+            counter,
+            "op_CheckedIncrement",
+            counter,
+            [counter],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Yes,
+            RequiresUnsafe = true,
+        };
+        var block = new Block();
+        block.Add(new ExpressionStatement(new IncrementDecrement(
+            new LoadArgument(0, "value", counter),
+            isIncrement: true,
+            isPrefix: false,
+            isUserDefined: true,
+            isChecked: true,
+            consumedMethod: increment)));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "__Gate"),
+            new MethodSignature(
+                voidType,
+                [new Parameter("value", counter)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("_ = unsafe(checked(value++));", output);
+        Assert.DoesNotContain("unsafe\n{", output);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "static void M(Counter value)",
+                output,
+                """
+                public struct Counter
+                {
+                    public int Value;
+                    public static Counter operator ++(Counter value) => value;
+                    public static unsafe Counter operator checked ++(Counter value)
+                    {
+                        value.Value++;
+                        return value;
+                    }
+                }
+                """),
+            output);
+    }
+
+    [Fact]
+    public void NewRulesModule_SharedScopeLambdaReturn_UsesUnsafeExpression()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var probe = TypeRef.Definition("Synthetic", "", "Probe");
+        var ping = new MethodRef(probe, "Ping", voidType, [], HasThis: false);
+        var risky = new MethodRef(probe, "Risky", int32, [], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new ExpressionStatement(new Call(
+            ping,
+            isVirtual: false,
+            [])));
+        lambdaBlock.Add(new Return(new Call(
+            risky,
+            isVirtual: false,
+            [])));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var func = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [int32]);
+        var block = new Block();
+        block.Add(new Return(new Lambda(
+            func,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: true,
+            skipLocalsInit: false,
+            lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "__Gate"),
+            new MethodSignature(
+                func,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("return unsafe(Probe.Risky());", output);
+        Assert.DoesNotContain("return Probe.Risky();", output);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "static Func<int> M()",
+                output,
+                """
+                public static class Probe
+                {
+                    public static void Ping() { }
+                    public static unsafe int Risky() => 42;
+                }
+                """),
+            output);
+    }
+
+    [Fact]
     public void NewRulesModule_RequiresUnsafePropertyInLocalFunction_FallsBackToBlock()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
