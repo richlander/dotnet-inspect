@@ -44,9 +44,23 @@ public class PrimaryConstructorStorageTests
         var constructor = Assert.Single(declaration.Members.OfType<ConstructorDeclarationSyntax>());
         Assert.Equal(name, constructor.Identifier.ValueText);
         Assert.Equal("value", Assert.Single(constructor.ParameterList.Parameters).Identifier.ValueText);
-        Assert.Contains(constructor.DescendantNodes().OfType<AssignmentExpressionSyntax>(),
+        var assignment = Assert.Single(
+            constructor.DescendantNodes().OfType<AssignmentExpressionSyntax>(),
             assignment => assignment.Left.ToString() is "Value" or "this.Value"
-                && assignment.Right is IdentifierNameSyntax { Identifier.ValueText: "value" });
+                && assignment.Right is IdentifierNameSyntax
+                    { Identifier.ValueText: "value" });
+        if (requiresUnsafe)
+        {
+            Assert.Contains(
+                assignment.Ancestors(),
+                ancestor => ancestor is UnsafeStatementSyntax);
+        }
+        else
+        {
+            Assert.DoesNotContain(
+                assignment.Ancestors(),
+                ancestor => ancestor is UnsafeStatementSyntax);
+        }
     }
 
     [Fact]

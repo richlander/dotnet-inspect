@@ -134,6 +134,61 @@ pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
 `RequiresUnsafeAttribute` and the call carries no pointer, so the fact was erased
 — there is nothing to replay or recover. This is the principled limit of the mode.
 
+## Field caller-contract replay
+
+**Owner and claim:** Decompiler preserves Metadata's normalized FieldDef caller
+contract on every exact same-assembly or cross-assembly field reference. Every
+lowered or raised field read, write, or address operation consumes that
+contract when deciding whether the caller body needs an unsafe context.
+Unsupported, malformed, conflicting, or unavailable target evidence lowers
+fidelity visibly instead of becoming a negative fact or a pointer-shape guess.
+This focused #5255 slice is tracked by
+[#6323](https://github.com/richlander/dotnet-inspect/issues/6323).
+
+The target field's model and contract remain separate from the caller's
+rendering mode:
+
+- An updated-target explicit contract requires a context only when the caller
+  renders under updated rules, including optimistic simulation.
+- A legacy-target implicit compatibility contract requires a context under
+  either caller model.
+- A positive no-contract result requires no context, including for a
+  pointer-bearing field in an updated target.
+- When the caller model or a legacy pointer-bearing field shape makes the
+  target contract relevant, an unavailable contract authorizes no inferred
+  context. Independently, a resolved unsupported, malformed, or conflicting
+  target model remains visible invalid evidence rather than becoming a
+  negative fact. Both cases keep the body visible with Partial fidelity and
+  the existing invalid-member-rules diagnostic. A legacy caller consuming a
+  non-pointer field does not require unavailable target contract evidence
+  because neither a legacy implicit contract nor an updated explicit contract
+  can affect that caller.
+
+The field contract is independent of operation shape. It applies to instance
+and static loads and stores, field-address operations, and raised nodes that
+retain the field through `ConsumedMemberEvidence`. A pointer receiver can
+require a context independently; neither fact substitutes for the other.
+Same-assembly FieldDefs consume the current module's
+`MemorySafetyMetadataIndex`. Same-module MemberRefs and cross-assembly
+MemberRefs resolve one exact name-and-signature FieldDef before consuming the
+defining module's normalized index. Ambiguous or unreachable definitions do
+not permit attribute-presence fallback.
+
+The ordinary constructor store retained by
+[#6046](https://github.com/richlander/dotnet-inspect/issues/6046) is a named
+consumer: preserving the explicit field and constructor is useful only when
+the body renderer also preserves that store's caller obligation. CSharp still
+owns the field and constructor declaration modifiers delivered by
+[#6297](https://github.com/richlander/dotnet-inspect/pull/6297). This slice does
+not change primary-constructor source shape or declaration spelling.
+
+The Release `DecompilerFieldMemorySafetyTests` gate uses compiler-produced
+legacy and updated fixtures to cover same- and cross-assembly loads, stores,
+and addresses; explicit, implicit, and no-contract results; raised field
+carriers; await-boundary agreement; invalid target evidence; and the retained
+ordinary-constructor store. Compiler validation consumes the product-rendered
+body without repairing it.
+
 ## Rendering altitude and the runtime oracle
 
 The target is the smallest valid context, not a reconstruction of the original
