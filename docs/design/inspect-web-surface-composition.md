@@ -410,7 +410,28 @@ or runtime exceptions. The successful empty section retains its zero count
 and existing absence message, which does not assert that the method cannot
 throw. Loading and failure remain separate top-level Facts states.
 The additional row height is an explicit trade for complete visible values
-without horizontal scrolling. Performance opportunities and diagnostics retain
+without horizontal scrolling.
+
+Performance opportunities uses the same readable measure and separator
+treatment. Each returned Analysis judgment retains its IL Offset and raw Shape
+with complete Evidence, followed by labeled Confidence, In loop, Provenance,
+Finding, Possible direction, and Caveat values. All nine fields remain visible
+in returned order, including repeated records. The selected-member browser
+surface does not assign a new priority, severity, runtime cost, or ranking.
+
+Null Offset, Finding, and Caveat values are explicit: `No IL offset` or
+`not supplied`. Offset absence does not infer aggregate provenance, and
+Finding text remains non-interactive evidence rather than an inferred
+navigation target. In loop uses explicit `yes` and `no`; Confidence,
+Provenance, and Shape retain their raw values. Possible direction remains
+guidance rather than an automated or universally safe fix.
+
+At constrained pane widths, offset and Shape move above Evidence; long values
+wrap within the row. The count describes returned opportunity records, not
+distinct shapes, Findings, runtime hotspots, or measured regressions. A
+successful empty result retains its zero count and existing absence message,
+which does not claim that the method is optimized or allocation-free. Loading
+and failure remain separate top-level Facts states. Analysis diagnostics retain
 their existing presentation.
 
 #### Graph Explore
@@ -772,6 +793,51 @@ Focused renderer and production-composition browser gates cover wide/narrow,
 long/many results, live actions, state distinctions, Library switching, and
 platform controls. Opportunity classification, catalog ownership, other lenses,
 and subject-strip interaction remain separate work.
+
+### Library Analysis
+
+Library Analysis uses a quiet count/state header, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context. It
+replaces the generic Library hero, repeated triage summary, and inset member
+cards while retaining every live member action.
+
+```text
+Analysis                         public member/opportunity count or state
+optional platform Library selector
+compact triage guidance
+ranked full-width public member rows
+Library asset and assembly identity              TFM · package@version
+```
+
+Existing product triage order, opportunity and loop counts, shape and
+confidence labels, and stable-selector member navigation remain. The platform
+selector stays above scrolling results and keeps its existing acquisition and
+selection behavior. The footer retains the Library asset path, full assembly
+identity, and package/version/framework context.
+
+Loading and query failure retain the same frame. Results with an inspection
+error retain their available rows and diagnostic, visibly marked as partial. A
+partial analysis with no returned public members does not claim established
+absence; only a successful complete result says no public allocation hot spots
+were found.
+
+At narrow widths the existing Types/details control shares the quiet header.
+Member names, shape labels, loop counts, and confidence labels wrap within the
+pane. Many rows scroll locally while header, selector, and bottom context stay
+put.
+
+The explicitly approved browser-only presentation scope has
+[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6346):
+wire production Library Analysis to this frame and retire only that consumer's
+old composition. Browser HTML lowering consumes the existing typed
+`BrowserPackagePerformance` result. Opportunities and Integrations supply the
+local layout conventions; this is not a new analysis or rendering architecture.
+
+Focused renderer and production-composition browser gates cover wide/narrow,
+long/many results, live member navigation, state distinctions, Library
+switching, and platform controls. Performance classification, package
+acquisition, member details, other lenses, and subject-strip interaction remain
+separate work.
 
 ### Package Metadata
 

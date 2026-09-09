@@ -184,6 +184,27 @@ convention, return modifier, or modifier placement.
 
 [readonly-function-pointer-encoding]: https://github.com/dotnet/csharplang/blob/main/proposals/csharp-12.0/ref-readonly-parameters.md#function-pointers
 
+`FunctionPointerReturnModifierSignatureShapeFlowTests` records the corresponding
+managed function-pointer return boundary. A value return remains a value type;
+plain `ref` and compiler-produced `ref readonly` returns both preserve the
+nested by-reference return (`&` in `mss1`). The latter carries
+`modreq(System.Runtime.InteropServices.InAttribute)`, following the
+[function-pointer return encoding][function-pointer-return-encoding], but the
+decoded modifier erases and does not establish binary compatibility.
+
+The source adapter accepts the value and plain-`ref` return spellings but
+refuses the two-token `ref readonly` return. Complete-group comparison therefore
+retains `Unavailable` for the `ReadOnly` source group, while the legal `Ref`
+value/reference pair remains uniquely distinguishable in both directions.
+Alternative source versions can show a unique plain-`ref` correspondence only
+when the refused original is absent. The
+[compiler pre-work](https://github.com/richlander/dotnet-inspect/issues/6344#issuecomment-5594235887)
+records that value versus by-reference returns form a legal overload distinction,
+but `ref` versus `ref readonly` does not. This evidence neither expands source
+syntax support nor covers unmanaged conventions or other return types.
+
+[function-pointer-return-encoding]: https://github.com/dotnet/csharplang/blob/main/proposals/csharp-9.0/function-pointers.md#metadata-representation-of-in-out-and-ref-readonly-parameters-and-return-types
+
 ### Demo: distinguish overloads, retain ambiguity
 
 Within the compiled `Ref` group:
