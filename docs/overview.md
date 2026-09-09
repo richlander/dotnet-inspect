@@ -36,6 +36,11 @@ substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
+  [CLI Workspace Sharing](design/cli-workspace-sharing.md) owns the common
+  `--share` gesture that projects an inspection command's effective resolved
+  source, context, subject, facet, and query state to a canonical Workspace
+  packet or Inspect Web URL without a second construction grammar.
+  Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
@@ -78,6 +83,11 @@ substrates, and inspection producers that will extend that space.
   through its referencing context, an applicable platform, and owner-issued
   package dependency routes without mutating a sealed assembly-context group.
   The source query owns a Decompiler fallback over retained assembly content;
+  the
+  [authored project dependency facts](design/authored-project-dependency-facts.md)
+  owner projects bounded exact project XML into literal target observations,
+  package declarations, target-condition association, and typed incomplete
+  evidence without evaluating MSBuild;
   the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
@@ -592,6 +602,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   decision guidance and evidence, including API combinations and first/last
   requested-result costs. This is not a new runtime selector; source, query,
   and host contracts remain with their focused owners.
+- [NuGet Catalog acquisition](design/nuget-catalog-acquisition.md): bounded,
+  incremental `NuGetFetch` acquisition of advertised Catalog event windows,
+  preserving source identity, observed horizon, completion, and typed failure.
+  Ecosystem scope, security meaning, report selection, cursors, leaf
+  enrichment, and host adoption remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific
