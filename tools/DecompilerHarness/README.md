@@ -1007,6 +1007,27 @@ on any `rts-parity` run to enforce the gate; a row present in the manifest but n
 longer failing is reported as `resolved` so the manifest can be trimmed on the
 next regeneration.
 
+Use `--corpus-fidelity-oracle rts-cutover` (`return-to-sender-cutover` and
+`native-rts` are aliases) for independently selected cutover evidence. Unlike
+`rts-parity`, this mode hash-selects exactly the requested cap from the corpus
+method inventory before either compiler oracle runs. Native RTS runs first with
+its compile-back floor disabled; legacy compile-back then evaluates the same
+stable member identities only as reference evidence.
+
+The snapshot records every selected native status, the matching legacy status,
+module MVIDs, repository revision and source state captured when the harness was
+built, Roslyn compiler identity, runtime and platform. Cutover metrics separate
+exact losses from availability losses and report the corresponding gains,
+same-status rows, and any compile-back floor applications. Missing native or
+legacy target output remains an explicit `ContextFail`; legacy success cannot
+admit a target or replace the native result. The run fails when an assembly
+cannot supply the exact requested eligible-method cap.
+
+The on-demand Deep Inspect `census` lane retains
+`rts-cutover-snapshot.json` and the bounded text report. This is evidence for
+[#6472](https://github.com/richlander/dotnet-inspect/issues/6472) and #6199
+step 4, not the primary corpus baseline or a default-oracle change.
+
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode and operand diffs include canonical opcode streams,
 unavailable comparisons include their failure detail, and recompile and context

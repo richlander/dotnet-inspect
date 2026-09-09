@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
+using System.Reflection;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
@@ -22,6 +24,9 @@ internal enum CorpusFidelityOracle
 
     [JsonStringEnumMemberName("rts-parity")]
     ReturnToSender,
+
+    [JsonStringEnumMemberName("rts-cutover")]
+    ReturnToSenderCutover,
 }
 
 internal enum CorpusProfile
@@ -38,7 +43,7 @@ internal enum CorpusProfile
 
 internal static class CorpusSensor
 {
-    internal const int CurrentSchemaVersion = 6;
+    internal const int CurrentSchemaVersion = 7;
     internal const int CurrentFidelityContractVersion = FidelityCheck.CurrentContractVersion;
     const string ConditionalBranchBucket = "structuring: conditional-branch";
     const int RiskyValidityCoverageFloorBasisPoints = 100; // 1.00%
@@ -282,6 +287,45 @@ internal static class CorpusSensor
         => JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(path), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{path}'.");
 
+    static CorpusRunIdentity? CaptureRunIdentity(CorpusFidelityOracle fidelityOracle)
+    {
+        if (fidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover)
+            return null;
+
+        var buildMetadata = typeof(CorpusSensor).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .ToDictionary(attribute => attribute.Key, attribute => attribute.Value, StringComparer.Ordinal);
+        string sourceRevision = buildMetadata.GetValueOrDefault("RepositorySourceRevisionAtBuild")
+            ?? "unknown";
+        string sourceState = buildMetadata.GetValueOrDefault("RepositorySourceStateAtBuild")
+            ?? "unknown";
+        string compiler = typeof(Microsoft.CodeAnalysis.CSharp.CSharpCompilation)
+            .Assembly.GetName().FullName
+            ?? "Microsoft.CodeAnalysis.CSharp";
+
+        return new CorpusRunIdentity(
+            sourceRevision,
+            sourceState,
+            compiler,
+            RuntimeInformation.FrameworkDescription,
+            RuntimeInformation.OSDescription,
+            RuntimeInformation.ProcessArchitecture.ToString());
+    }
+
+    internal static CorpusSensorSnapshot CaptureReturnToSenderCutoverForTesting(
+        IReadOnlyList<string> assemblies,
+        int fidelityCap)
+        => Capture(
+            assemblies,
+            validityCompileCap: 0,
+            fidelityCompileCaps: [fidelityCap],
+            maxExamples: 3,
+            methodCap: int.MaxValue,
+            workers: null,
+            sequential: true,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
+            profile: CorpusProfile.RealWorld).Snapshot;
+
     static (CorpusSensorSnapshot Snapshot, ImmutableArray<FidelityCapReport> Reports) Capture(
         IReadOnlyList<string> assemblies,
         int validityCompileCap,
@@ -345,7 +389,8 @@ internal static class CorpusSensor
             FidelityOracle: fidelityOracle,
             Profile: profile,
             FeatureCoverage: completeness.FeatureCoverage,
-            ClassicStateMachineCoverage: completeness.ClassicStateMachineCoverage);
+            ClassicStateMachineCoverage: completeness.ClassicStateMachineCoverage,
+            RunIdentity: CaptureRunIdentity(fidelityOracle));
 
         return (snapshot, fidelityReports);
     }
@@ -498,7 +543,11 @@ internal static class CorpusSensor
                         ? controlFlowSites
                         : null));
             });
-            assemblyReports.Add(new CorpusAssemblySnapshot(source.AssemblyName, PortablePath(assemblyPath), methods));
+            assemblyReports.Add(new CorpusAssemblySnapshot(
+                source.AssemblyName,
+                PortablePath(assemblyPath),
+                methods,
+                source.ModuleVersionId));
         }
 
         return new CompletenessSensorMetrics(
@@ -996,19 +1045,39 @@ internal static class CorpusSensor
         var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
-            var usefulResults = new List<FidelityCheck.CompileBackResult>();
+            var selectedResults = new List<FidelityCheck.CompileBackResult>();
             var allResults = new List<FidelityCheck.CompileBackResult>();
             int parityRescued = 0, paritySame = 0, parityWorse = 0;
+            int cutoverSelected = 0;
+            int cutoverNativeAvailable = 0;
+            int cutoverNativeUnavailable = 0;
+            int cutoverLegacyAvailable = 0;
+            int cutoverLegacyUnavailable = 0;
+            int cutoverExactLosses = 0;
+            int cutoverAvailabilityLosses = 0;
+            int cutoverExactGains = 0;
+            int cutoverAvailabilityGains = 0;
+            int cutoverSameStatus = 0;
+            int cutoverFloorApplied = 0;
             foreach (var assembly in assemblies)
             {
                 var portablePath = PortablePath(assembly);
-                var targetAttempts = DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap);
+                var targetAttempts = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+                    ? DeterministicReturnToSenderCutoverTargets(methods.Values, assembly, cap)
+                    : DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap);
                 FidelityOracleEvaluation evaluation;
                 try
                 {
-                    evaluation = fidelityOracle == CorpusFidelityOracle.CompileBack
-                        ? EvaluateCompileBackTargets([assembly], targetAttempts, cap)
-                        : EvaluateReturnToSender(assembly, targetAttempts, cap);
+                    evaluation = fidelityOracle switch
+                    {
+                        CorpusFidelityOracle.CompileBack
+                            => EvaluateCompileBackTargets([assembly], targetAttempts, cap),
+                        CorpusFidelityOracle.ReturnToSender
+                            => EvaluateReturnToSenderParity(assembly, targetAttempts, cap),
+                        CorpusFidelityOracle.ReturnToSenderCutover
+                            => EvaluateReturnToSenderCutover(assembly, targetAttempts),
+                        _ => throw new ArgumentOutOfRangeException(nameof(fidelityOracle)),
+                    };
                 }
                 catch (Exception ex) when (
                     fidelityOracle == CorpusFidelityOracle.ReturnToSender
@@ -1017,17 +1086,31 @@ internal static class CorpusSensor
                     HarnessLog.Status($"RTS parity skipped {portablePath}: {ex.Message}");
                     continue;
                 }
-                var assemblyUsefulResults = evaluation.Results;
-                usefulResults.AddRange(assemblyUsefulResults);
+                var assemblyResults = evaluation.Results;
+                selectedResults.AddRange(assemblyResults);
                 if (evaluation.Parity is { } parity)
                 {
                     parityRescued += parity.RescuedMethods;
                     paritySame += parity.SameMethods;
                     parityWorse += parity.WorseMethods;
                 }
+                if (evaluation.Cutover is { } cutover)
+                {
+                    cutoverSelected += cutover.SelectedMethods;
+                    cutoverNativeAvailable += cutover.NativeAvailableMethods;
+                    cutoverNativeUnavailable += cutover.NativeUnavailableMethods;
+                    cutoverLegacyAvailable += cutover.LegacyAvailableMethods;
+                    cutoverLegacyUnavailable += cutover.LegacyUnavailableMethods;
+                    cutoverExactLosses += cutover.ExactLossMethods;
+                    cutoverAvailabilityLosses += cutover.AvailabilityLossMethods;
+                    cutoverExactGains += cutover.ExactGainMethods;
+                    cutoverAvailabilityGains += cutover.AvailabilityGainMethods;
+                    cutoverSameStatus += cutover.SameStatusMethods;
+                    cutoverFloorApplied += cutover.CompileBackFloorAppliedMethods;
+                }
                 if (cap == primaryCap)
                 {
-                    foreach (var result in assemblyUsefulResults)
+                    foreach (var result in assemblyResults)
                     {
                         string key = MethodKey(portablePath, result.Type, result.Method, result.Signature);
                         if (methods.TryGetValue(key, out var methodSnapshot))
@@ -1035,7 +1118,7 @@ internal static class CorpusSensor
                             methods[key] = methodSnapshot with
                             {
                                 FidelityCheck = result.Status.ToString(),
-                                FidelityCapture = fidelityOracle == CorpusFidelityOracle.ReturnToSender
+                                FidelityCapture = fidelityOracle != CorpusFidelityOracle.CompileBack
                                     ? result.CaptureDetail ?? result.Capture.ToString()
                                     : methodSnapshot.FidelityCapture,
                                 FidelityReference = ReferenceStatus(evaluation, result),
@@ -1047,16 +1130,30 @@ internal static class CorpusSensor
             }
             var metrics = new FidelitySensorMetrics(
                 ContractVersion: CurrentFidelityContractVersion,
-                CheckedMethods: usefulResults.Count,
-                ExactMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.Exact),
-                OpcodeDiffMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff),
-                OperandDiffMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.OperandDiff),
-                FidelityUnavailableMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.FidelityUnavailable),
-                RecompileFailMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.RecompileFail),
-                ContextFailMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.ContextFail),
-                NotFullMethods: usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull),
+                CheckedMethods: selectedResults.Count,
+                ExactMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.Exact),
+                OpcodeDiffMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff),
+                OperandDiffMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.OperandDiff),
+                FidelityUnavailableMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.FidelityUnavailable),
+                RecompileFailMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.RecompileFail),
+                ContextFailMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.ContextFail),
+                NotFullMethods: selectedResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull),
                 ReturnToSenderParity: fidelityOracle == CorpusFidelityOracle.ReturnToSender
                     ? new ReturnToSenderParityMetrics(parityRescued, paritySame, parityWorse)
+                    : null,
+                ReturnToSenderCutover: fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+                    ? new ReturnToSenderCutoverMetrics(
+                        cutoverSelected,
+                        cutoverNativeAvailable,
+                        cutoverNativeUnavailable,
+                        cutoverLegacyAvailable,
+                        cutoverLegacyUnavailable,
+                        cutoverExactLosses,
+                        cutoverAvailabilityLosses,
+                        cutoverExactGains,
+                        cutoverAvailabilityGains,
+                        cutoverSameStatus,
+                        cutoverFloorApplied)
                     : null);
             var contextBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.ContextFail);
             var recompileBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.RecompileFail);
@@ -1075,19 +1172,19 @@ internal static class CorpusSensor
     internal static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateReturnToSenderForTesting(
         string assemblyPath,
         int cap)
-        => EvaluateReturnToSender(assemblyPath, cap, workers: 1, sequential: true).Results;
+        => EvaluateReturnToSenderParity(assemblyPath, cap, workers: 1, sequential: true).Results;
 
     internal static ReturnToSenderParityMetrics SummarizeReturnToSenderParityForTesting(
         IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
         IReadOnlyList<FidelityCheck.CompileBackResult> currentResults)
         => SummarizeReturnToSenderParity(referenceResults, currentResults);
 
-    static FidelityOracleEvaluation EvaluateReturnToSender(
+    static FidelityOracleEvaluation EvaluateReturnToSenderParity(
         string assemblyPath,
         int cap,
         int? workers,
         bool sequential)
-        => EvaluateReturnToSender(
+        => EvaluateReturnToSenderParity(
             assemblyPath,
             DeterministicCompileBackTargetAttemptsForAssembly(assemblyPath, cap),
             cap);
@@ -1105,7 +1202,7 @@ internal static class CorpusSensor
         return new FidelityOracleEvaluation(usefulResults, AllResults: evaluatedResults);
     }
 
-    static FidelityOracleEvaluation EvaluateReturnToSender(
+    static FidelityOracleEvaluation EvaluateReturnToSenderParity(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
         int cap)
@@ -1118,27 +1215,74 @@ internal static class CorpusSensor
         if (targetSample.Length == 0)
             return new FidelityOracleEvaluation([], AllResults: targetSample);
 
-        var requestedTargets = targetSample
-            .Select(result => new ReturnToSender.RequestedTarget(
+        var selectedTargets = targetSample
+            .Select(result => new FidelityCheck.CompileBackTarget(
+                assemblyPath,
                 result.Type,
                 result.Method,
                 result.Overload,
                 result.Signature))
+            .ToArray();
+        var returnToSender = EvaluateReturnToSenderTargets(
+            assemblyPath,
+            selectedTargets,
+            "return-to-sender");
+        return new FidelityOracleEvaluation(
+            returnToSender.Results,
+            AllResults: returnToSender.Results,
+            targetSample.ToDictionary(
+                FidelityResultKey,
+                result => result.Status,
+                StringComparer.Ordinal),
+            SummarizeReturnToSenderParity(targetSample, returnToSender.Results));
+    }
+
+    static FidelityOracleEvaluation EvaluateReturnToSenderCutover(
+        string assemblyPath,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets)
+    {
+        if (selectedTargets.Count == 0)
+            return new FidelityOracleEvaluation([], AllResults: []);
+
+        var returnToSender = EvaluateReturnToSenderTargets(
+            assemblyPath,
+            selectedTargets,
+            "return-to-sender-cutover; compile-back-floor=false");
+        var compileBackResults = EvaluateTargetsInAttemptOrder([assemblyPath], selectedTargets);
+        var cutover = SummarizeReturnToSenderCutover(
+            compileBackResults,
+            returnToSender.Results,
+            returnToSender.CompileBackFloorAppliedMethods);
+        return new FidelityOracleEvaluation(
+            returnToSender.Results,
+            AllResults: returnToSender.Results,
+            compileBackResults.ToDictionary(
+                FidelityResultKey,
+                result => result.Status,
+                StringComparer.Ordinal),
+            Cutover: cutover);
+    }
+
+    static ReturnToSenderEvaluation EvaluateReturnToSenderTargets(
+        string assemblyPath,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
+        string captureDetail)
+    {
+        var requestedTargets = selectedTargets
+            .Select(target => new ReturnToSender.RequestedTarget(
+                target.Type,
+                target.Method,
+                target.Overload,
+                target.Signature))
             .ToArray();
         var returnToSenderResults = ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 requestedTargets,
                 applyCompileBackFloor: false)
             .ToArray();
-        var alignedResults = AlignReturnToSenderResults(targetSample, returnToSenderResults);
-        return new FidelityOracleEvaluation(
-            alignedResults,
-            AllResults: alignedResults,
-            targetSample.ToDictionary(
-                FidelityResultKey,
-                result => result.Status,
-                StringComparer.Ordinal),
-            SummarizeReturnToSenderParity(targetSample, alignedResults));
+        return new ReturnToSenderEvaluation(
+            AlignReturnToSenderResults(selectedTargets, returnToSenderResults, captureDetail),
+            returnToSenderResults.Count(result => result.UsedCompileBackFloor));
     }
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrderUntilUseful(
@@ -1176,39 +1320,58 @@ internal static class CorpusSensor
             .GroupBy(FidelityResultKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         return targetAttempts
-            .Select(CompileBackTargetKey)
-            .Where(resultsByTarget.ContainsKey)
-            .Select(key => resultsByTarget[key])
+            .Select(target => resultsByTarget.TryGetValue(CompileBackTargetKey(target), out var result)
+                ? result
+                : new FidelityCheck.CompileBackResult(
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    FidelityCheck.CompileBackStatus.ContextFail,
+                    "",
+                    "",
+                    "compile-back-target-unavailable"))
             .ToArray();
     }
 
     internal static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResultsForTesting(
         IReadOnlyList<FidelityCheck.CompileBackResult> targetSample,
         IReadOnlyList<ReturnToSender.Result> returnToSenderResults)
-        => AlignReturnToSenderResults(targetSample, returnToSenderResults);
+        => AlignReturnToSenderResults(
+            targetSample.Select(result => new FidelityCheck.CompileBackTarget(
+                "",
+                result.Type,
+                result.Method,
+                result.Overload,
+                result.Signature)).ToArray(),
+            returnToSenderResults,
+            "return-to-sender");
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResults(
-        IReadOnlyList<FidelityCheck.CompileBackResult> targetSample,
-        IReadOnlyList<ReturnToSender.Result> returnToSenderResults)
+        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
+        IReadOnlyList<ReturnToSender.Result> returnToSenderResults,
+        string captureDetail)
     {
         var resultsByTarget = returnToSenderResults
             .GroupBy(ReturnToSenderKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-        var results = new FidelityCheck.CompileBackResult[targetSample.Count];
-        for (int i = 0; i < targetSample.Count; i++)
+        var results = new FidelityCheck.CompileBackResult[selectedTargets.Count];
+        for (int i = 0; i < selectedTargets.Count; i++)
         {
-            var target = targetSample[i];
-            if (!resultsByTarget.TryGetValue(FidelityResultKey(target), out var result))
+            var target = selectedTargets[i];
+            if (!resultsByTarget.TryGetValue(CompileBackTargetKey(target), out var result))
             {
-                results[i] = target with
-                {
-                    Status = FidelityCheck.CompileBackStatus.ContextFail,
-                    OriginalOpcodes = "",
-                    RecompiledOpcodes = "",
-                    Detail = "return-to-sender-target-unavailable",
-                    Capture = FidelityCheck.CaptureMode.WholeModule,
-                    CaptureDetail = "return-to-sender",
-                };
+                results[i] = new FidelityCheck.CompileBackResult(
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    FidelityCheck.CompileBackStatus.ContextFail,
+                    "",
+                    "",
+                    "return-to-sender-target-unavailable",
+                    FidelityCheck.CaptureMode.WholeModule,
+                    captureDetail);
                 continue;
             }
 
@@ -1222,9 +1385,7 @@ internal static class CorpusSensor
                 result.RecompiledOpcodes,
                 result.Detail,
                 result.CompileBackFloor?.Capture ?? FidelityCheck.CaptureMode.WholeModule,
-                result.UsedCompileBackFloor
-                    ? "return-to-sender; compile-back-floor"
-                    : "return-to-sender",
+                result.UsedCompileBackFloor ? $"{captureDetail}; compile-back-floor" : captureDetail,
                 result.FidelityDiff);
         }
         return results;
@@ -1254,6 +1415,85 @@ internal static class CorpusSensor
         }
         return new ReturnToSenderParityMetrics(rescued, same, worse);
     }
+
+    internal static ReturnToSenderCutoverMetrics SummarizeReturnToSenderCutoverForTesting(
+        IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
+        IReadOnlyList<FidelityCheck.CompileBackResult> currentResults,
+        int compileBackFloorAppliedMethods = 0)
+        => SummarizeReturnToSenderCutover(
+            referenceResults,
+            currentResults,
+            compileBackFloorAppliedMethods);
+
+    static ReturnToSenderCutoverMetrics SummarizeReturnToSenderCutover(
+        IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
+        IReadOnlyList<FidelityCheck.CompileBackResult> currentResults,
+        int compileBackFloorAppliedMethods)
+    {
+        var referenceByTarget = referenceResults.ToDictionary(FidelityResultKey, StringComparer.Ordinal);
+        int nativeAvailable = 0;
+        int nativeUnavailable = 0;
+        int legacyAvailable = 0;
+        int legacyUnavailable = 0;
+        int exactLoss = 0;
+        int availabilityLoss = 0;
+        int exactGain = 0;
+        int availabilityGain = 0;
+        int sameStatus = 0;
+
+        foreach (var current in currentResults)
+        {
+            FidelityCheck.CompileBackStatus reference = referenceByTarget.TryGetValue(
+                FidelityResultKey(current),
+                out var referenceResult)
+                ? referenceResult.Status
+                : FidelityCheck.CompileBackStatus.ContextFail;
+            bool currentAvailable = IsAvailableFidelity(current.Status);
+            bool referenceAvailable = IsAvailableFidelity(reference);
+            if (currentAvailable)
+                nativeAvailable++;
+            else
+                nativeUnavailable++;
+            if (referenceAvailable)
+                legacyAvailable++;
+            else
+                legacyUnavailable++;
+            if (reference == current.Status)
+                sameStatus++;
+            if (reference == FidelityCheck.CompileBackStatus.Exact
+                && current.Status != FidelityCheck.CompileBackStatus.Exact)
+            {
+                exactLoss++;
+            }
+            if (referenceAvailable && !currentAvailable)
+                availabilityLoss++;
+            if (reference != FidelityCheck.CompileBackStatus.Exact
+                && current.Status == FidelityCheck.CompileBackStatus.Exact)
+            {
+                exactGain++;
+            }
+            if (!referenceAvailable && currentAvailable)
+                availabilityGain++;
+        }
+
+        return new ReturnToSenderCutoverMetrics(
+            currentResults.Count,
+            nativeAvailable,
+            nativeUnavailable,
+            legacyAvailable,
+            legacyUnavailable,
+            exactLoss,
+            availabilityLoss,
+            exactGain,
+            availabilityGain,
+            sameStatus,
+            compileBackFloorAppliedMethods);
+    }
+
+    static bool IsAvailableFidelity(FidelityCheck.CompileBackStatus status)
+        => status is FidelityCheck.CompileBackStatus.Exact
+            or FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff;
 
     static string? ReferenceStatus(
         FidelityOracleEvaluation evaluation,
@@ -1445,13 +1685,24 @@ internal static class CorpusSensor
         IReadOnlyList<FidelityCheck.CompileBackResult> Results,
         IReadOnlyList<FidelityCheck.CompileBackResult> AllResults,
         IReadOnlyDictionary<string, FidelityCheck.CompileBackStatus>? ReferenceStatuses = null,
-        ReturnToSenderParityMetrics? Parity = null);
+        ReturnToSenderParityMetrics? Parity = null,
+        ReturnToSenderCutoverMetrics? Cutover = null);
+
+    sealed record ReturnToSenderEvaluation(
+        IReadOnlyList<FidelityCheck.CompileBackResult> Results,
+        int CompileBackFloorAppliedMethods);
 
     internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForTesting(
         IReadOnlyList<CorpusMethodSnapshot> methods,
         string assemblyPath,
         int cap)
         => DeterministicCompileBackTargetAttempts(methods, assemblyPath, cap);
+
+    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicReturnToSenderCutoverTargetsForTesting(
+        IReadOnlyList<CorpusMethodSnapshot> methods,
+        string assemblyPath,
+        int cap)
+        => DeterministicReturnToSenderCutoverTargets(methods, assemblyPath, cap);
 
     static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
         string assemblyPath,
@@ -1497,6 +1748,44 @@ internal static class CorpusSensor
             .OrderBy(StableMethodHash)
             .ThenBy(MethodKey, StringComparer.Ordinal)
             .Take(DeterministicAttemptCap(cap))
+            .Select(method => new FidelityCheck.CompileBackTarget(
+                assemblyPath,
+                method.Type,
+                method.Method,
+                method.Overload,
+                method.Signature))
+            .ToArray();
+    }
+
+    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicReturnToSenderCutoverTargets(
+        IEnumerable<CorpusMethodSnapshot> methods,
+        string assemblyPath,
+        int cap)
+    {
+        if (cap <= 0)
+            return [];
+
+        string portablePath = PortablePath(assemblyPath);
+        var eligible = methods
+            .Where(method => string.Equals(method.AssemblyPath, portablePath, StringComparison.Ordinal)
+                && !FidelityCheck.IsSynthesizedMember(method.Type, method.Method))
+            .OrderBy(StableMethodHash)
+            .ThenBy(MethodKey, StringComparer.Ordinal)
+            .ToArray();
+        if (eligible.Length < cap)
+        {
+            string availablePaths = string.Join(
+                ", ",
+                methods.Select(method => method.AssemblyPath)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal));
+            throw new InvalidOperationException(
+                $"RTS cutover requires exactly {cap} eligible methods for '{portablePath}', "
+                + $"but found {eligible.Length}. Available snapshot paths: {availablePaths}.");
+        }
+
+        return eligible
+            .Take(cap)
             .Select(method => new FidelityCheck.CompileBackTarget(
                 assemblyPath,
                 method.Type,
@@ -1608,6 +1897,8 @@ internal static class CorpusSensor
         bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
         bool sameFidelityContract =
             baseline.Metrics.Fidelity.ContractVersion == currentFidelityMetrics.ContractVersion;
+        bool sameCutoverInputs = baseline.FidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover
+            || HaveSameCutoverInputs(baseline, current);
 
         if (baseline.Profile != current.Profile)
         {
@@ -1645,6 +1936,13 @@ internal static class CorpusSensor
             failures.Add(
                 $"fidelity contract differs (baseline v{baseline.Metrics.Fidelity.ContractVersion}, "
                 + $"current v{currentFidelityMetrics.ContractVersion})");
+        }
+        if (sameFidelityOracle
+            && baseline.FidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+            && !sameCutoverInputs
+            && (baseline.FidelityCompileCap > 0 || current.FidelityCompileCap > 0))
+        {
+            failures.Add("RTS cutover input identity differs from baseline");
         }
         if (current.MethodCap != baseline.MethodCap)
             failures.Add($"method cap differs from baseline (baseline {CapText(baseline.MethodCap)}, current {CapText(current.MethodCap)})");
@@ -1770,6 +2068,35 @@ internal static class CorpusSensor
                 "RTS parity worse methods",
                 baselineParity.WorseMethods,
                 currentParity.WorseMethods,
+                tolerance: 0);
+        }
+        if (sameFidelityOracle
+            && sameFidelityContract
+            && sameCutoverInputs
+            && baseline.Metrics.Fidelity.ReturnToSenderCutover is { } baselineCutover
+            && currentFidelityMetrics.ReturnToSenderCutover is { } currentCutover
+            && HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.FidelityCheck != "not-sampled"))
+        {
+            AddCountRegression(
+                failures,
+                "RTS cutover exact losses",
+                baselineCutover.ExactLossMethods,
+                currentCutover.ExactLossMethods,
+                tolerance: 0);
+            AddCountRegression(
+                failures,
+                "RTS cutover availability losses",
+                baselineCutover.AvailabilityLossMethods,
+                currentCutover.AvailabilityLossMethods,
+                tolerance: 0);
+            AddCountRegression(
+                failures,
+                "RTS cutover compile-back floor applications",
+                baselineCutover.CompileBackFloorAppliedMethods,
+                currentCutover.CompileBackFloorAppliedMethods,
                 tolerance: 0);
         }
 
@@ -2213,6 +2540,23 @@ internal static class CorpusSensor
         Console.WriteLine();
         Console.WriteLine($"Assemblies: {snapshot.Assemblies.Count}");
         Console.WriteLine($"Methods: {metrics.TotalMethods}");
+        if (snapshot.RunIdentity is { } run)
+        {
+            Console.WriteLine(
+                $"Source revision: {run.SourceRevision}"
+                + $"{(run.SourceState == "clean" ? "" : $" ({run.SourceState})")}");
+            Console.WriteLine($"Compiler: {run.Compiler}");
+            Console.WriteLine($"Runtime: {run.Runtime}");
+            Console.WriteLine(
+                $"Platform: {run.OperatingSystem} ({run.ProcessArchitecture})");
+            Console.WriteLine("Inputs:");
+            foreach (var assembly in snapshot.Assemblies)
+            {
+                Console.WriteLine(
+                    $"  {assembly.Path} @ "
+                    + $"{assembly.ModuleVersionId?.ToString("D") ?? "MVID unavailable"}");
+            }
+        }
         if (snapshot.MethodCap is { } cap)
             Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
         var verified = VerifiedFullyRaised(snapshot);
@@ -2244,9 +2588,10 @@ internal static class CorpusSensor
                 + $"{report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, "
                 + $"{report.Metrics.OperandDiffMethods} operand diffs, "
                 + $"{report.Metrics.FidelityUnavailableMethods} unavailable, "
+                + $"{report.Metrics.NotFullMethods} not Full, "
                 + $"{report.Metrics.RecompileFailMethods} recompile failures, "
                 + $"{report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
-            PrintReturnToSenderParity(report.Metrics, "");
+            PrintReturnToSenderComparison(report.Metrics, "");
             PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "  ");
         }
         else
@@ -2259,12 +2604,14 @@ internal static class CorpusSensor
                     + $"{report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, "
                     + $"{report.Metrics.OperandDiffMethods} operand diffs, "
                     + $"{report.Metrics.FidelityUnavailableMethods} unavailable, "
+                    + $"{report.Metrics.NotFullMethods} not Full, "
                     + $"{report.Metrics.RecompileFailMethods} recompile failures, "
                     + $"{report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
-                PrintReturnToSenderParity(report.Metrics, "  ");
+                PrintReturnToSenderComparison(report.Metrics, "  ");
                 PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "    ");
             }
         }
+        PrintReturnToSenderCutoverPairs(snapshot);
         if (verified is { } fullyRaised)
         {
             Console.WriteLine(
@@ -2363,15 +2710,77 @@ internal static class CorpusSensor
         }
     }
 
-    static void PrintReturnToSenderParity(FidelitySensorMetrics metrics, string indent)
+    static void PrintReturnToSenderComparison(FidelitySensorMetrics metrics, string indent)
     {
-        if (metrics.ReturnToSenderParity is not { } parity)
+        if (metrics.ReturnToSenderParity is { } parity)
+        {
+            Console.WriteLine(
+                $"{indent}RTS parity: {parity.RescuedMethods} rescued, {parity.SameMethods} same, "
+                + $"{parity.WorseMethods} worse over {parity.ComparedMethods} compile-back targets");
+        }
+        if (metrics.ReturnToSenderCutover is { } cutover)
+        {
+            Console.WriteLine(
+                $"{indent}RTS cutover: {cutover.SelectedMethods} independently selected; "
+                + $"native {cutover.NativeAvailableMethods} available/{cutover.NativeUnavailableMethods} unavailable, "
+                + $"legacy {cutover.LegacyAvailableMethods} available/{cutover.LegacyUnavailableMethods} unavailable");
+            Console.WriteLine(
+                $"{indent}RTS cutover comparison: {cutover.ExactLossMethods} exact losses, "
+                + $"{cutover.AvailabilityLossMethods} availability losses, "
+                + $"{cutover.ExactGainMethods} exact gains, "
+                + $"{cutover.AvailabilityGainMethods} availability gains, "
+                + $"{cutover.SameStatusMethods} same status; "
+                + $"compile-back floor applied {cutover.CompileBackFloorAppliedMethods} times");
+        }
+    }
+
+    static void PrintReturnToSenderCutoverPairs(CorpusSensorSnapshot snapshot)
+    {
+        var lines = ReturnToSenderCutoverPairLines(snapshot);
+        if (lines.Length == 0)
             return;
 
-        Console.WriteLine(
-            $"{indent}RTS parity: {parity.RescuedMethods} rescued, {parity.SameMethods} same, "
-            + $"{parity.WorseMethods} worse over {parity.ComparedMethods} compile-back targets");
+        Console.WriteLine("RTS cutover target pairs:");
+        foreach (string line in lines)
+            Console.WriteLine($"  {line}");
     }
+
+    internal static ImmutableArray<string> ReturnToSenderCutoverPairLinesForTesting(
+        CorpusSensorSnapshot snapshot)
+        => ReturnToSenderCutoverPairLines(snapshot);
+
+    static ImmutableArray<string> ReturnToSenderCutoverPairLines(CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.FidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover
+            || snapshot.Methods is not { } methods)
+        {
+            return [];
+        }
+
+        return methods
+            .Where(method => method.FidelityReference is not null
+                && method.FidelityCheck != "not-sampled")
+            .OrderBy(method => method.AssemblyPath, StringComparer.Ordinal)
+            .ThenBy(method => method.Type, StringComparer.Ordinal)
+            .ThenBy(method => method.Method, StringComparer.Ordinal)
+            .ThenBy(method => method.Overload)
+            .ThenBy(method => method.Signature, StringComparer.Ordinal)
+            .Select(method =>
+            {
+            bool exactLoss = method.FidelityReference == nameof(FidelityCheck.CompileBackStatus.Exact)
+                && method.FidelityCheck != nameof(FidelityCheck.CompileBackStatus.Exact);
+            bool availabilityLoss = IsAvailableFidelity(method.FidelityReference!)
+                && !IsAvailableFidelity(method.FidelityCheck);
+            string marker = exactLoss || availabilityLoss ? " [LOSS]" : "";
+                return $"{method.DisplayMethod}: legacy {method.FidelityReference} -> "
+                    + $"native {method.FidelityCheck}{marker}";
+            })
+            .ToImmutableArray();
+    }
+
+    static bool IsAvailableFidelity(string status)
+        => Enum.TryParse(status, out FidelityCheck.CompileBackStatus parsed)
+            && IsAvailableFidelity(parsed);
 
     static void PrintFailureBuckets(
         IReadOnlyDictionary<string, FidelityCheck.FailureBucketSummary> contextBuckets,
@@ -2505,6 +2914,17 @@ internal static class CorpusSensor
             input.Add($"Baseline ref: `{baselineRef}`");
         if (current.MethodCap is { } cap)
             input.Add($"Sample: hash-stable {Number(cap)} methods per assembly");
+        if (current.FidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+            && current.RunIdentity is { } run)
+        {
+            input.Add($"Source revision: `{run.SourceRevision}` ({run.SourceState})");
+            input.Add($"Compiler: {run.Compiler}");
+            input.Add(
+                $"Runtime: {run.Runtime}; {run.OperatingSystem}; {run.ProcessArchitecture}");
+            input.AddRange(current.Assemblies.Select(assembly =>
+                $"Input: `{assembly.Path}` @ "
+                + $"`{assembly.ModuleVersionId?.ToString("D") ?? "MVID unavailable"}`"));
+        }
 
         var analysis = new List<string> { $"Correctness coverage: {CoverageSummary(current)}" };
         if (risky)
@@ -2962,15 +3382,22 @@ internal static class CorpusSensor
             bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
             bool sameFidelityContract =
                 baseline.Metrics.Fidelity.ContractVersion == current.Metrics.Fidelity.ContractVersion;
-            bool comparableFidelitySamples = sameFidelityOracle && sameFidelityContract && HaveSameMethodSample(
-                baseline.Methods,
-                current.Methods,
-                static method => method.FidelityCheck != "not-sampled");
+            bool sameCutoverInputs = current.FidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover
+                || HaveSameCutoverInputs(baseline, current);
+            bool comparableFidelitySamples = sameFidelityOracle
+                && sameFidelityContract
+                && sameCutoverInputs
+                && HaveSameMethodSample(
+                    baseline.Methods,
+                    current.Methods,
+                    static method => method.FidelityCheck != "not-sampled");
             string fidelityDifference = !sameFidelityOracle
                 ? "oracle differs"
                 : !sameFidelityContract
                     ? "contract differs"
-                    : "sampling differs";
+                    : !sameCutoverInputs
+                        ? "input identity differs"
+                        : "sampling differs";
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity opcode diffs"
@@ -3013,6 +3440,16 @@ internal static class CorpusSensor
                 countDeltaKnown: comparableFidelitySamples));
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
+                    ? "Fidelity not Full"
+                    : $"Fidelity not Full ({fidelityDifference})",
+                baseline.Metrics.Fidelity.NotFullMethods,
+                baseline.Metrics.Fidelity.CheckedMethods,
+                current.Metrics.Fidelity.NotFullMethods,
+                current.Metrics.Fidelity.CheckedMethods,
+                comparableFidelitySamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableFidelitySamples));
+            rows.Add(ShareChangeRow(
+                comparableFidelitySamples
                     ? "Fidelity recompile failures"
                     : $"Fidelity recompile failures ({fidelityDifference})",
                 baseline.Metrics.Fidelity.RecompileFailMethods,
@@ -3046,6 +3483,78 @@ internal static class CorpusSensor
                     currentParity.WorseMethods,
                     comparableParity ? Goal.Lower : Goal.Context,
                     countDeltaKnown: comparableParity));
+            }
+            if (current.Metrics.Fidelity.ReturnToSenderCutover is { } currentCutover)
+            {
+                var baselineCutover = baseline.Metrics.Fidelity.ReturnToSenderCutover;
+                bool comparableCutover = comparableFidelitySamples && baselineCutover is not null;
+                string cutoverDifference = baselineCutover is null && comparableFidelitySamples
+                    ? "baseline unavailable"
+                    : fidelityDifference;
+                rows.Add(CountChangeRow(
+                    comparableCutover
+                        ? "RTS cutover exact losses"
+                        : $"RTS cutover exact losses ({cutoverDifference})",
+                    baselineCutover?.ExactLossMethods ?? 0,
+                    currentCutover.ExactLossMethods,
+                    comparableCutover ? Goal.Lower : Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    comparableCutover
+                        ? "RTS cutover availability losses"
+                        : $"RTS cutover availability losses ({cutoverDifference})",
+                    baselineCutover?.AvailabilityLossMethods ?? 0,
+                    currentCutover.AvailabilityLossMethods,
+                    comparableCutover ? Goal.Lower : Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover native available",
+                    baselineCutover?.NativeAvailableMethods ?? 0,
+                    currentCutover.NativeAvailableMethods,
+                    Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover native unavailable",
+                    baselineCutover?.NativeUnavailableMethods ?? 0,
+                    currentCutover.NativeUnavailableMethods,
+                    comparableCutover ? Goal.Lower : Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover legacy available",
+                    baselineCutover?.LegacyAvailableMethods ?? 0,
+                    currentCutover.LegacyAvailableMethods,
+                    Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover legacy unavailable",
+                    baselineCutover?.LegacyUnavailableMethods ?? 0,
+                    currentCutover.LegacyUnavailableMethods,
+                    Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover exact gains",
+                    baselineCutover?.ExactGainMethods ?? 0,
+                    currentCutover.ExactGainMethods,
+                    Goal.Higher,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover availability gains",
+                    baselineCutover?.AvailabilityGainMethods ?? 0,
+                    currentCutover.AvailabilityGainMethods,
+                    Goal.Higher,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover same status",
+                    baselineCutover?.SameStatusMethods ?? 0,
+                    currentCutover.SameStatusMethods,
+                    Goal.Context,
+                    countDeltaKnown: comparableCutover));
+                rows.Add(CountChangeRow(
+                    "RTS cutover compile-back floor applications",
+                    baselineCutover?.CompileBackFloorAppliedMethods ?? 0,
+                    currentCutover.CompileBackFloorAppliedMethods,
+                    comparableCutover ? Goal.Lower : Goal.Context,
+                    countDeltaKnown: comparableCutover));
             }
             fidelityCoverageRow = ShareChangeRow(
                 "Fidelity check coverage",
@@ -3158,6 +3667,29 @@ internal static class CorpusSensor
             .SetEquals(currentMethods.Where(isChecked).Select(MethodKey));
     }
 
+    static bool HaveSameCutoverInputs(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+    {
+        if (baseline.RunIdentity is not { } baselineRun
+            || current.RunIdentity is not { } currentRun
+            || baselineRun.Compiler != currentRun.Compiler
+            || baselineRun.Runtime != currentRun.Runtime
+            || baselineRun.OperatingSystem != currentRun.OperatingSystem
+            || baselineRun.ProcessArchitecture != currentRun.ProcessArchitecture)
+        {
+            return false;
+        }
+
+        static string Identity(CorpusAssemblySnapshot assembly)
+            => $"{assembly.Path}\0{assembly.ModuleVersionId?.ToString("D") ?? ""}";
+
+        return baseline.Assemblies
+            .Select(Identity)
+            .ToHashSet(StringComparer.Ordinal)
+            .SetEquals(current.Assemblies.Select(Identity));
+    }
+
     static string CoverageSummary(CorpusSensorSnapshot snapshot)
     {
         var validity = snapshot.ValidityCompileCap <= 0
@@ -3173,6 +3705,12 @@ internal static class CorpusSensor
             fidelity += $", RTS parity {Number(parity.WorseMethods)} worse / "
                 + $"{Number(parity.ComparedMethods)} compared";
         }
+        if (snapshot.Metrics.Fidelity.ReturnToSenderCutover is { } cutover)
+        {
+            fidelity += $", RTS cutover {Number(cutover.ExactLossMethods)} exact losses and "
+                + $"{Number(cutover.AvailabilityLossMethods)} availability losses / "
+                + $"{Number(cutover.SelectedMethods)} independently selected";
+        }
         return $"{validity}; {fidelity}";
     }
 
@@ -3181,6 +3719,7 @@ internal static class CorpusSensor
         {
             CorpusFidelityOracle.CompileBack => "compile-back",
             CorpusFidelityOracle.ReturnToSender => "rts-parity",
+            CorpusFidelityOracle.ReturnToSenderCutover => "rts-cutover",
             _ => throw new ArgumentOutOfRangeException(nameof(oracle)),
         };
 
@@ -3295,14 +3834,27 @@ internal sealed record CorpusSensorSnapshot(
     [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusProfile>))]
     CorpusProfile Profile = CorpusProfile.RealWorld,
     IReadOnlyDictionary<string, int>? FeatureCoverage = null,
-    IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? ClassicStateMachineCoverage = null);
+    IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? ClassicStateMachineCoverage = null,
+    CorpusRunIdentity? RunIdentity = null);
+
+internal sealed record CorpusRunIdentity(
+    string SourceRevision,
+    string SourceState,
+    string Compiler,
+    string Runtime,
+    string OperatingSystem,
+    string ProcessArchitecture);
 
 internal sealed record ClassicStateMachineFeatureMetrics(
     int Population = 0,
     int FullyRaised = 0,
     int Residual = 0);
 
-internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
+internal sealed record CorpusAssemblySnapshot(
+    string Assembly,
+    string Path,
+    int TotalMethods,
+    Guid? ModuleVersionId = null);
 
 internal sealed record PinnedCountMetrics(
     int TotalMethods,
@@ -3368,7 +3920,9 @@ internal sealed record FidelitySensorMetrics(
     int ContextFailMethods,
     int NotFullMethods,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    ReturnToSenderParityMetrics? ReturnToSenderParity = null)
+    ReturnToSenderParityMetrics? ReturnToSenderParity = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ReturnToSenderCutoverMetrics? ReturnToSenderCutover = null)
 {
     public static FidelitySensorMetrics Empty { get; } = new(
         CorpusSensor.CurrentFidelityContractVersion,
@@ -3417,6 +3971,19 @@ internal sealed record ReturnToSenderParityMetrics(
 {
     public int ComparedMethods => RescuedMethods + SameMethods + WorseMethods;
 }
+
+internal sealed record ReturnToSenderCutoverMetrics(
+    int SelectedMethods,
+    int NativeAvailableMethods,
+    int NativeUnavailableMethods,
+    int LegacyAvailableMethods,
+    int LegacyUnavailableMethods,
+    int ExactLossMethods,
+    int AvailabilityLossMethods,
+    int ExactGainMethods,
+    int AvailabilityGainMethods,
+    int SameStatusMethods,
+    int CompileBackFloorAppliedMethods);
 
 internal sealed record FidelityCapReport(
     int Cap,
