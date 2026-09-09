@@ -399,6 +399,44 @@ public sealed class DirectMemberComparisonQueryTests
             [(ResearchProducerKind)99]));
     }
 
+    [Fact]
+    public async Task DirectMemberComparison_DoesNotPublishAfterBindingVersionChanges()
+    {
+        int selectionCount;
+        using (var stablePolicy = new ResearchPublicationBindingPolicy())
+        using (var stable = new Fixture(Image(), stablePolicy))
+        {
+            DirectMemberComparisonEndpoint endpoint = stable.Endpoint("Stable");
+            Published(Compare(
+                stable.Group,
+                new(endpoint, endpoint, ResearchProducerCatalog.Kinds)));
+            selectionCount = stablePolicy.SelectionCount;
+        }
+        Assert.True(selectionCount > 0);
+
+        using var policy = new ResearchPublicationBindingPolicy(selectionCount);
+        using var fixture = new Fixture(Image(), policy);
+        DirectMemberComparisonEndpoint driftingEndpoint = fixture.Endpoint("Stable");
+        Task<LocalComparisonQueryResult> execution = Task.Run(
+            () => Compare(
+                fixture.Group,
+                new(
+                    driftingEndpoint,
+                    driftingEndpoint,
+                    ResearchProducerCatalog.Kinds)));
+        bool reachedPublicationBoundary = policy.WaitForVersionRead();
+        if (reachedPublicationBoundary)
+            policy.ReplaceVersion();
+        policy.ContinueVersionRead();
+        Assert.True(reachedPublicationBoundary);
+
+        var failed = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(
+            await execution);
+        Assert.IsType<InvalidOperationException>(
+            Assert.IsType<LocalComparisonQueryFailure.Failed>(
+                failed.Failure).Cause);
+    }
+
     static LocalComparisonQueryResult Compare(
         AssemblyContextGroup group,
         DirectMemberComparisonRequest request)
@@ -449,10 +487,18 @@ public sealed class DirectMemberComparisonQueryTests
 
         internal Fixture(byte[] image, long maxImageBytes) : this([image], maxImageBytes) { }
 
-        Fixture(byte[][] images, long? maxImageBytes)
+        internal Fixture(byte[] image, IAssemblyBindingPolicy policy)
+            : this([image], null, policy)
+        {
+        }
+
+        Fixture(
+            byte[][] images,
+            long? maxImageBytes,
+            IAssemblyBindingPolicy? policy = null)
         {
             _images = images;
-            var policy = new MissingBindingPolicy();
+            policy ??= new MissingBindingPolicy();
             Group = _workspace.CreateAssemblyContextGroup(
                 images.Select(image => new AssemblyContextParticipant(Assembly(image), policy)),
                 maxImageBytes is { } limit ? new() { MaxRetainedImageBytes = limit } : null);
