@@ -6,6 +6,8 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json.Serialization;
 
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
@@ -125,10 +127,45 @@ static class ReturnToSender
         Result All,
         RoundTripScopeComparisonResult Comparison);
 
-    internal sealed record CompilationClosure(
-        AssemblyDependencyResolver Resolver,
-        ResolvedAssemblyReference TargetAssembly,
-        MetadataReference[] References);
+    internal sealed class CompilationClosure : IDisposable
+    {
+        readonly ArtifactSetSession _owner;
+        readonly ArtifactQueryLease _lease;
+        readonly CompileReferenceSet _references;
+        bool _disposed;
+
+        internal CompilationClosure(
+            ArtifactSetSession owner,
+            ArtifactQueryLease lease,
+            CompileReferenceSet references)
+        {
+            _owner = owner;
+            _lease = lease;
+            _references = references;
+        }
+
+        internal CompileReferenceSetDigest Digest => _references.Digest;
+
+        internal T Use<T>(Func<CompileReferenceContext, T> consume)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _references.Use(consume) switch
+            {
+                CompileReferenceResult<T>.Ready ready => ready.Value,
+                CompileReferenceResult<T>.Rejected rejected => throw ReferenceFailure(rejected.Failure),
+                _ => throw new InvalidOperationException("Unknown compile reference use result."),
+            };
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _lease.Dispose();
+            _owner.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
@@ -278,7 +315,11 @@ static class ReturnToSender
             IReadOnlyList<Result> rtsResults;
             try
             {
-                rtsResults = CompileBackPropertyGetters(assemblyPath, cap - total, applyCompileBackFloor: false);
+                rtsResults = CompileBackPropertyGetters(
+                    assemblyPath,
+                    cap - total,
+                    applyCompileBackFloor: false,
+                    compilationClosure: null);
             }
             catch (NoSupportedReturnToSenderTargetsException)
             {
@@ -449,9 +490,21 @@ static class ReturnToSender
         => CompileBackPropertyGetters(assemblyPath, maxTargets: 1).First();
 
     public static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets = int.MaxValue)
-        => CompileBackPropertyGetters(assemblyPath, maxTargets, applyCompileBackFloor: true);
+        => CompileBackPropertyGetters(
+            assemblyPath, maxTargets, applyCompileBackFloor: true, compilationClosure: null);
 
-    static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets, bool applyCompileBackFloor)
+    internal static IReadOnlyList<Result> CompileBackPropertyGetters(
+        string assemblyPath,
+        int maxTargets,
+        CompilationClosure compilationClosure) =>
+        CompileBackPropertyGetters(
+            assemblyPath, maxTargets, applyCompileBackFloor: true, compilationClosure);
+
+    static IReadOnlyList<Result> CompileBackPropertyGetters(
+        string assemblyPath,
+        int maxTargets,
+        bool applyCompileBackFloor,
+        CompilationClosure? compilationClosure)
     {
         if (maxTargets <= 0)
             return [];
@@ -466,68 +519,78 @@ static class ReturnToSender
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
-        CompilationClosure compilationClosure =
-            CreateCompilationClosure(assemblyPath);
-
-        foreach (var typeHandle in reader.TypeDefinitions)
+        bool ownsCompilationClosure = compilationClosure is null;
+        compilationClosure ??= CreateCompilationClosure(assemblyPath);
+        try
         {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            string typeName = reader.GetString(typeDef.Name);
-            if (!typeDef.GetDeclaringType().IsNil
-                || typeName == "<Module>"
-                || typeName.Contains('<', StringComparison.Ordinal)
-                || typeName.Contains('`', StringComparison.Ordinal)
-                || !IsSupportedClass(source, typeHandle))
+            foreach (var typeHandle in reader.TypeDefinitions)
             {
-                continue;
+                var typeDef = reader.GetTypeDefinition(typeHandle);
+                string typeName = reader.GetString(typeDef.Name);
+                if (!typeDef.GetDeclaringType().IsNil
+                    || typeName == "<Module>"
+                    || typeName.Contains('<', StringComparison.Ordinal)
+                    || typeName.Contains('`', StringComparison.Ordinal)
+                    || !IsSupportedClass(source, typeHandle))
+                {
+                    continue;
+                }
+
+                foreach (var propertyHandle in typeDef.GetProperties())
+                {
+                    var property = reader.GetPropertyDefinition(propertyHandle);
+                    if (reader.GetString(property.Name).Contains('<', StringComparison.Ordinal))
+                        continue;
+
+                    MethodSignature<string> propertySignature;
+                    try
+                    {
+                        propertySignature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                    }
+                    catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                    {
+                        continue;
+                    }
+
+                    if (propertySignature.ParameterTypes.Length != 0)
+                        continue;
+
+                    var accessors = property.GetAccessors();
+                    if (accessors.Getter.IsNil)
+                        continue;
+
+                    var getter = reader.GetMethodDefinition(accessors.Getter);
+                    if (getter.RelativeVirtualAddress == 0)
+                        continue;
+
+                    results.Add(CompileBackPropertyGetterOrContextFail(
+                        assemblyPath,
+                        compilationClosure,
+                        pe,
+                        reader,
+                        source,
+                        typeHandle,
+                        propertyHandle,
+                        accessors.Getter,
+                        MemberAnchorFor(memberAnchors, accessors.Getter),
+                        sourceIndex));
+                    if (results.Count >= maxTargets)
+                        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
+                }
             }
 
-            foreach (var propertyHandle in typeDef.GetProperties())
+            if (results.Count == 0)
+                throw new NoSupportedReturnToSenderTargetsException("No supported property getter with a method body was found.");
+            return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
+        }
+        finally
+        {
+            if (ownsCompilationClosure)
             {
-                var property = reader.GetPropertyDefinition(propertyHandle);
-                if (reader.GetString(property.Name).Contains('<', StringComparison.Ordinal))
-                    continue;
-
-                MethodSignature<string> propertySignature;
-                try
-                {
-                    propertySignature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
-                }
-                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-                {
-                    continue;
-                }
-
-                if (propertySignature.ParameterTypes.Length != 0)
-                    continue;
-
-                var accessors = property.GetAccessors();
-                if (accessors.Getter.IsNil)
-                    continue;
-
-                var getter = reader.GetMethodDefinition(accessors.Getter);
-                if (getter.RelativeVirtualAddress == 0)
-                    continue;
-
-                results.Add(CompileBackPropertyGetterOrContextFail(
-                    assemblyPath,
-                    compilationClosure,
-                    pe,
-                    reader,
-                    source,
-                    typeHandle,
-                    propertyHandle,
-                    accessors.Getter,
-                    MemberAnchorFor(memberAnchors, accessors.Getter),
-                    sourceIndex));
-                if (results.Count >= maxTargets)
-                    return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
+                DetachCompilationClosure(results);
+                compilationClosure.Dispose();
             }
         }
-
-        if (results.Count == 0)
-            throw new NoSupportedReturnToSenderTargetsException("No supported property getter with a method body was found.");
-        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
     }
 
     public static IReadOnlyList<Result> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
@@ -569,7 +632,7 @@ static class ReturnToSender
         RequestedTarget target)
     {
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
-        CompilationClosure compilationClosure =
+        using CompilationClosure compilationClosure =
             CreateCompilationClosure(assemblyPath);
         var cluster = AssertSingleScope(CompileBackTargets(
             assemblyPath,
@@ -604,6 +667,7 @@ static class ReturnToSender
                     All: null,
                     Members: [],
                     Failure: cluster.Detail ?? all.Detail ?? "cluster or all donor compilation unavailable");
+        DetachCompilationClosure([cluster, all]);
         return new ScopePairResult(cluster, all, comparison);
 
         static Result AssertSingleScope(IReadOnlyList<Result> results)
@@ -767,118 +831,138 @@ static class ReturnToSender
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
-        compilationClosure ??=
-            CreateCompilationClosure(assemblyPath);
-        var typeHandles = reader.TypeDefinitions
-            .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
-            .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
-                && fullName.Length != 0)
-            .ToDictionary(item => reader.GetFullTypeName(item.Definition), item => item.Handle, StringComparer.Ordinal);
-
-        foreach (var target in targets)
+        bool ownsCompilationClosure = compilationClosure is null;
+        compilationClosure ??= CreateCompilationClosure(assemblyPath);
+        try
         {
-            if (!typeHandles.TryGetValue(target.Type, out var typeHandle))
-                continue;
+            var typeHandles = reader.TypeDefinitions
+                .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
+                .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
+                    && fullName.Length != 0)
+                .ToDictionary(item => reader.GetFullTypeName(item.Definition), item => item.Handle, StringComparer.Ordinal);
 
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            string typeName = reader.GetString(typeDef.Name);
-            if (typeName == "<Module>"
-                || typeName.Contains('<', StringComparison.Ordinal)
-                || !IsSupportedTargetType(source, typeHandle))
+            foreach (var target in targets)
             {
-                continue;
+                if (!typeHandles.TryGetValue(target.Type, out var typeHandle))
+                    continue;
+
+                var typeDef = reader.GetTypeDefinition(typeHandle);
+                string typeName = reader.GetString(typeDef.Name);
+                if (typeName == "<Module>"
+                    || typeName.Contains('<', StringComparison.Ordinal)
+                    || !IsSupportedTargetType(source, typeHandle))
+                {
+                    continue;
+                }
+
+                if (TryFindPropertyGetter(reader, typeDef, target) is { } propertyTarget)
+                {
+                    results.Add(CompileBackPropertyGetterOrContextFail(
+                        assemblyPath,
+                        compilationClosure,
+                        pe,
+                        reader,
+                        source,
+                        typeHandle,
+                        propertyTarget.Property,
+                        propertyTarget.Getter,
+                        MemberAnchorFor(memberAnchors, propertyTarget.Getter),
+                        sourceIndex,
+                        scope,
+                        bodyPolicy));
+                    continue;
+                }
+
+                if (TryFindPropertySetter(reader, typeDef, target) is { } setterTarget)
+                {
+                    results.Add(CompileBackPropertySetterOrContextFail(
+                        assemblyPath,
+                        compilationClosure,
+                        pe,
+                        reader,
+                        source,
+                        typeHandle,
+                        setterTarget.Property,
+                        setterTarget.Setter,
+                        MemberAnchorFor(memberAnchors, setterTarget.Setter),
+                        sourceIndex,
+                        scope,
+                        bodyPolicy));
+                    continue;
+                }
+
+                if (TryFindEventAccessor(reader, typeDef, target, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
+                {
+                    results.Add(CompileBackEventAccessorOrContextFail(
+                        assemblyPath,
+                        compilationClosure,
+                        pe,
+                        reader,
+                        source,
+                        typeHandle,
+                        eventTarget.Event,
+                        eventTarget.Accessor,
+                        MemberAnchorFor(memberAnchors, eventTarget.Accessor),
+                        sourceIndex,
+                        scope,
+                        bodyPolicy));
+                    continue;
+                }
+
+                if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
+                {
+                    results.Add(CompileBackMethodOrContextFail(
+                        assemblyPath,
+                        compilationClosure,
+                        pe,
+                        reader,
+                        source,
+                        typeHandle,
+                        methodHandle,
+                        MemberAnchorFor(memberAnchors, methodHandle),
+                        sourceIndex,
+                        scope,
+                        bodyPolicy));
+                }
             }
 
-            if (TryFindPropertyGetter(reader, typeDef, target) is { } propertyTarget)
+            var unsupportedDeclarations = scope == RoundTripScope.All
+                ? reader.TypeDefinitions
+                    .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType().IsNil)
+                    .Where(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) != "<Module>")
+                    .Where(handle => !IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)))
+                    .Select(handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)))
+                    .Order(StringComparer.Ordinal)
+                    .ToArray()
+                : [];
+            var scopedResults = results
+                .Select(result => result with
+                {
+                    Scope = scope,
+                    BodyPolicy = bodyPolicy,
+                    UnsupportedDeclarations = unsupportedDeclarations,
+                })
+                .Select(result => AttachRoundTripComparison(assemblyPath, result))
+                .ToArray();
+            return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, scopedResults) : scopedResults;
+        }
+        finally
+        {
+            if (ownsCompilationClosure)
             {
-                results.Add(CompileBackPropertyGetterOrContextFail(
-                    assemblyPath,
-                    compilationClosure,
-                    pe,
-                    reader,
-                    source,
-                    typeHandle,
-                    propertyTarget.Property,
-                    propertyTarget.Getter,
-                    MemberAnchorFor(memberAnchors, propertyTarget.Getter),
-                    sourceIndex,
-                    scope,
-                    bodyPolicy));
-                continue;
-            }
-
-            if (TryFindPropertySetter(reader, typeDef, target) is { } setterTarget)
-            {
-                results.Add(CompileBackPropertySetterOrContextFail(
-                    assemblyPath,
-                    compilationClosure,
-                    pe,
-                    reader,
-                    source,
-                    typeHandle,
-                    setterTarget.Property,
-                    setterTarget.Setter,
-                    MemberAnchorFor(memberAnchors, setterTarget.Setter),
-                    sourceIndex,
-                    scope,
-                    bodyPolicy));
-                continue;
-            }
-
-            if (TryFindEventAccessor(reader, typeDef, target, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
-            {
-                results.Add(CompileBackEventAccessorOrContextFail(
-                    assemblyPath,
-                    compilationClosure,
-                    pe,
-                    reader,
-                    source,
-                    typeHandle,
-                    eventTarget.Event,
-                    eventTarget.Accessor,
-                    MemberAnchorFor(memberAnchors, eventTarget.Accessor),
-                    sourceIndex,
-                    scope,
-                    bodyPolicy));
-                continue;
-            }
-
-            if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
-            {
-                results.Add(CompileBackMethodOrContextFail(
-                    assemblyPath,
-                    compilationClosure,
-                    pe,
-                    reader,
-                    source,
-                    typeHandle,
-                    methodHandle,
-                    MemberAnchorFor(memberAnchors, methodHandle),
-                    sourceIndex,
-                    scope,
-                    bodyPolicy));
+                DetachCompilationClosure(results);
+                compilationClosure.Dispose();
             }
         }
+    }
 
-        var unsupportedDeclarations = scope == RoundTripScope.All
-            ? reader.TypeDefinitions
-                .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType().IsNil)
-                .Where(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) != "<Module>")
-                .Where(handle => !IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)))
-                .Select(handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)))
-                .Order(StringComparer.Ordinal)
-                .ToArray()
-            : [];
-        var scopedResults = results
-            .Select(result => result with
-            {
-                Scope = scope,
-                BodyPolicy = bodyPolicy,
-                UnsupportedDeclarations = unsupportedDeclarations,
-            })
-            .Select(result => AttachRoundTripComparison(assemblyPath, result))
-            .ToArray();
-        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, scopedResults) : scopedResults;
+    static void DetachCompilationClosure(IEnumerable<Result> results)
+    {
+        foreach (Result result in results)
+        {
+            if (result.FinalRequest is { } request)
+                request.CompilationClosure = null;
+        }
     }
 
     static IReadOnlyList<Result> ApplyCompileBackFloor(
@@ -1638,7 +1722,48 @@ static class ReturnToSender
         Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
         (string MethodName, string[] OriginalOpcodes)? sibling = null,
         RoundTripScope scope = RoundTripScope.Cluster,
-        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected) =>
+        compilationClosure.Use(context => CompileBackTargetCore(
+            assemblyPath,
+            compilationClosure,
+            originalPe,
+            reader,
+            typeHandle,
+            methodHandle,
+            function,
+            targetBody,
+            fullType,
+            methodName,
+            overload,
+            originalOps,
+            memberAnchor,
+            sourceIndex,
+            createRequest,
+            [.. context.CompilerReferences.Cast<MetadataReference>()],
+            sibling,
+            scope,
+            bodyPolicy));
+
+    static Result CompileBackTargetCore(
+        string assemblyPath,
+        CompilationClosure compilationClosure,
+        PEReader originalPe,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        IrFunction function,
+        ProductTargetBody targetBody,
+        string fullType,
+        string methodName,
+        int overload,
+        string[] originalOps,
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex,
+        Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
+        MetadataReference[] references,
+        (string MethodName, string[] OriginalOpcodes)? sibling,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -1647,9 +1772,6 @@ static class ReturnToSender
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
-        AssemblyDependencyResolver compilationResolver =
-            compilationClosure.Resolver;
-        MetadataReference[] references = compilationClosure.References;
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = scope == RoundTripScope.All
@@ -2265,7 +2387,7 @@ static class ReturnToSender
 
     static ResearchProducerWorkOutcome? GetIlOutcome(LocalComparisonQueryResult comparison)
         => comparison is LocalComparisonQueryResult.Published
-            { Outcome: ResearchProducerSessionOutcome.Completed completed }
+        { Outcome: ResearchProducerSessionOutcome.Completed completed }
             ? completed.Completion.Results.SingleOrDefault(
                 result => result.Item.Producer == ResearchProducerKind.IlBody)?.Outcome
             : null;
@@ -2303,62 +2425,171 @@ static class ReturnToSender
         return display.IsEmpty ? null : display;
     }
 
-    internal static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
-        => CreateCompilationClosure(targetPath).References;
-
     internal static CompilationClosure CreateCompilationClosure(
         string targetPath)
     {
-        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
+        var owner = new ArtifactSetSession();
+        ArtifactQueryLease? lease = null;
+        try
         {
-            ExcludeTargetAssembly = true,
-            SnapshotAssemblyImages = true,
-            AllowPlatformAssemblyVersionRollForward = true,
-        });
-        ResolvedAssemblyReference targetAssembly =
-            resolver.AcquireTargetAssembly()
-            ?? throw new InvalidOperationException(
-                "The target assembly could not be acquired into the compilation closure.");
-        return new CompilationClosure(
-            resolver,
-            targetAssembly,
-            CompilationReferences(resolver).ToArray());
+            var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                ExcludeTargetAssembly = true,
+                SnapshotAssemblyImages = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+            ResolvedAssemblyReference targetAssembly =
+                resolver.AcquireTargetAssembly()
+                ?? throw new InvalidOperationException(
+                    "The target assembly could not be acquired into the compilation closure.");
+            AssemblyDependencyDiscoveryResult inventory = resolver.CaptureDiscoveryInventory();
+            if (inventory is AssemblyDependencyDiscoveryResult.Failed failed)
+            {
+                throw new InvalidOperationException(
+                    $"The compilation reference inventory could not be captured: "
+                    + $"{failed.DiscoveryFailures.Length} discovery failure(s), "
+                    + $"{failed.PartialEntries.Length} partial entr{(failed.PartialEntries.Length == 1 ? "y" : "ies")}.");
+            }
+
+            ResolvedAssemblyReference[] candidates =
+                [.. ((AssemblyDependencyDiscoveryResult.Captured)inventory).Entries
+                    .Where(entry => !entry.IsTargetInput)
+                    .Select(entry => entry.Acquisition)
+                    .OfType<AssemblyDependencyAcquisition.Acquired>()
+                    .Select(acquired => acquired.Assembly)
+                    .DistinctBy(assembly => assembly.Registration)];
+            AssemblyReferenceIdentity[] platformFamilies =
+                [.. candidates
+                    .Where(candidate => candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset)
+                    .Select(candidate => candidate.Identity)];
+            AssemblyBindingRequest[] platformRequests =
+                PlatformRequests(targetAssembly, candidates, platformFamilies);
+
+            CompileReferencePlatformPolicy policy = RequireReady(
+                CompileReferencePlatformPolicy.PrepareAsync(
+                    owner, resolver, targetAssembly, candidates, platformRequests)
+                    .AsTask().GetAwaiter().GetResult());
+            if (owner.SealAsync().AsTask().GetAwaiter().GetResult()
+                is not ArtifactSetPublicationOutcome.Published)
+            {
+                throw new InvalidOperationException(
+                    "The compilation reference artifact generation could not be published.");
+            }
+            lease = owner.IssueLease(owner.CreateQueryAuthorization());
+            CompileReferenceInventory frozenInventory =
+                RequireReady(policy.Discover(lease, static _ => { }));
+            AssemblyReferenceIdentity[] preparedPlatformFamilies =
+                [.. policy.Bindings.Select(binding =>
+                    ((AssemblyBindingTarget.AssemblyReference)binding.Request.Target).Identity)];
+            CompileReferenceRequest[] exactRequests =
+                [.. frozenInventory.Candidates
+                    .Where(candidate =>
+                        !candidate.IsSameModuleAs(frozenInventory.Source)
+                        && !IsPlatformFamily(candidate.Identity, preparedPlatformFamilies))
+                    .Select(candidate => new CompileReferenceRequest(candidate.Identity))];
+            CompileReferenceSet referenceSet =
+                RequireReady(policy.Select(frozenInventory, exactRequests));
+            return new CompilationClosure(owner, lease, referenceSet);
+        }
+        catch
+        {
+            lease?.Dispose();
+            owner.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            throw;
+        }
     }
 
-    static IEnumerable<MetadataReference> CompilationReferences(
-        AssemblyDependencyResolver resolver)
+    static AssemblyBindingRequest[] PlatformRequests(
+        ResolvedAssemblyReference source,
+        IReadOnlyList<ResolvedAssemblyReference> candidates,
+        IReadOnlyList<AssemblyReferenceIdentity> platformFamilies)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var dependency in resolver.ResolveAll())
+        var requests = new List<AssemblyBindingRequest>();
+        var pending = new Queue<ResolvedAssemblyReference>();
+        var visited = new HashSet<AssemblyAcquisitionRegistration>();
+        // Add only origin-sensitive compatibility requests reachable from the
+        // target. Unprepared platform assets remain ordinary exact candidates.
+        pending.Enqueue(source);
+        while (pending.TryDequeue(out ResolvedAssemblyReference? origin))
         {
-            string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
-            if (seen.Contains(simpleName))
+            if (!visited.Add(origin.Registration))
                 continue;
-
-            MetadataReference reference;
-            try
+            using Stream stream = origin.OpenRead();
+            using var pe = new PEReader(stream);
+            if (!pe.HasMetadata)
+                continue;
+            MetadataReader reader = pe.GetMetadataReader();
+            foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
             {
-                ResolvedAssemblyReference? assembly =
-                    resolver.Acquire(dependency);
-                if (assembly is null)
+                AssemblyReferenceIdentity identity = AssemblyReferenceIdentity.From(reader, handle);
+                if (IsPlatformFamily(identity, platformFamilies))
+                {
+                    if (!requests.Any(request =>
+                        request.Origin is AssemblyBindingOrigin.RequestingAssembly existing
+                        && ReferenceEquals(existing.Registration, origin.Registration)
+                        && request.Target is AssemblyBindingTarget.AssemblyReference target
+                        && target.Identity.IsEquivalentTo(identity)))
+                    {
+                        requests.Add(new(
+                            AssemblyBindingTarget.Reference(identity),
+                            AssemblyBindingOrigin.FromAssembly(origin),
+                            AssemblyResolutionScope.Platform));
+                    }
                     continue;
-                using Stream stream = assembly.OpenRead();
-                using var image = new MemoryStream();
-                stream.CopyTo(image);
-                reference =
-                    RoundTripCompilationEngine.CreateFrozenReference(
-                        image.ToArray(),
-                        dependency.Path);
+                }
+                foreach (ResolvedAssemblyReference candidate in candidates.Where(candidate =>
+                    identity.IsEquivalentTo(candidate.Identity)))
+                {
+                    pending.Enqueue(candidate);
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
+        }
+
+        foreach (ResolvedAssemblyReference platform in candidates.Where(candidate =>
+            candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset))
+        {
+            if (requests.Any(request =>
+                    request.Target is AssemblyBindingTarget.AssemblyReference target
+                    && IsPlatformFamily(target.Identity, [platform.Identity]))
+                || !candidates.Any(candidate =>
+                    candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset
+                    && candidate.Identity.IsEquivalentTo(platform.Identity)))
             {
                 continue;
             }
 
-            seen.Add(simpleName);
-            yield return reference;
+            requests.Add(new(
+                AssemblyBindingTarget.Reference(platform.Identity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform));
         }
+
+        return [.. requests];
+    }
+
+    static bool IsPlatformFamily(
+        AssemblyReferenceIdentity identity,
+        IReadOnlyList<AssemblyReferenceIdentity> platformFamilies) =>
+        platformFamilies.Any(platform =>
+            identity.Version is not null
+            && platform.Version is not null
+            && (identity with { Version = platform.Version }).IsEquivalentTo(platform));
+
+    static T RequireReady<T>(CompileReferenceResult<T> result) =>
+        result switch
+        {
+            CompileReferenceResult<T>.Ready ready => ready.Value,
+            CompileReferenceResult<T>.Rejected rejected => throw ReferenceFailure(rejected.Failure),
+            _ => throw new InvalidOperationException("Unknown compile reference result."),
+        };
+
+    static InvalidOperationException ReferenceFailure(CompileReferenceFailure failure)
+    {
+        string identity = failure.RequestedIdentity is null
+            ? ""
+            : $" for '{failure.RequestedIdentity.Name}, Version={failure.RequestedIdentity.Version}'";
+        return new InvalidOperationException(
+            $"Compilation reference preparation failed with {failure.Kind}{identity}.");
     }
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)

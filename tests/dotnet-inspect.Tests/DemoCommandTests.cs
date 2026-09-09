@@ -570,6 +570,68 @@ public class DemoCommandTests
             error.Trim());
     }
 
+    [Theory]
+    [InlineData("list", "-n", "2")]
+    [InlineData("-n", "2", "list")]
+    [InlineData("list", "--rows", "1..2")]
+    [InlineData("list", "--tail")]
+    [InlineData("list", "--lines")]
+    public async Task Cli_DemoList_RowSelectionCannotBypassInvocationLowering(
+        params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => root.Parse(["demo", .. arguments]).InvokeAsync());
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: Demo row selection was not lowered before execution.",
+            error.Trim());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_NoSelectionCanInvokeWithoutLowering()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => root.Parse(["demo", "list", "--json"]).InvokeAsync());
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            ProductDemos.Count,
+            document.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public void DemoScenario_RowSelectionHandoffRemainsInactive()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var parseResult =
+            root.Parse(
+                [
+                    "demo",
+                    ProductDemoIds.StjSerializer,
+                    "-n",
+                    "1",
+                ]);
+
+        Assert.True(
+            CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Demo",
+                out RowSelectionIntent<string>? intent,
+                out string? error));
+        Assert.Null(intent);
+        Assert.Null(error);
+    }
+
     [Fact]
     public void DemoScenarioDoesNotAdoptSemanticRows()
     {

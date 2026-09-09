@@ -78,7 +78,8 @@ public sealed record RoundTripCompilationResult<TArtifact>(
 public static class RoundTripCompilationEngine
 {
     sealed record FrozenReferenceContent(
-        string Path,
+        string? Display,
+        string? Path,
         string Sha256,
         Guid? ModuleVersionId);
 
@@ -95,11 +96,56 @@ public static class RoundTripCompilationEngine
         string path)
     {
         ArgumentNullException.ThrowIfNull(image);
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return CreateFrozenReference(
+            ImmutableArray.Create(image),
+            path,
+            MetadataReferenceProperties.Assembly);
+    }
 
-        var content = ImmutableArray.Create(image);
+    public static MetadataReference CreateFrozenReference(
+        byte[] image,
+        string path,
+        MetadataReferenceProperties properties)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        return CreateFrozenReference(ImmutableArray.Create(image), path, properties);
+    }
+
+    public static MetadataReference CreateFrozenReference(
+        ImmutableArray<byte> image,
+        string path,
+        MetadataReferenceProperties properties)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        string fullPath = Path.GetFullPath(path);
+        return CreateFrozenReferenceFromRetainedImage(
+            image,
+            fullPath,
+            properties,
+            fullPath);
+    }
+
+    /// <summary>
+    /// Creates a Roslyn reference from retained bytes and records inert display
+    /// provenance without treating it as a path to reopen.
+    /// </summary>
+    public static MetadataReference CreateFrozenReferenceFromRetainedImage(
+        ImmutableArray<byte> image,
+        string? display,
+        MetadataReferenceProperties properties) =>
+        CreateFrozenReferenceFromRetainedImage(image, display, properties, path: null);
+
+    static MetadataReference CreateFrozenReferenceFromRetainedImage(
+        ImmutableArray<byte> image,
+        string? display,
+        MetadataReferenceProperties properties,
+        string? path)
+    {
+        if (image.IsDefault)
+            throw new ArgumentException("The image must be initialized.", nameof(image));
+
         Guid? mvid = null;
-        using (var pe = new PEReader(content))
+        using (var pe = new PEReader(image))
         {
             if (!pe.HasMetadata)
                 throw new BadImageFormatException(
@@ -110,13 +156,15 @@ public static class RoundTripCompilationEngine
 
         MetadataReference reference =
             MetadataReference.CreateFromImage(
-                content,
-                filePath: path);
+                image,
+                properties,
+                filePath: display);
         _frozenReferences.Add(
             reference,
             new FrozenReferenceContent(
-                Path.GetFullPath(path),
-                Convert.ToHexString(SHA256.HashData(image))
+                display,
+                path,
+                Convert.ToHexString(SHA256.HashData(image.AsSpan()))
                     .ToLowerInvariant(),
                 mvid));
         return reference;
@@ -237,6 +285,7 @@ public static class RoundTripCompilationEngine
         for (int ordinal = 0; ordinal < references.Count; ordinal++)
         {
             var reference = references[ordinal];
+            string? display = reference.Display;
             string? path = (reference as PortableExecutableReference)?.FilePath;
             string? hash = null;
             Guid? mvid = null;
@@ -245,6 +294,7 @@ public static class RoundTripCompilationEngine
                     reference,
                     out FrozenReferenceContent? content))
             {
+                display = content.Display;
                 path = content.Path;
                 hash = content.Sha256;
                 mvid = content.ModuleVersionId;
@@ -267,7 +317,7 @@ public static class RoundTripCompilationEngine
             frozen.Add(frozenReference);
             rows.Add(new RoundTripReferenceProvenance(
                 ordinal,
-                reference.Display ?? path ?? $"reference:{ordinal}",
+                display ?? path ?? $"reference:{ordinal}",
                 path is null ? null : System.IO.Path.GetFullPath(path),
                 hash,
                 mvid,

@@ -61,24 +61,40 @@ public sealed class CompileReferencePlatformPolicy
     public AssemblyBindingPolicyVersion OwnerPolicyVersion { get; }
     public ImmutableArray<CompilePlatformBindingEvidence> Bindings { get; }
 
+    public static ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareAsync(
+        ArtifactSetSession owner,
+        AssemblyDependencyResolver resolver,
+        ResolvedAssemblyReference source,
+        IEnumerable<AssemblyBindingRequest> requests,
+        CancellationToken cancellationToken = default) =>
+        PrepareAsync(owner, resolver, source, [], requests, cancellationToken);
+
     public static async ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareAsync(
         ArtifactSetSession owner,
         AssemblyDependencyResolver resolver,
         ResolvedAssemblyReference source,
+        IEnumerable<ResolvedAssemblyReference> candidates,
         IEnumerable<AssemblyBindingRequest> requests,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(requests);
         cancellationToken.ThrowIfCancellationRequested();
+        ResolvedAssemblyReference[] declaredCandidates = candidates.ToArray();
         AssemblyBindingRequest[] declared = requests.ToArray();
         var capture = new CapturePolicy(resolver, cancellationToken);
         try
         {
             ResolvedAssemblyReference retainedSource = capture.Retain(source);
             var roots = new List<ResolvedAssemblyReference> { retainedSource };
+            foreach (ResolvedAssemblyReference candidate in declaredCandidates)
+            {
+                ArgumentNullException.ThrowIfNull(candidate);
+                capture.Retain(candidate);
+            }
             foreach (AssemblyBindingRequest request in declared)
             {
                 ArgumentNullException.ThrowIfNull(request);
