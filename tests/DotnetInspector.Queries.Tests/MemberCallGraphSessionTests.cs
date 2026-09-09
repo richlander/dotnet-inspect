@@ -7,7 +7,7 @@ using DotnetInspector.Services;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Analysis = ILInspector.Analysis;

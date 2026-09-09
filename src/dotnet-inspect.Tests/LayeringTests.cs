@@ -930,7 +930,7 @@ public sealed class LayeringTests
             .ToArray();
 
         Assert.DoesNotContain("ILInspector.ILDiff", closure);
-        Assert.DoesNotContain("ILInspector.Findings", closure);
+        Assert.DoesNotContain("Inspector.Findings", closure);
         Assert.DoesNotContain("ILInspector.Text", closure);
     }
 

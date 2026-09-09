@@ -6,7 +6,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Tests;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;

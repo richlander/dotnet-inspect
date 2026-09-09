@@ -38,7 +38,7 @@ connect it to these neighboring owners:
 | `ILInspector.ControlFlow` | Graph, dominance, and dataflow kernels. | Adapting IR terminators to edges and choosing structured replacements. |
 | `CSharpText` | Model-free textual grammars, identifiers, and layout. | Body recovery and model-bound expression spelling. |
 | `ILInspector.CSharp` | Typed declarations, signatures, type shells, and body/artifact contracts. | Supplying recovered bodies and declaration-relevant body facts. |
-| `ILInspector.Findings`, `ILInspector.ILDiff`, and `ILInspector.Text` | Observation/comparison contracts and IL/text comparison services. | Decompiler-specific projections and C# structural comparison. |
+| `Inspector.Findings`, `ILInspector.ILDiff`, and `ILInspector.Text` | Observation/comparison contracts and IL/text comparison services. | Decompiler-specific projections and C# structural comparison. |
 
 Analysis independently produces IL-body evidence. Research composes Analysis
 and Decompiler results rather than asking either producer to own the other's

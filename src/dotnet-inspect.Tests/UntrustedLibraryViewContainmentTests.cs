@@ -1554,7 +1554,7 @@ public class LibraryViewShapeDerivedContainmentTests
         // And a walk that quietly declined a type covers less than it did
         // yesterday while reporting the same green. The first version of this
         // walker declined every positional record -- which is the shape of every
-        // row in the view -- and every ILInspector.Findings payload, so it
+        // row in the view -- and every Inspector.Findings payload, so it
         // reached the root scalars and nothing else. It still passed its own
         // count check. So the walker reports what it could not enter, and the
         // report is asserted as a *set*: an entry that appears is an
@@ -2049,7 +2049,7 @@ public class LibraryViewShapeDerivedContainmentTests
         /// <remarks>
         /// Scoped by assembly rather than by namespace prefix. The prefix
         /// version tested for <c>DotnetInspector</c> and so silently excluded
-        /// every <c>ILInspector.Findings</c> payload -- the async, extension,
+        /// every <c>Inspector.Findings</c> payload -- the async, extension,
         /// switch, union, and resource sections -- which is most of what the
         /// view renders.
         /// </remarks>
@@ -2068,13 +2068,13 @@ public class LibraryViewShapeDerivedContainmentTests
                 && IsProductAssembly(type.Assembly);
 
         /// <summary>
-        /// Repository-owned assemblies, by the two prefixes this repository
-        /// names its assemblies with.
+        /// Repository-owned assemblies, by the three product-family prefixes
+        /// this repository names its assemblies with.
         /// </summary>
         /// <remarks>
         /// Naming the two assemblies the model root lives in was still too
         /// narrow: the payloads are <c>FindingInspection&lt;T&gt;</c> values in
-        /// <c>ILInspector.Findings</c>, a third assembly, so the switch, union,
+        /// <c>Inspector.Findings</c>, a third assembly, so the switch, union,
         /// resource, forwarder, and attribute sections were all outside the
         /// walk.
         /// </remarks>
@@ -2136,6 +2136,7 @@ public class LibraryViewShapeDerivedContainmentTests
             return name is not null
                 && (name.StartsWith("DotnetInspector", StringComparison.Ordinal)
                     || name.StartsWith("ILInspector", StringComparison.Ordinal)
+                    || name.StartsWith("Inspector.", StringComparison.Ordinal)
                     || name.Equals("dotnet-inspect", StringComparison.Ordinal));
         }
     }

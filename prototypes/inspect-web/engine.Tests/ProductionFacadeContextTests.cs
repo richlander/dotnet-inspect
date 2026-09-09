@@ -50,6 +50,7 @@ public sealed class ProductionFacadeContextTests
             "BuildIdentity",
             "ConfigureHost",
             "DrainEpochWorkReporter",
+            "ManagedCpuCanary",
             "RegisterEpochWorkReporter",
             "UnregisterEpochWorkReporter",
         ],

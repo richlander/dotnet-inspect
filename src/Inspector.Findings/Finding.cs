@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>
 /// The thing a finding is about (a member, an occurrence within a body, an API surface element).
