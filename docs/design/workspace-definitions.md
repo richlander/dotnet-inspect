@@ -73,16 +73,16 @@ Adjacent owners remain independent:
   portable payload codec.
 - [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
   renders owner-issued state. [Inspect Web Navigation
-  Consumer](inspect-web-navigation-consumer.md) owns post-result
-  effect-authority validation, snapshot/history commitment, and
-  result-authorized focus/announcement ordering, including browser-history
-  push, replace, or adopt effects.
+  Consumer](inspect-web-navigation-consumer.md) and the retained Inspect Web host
+  own the published Workspace collection, active identity, post-result
+  effect-authority validation, snapshot/history commitment, switching,
+  deletion, and result-authorized focus/announcement ordering.
 
 This owner composes those contracts without redefining them. In particular, a
 portable packet does not make a browser label canonical, and restoration does
 not choose a browser-history write. The coordinator issues no independent
 epoch or effect authority: it consumes the retained host's current intent
-authority and carries only owner-issued replacement and Navigation authority.
+authority and carries only owner-issued activation and Navigation authority.
 
 ## Decisions
 
@@ -111,12 +111,12 @@ authority and carries only owner-issued replacement and Navigation authority.
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
    one canonical View Facet Registry ID field, one retained view state per
    open coordinate, and no browser lens, member-section, label, or CLI alias.
-7. **Restoration constructs and installs one fresh Workspace.** The active
-   Workspace remains usable while ordinary owner APIs populate and validate an
-   unpublished Workspace from one immutable canonical request. Failure,
-   supersession, or `ProjectionFailed` closes that Workspace. A completely
-   prepared projectable or validly non-projectable Workspace may become the
-   active Workspace under current host authority.
+7. **Restoration constructs, publishes, and activates one fresh Workspace.**
+   Ordinary owner APIs populate and validate an unpublished Workspace from one
+   immutable canonical request. Failure, supersession, or `ProjectionFailed`
+   closes that Workspace. A completely prepared projectable or validly
+   non-projectable Workspace may join the retained collection and become active
+   under current host authority; existing published Workspaces remain open.
 
 ## The definition schema
 
@@ -1470,11 +1470,9 @@ version-1 writer accepts a Registry ID.
 
 ### Complete restoration
 
-Complete restoration is a switch to an independently constructed Workspace.
+Complete restoration constructs and activates an independent Workspace.
 Each Workspace is constructed solely from its own definition; no other
-Workspace or Workspace definition participates. Restoration does not mutate a
-current Workspace in place or reuse its Roots, occurrence identities, contexts,
-sessions, budgets, Navigation state, or query authority.
+Workspace or Workspace definition participates.
 
 This rule applies to saved definitions, share packets, Browser history,
 product demos, external-package Spotlight selection, and CLI canonical replay.
@@ -1505,8 +1503,8 @@ One restoration attempt proceeds in this order:
 4. Construct one fresh Workspace. The coordinator is its sole holder until
    installation. Populate its complete explicit membership and registrations
    through ordinary Artifact and Scope operations. Every Workspace, Root
-   occurrence, Scope revision, and Navigation identity is fresh; no identity
-   or resource is transferred from the active Workspace.
+   occurrence, Scope revision, and Navigation identity is issued for that
+   Workspace.
 5. Establish the requested retained context, active subject, and lens through
    ordinary Navigation in the new Workspace. Resolve each inactive
    coordinate's saved view and query state without executing expensive work
@@ -1521,26 +1519,37 @@ One restoration attempt proceeds in this order:
    Workspace, complete snapshot, request basis, projection classification, and
    owner evidence. The retained host may activate it only while the exact
    intent and effect authority remain current.
-8. Activate through one non-yielding exchange of the host's nullable
-   active-Workspace slot. The exchange's before-value is either a Workspace or
-   null and is not interpreted. When non-null, close it outside the exchange.
-   History, URL, focus, and announcement remain host-owned effects of the same
-   authorized result.
+8. In a retained host, activate through one non-yielding publication that adds
+   the Workspace to the retained collection and points the nullable active
+   identity to it. Any previously active Workspace remains published and open.
+   The CLI instead binds the Workspace as the invocation's sole ephemeral
+   Workspace and closes it when the invocation ends. History, URL, focus, and
+   announcement remain host-owned effects of the same authorized result.
 9. On decode, resolution, construction, Navigation, query, projection,
    cancellation, expiry, or supersession failure, close the unpublished
-   Workspace and leave the active-Workspace slot unchanged. A late completion
-   for a settled token is discarded and cannot activate.
+   Workspace and leave the retained collection and active identity unchanged.
+   A late completion for a settled token is discarded and cannot activate.
 
 At most one unpublished new Workspace may exist. It is not selectable,
 rendered, addressable through ordinary host actions, or recorded in history
 before activation. A newer attempt closes the older attempt's Workspace before
 beginning another.
 
-The Browser/Wasm host must define a construction admission policy before
-adoption. A non-null slot value may remain live while the unpublished Workspace
-is constructed and while the exchanged-out value drains after activation.
-Per-Workspace budgets do not bound that peak; this design makes no process-wide
-peak-memory safety claim.
+The Browser/Wasm host must define construction admission and retained-Workspace
+capacity policies before adoption. Published Workspaces remain live until the
+user deletes them. Per-Workspace budgets do not bound the retained collection;
+this design makes no process-wide peak-memory safety claim.
+
+The Workspace subject lists the published collection and identifies the active
+Workspace. Selecting another published Workspace changes only the active
+identity and makes its retained Navigation snapshot current; it performs no
+construction. This is manual switching, not automatic health comparison or
+rollback. Deleting an inactive Workspace removes it from the collection and
+closes it. Deleting the active Workspace first selects the next published
+Workspace in collection order, otherwise the previous one, otherwise null,
+then removes and closes the deleted Workspace. Closure and drainage occur
+outside the non-yielding host state change. The active identity is null exactly
+when the published collection is empty.
 
 Failure remains source-identifying throughout the pipeline:
 `InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
@@ -1576,7 +1585,8 @@ CompleteRestorationResult
 definition request; it never invents packet bytes for a definition. Owner
 evidence follows deterministic plan order, not asynchronous completion order.
 `Activated` is the only arm carrying a new Workspace. `Failed` does not change
-the active-Workspace slot, and `Superseded` produces no consumer value.
+the retained collection or active identity, and `Superseded` produces no
+consumer value.
 
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
@@ -1584,9 +1594,10 @@ models the retired in-place participant protocol and is not evidence for this
 fresh-Workspace contract. Before implementation, either retire it or replace
 it with the smallest model needed for current-intent activation and
 superseded-Workspace cleanup. Required integration gates must show that failure
-leaves the nullable active-Workspace slot unchanged, activation exchanges in
-the exact prepared Workspace once, a non-null before-value is closed outside
-the exchange, and supersession closes abandoned Workspaces.
+leaves the retained collection and active identity unchanged, activation
+publishes the exact prepared Workspace once, switching selects an existing
+Workspace without reconstruction, deletion removes and closes only the selected
+Workspace, and supersession closes unpublished Workspaces.
 
 ### Files and bundles
 
@@ -1643,11 +1654,11 @@ two persisted contracts are isomorphic.
 - **Packet consolidation.** The `popstate` handler currently re-implements
   restore inline; the loader introduced here should absorb it so every
   restore path is the same code.
-- **Retained-host new-Workspace admission.** Inspect Web needs one owner for the
-  nullable active-Workspace slot, at most one unpublished new Workspace, exact
-  current-intent activation, prompt close of every non-installed Workspace,
-  cleanup of a non-null exchanged-out value, and a host-level construction
-  resource policy.
+- **Retained-host Workspace collection.** Inspect Web needs one owner for the
+  published Workspace collection, nullable active identity, at most one
+  unpublished new Workspace, exact current-intent activation, manual switching
+  and deletion, prompt close of every non-published Workspace, and a host-level
+  retained-Workspace resource policy.
 
 ## Open questions
 
@@ -1854,12 +1865,13 @@ Implementation must add, at minimum:
   projection failure; supersession before installation; late completion; and
   initial failure with no active Workspace. Unauthorized input must reserve,
   acquire, and publish nothing. Every non-install outcome must close the
-  unpublished Workspace, leave the nullable active-Workspace slot unchanged,
-  and carry the source-identifying failure evidence. Successful installation
-  must exchange the exact prepared Workspace into that slot once, close a
-  non-null before-value outside the exchange, preserve the request's packet or
-  definition basis and projection classification, and remain reachable only
-  through current host effect authority;
+  unpublished Workspace, leave the published collection and active identity
+  unchanged, and carry the source-identifying failure evidence. Successful
+  installation must publish the exact prepared Workspace into the collection
+  once, select it as active, preserve the request's packet or definition basis
+  and projection classification, and remain reachable only through current
+  host effect authority. Separate gates must cover switching back without
+  reconstruction and manual deletion with close outside the host state change;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
@@ -1900,9 +1912,10 @@ The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
 checks the retired in-place participant protocol and is not evidence for fresh
 Workspace activation. The current target remains unverified until focused
-evidence covers current-intent slot exchange, unpublished-Workspace cleanup
-after every non-activation outcome, exact prepared-Workspace activation, and
-the adopting host's construction resource policy.
+evidence covers current-intent collection publication, unpublished-Workspace
+cleanup after every non-activation outcome, exact prepared-Workspace
+activation, retained switching and deletion, and the adopting host's retained-
+Workspace resource policy.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified

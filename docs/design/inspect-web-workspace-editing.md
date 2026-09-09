@@ -43,11 +43,12 @@ needed to inspect.
 
 Spotlight is currently a one-shot Workspace editor. Selecting an external
 package result constructs a ready unnamed Workspace with one explicit package
-Root in addition to the default ecosystem registrations, switches to it, and
-establishes focus there. Selecting a subject already loaded in the active
+Root in addition to the default ecosystem registrations, publishes and
+activates it, and establishes focus there. Selecting a subject already loaded in the active
 Workspace changes focus without rebuilding membership. Repeated unrelated
-package searches therefore create and switch to independent one-package
-Workspaces rather than accumulating packages.
+package searches therefore create, retain, and activate independent one-package
+Workspaces rather than accumulating packages. Earlier Workspaces remain
+available through the Workspace subject until manually deleted.
 
 Spotlight does not currently expose **Add to current Workspace**. The full
 Workspace editor remains the multi-package composition surface. A future
@@ -59,8 +60,8 @@ Spotlight activation must not silently change from switching to accumulation.
 **Inspect** selects content for inspection within the current Workspace. In
 the Workspace inventory it selects an admitted package without replacing other
 members or registrations. Prefer it to an ambiguous inspection-only
-Open label. An actual saved-definition Open still means replacement and
-restoration; this contract does not rename that operation.
+Open label. An actual saved-definition Open still means constructing and
+activating another Workspace; this contract does not rename that operation.
 
 The editor does not offer Inspect or Run against its draft. Ordinary shell,
 history, and subject-navigation departure requests remain reachable, but they
@@ -96,8 +97,9 @@ at an explicitly chosen local save destination and the corresponding committed
 Workspace ready for inspection. The editor may announce completion and leave
 editing only after the responsible owners supply that complete outcome.
 Save constructs that committed result as an independent fresh Workspace and
-switches to it; it does not diff the draft against the active Workspace or
-transfer Workspace-owned identities and resources between them.
+publishes and activates it; the edited Workspace remains available until the
+user deletes it. Save does not diff the draft against that Workspace or transfer
+Workspace-owned identities and resources between them.
 
 The save destination is explicit. A demo title, matching package contents, or
 the fact that a saved definition was opened does not authorize overwriting an

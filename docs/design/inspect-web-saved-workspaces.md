@@ -4,10 +4,10 @@
 
 The Workspace page can save the current nonempty Workspace under a local name,
 open that saved definition later, and forget it with the shared trailing close
-control. There is at most one active Workspace. A saved name identifies a
-definition, not another active Workspace or the owner of current packages when
-a Workspace exists. This document owns the focused Browser interaction and
-local saved-entry store.
+control. A saved name identifies a definition, not one of the live Workspaces
+listed by the Workspace subject. Opening it creates and activates a new live
+Workspace; any previously published Workspaces remain available. This document
+owns the focused Browser interaction and local saved-entry store.
 
 The consumer is the existing Inspect Web application, tracked by #5932 and
 the end-to-end tracker #5697. The user approved this Browser-only
@@ -50,13 +50,14 @@ operation. It does not change the storage or Save/Open/Forget behavior below.
 - Open constructs a fresh unpublished Workspace through the existing
   transactional restore path. The canonical decoder remains authoritative;
   unsupported or unavailable saved packets close that Workspace and leave the
-  nullable active-Workspace slot unchanged. Successful Open exchanges the new
-  Workspace into the slot, closes a non-null before-value outside the exchange,
-  and uses the existing result-focus and history classification.
+  published collection and active identity unchanged. Successful Open adds the
+  new Workspace to the collection, makes it active, and uses the existing
+  result-focus and history classification.
 - The saved entry's close control is separate from Open. It forgets only the
-  named definition, not the active Workspace, recent packages, or browser history.
-  Focus moves to the next close control, then the preceding one, then Save
-  when available or the Workspace heading.
+  named definition, not any live Workspace, recent packages, or browser
+  history. Live Workspace deletion is a separate close control in the Workspace
+  subject. Focus moves to the next close control, then the preceding one, then
+  Save when available or the Workspace heading.
 - Name input, selection, and saved-row focus survive ordinary Workspace
   rerenders. Save completion returns focus to the newly saved Open action;
   cancel returns focus to Save.

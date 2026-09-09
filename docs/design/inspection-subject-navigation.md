@@ -1097,7 +1097,8 @@ machine is
 This owner does not install the new Workspace or coordinate its
 lifetime. Complete Workspace construction and result classification belong to
 [Workspace Definitions](workspace-definitions.md); the retained host owns the
-current-authority switch. Navigation owns only the new Workspace's
+current-authority collection publication and active-identity selection.
+Navigation owns only the new Workspace's
 internally complete current snapshot.
 
 Selecting a loaded coordinate, Library, Type, or Member in Spotlight uses

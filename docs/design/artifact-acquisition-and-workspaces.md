@@ -3642,10 +3642,13 @@ Navigation, and query paths inside it:
 5. close it on every failure, refusal, cancellation, expiry, or supersession
    path.
 
-The retained host owns one nullable active-Workspace slot. Successful
-activation is a VIP-style switch: replace that slot with the new Workspace in
-one non-yielding action, then close the returned before-value outside the switch
-when it is non-null. Construction never reads or interprets the before-value.
+The retained host owns a collection of published Workspaces and one nullable
+active-Workspace pointer. Successful activation is a VIP-style switch: publish
+the new Workspace into that collection and point the active identity to it in
+one non-yielding action. Any previously active Workspace remains published,
+open, viewable through the Workspace subject, and available for a later switch
+back. Construction completes before this publication and does not consult the
+retained collection.
 
 ##### Ordinary Workspace construction
 
@@ -3669,31 +3672,36 @@ pruning and becomes one ordinary Root in the fresh multi-package Workspace.
 
 Definitions owns the complete new-Workspace value and restoration result.
 Artifact Acquisition owns construction, ordinary operation, close, and
-resource drainage for each Workspace. The retained host owns the nullable
-active-Workspace slot and changes it only under current owner-issued effect
-authority. The CLI starts with a null slot and uses the same activation path.
+resource drainage for each Workspace. The retained host owns the published
+Workspace collection and nullable active identity, and changes them only under
+current owner-issued effect authority. The CLI creates one ephemeral Workspace
+for one invocation and needs no retained collection.
 
 A retained host admits at most one unpublished new Workspace at a time. A newer
 restoration supersedes and closes the older attempt's Workspace before
 beginning another. The product exposes at most one active Workspace; the
-unpublished Workspace is not selectable, rendered, placed in history, or
-available to ordinary host actions.
+published collection may contain multiple inactive Workspaces. An unpublished
+Workspace is not selectable, rendered, placed in history, or available to
+ordinary host actions.
 
 Browser/Wasm adoption must define and gate a host-level construction admission
-policy. When the active slot is non-null, its Workspace may remain live while
-the unpublished Workspace is constructed and while the exchanged-out value
-drains after activation. Per-Workspace budgets do not bound that peak. This
-document makes no process-wide peak-memory safety claim.
+and retained-Workspace capacity policy. Published Workspaces remain live until
+the user deletes them; deleting a Workspace removes it from the host collection
+and closes it under the ordinary Artifact lifecycle. Per-Workspace budgets do
+not bound the aggregate retained set. This document makes no process-wide
+peak-memory safety claim.
 
 The required integration evidence is limited to:
 
 - a failed or superseded restoration closes the new Workspace and leaves the
-  active-Workspace slot unchanged;
-- a successful restoration places the exact prepared Workspace in the slot
-  once;
-- the switch does not await closure or drainage of a non-null before-value;
+  published collection and active pointer unchanged;
+- a successful restoration publishes the exact prepared Workspace once and
+  points the active identity to it;
+- switching back selects an already-published Workspace without reconstructing
+  it;
+- deleting a published Workspace is the operation that removes and closes it;
 - at most one unpublished new Workspace is admitted; and
-- the adopting host enforces its declared construction resource policy.
+- the adopting host enforces its declared retained-Workspace resource policy.
 
 These claims remain **unverified**. They require the Definitions and retained
 host designs before implementation; they do not extend the ordinary Artifact

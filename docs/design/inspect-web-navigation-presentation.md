@@ -410,15 +410,18 @@ behavior; Surface Composition owns their row-one placement and pressure order.
 
 Workspace is the product-issued subject presented as the persistent
 application-scope entry point for workspace packet inspection and
-retained-coordinate management. The primary inventory is
-the set of product-issued packets, not live Workspace objects. Opening a packet
-constructs a fresh Workspace, Navigation state, and initial view as defined by
-[Workspace Definitions](workspace-definitions.md); two packets remain
-separately selectable even when their portable contents are equal. The first
-browser adoption retains resolved product demo scenarios for the current
-session. Inspect Web has at most one active Workspace. The home page
-exposes one **Demos** entry that opens this subject; it does not expose one
-button per demo or create a Workspace switcher.
+retained-Workspace and coordinate management. Its primary inventory is the
+host's published Workspace collection. Each row is one live Workspace identity,
+marks the active row, and exposes **Activate** for an inactive row and the
+shared trailing close control for deletion. Workspaces with equal portable
+contents remain distinct rows. This collection lives inside the Workspace
+subject rather than as permanent row-one tabs.
+
+Opening a product-issued packet constructs a fresh Workspace, Navigation state,
+and initial view as defined by
+[Workspace Definitions](workspace-definitions.md), then publishes and activates
+it. The home page exposes one **Demos** entry that opens this subject; it does
+not expose one button per demo.
 
 The `/demos` application route presents every entry exposed by the application
 product demo catalog, in product order. Listing carries its owner-issued stable
@@ -426,9 +429,10 @@ ID as action identity, renders its title and summary, and starts no demo
 resolution, acquisition, inspection, or graph work. Each entry exposes a
 separate explicit **Open demo** action. Activating that action resolves only the
 selected definition and uses its existing restore or product-run path to
-construct a new Workspace and exchange it into the nullable active-Workspace
-slot. A failed Open demo action leaves the slot unchanged, surfaces a retryable
-failure in the catalog, and returns focus to the selected demo action.
+construct a new Workspace, publish it in the retained collection, and make it
+active. A failed Open demo action leaves the collection and active identity
+unchanged, surfaces a retryable failure in the catalog, and returns focus to
+the selected demo action.
 
 Available definitions and loaded state remain separate. A demo title does not
 rename the Workspace, claim that the definition uniquely owns the loaded
@@ -438,8 +442,7 @@ matching coordinates. Categories, filtering, and separate Aspire or
 performance-demo entry points are residual; the first adoption lists every
 current demo.
 
-The same content pane separately lists the Workspace's loaded coordinates
-with:
+The same content pane lists the active Workspace's loaded coordinates with:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
@@ -448,9 +451,8 @@ with:
 
 The page's named local Save action and compact saved-definition list are owned
 by [Saved Workspaces](inspect-web-saved-workspaces.md). Saved entries are
-definitions that may become active, replacing a current Workspace when one
-exists. They are not another Workspace inventory or a switcher between
-simultaneously active Workspaces.
+definitions that construct a new published Workspace when opened. They remain
+separate from the live Workspace inventory.
 
 The Packages section's compact [Add package](inspect-web-workspace-add-package.md)
 action reuses package search to append a resolved coordinate without replacing

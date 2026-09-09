@@ -204,7 +204,8 @@ The named production consumers are:
 - the stateless agent-oriented CLI Workspace surface tracked by
   [#5513](https://github.com/richlander/dotnet-inspect/issues/5513).
 
-The concrete Browser scenario is one active Workspace whose explicit
+The concrete Browser scenario is a retained collection of independently
+constructed Workspaces with one active Workspace. Each Workspace's explicit
 membership contains one or more exact package Roots and ecosystem
 registrations. The Workspace editor can replace that membership, add to it,
 remove from it, or clear it. Navigation independently selects one current
@@ -212,26 +213,35 @@ subject through the subject strip. On Package, Type, or Member surfaces, one
 package is active in that strip without becoming the whole Workspace.
 Query-owned traversal may realize Platform and package dependencies without
 adding those libraries to explicit Root membership. The CLI consumes the same
-snapshot and results without adding retained terminal navigation.
+per-Workspace snapshot and results without adding retained terminal navigation.
 
 This infrastructure is warranted only to support that scenario. It deliberately
 does not add:
 
-- a Workspace collection, switcher, tab model, or simultaneous active Workspace
-  composition;
+- simultaneous active-Workspace composition or queries spanning Workspaces;
 - a generalized transaction framework for unrelated product state;
 - an extensible plugin vocabulary for expansion policy; or
 - a universal source-realization protocol.
 
-The first complex proof is the 44-package `Microsoft.Extensions` set from the
+The first complex per-Workspace proof is the 44-package
+`Microsoft.Extensions` set from the
 [Package Set Registry](package-set-registry.md). The scope owner therefore
 needs atomic multi-Root edits, visible failures, and a capacity above the
-current 12-package Browser limit. It does not need a multi-Workspace manager.
+current 12-package Browser limit. The retained Workspace collection remains a
+host concern, not a Scope composition primitive.
 
 ## Design demo
 
-Inspect Web exposes one Workspace subject rather than a list containing one
-named Workspace:
+The Workspace subject first exposes the retained Workspaces:
+
+```text
+Workspaces
+  Humanizer.Core                         Active    [Delete]
+  Newtonsoft.Json                                  [Activate] [Delete]
+```
+
+Selecting one changes the active Workspace without reconstructing it. The
+selected Workspace then exposes its own scope:
 
 ```text
 Workspace
@@ -260,10 +270,10 @@ Dependency expansion
   Dependencies outside the admitted scope remain visible but are not acquired.
 ```
 
-Global Search and Package inspection use **Open** to replace the current
-Workspace. The Workspace editor uses **Add** for explicit accumulation. Opening
-an exact Root that is already present returns that existing occurrence without
-reacquisition.
+Global Search and Package inspection use **Open** to create and activate a new
+Workspace. The Workspace editor uses **Add** for explicit accumulation inside
+one Workspace. Opening an exact Root that is already present in the active
+Workspace returns that existing occurrence without reacquisition.
 
 The neighboring package-set case prepares all 44
 `package-set.microsoft-extensions` coordinates and commits one revision. A
@@ -273,50 +283,56 @@ set.
 
 ## Problem
 
-The product currently has several partially overlapping meanings of
-Workspace:
+The product currently has several partially overlapping meanings of Workspace:
 
 - a physical owner of artifact sessions and assembly-context groups;
 - a Browser-retained package array;
 - a portable definition or share packet;
 - a Navigation subject;
-- a proposed collection of several simultaneously active Workspaces; and
+- a retained Browser collection with one active Workspace; and
 - a possible dependency-discovery boundary.
 
 Those meanings have begun to produce independent lifecycle, history,
-membership, and identity protocols. Inspect Web instead needs one ordinary
-current scope with explicit editing and persistence as a separate concern.
+membership, and identity protocols. Inspect Web needs each retained Workspace
+to own one ordinary scope, while the host separately owns collection,
+activation, and deletion.
 
 The current Browser package list also weakens the contract in important ways:
 
-- ordinary package opens accumulate while canonical restoration replaces;
+- ordinary package opens accumulate instead of creating independent
+  Workspaces;
 - exceeding 12 packages silently evicts older members;
 - a demo can arrive through either canonical restoration or a special engine
   operation;
 - dependency references do not have one explicit closed/open boundary; and
-- the visible Workspace previously rendered as `WORKSPACES 1` and
-  `Default Workspace`, implying a multi-Workspace manager.
+- retained Workspaces lack one product-owned activation and deletion contract.
 
-The missing product concept is not a Workspace manager. It is one authoritative
-logical scope over physical acquisition and binding resources that already have
-owners.
+The missing Scope concept remains one authoritative logical scope over physical
+acquisition and binding resources. The Browser host separately needs the small
+retained collection described below.
 
-## At most one active Workspace
+## Retained Workspaces and one active Workspace
 
-Inspect Web exposes at most one active Workspace. Activating a demo, share
-packet, imported definition, saved definition, or external package **Open**
-constructs a fresh Workspace solely from that input. The host owns a nullable
-active-Workspace slot. Activation exchanges the new Workspace into that slot;
-the returned before-value is either a Workspace or null and is used only for
-optional cleanup outside the exchange. At most one unpublished new Workspace
-may exist, and it is not selectable or independently presented.
+Inspect Web retains zero or more published Workspaces and identifies one as
+active whenever the collection is nonempty. Activating a demo, share packet,
+imported definition, saved definition, or external package **Open** constructs
+a fresh Workspace solely from that input, publishes it into the collection,
+and makes it active. Any previously active Workspace remains published and
+open. At most one unpublished new Workspace may exist, and it is not selectable
+or independently presented.
 
-This component exposes no Workspace collection, switcher, name, or
-cross-Workspace operation. Each Workspace has one current scope
-revision. A host may retain portable definitions or browser-history entries as
-data, but activating one constructs a fresh Workspace rather than reviving a
-historical Workspace identity. A packet is serialization input and output, not
-a user-visible packet Workspace.
+The Workspace subject lists the published collection. Selecting a listed
+Workspace changes the active identity and restores its retained Navigation
+snapshot without reconstructing the Workspace. Deleting a listed Workspace
+removes and closes it. Deleting the active Workspace selects the next entry in
+collection order, otherwise the previous entry, otherwise no Workspace. The
+host changes collection and active identity before closing the removed
+Workspace.
+
+Each Workspace has one current scope revision. A host may also retain portable
+definitions or browser-history entries as data, but activating one constructs a
+fresh Workspace rather than reviving a historical Workspace identity. A packet
+is serialization input and output, not a published Workspace.
 
 The CLI normally creates one ephemeral Workspace for one invocation. Future
 service hosts may independently create Workspaces for separate requests, but
@@ -1503,8 +1519,8 @@ action, and receipt identities.
    presentation and consumer owners.
 10. Have Workspace Definitions #5525 decide portable capacity and projection
    for the larger reachable scope under its own contract. Adopt browser history
-   through its focused owner, then remove the packet inventory and
-   multi-live-Workspace paths.
+   through its focused owner, then remove the transitional packet-backed
+   membership paths.
 
 Each slice names its one adopting owner. This design does not authorize one PR
 spanning core scope, acquisition, Navigation, Browser presentation, history,
@@ -1514,9 +1530,9 @@ and portable schema.
 
 This design does not define:
 
-- simultaneous active Workspaces, Workspace switching, or cross-Workspace
-  operations;
-- Workspace names, tabs, recents, or saved-definition storage;
+- simultaneous active-Workspace composition or cross-Workspace queries;
+- host collection storage, Workspace display labels, permanent row-one tabs,
+  recents, or saved-definition storage;
 - a complete dependency graph or an automatic expansion recommendation;
 - eager expansion merely from registering a package prefix;
 - package ownership inferred from assembly metadata or display text;
