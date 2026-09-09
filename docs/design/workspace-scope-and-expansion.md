@@ -47,15 +47,16 @@ preserve display `PackageId`, exact `PackageVersion`, and effective
 Root-only and explicit-empty package selections remain reportable Packages.
 
 Issue [#6151](https://github.com/richlander/dotnet-inspect/issues/6151) extends
-this exact-package, closed profile with `AddRootsAsync` and
-`RemoveRootOccurrenceAsync`. Add consumes already-acquired bindings and
+this exact-package, closed profile with `AddPackagesAsync` and
+`RemovePackageOccurrenceAsync`. Add consumes already-acquired bindings and
 appends the complete distinct new batch in first-request order, retaining
 existing order and occurrence identities. An empty or all-present batch is
-`NoEffect` and does not prepare or repair physical Artifact Roots. Remove consumes one
-`WorkspaceRootOccurrenceIdentity`; it neither interprets a package name or row
-index nor selects a successor. Both require the expected revision and a finite
-deadline. Ordinary Add/Remove return `Rejected(Busy)` rather than superseding
-preparation; validation precedes that admission decision. Replace/Clear retain
+`NoEffect` and does not prepare or repair physical Artifact Roots. Remove
+consumes one `WorkspacePackageOccurrenceIdentity`; it neither interprets a
+package name or row index nor selects a successor. Both require the expected
+revision and a finite deadline. Ordinary Add/Remove return `Rejected(Busy)`
+rather than superseding preparation; validation precedes that admission
+decision. Replace/Clear retain
 their existing supersession authority and first-observed stop ordering.
 
 Effective incremental publication requires a current Ready generation for
@@ -79,7 +80,7 @@ that observation.
 The user-authorized first host adoption is the CLI
 ([#5513](https://github.com/richlander/dotnet-inspect/issues/5513)) in the same
 issue #5821 slice. The CLI now populates its fresh Scope with one complete
-`AddRootsAsync` batch, providing a production consumer for the incremental
+`AddPackagesAsync` batch, providing a production consumer for the incremental
 path without per-package publication or changed output. Browser Add/remove is
 the named incremental consumer under #5697, but its migration still requires
 owner-backed complete restoration under #5525. Existing Browser behavior and
@@ -105,14 +106,14 @@ Its boundary evidence includes:
 | Implemented boundary | Release tests |
 | --- | --- |
 | Complete immutable state and default multi-package replacement | `InitialScopeIsCompleteEmptyClosedAndWorkspaceExact`, `DefaultReplacementPublishesTwoSmallPackagesAndResourceFreePresentation`, `ReplacementKeepsPriorRevisionCurrentDuringPreparation` |
-| All-or-failure, exact duplicate coalescing, and occurrence retention | `OneFailedRootPublishesNoSuccessfulPrefix`, `ExactDuplicatesCoalesceBeforePreparationAndRetainedOccurrencesFollowRequestOrder`, `RemovedThenEqualReaddedRootGetsFreshOccurrence` |
+| All-or-failure, exact duplicate coalescing, and occurrence retention | `OneFailedPackagePublishesNoSuccessfulPrefix`, `ExactDuplicatesCoalesceBeforePreparationAndRetainedOccurrencesFollowRequestOrder`, `RemovedThenEqualReaddedPackageGetsFreshOccurrence` |
 | Validation before supersession, finite deadlines, and exact cancellation | `InvalidSubmissionsDoNotSupersedeAdmittedPreparation`, `DeadlineExpiryAfterAdmissionCancelsRatherThanRejects`, `ExactCancellationActionSettlesTheOriginalOperationAndCannotCancelAnother`, `CancellationBeforeCommitPreservesPriorRevision`, `CancellationAfterCommitCannotRetractPublication` |
 | Clear and Replace supersession without stale publication | `ClearSupersedesBlockedPreparationWithoutWaitingForCurrentQuery`, `ValidReplaceSupersedesPreparationAndOldCompletionCannotOverwriteIt` |
 | Cancellation/deadline versus supersession preserves the first observed outcome | `CancellationBeforeSupersessionRetainsFirstOutcome`, `SupersessionBeforeCancellationRetainsFirstOutcome` |
 | Ordered incremental Add, exact reduction, and no successful prefix | `AddPreservesExistingOrderAndAppendsOneDistinctBatch`, `EmptyOrDuplicateOnlyAddHasNoPhysicalEffect`, `AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation`, `LaterAddFailureDoesNotPublishSuccessfulPrefix` |
 | Exact removal, surviving identity, and admitted-query drainage | `RemoveRetainsOtherOccurrencesAndDoesNotWaitForAnAdmittedQuery`, `RemovingTheLastOccurrenceCommitsAnEmptyClosedRevision` |
 | Incremental validation before Busy and inherited stop ordering | `OrdinaryAddAndRemoveAreBusyWithoutSupersedingPreparation`, `IncrementalValidationPrecedesBusy`, `AddSupersessionPreservesFirstObservedStop`, `AddCancellationOrExpiryLeavesThePriorRevisionCurrent`, `RemoveHonorsCancellationBeforeAdmissionAndCannotBeRetractedAfterCommit` |
-| Non-Ready incremental boundary and stale physical refusal | `IncrementalEditsRefuseNonReadySurvivorsBeforePreparingMaterial`, `PhysicalMovementDuringAddRefusesTheStaleCandidateAndRefreshesAllCurrentRoots`, `IncrementalOperationsRespectRuntimeUnavailabilityBeforeInvalidRequests` |
+| Non-Ready incremental boundary and stale physical refusal | `IncrementalEditsRefuseNonReadySurvivorsBeforePreparingMaterial`, `PhysicalMovementDuringAddRefusesTheStaleCandidateAndRefreshesAllCurrentPackages`, `IncrementalOperationsRespectRuntimeUnavailabilityBeforeInvalidRequests` |
 | Complete physical observation without another Artifact publication | `ObservationRefreshPreservesReadyPendingFailedAndDoesNotPublishArtifactComposition`, `RefreshDuringPreparationPreservesPreparingAndStalePhysicalCandidateCannotRebase` |
 | Runtime unavailability and historical resource drainage | `ClosingWorkspaceReportsUnavailableWhileAnAdmittedQueryDrains`, `CloseDuringPreparationSettlesUnavailableAndReleasesOperationAuthority`, `HistoricalSnapshotsAndResultsDoNotRetainRetiredResources` |
 
@@ -143,14 +144,11 @@ package and selection descriptor. It has no kind discriminator and no
 its own named consumer and focused owner contract; it must not be represented
 by a generic catch-all Root.
 
-The implemented `WorkspaceRootOccurrenceIdentity`,
-`WorkspaceRootDescriptor`, `WorkspaceRootOccurrence`,
-`WorkspaceRootOccurrenceDescriptor`, `Roots`, `MaxRoots`, `AddRootsAsync`, and
-`RemoveRootOccurrenceAsync` names are pre-issuance implementation vocabulary.
-They must be replaced in place with the Package-specific names above in the
-consumer-paired Scope and Navigation cutover tracked by
-[#6293](https://github.com/richlander/dotnet-inspect/issues/6293). They do not
-establish a supported generic logical Root contract.
+Issue [#6293](https://github.com/richlander/dotnet-inspect/issues/6293)
+replaces the pre-issuance `WorkspaceRoot*`, `Roots`, `MaxRoots`, and Add/Remove
+Root implementation names in place with the Package-specific vocabulary
+above. No aliases, obsolete shims, kind discriminator, or `NonPackage` arm
+remain.
 
 This decision does not rename `ArtifactRoot*` or `PackageRootBinding`. Artifact
 Acquisition uses Root for one independently prepared, budgeted, published,
