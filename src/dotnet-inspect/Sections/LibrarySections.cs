@@ -140,6 +140,7 @@ public static class LibrarySections
             .Add<BodyShapeSummary>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
+            .Add<CloneCandidates>()
             .Add<PerformanceBoxing>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -587,6 +588,17 @@ public static class LibrarySections
                 "SourceLink query execution requires a SourceLink query context.");
 
     // ===== Primary section =====
+
+    public sealed class CloneCandidates
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.CloneCandidates;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
 
     public sealed class LibraryInfo : ISectionDescriptor<LibraryInspection>
     {
