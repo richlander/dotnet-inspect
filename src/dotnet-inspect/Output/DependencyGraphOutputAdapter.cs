@@ -409,22 +409,71 @@ internal static class DependencyGraphOutputAdapter
         [
             .. rows.Select(static row => row.EdgeId),
         ];
-        HashSet<int> selectedSourceIds =
+        var selectedOutgoing = rows
+            .GroupBy(static row => row.SourceNodeId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static row => row.TargetNodeId)
+                    .ToArray());
+        var reachable = new HashSet<int>(rootNodeIds);
+        var pendingReachable = new Stack<int>(rootNodeIds);
+        while (pendingReachable.TryPop(out int current))
+        {
+            if (!selectedOutgoing.TryGetValue(
+                    current,
+                    out int[]? targets))
+            {
+                continue;
+            }
+            foreach (int target in targets)
+            {
+                if (reachable.Add(target))
+                    pendingReachable.Push(target);
+            }
+        }
+
+        HashSet<int> unreachableNodeIds =
         [
-            .. rows.Select(static row => row.SourceNodeId),
+            .. rows.SelectMany(static row =>
+                    new[] { row.SourceNodeId, row.TargetNodeId })
+                .Where(nodeId => !reachable.Contains(nodeId)),
         ];
-        HashSet<int> selectedTargetIds =
+        HashSet<int> unreachableTargetIds =
         [
-            .. rows.Select(static row => row.TargetNodeId),
+            .. rows
+                .Where(row =>
+                    unreachableNodeIds.Contains(row.SourceNodeId)
+                    && unreachableNodeIds.Contains(row.TargetNodeId))
+                .Select(static row => row.TargetNodeId),
         ];
+        HashSet<int> naturalRoots =
+        [
+            .. rows
+                .Select(static row => row.SourceNodeId)
+                .Where(nodeId =>
+                    unreachableNodeIds.Contains(nodeId)
+                    && !unreachableTargetIds.Contains(nodeId)),
+        ];
+        if (naturalRoots.Count > 0)
+        {
+            unreachableNodeIds.ExceptWith(
+                NodesReachableFrom(naturalRoots, selectedOutgoing));
+        }
+
+        var fragments = new HashSet<int>(naturalRoots);
         var adjacency = new Dictionary<int, HashSet<int>>();
         foreach (DependencyGraphEdgeRow row in rows)
         {
+            if (!unreachableNodeIds.Contains(row.SourceNodeId)
+                || !unreachableNodeIds.Contains(row.TargetNodeId))
+            {
+                continue;
+            }
             AddNeighbor(row.SourceNodeId, row.TargetNodeId);
             AddNeighbor(row.TargetNodeId, row.SourceNodeId);
         }
 
-        var fragments = new HashSet<int>();
         var remaining = new HashSet<int>(adjacency.Keys);
         while (remaining.Count > 0)
         {
@@ -441,23 +490,6 @@ internal static class DependencyGraphOutputAdapter
                     pending.Push(neighbor);
             }
 
-            if (component.Overlaps(rootNodeIds))
-                continue;
-
-            int[] naturalRoots =
-            [
-                .. component.Where(nodeId =>
-                    selectedSourceIds.Contains(nodeId)
-                    && !selectedTargetIds.Contains(nodeId)
-                    && document.Edges.Any(edge =>
-                        edge.TargetNodeId == nodeId)),
-            ];
-            if (naturalRoots.Length > 0)
-            {
-                fragments.UnionWith(naturalRoots);
-                continue;
-            }
-
             DependencyGraphEdge? omittedIncoming = document.Edges
                 .FirstOrDefault(edge =>
                     component.Contains(edge.TargetNodeId)
@@ -469,6 +501,25 @@ internal static class DependencyGraphOutputAdapter
         }
 
         return fragments;
+
+        static HashSet<int> NodesReachableFrom(
+            IEnumerable<int> starts,
+            IReadOnlyDictionary<int, int[]> outgoing)
+        {
+            var result = new HashSet<int>(starts);
+            var pending = new Stack<int>(starts);
+            while (pending.TryPop(out int current))
+            {
+                if (!outgoing.TryGetValue(current, out int[]? targets))
+                    continue;
+                foreach (int target in targets)
+                {
+                    if (result.Add(target))
+                        pending.Push(target);
+                }
+            }
+            return result;
+        }
 
         void AddNeighbor(int source, int target)
         {

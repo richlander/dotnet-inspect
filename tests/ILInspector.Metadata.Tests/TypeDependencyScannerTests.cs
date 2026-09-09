@@ -151,7 +151,7 @@ public class TypeDependencyScannerTests
                     "TypeDependencyGenericShared<int>",
                     StringComparison.Ordinal)
                 && relationship.TargetTypeName.EndsWith(
-                    "TypeDependencyGenericBase<T>",
+                    "TypeDependencyGenericBase<int>",
                     StringComparison.Ordinal));
         Assert.Contains(
             result.Relationships,
@@ -160,7 +160,7 @@ public class TypeDependencyScannerTests
                     "TypeDependencyGenericShared<string>",
                     StringComparison.Ordinal)
                 && relationship.TargetTypeName.EndsWith(
-                    "TypeDependencyGenericBase<T>",
+                    "TypeDependencyGenericBase<string>",
                     StringComparison.Ordinal));
     }
 

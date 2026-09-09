@@ -331,6 +331,7 @@ public static class TypeDependencyScanner
                 matchedType,
                 match.MdReader,
                 match.TypeDef,
+                GenericContext.ForType(match.MdReader, match.TypeDef),
                 typeIndex,
                 treeSeen,
                 relationshipSeen,
@@ -405,6 +406,7 @@ public static class TypeDependencyScanner
         string sourceTypeName,
         MetadataReader reader,
         TypeDefinition typeDef,
+        GenericContext context,
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
         HashSet<string> treeSeen,
         HashSet<string> relationshipSeen,
@@ -413,8 +415,6 @@ public static class TypeDependencyScanner
         bool includeTree,
         bool collectRelationships)
     {
-        var context = GenericContext.ForType(reader, typeDef);
-
         // Gather all declared dependencies (base type + interfaces)
         var allDeps =
             new List<(string Name, TypeDependencyRelationshipKind Kind)>();
@@ -459,7 +459,7 @@ public static class TypeDependencyScanner
         // A dep is "direct" if it's not transitively reachable through another dep
         var directDeps = allDeps
             .Where(d => !transitivelyReachable.Contains(
-                FqnParser.NormalizeTypeName(d.Name)))
+                ExpansionKey(d.Name)))
             .ToList();
 
         // Build tree nodes for direct deps only
@@ -479,7 +479,7 @@ public static class TypeDependencyScanner
             var normalized = FqnParser.NormalizeTypeName(dep.Name);
             bool expandTree = includeTree && treeSeen.Add(normalized);
             bool expandRelationships = collectRelationships
-                && relationshipSeen.Add(dep.Name.Trim());
+                && relationshipSeen.Add(ExpansionKey(dep.Name));
             List<TypeDependencyNode> children =
                 expandTree || expandRelationships
                     ? ResolveChildren(
@@ -519,16 +519,18 @@ public static class TypeDependencyScanner
         HashSet<string> result,
         HashSet<string> visited)
     {
-        var normalized = FqnParser.NormalizeTypeName(typeName);
-        if (!visited.Add(normalized))
+        string expansionKey = ExpansionKey(typeName);
+        if (!visited.Add(expansionKey))
             return;
 
+        var normalized = FqnParser.NormalizeTypeName(typeName);
         var matchKey = ResolveTransitiveKey(typeIndex, normalized);
         if (matchKey == null)
             return;
 
         var (_, mdReader, typeDef) = typeIndex[matchKey];
-        var context = GenericContext.ForType(mdReader, typeDef);
+        GenericContext context =
+            ContextForConstructedType(mdReader, typeDef, typeName);
 
         // Base type
         if (!typeDef.BaseType.IsNil)
@@ -536,7 +538,7 @@ public static class TypeDependencyScanner
             var baseTypeName = TypeResolver.GetTypeName(mdReader, typeDef.BaseType, context);
             if (baseTypeName != null && !IsSystemRoot(baseTypeName))
             {
-                result.Add(FqnParser.NormalizeTypeName(baseTypeName));
+                result.Add(ExpansionKey(baseTypeName));
                 CollectTransitive(baseTypeName, typeIndex, result, visited);
             }
         }
@@ -548,11 +550,79 @@ public static class TypeDependencyScanner
             var ifaceName = TypeResolver.GetTypeName(mdReader, iface.Interface, context);
             if (ifaceName != null)
             {
-                result.Add(FqnParser.NormalizeTypeName(ifaceName));
+                result.Add(ExpansionKey(ifaceName));
                 CollectTransitive(ifaceName, typeIndex, result, visited);
             }
         }
     }
+
+    private static GenericContext ContextForConstructedType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string typeName)
+    {
+        IReadOnlyList<string> arguments = GenericArguments(typeName);
+        return arguments.Count == typeDef.GetGenericParameters().Count
+            ? new GenericContext(arguments, [])
+            : GenericContext.ForType(reader, typeDef);
+    }
+
+    private static IReadOnlyList<string> GenericArguments(string typeName)
+    {
+        var arguments = new List<string>();
+        int angleDepth = 0;
+        int squareDepth = 0;
+        int parenthesisDepth = 0;
+        int argumentStart = -1;
+        for (int i = 0; i < typeName.Length; i++)
+        {
+            switch (typeName[i])
+            {
+                case '<':
+                    angleDepth++;
+                    if (angleDepth == 1)
+                        argumentStart = i + 1;
+                    break;
+                case '>':
+                    if (angleDepth == 1 && argumentStart >= 0)
+                    {
+                        AddArgument(i);
+                        argumentStart = -1;
+                    }
+                    angleDepth--;
+                    break;
+                case ',' when angleDepth == 1
+                    && squareDepth == 0
+                    && parenthesisDepth == 0:
+                    AddArgument(i);
+                    argumentStart = i + 1;
+                    break;
+                case '[':
+                    squareDepth++;
+                    break;
+                case ']':
+                    squareDepth--;
+                    break;
+                case '(':
+                    parenthesisDepth++;
+                    break;
+                case ')':
+                    parenthesisDepth--;
+                    break;
+            }
+        }
+        return arguments;
+
+        void AddArgument(int end)
+        {
+            string argument = typeName[argumentStart..end].Trim();
+            if (argument.Length > 0)
+                arguments.Add(argument);
+        }
+    }
+
+    private static string ExpansionKey(string typeName) =>
+        typeName.Trim();
 
     private static List<TypeDependencyNode> ResolveChildren(
         string typeName,
@@ -579,6 +649,10 @@ public static class TypeDependencyScanner
                 typeName,
                 match.MdReader,
                 match.TypeDef,
+                ContextForConstructedType(
+                    match.MdReader,
+                    match.TypeDef,
+                    typeName),
                 typeIndex,
                 treeSeen,
                 relationshipSeen,

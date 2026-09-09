@@ -146,6 +146,24 @@ public sealed class DependencyGraphOutputAdapterTests
     }
 
     [Fact]
+    public async Task RowWindow_MarksDirectedBranchThatJoinsReachableTarget()
+    {
+        DependencyGraphDocument document = JoinedFragment();
+        IReadOnlyList<DependencyGraphEdgeRow> rows =
+            DependencyGraphOutputAdapter.EdgeRows(document)
+                .Skip(1)
+                .ToArray();
+
+        string tree = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.PlainText);
+
+        Assert.Contains("(fragment) Branch", tree, StringComparison.Ordinal);
+        Assert.Contains("(revisit) Shared", tree, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SourceAuthoredLabelsRemainInertAcrossSinks()
     {
         const string Hazard = "Shared\u202Ename";
@@ -387,6 +405,40 @@ public sealed class DependencyGraphOutputAdapterTests
                 Edge(0, 0, 1, 1),
                 Edge(1, 1, 2, 2),
                 Edge(2, 2, 1, 3),
+            ]);
+    }
+
+    private static DependencyGraphDocument JoinedFragment()
+    {
+        static InertString Label(string value) =>
+            new(TextPolicy.Field, value);
+
+        return new DependencyGraphDocument(
+            [new DependencyGraphRootOccurrence(1, 0)],
+            [
+                new(
+                    0,
+                    new DependencyGraphNodeIdentity.Package(
+                        "owner",
+                        "1.0.0"),
+                    Label("Owner")),
+                new(
+                    1,
+                    new DependencyGraphNodeIdentity.Package(
+                        "branch",
+                        "1.0.0"),
+                    Label("Branch")),
+                new(
+                    2,
+                    new DependencyGraphNodeIdentity.Package(
+                        "shared",
+                        "1.0.0"),
+                    Label("Shared")),
+            ],
+            [
+                Edge(0, 0, 1, 1),
+                Edge(1, 0, 2, 1),
+                Edge(2, 1, 2, 2),
             ]);
     }
 
