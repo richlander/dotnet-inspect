@@ -1210,8 +1210,8 @@ and one requested query.
 
 A host build may include zero or more immutable **inspection bundles**. For an
 assembly-backed scenario, the bundle may carry a portable workspace definition
-from which the host creates an ordinary runtime workspace. It never contains a
-serialized live workspace.
+from which the host creates a Workspace. It never contains the Workspace's live
+process state.
 
 A bundle may contain:
 

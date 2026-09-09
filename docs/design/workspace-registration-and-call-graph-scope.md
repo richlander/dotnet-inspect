@@ -413,8 +413,8 @@ restoration. The design remains unverified until those focused adoptions land.
 
 This design does not define:
 
-- simultaneous live Workspaces, Workspace switching, tabs, or cross-Workspace
-  operations;
+- simultaneous active-Workspace composition, host collection presentation, or
+  cross-Workspace queries;
 - a security boundary based on registrations;
 - an eager import or continuously maintained package-prefix population;
 - a global NuGet, SDK, or filesystem crawl;

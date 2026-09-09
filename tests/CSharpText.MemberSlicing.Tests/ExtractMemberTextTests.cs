@@ -1,10 +1,10 @@
-namespace DotnetInspector.CSharpBodySlicer.Tests;
+namespace CSharpText.MemberSlicing.Tests;
 
 /// <summary>
-/// Characterization tests for <see cref="BodySlicer.ExtractMethodBody"/>, which selects a
-/// declaration-index row from a 1-based sequence-point range and returns that row's source span.
+/// Characterization tests for <see cref="MemberTextSlicer.ExtractMemberText"/>, which selects a
+/// declaration-index row from a 1-based line range and returns that row's source span.
 /// </summary>
-public class ExtractMethodBodyTests
+public class ExtractMemberTextTests
 {
     private static string Lines(params string[] lines) => string.Join('\n', lines);
 
@@ -22,7 +22,7 @@ public class ExtractMethodBodyTests
             "    public int Sub() => 0;",           // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Add");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 6, methodName: "Add");
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
@@ -44,7 +44,7 @@ public class ExtractMethodBodyTests
             "    public int X() => 0;",             // 11
             "}");                                   // 12
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 9, methodName: "Add");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 7, endLine: 9, methodName: "Add");
 
         Assert.Equal(
             "public int Add(\n    int a,\n    int b)\n{\n    return a + b;\n}",
@@ -67,7 +67,7 @@ public class ExtractMethodBodyTests
             "    public int X() => 0;",             // 10
             "}");                                   // 11
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 8, methodName: "Add");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 8, methodName: "Add");
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
@@ -86,7 +86,7 @@ public class ExtractMethodBodyTests
             "    void Y() {}",                      // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Add");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 5, methodName: "Add");
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
@@ -109,7 +109,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 9
             "}");                                   // 10
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: "Finalize");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 7, endLine: 8, methodName: "Finalize");
 
         Assert.Equal("~C()\n{\n    s_flag = true;\n}", body);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -130,7 +130,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 7
             "}");                                   // 8
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement");
 
         Assert.Contains("public static C operator", body, System.StringComparison.Ordinal);
         Assert.Contains("~(C value)", body, System.StringComparison.Ordinal);
@@ -152,7 +152,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Build");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 7, methodName: "Build");
 
         Assert.Contains("public int Build(int x =", body, System.StringComparison.Ordinal);
         Assert.Contains("~Cap)", body, System.StringComparison.Ordinal);
@@ -177,7 +177,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith("~", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -205,7 +205,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith(destructorLine, body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -229,7 +229,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 9
             "}");                               // 10
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 8, methodName: "Finalize");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 8, endLine: 8, methodName: "Finalize");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.Contains("int x = ~0;", body, System.StringComparison.Ordinal);
@@ -258,7 +258,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 10
             "}");                               // 11
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 9, endLine: 9, methodName: "Finalize");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
@@ -282,7 +282,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -309,7 +309,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 10
             "}");                                   // 11
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 9, endLine: 9, methodName: "Finalize");
 
         Assert.StartsWith("unsafe ~ Sample", body, System.StringComparison.Ordinal);
@@ -336,7 +336,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 10
             "}");                               // 11
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 9, endLine: 9, methodName: "Finalize");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
@@ -360,7 +360,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
@@ -380,7 +380,7 @@ public class ExtractMethodBodyTests
             "    public string? After { get; set; }",        // 7
             "}");                                           // 8
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "get_Target");
 
         Assert.Equal("public string? Target { get; set; }", body);
     }
@@ -394,7 +394,7 @@ public class ExtractMethodBodyTests
             "    public int Doubled => Value * 2;",          // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "get_Doubled");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "get_Doubled");
 
         Assert.Equal("public int Doubled => Value * 2;", body);
     }
@@ -413,7 +413,7 @@ public class ExtractMethodBodyTests
         int startLine,
         int endLine)
     {
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine, endLine, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, startLine, endLine, "M"));
     }
 
     [Fact]
@@ -425,7 +425,7 @@ public class ExtractMethodBodyTests
             "    void A() { } void B() { }",        // 3  <- StartLine/EndLine
             "}");                                   // 4
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "B"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, "B"));
     }
 
     [Fact]
@@ -437,7 +437,7 @@ public class ExtractMethodBodyTests
             "    void M() { } }",                   // 3  <- StartLine/EndLine
             ";");                                   // 4
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, "M"));
     }
 
     [Fact]
@@ -453,7 +453,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 7  <- EndLine
             "}");                                   // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 7, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 7, "M"));
     }
 
     /// <summary>
@@ -483,7 +483,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 7
             "}");                                           // 8
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
 
         Assert.Equal(
             "public string? Tfm\n{\n    get => _override ?? Compute();\n    set => _override = value;\n}",
@@ -491,7 +491,7 @@ public class ExtractMethodBodyTests
 
         // The setter selects the same declaration: one property, one slice, whichever accessor
         // the PDB happened to report.
-        Assert.Equal(body, BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: "set_Tfm"));
+        Assert.Equal(body, MemberTextSlicer.ExtractMemberText(source, startLine: 6, endLine: 6, methodName: "set_Tfm"));
     }
 
     [Fact]
@@ -506,7 +506,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Fact");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Fact");
 
         Assert.Equal(
             "public int Fact(int n)\n{\n    return n <= 1 ? 1 : n * Fact(n - 1);\n}",
@@ -531,7 +531,7 @@ public class ExtractMethodBodyTests
             declaration,                                    // 5  <- StartLine/EndLine
             "}");                                           // 6
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "get_Target");
 
         Assert.Equal(declaration.TrimStart(), body);
     }
@@ -547,7 +547,7 @@ public class ExtractMethodBodyTests
             "    public (int X, int Y) Target => (1, 2);",   // 5  <- StartLine/EndLine
             "}");                                           // 6
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "get_Target");
 
         Assert.Equal("public (int X, int Y) Target => (1, 2);", body);
     }
@@ -564,7 +564,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Target()\n{\n    unsafe { Poke(); }\n}",
@@ -583,7 +583,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Target()\n{\n    internalCounter = 1;\n}",
@@ -600,7 +600,7 @@ public class ExtractMethodBodyTests
             "    int Target => 1;",                          // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("int Target => 1;", body);
     }
@@ -615,7 +615,7 @@ public class ExtractMethodBodyTests
             "    string? Target { get; set; }",              // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "set_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "set_Target");
 
         Assert.Equal("string? Target { get; set; }", body);
     }
@@ -630,7 +630,7 @@ public class ExtractMethodBodyTests
             "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
 
         Assert.Equal("int IDefault.Target => 1;", body);
@@ -651,7 +651,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             $"int Target(int n)\n{{\n    {firstStatement}\n}}",
@@ -670,7 +670,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Run()\n{\n    Widget Target;\n}",
@@ -693,7 +693,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             $"void Target()\n{{\n    {firstStatement}\n}}",
@@ -710,7 +710,7 @@ public class ExtractMethodBodyTests
             "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
 
         Assert.Equal("int IDefault.Target => 1;", body);
@@ -726,7 +726,7 @@ public class ExtractMethodBodyTests
             "    int this[int index] => index;",             // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Item");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "get_Item");
 
         Assert.Equal("int this[int index] => index;", body);
     }
@@ -741,7 +741,7 @@ public class ExtractMethodBodyTests
             "    int IDefault.this[int index] => index;",    // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 4, endLine: 4, methodName: "IDefault.set_Item");
 
         Assert.Equal("int IDefault.this[int index] => index;", body);
@@ -759,7 +759,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Item");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "get_Item");
 
         Assert.Equal(
             "public int this[int index]\n{\n    get => _items[index];\n}",
@@ -776,7 +776,7 @@ public class ExtractMethodBodyTests
             "    T Target<T>(T value) => value;",            // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "Target");
 
         Assert.Equal("T Target<T>(T value) => value;", body);
     }
@@ -791,7 +791,7 @@ public class ExtractMethodBodyTests
             "    Dictionary<string, int> Target => new();",  // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("Dictionary<string, int> Target => new();", body);
     }
@@ -806,7 +806,7 @@ public class ExtractMethodBodyTests
             "    CancellationToken CancellationToken => default;", // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(
+        var body = MemberTextSlicer.ExtractMemberText(
             source, startLine: 4, endLine: 4, methodName: "get_CancellationToken");
 
         Assert.Equal("CancellationToken CancellationToken => default;", body);
@@ -823,7 +823,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 5
             "}");                                            // 6
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal(
             "public int Target() {\n    return 1;\n}",
@@ -839,7 +839,7 @@ public class ExtractMethodBodyTests
             "    public int Target() { return 1; }",         // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public int Target() { return 1; }", body);
     }
@@ -854,7 +854,7 @@ public class ExtractMethodBodyTests
             "    (int X, int Y) Target => (1, 2);",          // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("(int X, int Y) Target => (1, 2);", body);
     }
@@ -871,7 +871,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Run()\n{\n    (var a, var b) = Target();\n}",
@@ -891,7 +891,7 @@ public class ExtractMethodBodyTests
             $"    {declaration}",                            // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal(declaration, body);
     }
@@ -910,7 +910,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             $"public void Target()\n{{\n    {firstStatement}\n}}",
@@ -927,7 +927,7 @@ public class ExtractMethodBodyTests
             "        \"{\";",                                // 4  <- EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("public string Target =>\n    \"{\";", body);
     }
@@ -942,7 +942,7 @@ public class ExtractMethodBodyTests
             "        \"x\";",                                // 4  <- EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("public string Target => /* { */\n    \"x\";", body);
     }
@@ -959,7 +959,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 4, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public string Target() {\n    return \"}\";\n}",
@@ -977,7 +977,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 5
             "}");                                            // 6
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal(
             "public string Target() {\n    return @\"}\";\n}",
@@ -994,7 +994,7 @@ public class ExtractMethodBodyTests
             "        {{\";",                                 // 4  <- EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal(
             "public string Target() => @$\"first\n    {{\";",
@@ -1010,7 +1010,7 @@ public class ExtractMethodBodyTests
             "    public int Target() => 0; // opens nothing {", // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public int Target() => 0; // opens nothing {", body);
     }
@@ -1024,7 +1024,7 @@ public class ExtractMethodBodyTests
             "    public int Target() => 0; /* note */",      // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public int Target() => 0; /* note */", body);
     }
@@ -1041,7 +1041,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 5, methodName: "Target");
 
         Assert.Equal("public int Target() // ;\n{\n    return 0;\n}", body);
     }
@@ -1062,7 +1062,7 @@ public class ExtractMethodBodyTests
             "        \"\"\";",                              // 5  <- EndLine
             "}");                                           // 6
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 5, methodName: "Target");
 
         Assert.Equal("public string Target() => \"\"\"\n    a\n    \"\"\";", body);
     }
@@ -1076,7 +1076,7 @@ public class ExtractMethodBodyTests
             "    public string Target() => \"\"\"a\"\"\";",  // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public string Target() => \"\"\"a\"\"\";", body);
     }
@@ -1091,7 +1091,7 @@ public class ExtractMethodBodyTests
             "",                                             // 4  <- EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal("public int Target() => 0;", body);
     }
@@ -1112,7 +1112,7 @@ public class ExtractMethodBodyTests
             "    // trailing note",                          // 4  <- EndLine
             "}");                                           // 5
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal("public int Target() => 0;", body);
     }
@@ -1134,7 +1134,7 @@ public class ExtractMethodBodyTests
             "    void Other() { }",                          // 6
             "}");                                           // 7
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = MemberTextSlicer.ExtractMemberText(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("void Target() { Log($\"\"\"x{y}\n    \"\"\"); }", body);
     }
@@ -1167,7 +1167,7 @@ public class ExtractMethodBodyTests
             "    }",
             "}") + "\n";
 
-        var body = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
+        var body = MemberTextSlicer.ExtractMemberText(source, 5, 7, "get_P");
 
         Assert.NotNull(body);
         Assert.StartsWith("    public string P", body);
@@ -1200,7 +1200,7 @@ public class ExtractMethodBodyTests
             "    }",
             "}") + "\n";
 
-        var thrown = Record.Exception(() => BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
+        var thrown = Record.Exception(() => MemberTextSlicer.ExtractMemberText(source, 5, 6, "M"));
 
         Assert.Null(thrown);
     }
@@ -1225,7 +1225,7 @@ public class ExtractMethodBodyTests
         // DeclaresMember only ever examines the slice's own first line, so the declaration
         // under test has to be that line.
         // The scan must reach a decision. Declining is a decision; throwing is not.
-        var thrown = Record.Exception(() => BodySlicer.ExtractMethodBody(source, 3, 6, "get_Target"));
+        var thrown = Record.Exception(() => MemberTextSlicer.ExtractMemberText(source, 3, 6, "get_Target"));
 
         Assert.Null(thrown);
     }
@@ -1248,7 +1248,7 @@ public class ExtractMethodBodyTests
             "}") + "\n";
 
         var thrown = Record.Exception(
-            () => BodySlicer.ExtractMethodBody(source, 5, 6, "Finalize"));
+            () => MemberTextSlicer.ExtractMemberText(source, 5, 6, "Finalize"));
 
         Assert.Null(thrown);
     }
@@ -1275,7 +1275,7 @@ public class ExtractMethodBodyTests
             "        if (x)",
             "        {") + "\n";
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 6, "M"));
 
         // The same member in a file that closes its braces does slice, so absence is caused by the
         // unbalanced file and not by the fixture's shape.
@@ -1292,7 +1292,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "void M()\n{\n    if (x)\n    {\n    }\n}",
-            BodySlicer.ExtractMethodBody(closed, 5, 6, "M"));
+            MemberTextSlicer.ExtractMemberText(closed, 5, 6, "M"));
     }
 
     /// <summary>
@@ -1311,7 +1311,7 @@ public class ExtractMethodBodyTests
             "    }",
             "}");
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 6, ".ctor"));
     }
 
     /// <summary>
@@ -1338,7 +1338,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public C(int value)\n{\n    Use(value);\n}",
-            BodySlicer.ExtractMethodBody(source, 3, 8, ".ctor"));
+            MemberTextSlicer.ExtractMemberText(source, 3, 8, ".ctor"));
     }
 
     /// <summary>
@@ -1359,7 +1359,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public C(int value) => Use(value);",
-            BodySlicer.ExtractMethodBody(source, 3, 5, "#ctor"));
+            MemberTextSlicer.ExtractMemberText(source, 3, 5, "#ctor"));
     }
 
     [Theory]
@@ -1377,7 +1377,7 @@ public class ExtractMethodBodyTests
             otherConstructor,           // 4  <- EndLine
             "}");                       // 5
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 4, methodName));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 4, methodName));
     }
 
     [Fact]
@@ -1390,7 +1390,7 @@ public class ExtractMethodBodyTests
             "    C() { }",      // 4  <- EndLine
             "}");               // 5
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 4, ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 4, ".ctor"));
     }
 
     /// <summary>
@@ -1412,7 +1412,7 @@ public class ExtractMethodBodyTests
             "    private readonly int _last = 2;",       // 7  <- EndLine
             "}");                                       // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 7, ".ctor"));
     }
 
     /// <summary>
@@ -1429,7 +1429,7 @@ public class ExtractMethodBodyTests
             "    int Field = value; C() : this(0) { }", // 3  <- EndLine
             "}");                                       // 4
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 1, 3, ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 1, 3, ".ctor"));
     }
 
     /// <summary>
@@ -1450,7 +1450,7 @@ public class ExtractMethodBodyTests
             "    C() { }",                            // 7  <- EndLine
             "}");                                     // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 7, ".ctor"));
     }
 
     [Fact]
@@ -1468,7 +1468,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "C(string path)\n    : base(new Options { Path = path })\n{\n    Use(path);\n}",
-            BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+            MemberTextSlicer.ExtractMemberText(source, 3, 7, ".ctor"));
     }
 
     [Fact]
@@ -1485,7 +1485,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "extension()\n{\n    Use();\n}",
-            BodySlicer.ExtractMethodBody(source, 3, 6, ".ctor"));
+            MemberTextSlicer.ExtractMemberText(source, 3, 6, ".ctor"));
     }
 
     [Fact]
@@ -1506,7 +1506,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public int Doubled\n    => value * 2;",
-            BodySlicer.ExtractMethodBody(source, 6, 6, "get_Doubled"));
+            MemberTextSlicer.ExtractMemberText(source, 6, 6, "get_Doubled"));
     }
 
     [Fact]
@@ -1524,7 +1524,7 @@ public class ExtractMethodBodyTests
             "    }",                       // 9
             "}");                          // 10
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 8, 8, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 8, 8, "M"));
     }
 
     [Fact]
@@ -1539,7 +1539,7 @@ public class ExtractMethodBodyTests
             "    }",                          // 6
             "}");                             // 7
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 5, "M"));
     }
 
     [Fact]
@@ -1554,7 +1554,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "C() : this(new S { Value = 1 }, 2) { }",
-            BodySlicer.ExtractMethodBody(source, 4, 4, ".ctor"));
+            MemberTextSlicer.ExtractMemberText(source, 4, 4, ".ctor"));
     }
 
     [Fact]
@@ -1567,7 +1567,7 @@ public class ExtractMethodBodyTests
             "    void M() { }",                     // 4
             "}");                                   // 5
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, ".ctor"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, ".ctor"));
     }
 
     /// <summary>
@@ -1599,7 +1599,7 @@ public class ExtractMethodBodyTests
             constructor,    // 5  <- EndLine
             "}");           // 6
 
-        Assert.Equal(expected, BodySlicer.ExtractMethodBody(source, 3, 5, methodName));
+        Assert.Equal(expected, MemberTextSlicer.ExtractMemberText(source, 3, 5, methodName));
     }
 
     [Theory]
@@ -1616,7 +1616,7 @@ public class ExtractMethodBodyTests
             constructor,    // 3  <- StartLine/EndLine
             "}");           // 4
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, methodName));
     }
 
     /// <summary>
@@ -1638,7 +1638,7 @@ public class ExtractMethodBodyTests
             initializer,    // 3  <- StartLine/EndLine
             "}");           // 4
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, methodName));
     }
 
     [Fact]
@@ -1650,7 +1650,7 @@ public class ExtractMethodBodyTests
             "    extension(string value) { public void M() { Use(value); } }",    // 3
             "}");                                                                 // 4
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, "M"));
     }
 
     [Fact]
@@ -1670,7 +1670,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public void M()\n{\n    Use(value);\n}",
-            BodySlicer.ExtractMethodBody(source, 5, 8, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 5, 8, "M"));
     }
 
     [Fact]
@@ -1693,7 +1693,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public void M()\n{\n}",
-            BodySlicer.ExtractMethodBody(source, 9, 11, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 9, 11, "M"));
     }
 
     [Fact]
@@ -1710,7 +1710,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public void M() { }",
-            BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 5, 5, "M"));
     }
 
     [Fact]
@@ -1729,7 +1729,7 @@ public class ExtractMethodBodyTests
             "    }",                          // 10
             "}");                             // 11
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 9, "get_P"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 9, 9, "get_P"));
     }
 
     [Fact]
@@ -1746,7 +1746,7 @@ public class ExtractMethodBodyTests
             "    }",                          // 8
             "}");                             // 9
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 7, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 7, "M"));
     }
 
     [Fact]
@@ -1762,7 +1762,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 7
             "}");                               // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 4, 4, "P"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 4, 4, "P"));
     }
 
     [Fact]
@@ -1779,7 +1779,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 8
             "}");                               // 9
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 7, 8, "Q"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 7, 8, "Q"));
     }
 
     [Fact]
@@ -1795,7 +1795,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 7
             "}");                               // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 6, "M"));
     }
 
     [Fact]
@@ -1811,7 +1811,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 7
             "}");                                   // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "P"));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, "P"));
     }
 
     [Fact]
@@ -1825,7 +1825,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "[Obsolete] public void M() { }",
-            BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 3, 3, "M"));
     }
 
     [Fact]
@@ -1841,7 +1841,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "public void M() { }",
-            BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 5, 5, "M"));
     }
 
     [Fact]
@@ -1856,7 +1856,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "[B] public void M() { }",
-            BodySlicer.ExtractMethodBody(source, 4, 4, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 4, 4, "M"));
     }
 
     [Theory]
@@ -1868,7 +1868,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "void M() { }",
-            BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 3, 3, "M"));
     }
 
     [Theory]
@@ -1883,7 +1883,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "void A() { }",
-            BodySlicer.ExtractMethodBody(source, 5, 5, "A"));
+            MemberTextSlicer.ExtractMemberText(source, 5, 5, "A"));
     }
 
     [Fact]
@@ -1898,7 +1898,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "void M() { }",
-            BodySlicer.ExtractMethodBody(source, 4, 4, "M"));
+            MemberTextSlicer.ExtractMemberText(source, 4, 4, "M"));
     }
 
     [Fact]
@@ -1916,7 +1916,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "void Live() { Use(); }",
-            BodySlicer.ExtractMethodBody(source, 6, 6, "Live", [6]));
+            MemberTextSlicer.ExtractMemberText(source, 6, 6, "Live", [6]));
     }
 
     [Fact]
@@ -1940,7 +1940,7 @@ public class ExtractMethodBodyTests
 
         Assert.Equal(
             "void Second() { Use(); }",
-            BodySlicer.ExtractMethodBody(source, 7, 7, "Second", [7]));
+            MemberTextSlicer.ExtractMemberText(source, 7, 7, "Second", [7]));
     }
 
     [Fact]
@@ -1973,7 +1973,7 @@ public class ExtractMethodBodyTests
                 "        Use(2);",
                 "#endif",
                 "    }"),
-            BodySlicer.ExtractMethodBody(source, 7, 11, "M", [7, 11]));
+            MemberTextSlicer.ExtractMemberText(source, 7, 11, "M", [7, 11]));
     }
 
     [Fact]
@@ -1989,7 +1989,7 @@ public class ExtractMethodBodyTests
             "#endif",                   // 7
             "}");                       // 8
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 4, 4, "A", [4, 6]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 4, 4, "A", [4, 6]));
     }
 
     [Fact]
@@ -2004,7 +2004,7 @@ public class ExtractMethodBodyTests
             "#endif",                  // 6
             "}");                      // 7
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 5, "B", [4]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 5, "B", [4]));
     }
 
     [Fact]
@@ -2022,7 +2022,7 @@ public class ExtractMethodBodyTests
             "    M() => 1;",      // 9
             "}");                 // 10
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 9, "M", [9]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 9, 9, "M", [9]));
     }
 
     [Fact]
@@ -2043,7 +2043,7 @@ public class ExtractMethodBodyTests
             "    }",                              // 12
             "}");                                 // 13
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 6, 12, "M", [6, 12]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 6, 12, "M", [6, 12]));
     }
 
     [Fact]
@@ -2062,7 +2062,7 @@ public class ExtractMethodBodyTests
             "#endif",                                           // 10
             "}");                                               // 11
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 9, "M", [3, 9]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 9, "M", [3, 9]));
     }
 
     [Fact]
@@ -2082,7 +2082,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 11
             "}");                               // 12
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 11, "M", [9, 11]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 9, 11, "M", [9, 11]));
     }
 
     [Fact]
@@ -2102,7 +2102,7 @@ public class ExtractMethodBodyTests
             "        3;",               // 11
             "}");                       // 12
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 11, "M", [5]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 5, 11, "M", [5]));
     }
 
     [Fact]
@@ -2115,7 +2115,7 @@ public class ExtractMethodBodyTests
             "    void M() { }",// 4
             "}");             // 5
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M", [3]));
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 3, 3, "M", [3]));
     }
 
     [Theory]
@@ -2123,24 +2123,24 @@ public class ExtractMethodBodyTests
     [InlineData(new[] { 4, 3 })]
     [InlineData(new[] { 3, 3 })]
     [InlineData(new[] { 6 })]
-    public void InvalidSequencePointCoordinates_FailVisibly(int[] points)
+    public void InvalidActiveLineCoordinates_FailVisibly(int[] points)
     {
         const string source = "class C\n{\n    void M() { }\n}";
 
-        Assert.ThrowsAny<ArgumentException>(
-            () => BodySlicer.ExtractMethodBody(source, 3, 3, "M", points));
+        Assert.Throws<InvalidMemberTextCoordinatesException>(
+            () => MemberTextSlicer.ExtractMemberText(source, 3, 3, "M", points));
     }
 
     [Theory]
     [InlineData(0, 3)]
     [InlineData(3, 2)]
     [InlineData(3, 6)]
-    public void InvalidSequencePointRange_FailsVisibly(int startLine, int endLine)
+    public void InvalidMemberTextRange_FailsVisibly(int startLine, int endLine)
     {
         const string source = "class C\n{\n    void M() { }\n}";
 
-        Assert.Throws<InvalidSequencePointCoordinatesException>(
-            () => BodySlicer.ExtractMethodBody(source, startLine, endLine, "M", [3]));
+        Assert.Throws<InvalidMemberTextCoordinatesException>(
+            () => MemberTextSlicer.ExtractMemberText(source, startLine, endLine, "M", [3]));
     }
 
 }
