@@ -850,11 +850,17 @@ visibly unavailable. Settings are not included in shared links. The first
 version-selector adopter is the existing Gallery path, not custom sources or
 platform inputs.
 
-These controls prepare targets only: the Library Clone result inspector
-remains follow-on work under #5083. Library Diff is described below. The
-owner is [Browser Diff targets](../../docs/design/inspect-web-diff-targets.md)
-for the Diff baseline and Structural Clone Search Scope for the replacement
-Clone breadth and candidate discovery.
+Package Overview presents the two settings as task rows: each row keeps its
+label, available-width native selector, effective state, and recovery action
+together. At narrow widths the row stacks without changing focus order. One
+shared note explains that target selection is session-local and does not run a
+comparison.
+
+Library Diff is described below; the Library Clone result inspector remains
+follow-on work under #5083. The owner is
+[Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
+Diff baseline and Structural Clone Search Scope for the replacement Clone
+breadth and candidate discovery.
 
 ## Method Body Diff
 
