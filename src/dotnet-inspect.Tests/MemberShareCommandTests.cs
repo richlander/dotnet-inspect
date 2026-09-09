@@ -40,10 +40,13 @@ public partial class CommandExecutionTests
         Assert.Equal("Newtonsoft.Json", Assert.Single(packet.Libraries));
     }
 
-    [Fact]
-    public async Task MemberShare_UrlWrapsCanonicalPacket()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("url")]
+    public async Task MemberShare_UrlWrapsCanonicalPacket(string? format)
     {
-        var result = await RunAppAsync(
+        var arguments = new List<string>
+        {
             "member",
             "JsonConvert",
             "--package",
@@ -52,9 +55,12 @@ public partial class CommandExecutionTests
             "--tfm",
             "net6.0",
             "--share",
-            "url",
-            "--tips",
-            "q");
+        };
+        if (format is not null)
+            arguments.Add(format);
+        arguments.AddRange(["--tips", "q"]);
+
+        var result = await RunAppAsync([.. arguments]);
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);

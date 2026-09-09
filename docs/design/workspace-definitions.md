@@ -2042,22 +2042,19 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
-- The Package Dependencies share composition projects one exact package Root
-  through `WorkspaceSharePacketTransposer` with the format-1 `dependencies`
-  compatibility token. The legacy lowering table maps that token to
+- the package Root `dependencies` compatibility token lowers to
   `root.package-dependencies`; the packet carries the exact package coordinate
-  and framework, not graph results, dependency-group indexes, CLI policy, or
-  Browser runtime state. CLI input resolution, output selection, and refusal
-  behavior belong to [CLI Workspace Sharing](cli-workspace-sharing.md).
-  The published Browser restores the package Dependencies lens and lazily
-  computes the graph from the packet coordinate and framework. Browser capture
-  refuses an explicitly selected dependency group that differs from the active
-  framework because format 1 cannot preserve that override, and canonical
-  Dependencies restoration clears any prior Browser-local group override
-  before rendering. The Browser Share action uses this canonical capture path
-  even though ordinary package-root address-bar state retains its simpler route
-  form.
-  `canonical package dependency views restore the package root lens`,
+  and framework but no graph results, dependency-group indexes, or Browser
+  runtime state. The public CLI gesture and producer behavior are owned by
+  [CLI Workspace Sharing](cli-workspace-sharing.md). The published Browser
+  restores its package Dependencies lens and lazily computes the graph.
+  Browser capture refuses an explicitly selected dependency group that differs
+  from the active framework because format 1 cannot preserve that override,
+  and canonical Dependencies restoration clears any prior Browser-local group
+  override before rendering. The Browser Share action uses this canonical
+  capture path even though ordinary package-root address-bar state retains its
+  simpler route form. `canonical package dependency views restore the package
+  root lens`,
   `canonical package views reject contradictory structural selection`,
   `capture projects package Dependencies through the packet lens`,
   `capture refuses a non-active package dependency group`, and

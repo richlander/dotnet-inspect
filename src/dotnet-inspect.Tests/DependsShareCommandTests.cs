@@ -41,19 +41,25 @@ public partial class CommandExecutionTests
         Assert.Empty(packet.Libraries);
     }
 
-    [Fact]
-    public async Task DependsShare_UrlWrapsCanonicalPacket()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("url")]
+    public async Task DependsShare_UrlWrapsCanonicalPacket(string? format)
     {
-        var result = await RunAppAsync(
+        var arguments = new List<string>
+        {
             "depends",
             "--package",
             "System.Text.Json@10.0.0",
             "--tfm",
             "NET10.0",
             "--share",
-            "url",
-            "--tips",
-            "q");
+        };
+        if (format is not null)
+            arguments.Add(format);
+        arguments.AddRange(["--tips", "q"]);
+
+        var result = await RunAppAsync([.. arguments]);
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -68,35 +74,10 @@ public partial class CommandExecutionTests
         Assert.Equal("dependencies", packet.Lens);
     }
 
-    [Fact]
-    public async Task DependsShare_BareShareDefaultsToUrl()
-    {
-        var result = await RunAppAsync(
-            "depends",
-            "--package",
-            "System.Text.Json@10.0.0",
-            "--tfm",
-            "net10.0",
-            "--share",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
-        var url = new Uri(result.Output.Trim());
-        Assert.Equal("https", url.Scheme);
-        Assert.Equal("dotnet-inspect.net", url.Host);
-        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            url.Query[3..],
-            TestContext.Current.CancellationToken);
-        Assert.Equal("10.0.0", Assert.Single(packet.Tabs).Version);
-        Assert.Equal("dependencies", packet.Lens);
-    }
-
     [Theory]
     [InlineData("")]
     [InlineData("@latest")]
-    public async Task DependsShare_FloatingPackageResolvesToExactCoordinate(
+    public async Task DependsShare_FloatingVersionResolvesWithoutPackageAcquisition(
         string versionSelector)
     {
         string packageId = $"Share.Floating.{Guid.NewGuid():N}";
@@ -121,13 +102,10 @@ public partial class CommandExecutionTests
             result.Output.Trim(),
             TestContext.Current.CancellationToken);
         WorkspaceShareTab tab = Assert.Single(packet.Tabs);
-        Assert.Equal(packageId.ToLowerInvariant(), tab.Source);
+        Assert.Equal(packageId, tab.Source);
         Assert.Equal("2.0.0", tab.Version);
-        Assert.Contains(
-            handler.Requests,
-            request => request.Host.Equals(
-                "azuresearch-usnc.nuget.org",
-                StringComparison.OrdinalIgnoreCase));
+        Uri request = Assert.Single(handler.Requests);
+        Assert.Equal("azuresearch-usnc.nuget.org", request.Host);
         Assert.DoesNotContain(
             handler.Requests,
             request => request.AbsolutePath.EndsWith(
@@ -136,11 +114,11 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Newtonsoft.Json@13.*", "net6.0", "one exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@13.0.4+build", "net6.0", "one exact NuGet package version")]
+    [InlineData("Newtonsoft.Json@13.*", "net6.0", "exact normalized NuGet version")]
+    [InlineData("Newtonsoft.Json@13.0.4+build", "net6.0", "exact normalized NuGet version")]
     [InlineData("Newtonsoft.Json@13.0.4", null, "target framework")]
     [InlineData("Newtonsoft.Json@13.0.4", "not/a/tfm", "target framework")]
-    public async Task DependsShare_RejectsNonProjectableCoordinateBeforeAcquisition(
+    public async Task DependsShare_RejectsNonProjectableCoordinate(
         string package,
         string? framework,
         string expectedError)

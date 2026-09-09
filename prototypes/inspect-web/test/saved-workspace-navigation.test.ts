@@ -370,15 +370,15 @@ function harness() {
   };
   const context = {
     state, location, history, document, workspaceLocation,
-    navigator: {
-      clipboard: {
-        writeText: async (value: string) => { clipboard.push(value); },
-      },
-    },
     app: {
       inert: false,
       setAttribute: () => {},
       removeAttribute: () => {},
+    },
+    navigator: {
+      clipboard: {
+        writeText: async (value: string) => { clipboard.push(value); },
+      },
     },
     catalogRequests, packageComparisonTargets,
     navigationSequence, navigationHistory,

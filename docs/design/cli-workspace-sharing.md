@@ -12,12 +12,13 @@ consumer is Inspect Web. The complementary Browser-to-CLI replay direction is
 tracked by
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
 
-This is a proposed target contract. `member --share packet|url` is the first
-production adoption, but its current restrictions are narrower than the
-contract below. Package Dependencies is the second focused adoption: it
-implements the common output gesture and exact floating-package resolution for
-its package-root Dependencies subset. Further command adoption remains
-unverified until the gates in [Status and gates](#status-and-gates) land.
+This is the target contract. `member --share[=url|packet]` is the first
+production adoption, but its current semantic restrictions are narrower than
+the contract below. Package Dependencies adoption through
+`depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]` is gated
+by the focused implementation and Browser-restoration tests named in
+[Status and gates](#status-and-gates). Further command adoption remains
+unverified until its corresponding gates land.
 
 ## Ownership and boundaries
 
@@ -331,13 +332,13 @@ Neighboring cases prove the boundary:
 ## Status and gates
 
 The common target contract is **partially verified**. Current
-`member --share packet|url` proves canonical packet/URL production for one
-explicitly selected public NuGet member Overview, but it currently requires an
-explicit format and exact overload gesture and rejects all section selection.
-Package Dependencies proves bare `--share`, explicit `url`, `packet`, and
-floating-to-exact NuGet.org resolution for its package-root Dependencies facet.
-Those restrictions are implementation status, not the general sharing
-contract.
+`member --share[=url|packet]` proves canonical packet/URL production for one
+explicitly selected public NuGet member Overview, but it still requires an
+exact overload gesture and rejects all section selection. Package Dependencies
+adoption proves that an omitted or `latest` NuGet.org version can be resolved
+to an exact coordinate without acquiring the package or traversing its graph,
+then restored by Inspect Web as the Dependencies facet. Those restrictions and
+completed slices are implementation status, not the general sharing contract.
 
 Each adoption must add focused Release gates proving:
 
@@ -362,15 +363,19 @@ Each adoption must add focused Release gates proving:
 The existing `MemberShare_*` tests gate the narrower member subset.
 `DependsShare_PacketProjectsExactPackageDependencyView`,
 `DependsShare_UrlWrapsCanonicalPacket`,
-`DependsShare_BareShareDefaultsToUrl`,
-`DependsShare_FloatingPackageResolvesToExactCoordinate`,
-`DependsShare_RejectsNonProjectableCoordinateBeforeAcquisition`,
+`DependsShare_FloatingVersionResolvesWithoutPackageAcquisition`,
+`DependsShare_RejectsNonProjectableCoordinate`,
+`DependsShare_RejectsLocalPackage`,
 `DependsShare_RejectsConfiguredSource`,
 `DependsShare_RejectsBrowserPlatformPackageId`, and
-`DependsShare_RejectsConflictingOutput` gate the Package Dependencies CLI
-adoption. The saved-Workspace navigation tests named for canonical package
-Dependencies capture, sharing, restoration, and dependency-group refusal gate
-the receiving Browser adapter.
+`DependsShare_RejectsConflictingOutput` gate the CLI package Dependencies
+projection. `canonical package dependency views restore the package root
+lens`, `canonical package views reject contradictory structural selection`,
+`capture projects package Dependencies through the packet lens`, `capture
+refuses a non-active package dependency group`, `Share copies canonical
+package Dependencies and refuses a non-active group`, and `canonical package
+Dependencies restoration clears a resident group override` gate the Browser
+adapter.
 `WorkspaceSharePacketTransposerTests` and codec vectors remain authoritative
 for packet validity. An adoption is not complete with a decode-only test; its
 gate must exercise the command-to-Browser handoff described by #6150.

@@ -591,12 +591,7 @@ public static class MemberOptionsParser
             return new VersionError(mermaidError.Value);
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
         WorkspaceShareFormat? shareFormat =
-            parseResult.GetValue(args.ShareOption)?.ToLowerInvariant() switch
-            {
-                "packet" => WorkspaceShareFormat.Packet,
-                "url" => WorkspaceShareFormat.Url,
-                _ => null,
-            };
+            WorkspaceShareOption.Parse(parseResult, args.ShareOption);
 
         var outputFormat = opts.ResolveFormat(parseResult);
         var options = new MemberOptions

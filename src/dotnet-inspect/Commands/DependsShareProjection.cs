@@ -3,7 +3,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using NuGet.Frameworks;
-using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -43,7 +43,7 @@ internal static class DependsShareProjection
         DependsOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         string packageReference = options.PackageName!;
         if (packageReference.EndsWith(
@@ -79,57 +79,40 @@ internal static class DependsShareProjection
                 "--share requires one valid target framework with --tfm.");
         }
 
-        string normalizedVersion;
-        bool forceLatest = string.Equals(
-            versionText,
-            "latest",
-            StringComparison.OrdinalIgnoreCase);
-        if (versionText is null || forceLatest)
+        string? requestedVersion = string.Equals(
+                versionText,
+                "latest",
+                StringComparison.OrdinalIgnoreCase)
+            ? null
+            : versionText;
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                httpClient,
+                new PackageCoordinate(
+                    packageId,
+                    requestedVersion,
+                    framework),
+                [PackageSource.NuGetOrg],
+                logger.Log,
+                includePrerelease: false,
+                useVersionCache: false,
+                requireStableFloating: false,
+                cancellationToken).ConfigureAwait(false);
+        if (resolution
+            is not PackageCoordinateResolution.Resolved resolved)
         {
-            PackageCoordinateResolution resolution =
-                await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
-                    httpClient,
-                    new PackageCoordinate(packageId),
-                    sourceOptions: null,
-                    logger.Log,
-                    includePrerelease: false,
-                    useVersionCache: !forceLatest,
-                    cancellationToken).ConfigureAwait(false);
-            if (resolution
-                is not PackageCoordinateResolution.Resolved resolved)
+            string message = resolution switch
             {
-                return NonProjectable(
-                    resolution switch
-                    {
-                        PackageCoordinateResolution.Invalid invalid =>
-                            invalid.Message,
-                        PackageCoordinateResolution.Unavailable unavailable =>
-                            unavailable.Message,
-                        _ => throw new InvalidOperationException(
-                            "Unexpected package coordinate resolution result."),
-                    });
-            }
-
-            packageId = resolved.Coordinate.PackageId;
-            normalizedVersion = resolved.Coordinate.Version;
+                PackageCoordinateResolution.Invalid invalid =>
+                    invalid.Message,
+                PackageCoordinateResolution.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => "The package coordinate could not be resolved.",
+            };
+            return NonProjectable($"--share could not resolve an exact NuGet.org package coordinate: {message}");
         }
-        else
-        {
-            if (versionText.Contains('*', StringComparison.Ordinal)
-                || versionText.Contains('+', StringComparison.Ordinal)
-                || !NuGetVersion.TryParse(
-                    versionText,
-                    out NuGetVersion? version))
-            {
-                return NonProjectable(
-                    "--share requires one exact NuGet package version or "
-                    + "an unversioned package that resolves to one exact version; "
-                    + "ranges, wildcards, and build metadata are not projectable.");
-            }
-
-            normalizedVersion =
-                version.ToNormalizedString().ToLowerInvariant();
-        }
+        string normalizedVersion = resolved.Coordinate.Version;
+        string normalizedVersion = resolved.Coordinate.Version;
         var coordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 packageId,

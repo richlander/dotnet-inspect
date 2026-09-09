@@ -550,7 +550,7 @@ dotnet-inspect member JsonConvert \
   --package Newtonsoft.Json@13.0.4 \
   SerializeObject:1 \
   --tfm net6.0 \
-  --share url
+  --share
 dotnet-inspect depends \
   --package Newtonsoft.Json \
   --tfm net6.0 \
@@ -565,24 +565,25 @@ for the existing share-packet JSON shape. Packet-only output remains the default
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
 
-`member --share packet|url` projects one explicitly selected public member
+Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
+default explicitly, while `--share packet` emits only the canonical packet.
+
+`member --share[=url|packet]` projects one explicitly selected public member
 overload from an exact NuGet.org package version and target framework. The URL
 opens that member's API Overview in the published browser. Select an overload
 with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
 private-feed, non-public, multi-library, and other rendering or analysis modes
 fail visibly rather than producing a link the browser cannot restore.
 
-`depends --package <id>[@<version>] --tfm <tfm> --share [url|packet]`
+`depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
 projects the package Dependencies view without acquiring the package or
-traversing the graph in the CLI. Bare `--share` and explicit `url` emit the
-complete link; `packet` emits only its canonical packet. An unversioned package
-or `@latest` is resolved through the normal NuGet.org version policy and pinned
-to the resulting exact version. The published browser acquires that exact
-coordinate and lazily computes the dependency graph for the selected target
-framework. Local archives, configured sources, ranges, wildcards, build
-metadata, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
-Platform id, row windows, counts, and other rendering formats fail visibly
-rather than producing a non-reproducible link.
+traversing the graph in the CLI. An omitted version or `latest` is resolved
+from NuGet.org and pinned before emission; the published browser then acquires
+that exact coordinate and lazily computes the dependency graph for the
+selected target framework. Local archives, configured sources, wildcard,
+range, or build-metadata versions, omitted frameworks, the Browser-reserved
+`Microsoft.NETCore.App` Platform id, row windows, counts, and other rendering
+formats fail visibly rather than producing a non-reproducible link.
 
 ## Requirements
 
