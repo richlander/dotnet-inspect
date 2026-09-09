@@ -295,6 +295,33 @@ public sealed class CompileReferencePlatformPolicyTests
     }
 
     [Fact]
+    public async Task PlatformSelectionCannotReintroduceDistinctSourceModuleRegistration()
+    {
+        await using var fixture = new Fixture("identical");
+        var source = ResolvedAssemblyReference.CreateFromPath(
+            fixture.SiblingPath,
+            AssemblyResolutionProvenance.Local("source copy"));
+        CompileReferencePlatformPolicy policy = Ready(await CompileReferencePlatformPolicy.PrepareAsync(
+            fixture.Owner,
+            fixture.Resolver,
+            source,
+            [Request(JsonIdentity, source)],
+            Cancellation));
+        CompileReferenceInventory inventory = await fixture.Publish(policy);
+
+        CompileReferenceImage sourceReplica = Assert.Single(
+            inventory.Candidates,
+            candidate => candidate.IsSameModuleAs(inventory.Source)
+                && !ReferenceEquals(candidate.InventoryId, inventory.Source.InventoryId)
+                && candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset);
+        CompileReferenceFailure failure = Rejected(
+            policy.Select(inventory, [], Cancellation),
+            CompileReferenceFailureKind.SourceReferenceExcluded);
+
+        Assert.Contains(sourceReplica.InventoryId, failure.Candidates);
+    }
+
+    [Fact]
     public async Task FailedSupportingImageRetainsTheMetadataFailure()
     {
         await using var fixture = new Fixture();

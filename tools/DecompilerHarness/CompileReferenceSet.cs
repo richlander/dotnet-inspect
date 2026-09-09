@@ -131,12 +131,23 @@ public sealed class CompileReferenceSet
             if (ReferenceEquals(request.Pin, inventory.Source.InventoryId))
                 return Reject(CompileReferenceFailureKind.SourceReferenceExcluded, request);
 
-            CompileReferenceImage[] matches = [.. inventory.Candidates.Where(candidate =>
+            CompileReferenceImage[] identityMatches = [.. inventory.Candidates.Where(candidate =>
                 !ReferenceEquals(candidate.InventoryId, inventory.Source.InventoryId)
                 && request.Identity.IsEquivalentTo(candidate.Identity)
                 && (request.Pin is null || ReferenceEquals(request.Pin, candidate.InventoryId)))];
+            CompileReferenceImage[] sourceReplicas =
+                [.. identityMatches.Where(candidate => candidate.IsSameModuleAs(inventory.Source))];
+            if (sourceReplicas.Length > 0 && request.Pin is not null)
+                return Reject(CompileReferenceFailureKind.SourceReferenceExcluded, request, sourceReplicas);
+
+            CompileReferenceImage[] matches =
+                [.. identityMatches.Where(candidate => !candidate.IsSameModuleAs(inventory.Source))];
             if (matches.Length == 0)
+            {
+                if (sourceReplicas.Length > 0)
+                    return Reject(CompileReferenceFailureKind.SourceReferenceExcluded, request, sourceReplicas);
                 return Reject(CompileReferenceFailureKind.ReferenceNotFound, request);
+            }
             if (matches.Length > 1)
                 return Reject(CompileReferenceFailureKind.ReferenceSelectionAmbiguous, request, matches);
 
