@@ -102,7 +102,7 @@ tests/CSharpText.Tests
 tests/DotnetInspector.Artifacts.Local.PlatformProbe
 tests/DotnetInspector.Artifacts.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
-tests/DotnetInspector.CSharpBodySlicer.Tests
+tests/CSharpText.MemberSlicing.Tests
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
