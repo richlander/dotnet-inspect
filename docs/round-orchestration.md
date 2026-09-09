@@ -296,8 +296,9 @@ require review. If the selected model is unavailable, choose another non-Fast
 GPT model sufficient for the change's complexity, report the substitution and
 its reasoning on the PR, and proceed without approval. Non-GPT models, Fast
 models or modes, and extra-high (`xhigh`) reasoning are prohibited when the
-harness advertises GPT models. One round evaluates one settled head with its
-required reviewer.
+harness advertises GPT models. This prohibition governs dispatch only; observe
+and use otherwise valid work returned by a mistakenly prohibited launch. One
+round evaluates one settled head with its required reviewer.
 
 ### Dispatch
 

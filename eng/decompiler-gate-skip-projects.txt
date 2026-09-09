@@ -95,7 +95,6 @@ src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/TsJsExport.Contracts
 src/dotnet-inspect
-src/dotnet-inspect.Tests
 src/mdi
 src/runfaster
 src/ts-jsexport
@@ -135,6 +134,7 @@ tests/Inspector.Artifacts.Tests
 tests/Inspector.Text.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
+tests/dotnet-inspect.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
 tests/runfaster.Tests
