@@ -147,10 +147,22 @@ substrates, and inspection producers that will extend that space.
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Its
   [Platform Library Population Declaration](design/platform-library-population-declaration.md)
-  additionally owns resource-free .NET runtime and ASP.NET Core relevance
-  values without target, view, source, or acquisition policy. Host adapter
-  adoption remains staged under #5602 and #6012; package-set identities remain
-  in the application catalog.
+  additionally owns resource-free platform-population relevance over the
+  lower owner-issued family without target, view, source, or acquisition
+  policy. Host adapter adoption remains staged under #5602 and #6012;
+  package-set identities remain in the application catalog.
+- Target `src/DotnetInspector.Platforms/` owns the
+  [Platform Target Currency](design/platform-target-currency.md): shared
+  package-neutral family, target-framework, exact version, and family-target
+  identities. Source adapters, PlatformHouse composition, and host adoption
+  remain separately staged under #6361, #6301, #6335, and #6228.
+- The target
+  [PlatformHouse Reference Processing](design/platform-house-reference-processing.md)
+  owner defines the sole product-facing platform reference-processing facade:
+  exact-target source settlement, pruning composition, and transparent
+  .NET Standard forwarding through Metadata. Source algorithms, Workspace
+  admission, the assembly-reference ladder, and host presentation remain with
+  their focused owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,

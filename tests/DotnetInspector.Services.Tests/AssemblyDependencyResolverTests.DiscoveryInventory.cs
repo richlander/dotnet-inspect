@@ -182,6 +182,141 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CaptureDiscoveryInventory_DepsAssetChoosesFirstAvailablePhysicalLocation(
+        bool localExists)
+    {
+        using var files = new DiscoveryFiles();
+        string packages = Path.Combine(files.Root, "packages");
+        string local = Path.Combine(files.Root, "P.dll");
+        string package = files.Write(
+            "packages/p/1.0.0/lib/net10.0/P.dll",
+            BuildAssembly("P", [], new Version(2, 0, 0, 0)));
+        if (localExists)
+            files.Write("P.dll", BuildAssembly("P", [], new Version(1, 0, 0, 0)));
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net10.0":{"P/1.0.0":{"runtime":
+              {"lib/net10.0/P.dll":{"localPath":"P.dll"}}}}},
+             "libraries":{"P/1.0.0":{"path":"p/1.0.0"}}}
+            """);
+        string? oldPackages = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        try
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", packages);
+            var resolver = new AssemblyDependencyResolver(files.Options with
+            {
+                IncludeDepsJsonAssets = true,
+            });
+
+            var inventory = Assert.IsType<AssemblyDependencyDiscoveryResult.Captured>(
+                resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+            var row = Assert.Single(inventory.Entries);
+            Assert.Equal(localExists ? local : package, row.Dependency.Path);
+            Assert.Equal(
+                localExists ? new Version(1, 0, 0, 0) : new Version(2, 0, 0, 0),
+                Acquired(row).Identity.Version);
+            Assert.Equal(row.Dependency.Path, Assert.Single(resolver.ResolveAll()).Path);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", oldPackages);
+        }
+    }
+
+    [Fact]
+    public void CaptureDiscoveryInventory_DepsAssetWithoutPhysicalLocationIsOneUnavailableRow()
+    {
+        using var files = new DiscoveryFiles();
+        string packages = Path.Combine(files.Root, "packages");
+        string local = Path.Combine(files.Root, "P.dll");
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net10.0":{"P/1.0.0":{"runtime":
+              {"lib/net10.0/P.dll":{"localPath":"P.dll"}}}}},
+             "libraries":{"P/1.0.0":{"path":"p/1.0.0"}}}
+            """);
+        string? oldPackages = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        try
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", packages);
+            var resolver = new AssemblyDependencyResolver(files.Options with
+            {
+                IncludeDepsJsonAssets = true,
+            });
+
+            var failure = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+                resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+            var row = Assert.Single(failure.PartialEntries);
+            Assert.Equal(local, row.Dependency.Path);
+            Assert.Equal(CandidateOpenFailureKind.Unreadable,
+                Assert.IsType<AssemblyDependencyAcquisition.Unavailable>(row.Acquisition).Failure.Kind);
+            Assert.Empty(resolver.ResolveAll());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", oldPackages);
+        }
+    }
+
+    [Fact]
+    public void CaptureDiscoveryInventory_DepsAssetValidatesFallbackBeforeSelectingLocal()
+    {
+        using var files = new DiscoveryFiles();
+        files.Write("P.dll", BuildAssembly("P", []));
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net10.0":{"P/1.0.0":{"runtime":
+              {"P.dll":{"localPath":"P.dll"}}}}},
+             "libraries":{"P/1.0.0":{"path":"../outside"}}}
+            """);
+        var resolver = new AssemblyDependencyResolver(files.Options with
+        {
+            IncludeDepsJsonAssets = true,
+        });
+
+        var failure = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+            resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+        Assert.Empty(failure.PartialEntries);
+        Assert.Equal(AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+            Assert.Single(failure.DiscoveryFailures).Kind);
+        Assert.Equal(Path.Combine(files.Root, "P.dll"), Assert.Single(resolver.ResolveAll()).Path);
+    }
+
+    [Fact]
+    public void CaptureDiscoveryInventory_DepsAssetValidatesLocalBeforeSelectingFallback()
+    {
+        using var files = new DiscoveryFiles();
+        string packages = Path.Combine(files.Root, "packages");
+        string package = files.Write(
+            "packages/p/1.0.0/lib/net10.0/P.dll",
+            BuildAssembly("P", []));
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net10.0":{"P/1.0.0":{"runtime":
+              {"lib/net10.0/P.dll":{"localPath":"../outside/P.dll"}}}}},
+             "libraries":{"P/1.0.0":{"path":"p/1.0.0"}}}
+            """);
+        string? oldPackages = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        try
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", packages);
+            var resolver = new AssemblyDependencyResolver(files.Options with
+            {
+                IncludeDepsJsonAssets = true,
+            });
+
+            var failure = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+                resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+            Assert.Empty(failure.PartialEntries);
+            Assert.Equal(AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+                Assert.Single(failure.DiscoveryFailures).Kind);
+            Assert.Equal(package, Assert.Single(resolver.ResolveAll()).Path);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", oldPackages);
+        }
+    }
+
+    [Theory]
     [InlineData("nuspec", false)]
     [InlineData("nuspec", true)]
     [InlineData("deps", false)]

@@ -30,8 +30,8 @@ and does not prove that any source can realize the population.
 
 This owner defines:
 
-- the closed version-1 declaration family;
-- the semantic meaning of its two values;
+- the declaration role over one owner-issued
+  [Platform Family](platform-target-currency.md#platform-family);
 - the distinction between focus population and binding-support closure;
 - the separation between logical population and source-specific views;
 - the correspondence that later source adapters must preserve; and
@@ -84,24 +84,25 @@ without transferring their behavior into this owner.
 
 ## Contract shape
 
-The version-1 declaration is closed:
+The version-1 declaration retains one closed owner-issued family:
 
 ```text
-PlatformLibraryPopulationDeclaration
-  = DotNetRuntime
-  | AspNetCore
+PlatformLibraryPopulationDeclaration(PlatformFamily)
 ```
 
-The values themselves are identity. They are not user-entered framework text
-and have no public arbitrary-string constructor. A future transport may assign
-canonical wire values through its own versioned schema; display labels and CLI
-aliases are not declaration identity.
+`PlatformFamily` and its exact target currency are owned by
+[Platform Target Currency](platform-target-currency.md). The declaration is a
+distinct role type rather than an alias: it states that the retained family is
+a relevant logical library population. Display labels and CLI aliases are
+neither family nor declaration identity.
 
-`DotNetRuntime` denotes the logical library population attributed by a
-platform source to the `Microsoft.NETCore.App` product family.
+`PlatformFamily.DotNetRuntime` denotes the logical
+`Microsoft.NETCore.App` product family. The declaration says its library
+population is relevant.
 
-`AspNetCore` denotes the logical library population attributed by a platform
-source to the `Microsoft.AspNetCore.App` product family.
+`PlatformFamily.AspNetCore` denotes the logical
+`Microsoft.AspNetCore.App` product family. The declaration says its library
+population is relevant.
 
 These product-family names explain the values; they are not paths, installed
 framework coordinates, package IDs, or source lookup keys carried by the
@@ -115,10 +116,11 @@ Construction is:
 - valid in Browser/Wasm and NativeAOT; and
 - free of source authorization, capability lookup, or other observable work.
 
-There is no empty or unknown declaration instance. An application lookup may
-still return a typed unknown ecosystem or an unavailable projection under the
-handoff owner, but lower declaration construction cannot produce a
-success-shaped value with no population identity.
+There is no empty or unknown declaration instance and no declaration without
+an owner-issued `PlatformFamily`. An application lookup may still return a
+typed unknown ecosystem or an unavailable projection under the handoff owner,
+but lower declaration construction cannot produce a success-shaped value with
+no population identity.
 
 ## A logical family, not a fixed roster
 
@@ -388,7 +390,8 @@ Workspace registration.
 
 | Owner | Responsibility retained |
 | --- | --- |
-| This declaration owner in Source Selection | Closed declaration identity, focus/support meaning, source-view separation, equality, and non-action |
+| [Platform Target Currency](platform-target-currency.md) | Closed family and exact family-target identity |
+| This declaration owner in Source Selection | Registration role, focus/support meaning, source-view separation, declaration equality, and non-action |
 | [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) | Platform contribution arm, application-pack correspondence, and product-default validation |
 | Integration above source boundaries | Explicit declaration-to-source correspondence without importing Source Selection into package-free installed realization |
 | Platform source adapters | Source-owned coordinates, target/view/demand selection, inventory, focus/support evidence, completion, and failures |
@@ -402,8 +405,9 @@ Workspace registration.
 There are seven counted production-adoption steps:
 
 1. Lock this focused declaration contract under #6328.
-2. Implement the two closed declarations and public consumer gates in
-   `DotnetInspector.SourceSelection`.
+2. Implement the lower Platform target currency and have
+   `DotnetInspector.SourceSelection` retain its closed family in the
+   declaration.
 3. Adopt the type in the Platform arm of the Queries-owned lower ecosystem
    registration declaration.
 4. Project `DotNetRuntime` from `ecosystem.platform` and `AspNetCore` from
