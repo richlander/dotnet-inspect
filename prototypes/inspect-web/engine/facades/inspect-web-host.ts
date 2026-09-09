@@ -13,6 +13,7 @@ type $ManagedExports = {
     readonly "BuildIdentity.1310674786": () => string;
     readonly "ConfigureHost.92020726": (origin: string) => void;
     readonly "DrainEpochWorkReporter.1731052262": () => Promise<void>;
+    readonly "ManagedCpuCanary.1310674786": () => string;
     readonly "RegisterEpochWorkReporter.1170383003": (allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined) => void;
     readonly "UnregisterEpochWorkReporter.19325221": () => void;
   };
@@ -95,6 +96,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "ManagedCpuCanary.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.ManagedCpuCanary.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
     value = $ownDataProperty(value, "RegisterEpochWorkReporter.1170383003");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectionEngine.RegisterEpochWorkReporter.1170383003\u0027 is not callable.");
@@ -161,6 +170,10 @@ export function configureHost(origin: string): void {
 
 export async function drainEpochWorkReporter(): Promise<void> {
   return await $requireManagedExports()["InspectionEngine"]["DrainEpochWorkReporter.1731052262"]();
+}
+
+export function managedCpuCanary(): string {
+  return $requireManagedExports()["InspectionEngine"]["ManagedCpuCanary.1310674786"]();
 }
 
 export function registerEpochWorkReporter(allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined): void {
