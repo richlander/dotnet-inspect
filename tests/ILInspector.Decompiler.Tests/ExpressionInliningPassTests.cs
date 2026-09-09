@@ -189,7 +189,7 @@ public class ExpressionInliningPassTests
         Assert.Single(function.Descendants.OfType<StoreLocal>());
         var output = CSharpPrinter.Print(function).Output;
         Assert.Contains("int V_0 = await task;", output);
-        Assert.Contains("return Risky(V_0);", output);
+        Assert.Contains("return unsafe(Risky(V_0));", output);
         Assert.DoesNotContain("Risky(await", output);
         Assert.DoesNotContain("unsafe\n{\n    return Holder.Risky(await", output);
     }

@@ -232,7 +232,9 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
-    private static void WriteNetmodule(string path)
+    private static void WriteNetmodule(
+        string path,
+        string? assemblyReference = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -266,6 +268,16 @@ public partial class CommandExecutionTests
             metadata.GetOrAddString("Value"),
             metadata.GetOrAddBlob(
                 new byte[] { 0x06, 0x08 }));
+        if (assemblyReference is not null)
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(assemblyReference),
+                new Version(0, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -15320,7 +15332,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Depends_Count_AppliesRowsToTheNodeLowering()
+    public async Task Depends_Count_AppliesRowsToLogicalEdges()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
@@ -15339,6 +15351,248 @@ public partial class CommandExecutionTests
         Assert.Contains("IBinaryNumber", rendered);
         Assert.DoesNotContain("IBitwiseOperators", rendered);
         Assert.DoesNotContain("IMinMaxValue", rendered);
+    }
+
+    [Fact]
+    public async Task Depends_GraphFormatsShareTheLogicalEdgeWindow()
+    {
+        string[] window =
+        [
+            "depends", "System.Int128",
+            "--rows", "2..3", "--tips", "q",
+        ];
+        var count = await RunAppAsync([.. window, "--count"]);
+        var table = await RunAppAsync([.. window, "--table"]);
+        var tsv = await RunAppAsync([.. window, "--tsv"]);
+        var jsonl = await RunAppAsync([.. window, "--jsonl"]);
+        var mermaid = await RunAppAsync([.. window, "--mermaid"]);
+
+        foreach (var result in new[] { count, table, tsv, jsonl, mermaid })
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+        }
+
+        Assert.Equal("2", count.Output.Trim());
+        Assert.Equal(3, NonEmptyLineCount(table.Output));
+        Assert.Equal(3, NonEmptyLineCount(tsv.Output));
+        Assert.Equal(2, NonEmptyLineCount(jsonl.Output));
+        Assert.Equal(
+            2,
+            mermaid.Output.Split('\n').Count(static line =>
+                line.Contains("-->", StringComparison.Ordinal)
+                || line.Contains("-.->", StringComparison.Ordinal)));
+
+        static int NonEmptyLineCount(string value) =>
+            value.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length;
+    }
+
+    [Fact]
+    public async Task Depends_LimitUsesLogicalEdgeRowsAcrossSinks()
+    {
+        string[] limit =
+        [
+            "depends", "System.Int128",
+            "-n", "2", "--tips", "q",
+        ];
+        var count = await RunAppAsync([.. limit, "--count"]);
+        var table = await RunAppAsync([.. limit, "--table"]);
+        var jsonl = await RunAppAsync([.. limit, "--jsonl"]);
+        var mermaid = await RunAppAsync([.. limit, "--mermaid"]);
+
+        foreach (var result in new[] { count, table, jsonl, mermaid })
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+        }
+
+        Assert.Equal("2", count.Output.Trim());
+        Assert.Equal(3, NonEmptyLineCount(table.Output));
+        Assert.Equal(2, NonEmptyLineCount(jsonl.Output));
+        Assert.Equal(
+            2,
+            mermaid.Output.Split('\n').Count(static line =>
+                line.Contains("-->", StringComparison.Ordinal)
+                || line.Contains("-.->", StringComparison.Ordinal)));
+
+        static int NonEmptyLineCount(string value) =>
+            value.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length;
+    }
+
+    [Fact]
+    public async Task Depends_TypeJsonRetainsCompatibilityTreeShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Int128",
+            "--json", "--rows", "1..1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Single(document.RootElement.EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Depends_TreeOverridesEnvironmentJson()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            var (exit, output, error) = await RunAppAsync(
+                "depends", "System.Int128",
+                "--tree", "--rows", "1", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("System.Int128", output);
+            Assert.Contains("└", output);
+            Assert.DoesNotContain("[{", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Depends_LibraryGraphJsonHonorsCompact()
+    {
+        var pretty = await RunAppAsync(
+            "depends", "--library", TestAssemblyPath,
+            "--json", "--tips", "q");
+        var compact = await RunAppAsync(
+            "depends", "--library", TestAssemblyPath,
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, pretty.Exit);
+        Assert.Equal(0, compact.Exit);
+        Assert.Empty(pretty.Error);
+        Assert.Empty(compact.Error);
+        Assert.True(
+            pretty.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length > 1);
+        Assert.Single(
+            compact.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        using JsonDocument document =
+            JsonDocument.Parse(compact.Output);
+        Assert.Equal(
+            JsonValueKind.Object,
+            document.RootElement.ValueKind);
+        Assert.True(
+            document.RootElement.GetProperty("edges").GetArrayLength() > 0);
+        JsonElement evidence = document.RootElement
+            .GetProperty("edges")[0]
+            .GetProperty("evidence_identity");
+        Assert.Equal(
+            "assembly-reference",
+            evidence.GetProperty("kind").GetString());
+        Assert.Equal(
+            "assembly",
+            evidence.GetProperty("assembly_reference")
+                .GetProperty("kind")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task Depends_LibraryNetmoduleRetainsTypedRootWhenEmpty()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}.netmodule");
+        WriteNetmodule(path);
+        try
+        {
+            var graph = await RunAppAsync(
+                "depends", "--library", path,
+                "--json", "--compact", "--tips", "q");
+            var count = await RunAppAsync(
+                "depends", "--library", path,
+                "--count", "--tips", "q");
+
+            Assert.Equal(0, graph.Exit);
+            Assert.Empty(graph.Error);
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("0", count.Output.Trim());
+            using JsonDocument document =
+                JsonDocument.Parse(graph.Output);
+            JsonElement root = Assert.Single(
+                document.RootElement.GetProperty("nodes")
+                    .EnumerateArray());
+            JsonElement library = root.GetProperty("identity")
+                .GetProperty("library");
+            Assert.Equal(
+                "module",
+                library.GetProperty("kind").GetString());
+            Assert.Equal(
+                Path.GetFileName(path),
+                library.GetProperty("name").GetString());
+            Assert.NotEqual(
+                Guid.Empty,
+                library.GetProperty("module_version_id")
+                    .GetGuid());
+            Assert.Empty(
+                document.RootElement.GetProperty("edges")
+                    .EnumerateArray());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Depends_LibraryNetmoduleCanOwnReferenceEdges()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}.netmodule");
+        WriteNetmodule(path, "System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "depends", "--library", path,
+                "--json", "--compact", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement edge =
+                document.RootElement.GetProperty("edges")
+                    .EnumerateArray()
+                    .First();
+            Assert.Equal(
+                "module",
+                edge.GetProperty("source_identity")
+                    .GetProperty("library")
+                    .GetProperty("kind")
+                    .GetString());
+            Assert.Equal(
+                "assembly",
+                edge.GetProperty("target_identity")
+                    .GetProperty("library")
+                    .GetProperty("kind")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

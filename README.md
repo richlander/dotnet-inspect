@@ -160,7 +160,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace scope | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Scope snapshot. Repeat `--package` to compose the Workspace; exact duplicate Roots coalesce in first-request order. |
+| Workspace scope | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Scope snapshot. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. |
 | Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 explicitly named packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -178,7 +178,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `depends X` | Walk type, package, or library dependency graphs; can emit Mermaid diagrams. |
+| `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
 | `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -536,6 +536,7 @@ inspect each side on its own.
 
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
+dotnet-inspect depends Int128 --table --rows 1..10
 dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
 dotnet-inspect dependency-evidence \
   --project ./src/dotnet-inspect \
