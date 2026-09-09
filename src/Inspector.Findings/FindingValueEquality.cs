@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 internal static class FindingValueEquality
 {

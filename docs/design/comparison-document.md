@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-This document defines the `ILInspector.Findings`-owned
+This document defines the `Inspector.Findings`-owned
 `ComparisonDocument<T>` composition format for
 [#5499](https://github.com/richlander/dotnet-inspect/issues/5499), implemented
 in [#5550](https://github.com/richlander/dotnet-inspect/issues/5550).
@@ -22,7 +22,7 @@ The normative claim is:
 > basis, while moving exceptional rename and move coordinates into a complete
 > referenced description population.
 
-`ILInspector.Findings` owns:
+`Inspector.Findings` owns:
 
 - the root and child-subject composition;
 - portable primary-identifier and display separation;

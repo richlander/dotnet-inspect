@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Decompiler;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 
 namespace ILInspector.Research;

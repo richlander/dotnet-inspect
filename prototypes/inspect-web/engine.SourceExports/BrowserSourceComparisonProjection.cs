@@ -1,7 +1,7 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace InspectWeb.Engine.SourceFacade;
 

@@ -10,7 +10,7 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Research;
 using Markout;

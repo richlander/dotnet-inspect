@@ -1,7 +1,7 @@
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;

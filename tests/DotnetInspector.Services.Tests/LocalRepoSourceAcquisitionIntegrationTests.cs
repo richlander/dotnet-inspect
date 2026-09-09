@@ -1,7 +1,7 @@
 using System.Net;
 using System.Reflection;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;

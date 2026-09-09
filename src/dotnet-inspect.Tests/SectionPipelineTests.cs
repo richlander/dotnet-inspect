@@ -1,6 +1,6 @@
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Research;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
