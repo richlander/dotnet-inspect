@@ -160,9 +160,12 @@ substrates, and inspection producers that will extend that space.
   [PlatformHouse Reference Processing](design/platform-house-reference-processing.md)
   owner defines the sole product-facing platform reference-processing facade:
   exact-target source settlement, pruning composition, and transparent
-  .NET Standard forwarding through Metadata. Source algorithms, Workspace
-  admission, the assembly-reference ladder, and host presentation remain with
-  their focused owners.
+  .NET Standard forwarding through Metadata. It also settles independent
+  reference-view XML and implementation-view PDB/SourceLink documentation
+  evidence against the same target and view correspondence. XML, PDB,
+  SourceLink, and source-comment algorithms, Workspace admission, the
+  assembly-reference ladder, and host presentation remain with their focused
+  owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,
