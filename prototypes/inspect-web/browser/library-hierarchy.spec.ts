@@ -47,6 +47,7 @@ const run: BrowserMemberSurface = {
   stableSelector: "Run",
   anchorDigest: "widget-run",
   canonicalSignature: "void Example.Widget.Run()",
+  anchorTypeFullName: "Example.Widget",
   graphSelectorKey: "Run",
   bodySelectors: [{ token: 0x06000001, memberName: "Run", selectorKey: "Run" }],
 };
@@ -164,14 +165,14 @@ async function installFacades(
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], dependencyGroupError: null,
-          assemblyReferenceError: scenario === "inspection-error" ? "Cannot decode AssemblyRef." : null,
-          assemblyReferences: scenario === "empty" ? [] : scenario === "long"
+          assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
+            : { references: scenario === "empty" ? [] : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
                 name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
                 version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
                 publicKeyToken: "0123456789abcdef"
               }))
-            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }],
+            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
         };
       }`,
@@ -407,6 +408,30 @@ async function installFacades(
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+async function currentWorkspaceHistoryState(page: Page): Promise<{
+  id: string | null;
+  session: string | null;
+}> {
+  return page.evaluate(() => {
+    const isRecord = (
+      candidate: unknown,
+    ): candidate is Record<string, unknown> =>
+      typeof candidate === "object" && candidate !== null;
+    const value: unknown = history.state;
+    if (!isRecord(value)) {
+      return { id: null, session: null };
+    }
+    return {
+      id: typeof value.inspectWorkspaceId === "string"
+        ? value.inspectWorkspaceId
+        : null,
+      session: typeof value.inspectWorkspaceSession === "string"
+        ? value.inspectWorkspaceSession
+        : null,
+    };
+  });
+}
 
 for (const preferred of [other, empty]) {
   for (const width of [900, 480]) {
@@ -1512,7 +1537,7 @@ test("a single-library package retains a distinct Library level", async ({ page 
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
 });
 
-test("opening another package enters its default Library and preserves history", async ({ page }) => {
+test("browser history restores each retained Workspace Library", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",
     JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
@@ -1525,11 +1550,11 @@ test("opening another package enters its default Library and preserves history",
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("Example.Core");
-  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await page.goBack();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
-  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await page.goForward();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
@@ -1542,7 +1567,7 @@ test("opening another package enters its default Library and preserves history",
   await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
-test("Search between retained packages restores the incoming Library ancestry", async ({ page }) => {
+test("browser history restores the incoming retained Library ancestry", async ({ page }) => {
   const secondLibrary = library("asset:second", "Second.Core", 1);
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",
@@ -1562,20 +1587,16 @@ test("Search between retained packages restores the incoming Library ancestry", 
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
 
-  await page.keyboard.press("Control+p");
-  await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await page.goBack();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#type-list")).toBeFocused();
   await expect(page.locator('[data-subject-tab][data-scope="library"]')).toHaveCount(1);
   await expect(page.locator('[data-subject-tab][data-scope="type"]')).toHaveCount(1);
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await expect(page.locator("#type-list")).toContainText("Widget");
 
-  await page.keyboard.press("Control+p");
-  await page.locator('[data-sl-pkg-open="Second.Package"]').click();
+  await page.goForward();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#type-list")).toBeFocused();
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowRight");
@@ -1590,6 +1611,40 @@ test("Search between retained packages restores the incoming Library ancestry", 
   await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await expect(page.locator("#type-list")).toContainText("SecondWidget");
+});
+
+test("browser history from before reload reuses the active Workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+
+  const previousSession = (await currentWorkspaceHistoryState(page)).session;
+  await page.reload();
+  await expect.poll(async () =>
+    (await currentWorkspaceHistoryState(page)).session).not.toBe(previousSession);
+  const reloadedWorkspace = await currentWorkspaceHistoryState(page);
+  await page.goBack();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+  await expect.poll(() =>
+    currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
+
+  await page.goForward();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect.poll(() =>
+    currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator(".workspace-card")).toHaveCount(1);
+  await expect(page.locator(".query-notice-text", {
+    hasText: "Workspace limit reached",
+  })).toHaveCount(0);
 });
 
 for (const startingSubject of ["Package", "Library", "Type", "Member"]) {

@@ -1,3 +1,8 @@
+using System.Net;
+
+using DotnetInspector.Commands;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Tests;
@@ -63,14 +68,79 @@ public partial class CommandExecutionTests
         Assert.Equal("dependencies", packet.Lens);
     }
 
+    [Fact]
+    public async Task DependsShare_BareShareDefaultsToUrl()
+    {
+        var result = await RunAppAsync(
+            "depends",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--share",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        var url = new Uri(result.Output.Trim());
+        Assert.Equal("https", url.Scheme);
+        Assert.Equal("dotnet-inspect.net", url.Host);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            url.Query[3..],
+            TestContext.Current.CancellationToken);
+        Assert.Equal("10.0.0", Assert.Single(packet.Tabs).Version);
+        Assert.Equal("dependencies", packet.Lens);
+    }
+
     [Theory]
-    [InlineData("Newtonsoft.Json", "net6.0", "exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@latest", "net6.0", "exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@13.*", "net6.0", "exact NuGet package version")]
-    [InlineData("Newtonsoft.Json@13.0.4+build", "net6.0", "exact NuGet package version")]
+    [InlineData("")]
+    [InlineData("@latest")]
+    public async Task DependsShare_FloatingPackageResolvesToExactCoordinate(
+        string versionSelector)
+    {
+        string packageId = $"Share.Floating.{Guid.NewGuid():N}";
+        using var handler = new ShareVersionHandler(packageId, "2.0.0");
+        using var httpClient = new HttpClient(handler);
+
+        var result = await ConsoleCapture.RunAsync(
+            () => DependsShareProjection.WriteAsync(
+                new DependsOptions
+                {
+                    PackageName = packageId + versionSelector,
+                    Tfm = "net8.0",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                httpClient,
+                new VerboseLogger(enabled: false),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal(packageId.ToLowerInvariant(), tab.Source);
+        Assert.Equal("2.0.0", tab.Version);
+        Assert.Contains(
+            handler.Requests,
+            request => request.Host.Equals(
+                "azuresearch-usnc.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json@13.*", "net6.0", "one exact NuGet package version")]
+    [InlineData("Newtonsoft.Json@13.0.4+build", "net6.0", "one exact NuGet package version")]
     [InlineData("Newtonsoft.Json@13.0.4", null, "target framework")]
     [InlineData("Newtonsoft.Json@13.0.4", "not/a/tfm", "target framework")]
-    public async Task DependsShare_RequiresExactCoordinateBeforeAcquisition(
+    public async Task DependsShare_RejectsNonProjectableCoordinateBeforeAcquisition(
         string package,
         string? framework,
         string expectedError)
@@ -213,5 +283,33 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("--share", result.Error);
+    }
+
+    private sealed class ShareVersionHandler(
+        string packageId,
+        string version) : HttpMessageHandler
+    {
+        public List<Uri> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!);
+            string? body = request.RequestUri!.Host.Equals(
+                "azuresearch-usnc.nuget.org",
+                StringComparison.OrdinalIgnoreCase)
+                ? $$"""{"data":[{"id":"{{packageId}}","version":"{{version}}"}]}"""
+                : null;
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    body is null
+                        ? HttpStatusCode.NotFound
+                        : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body ?? ""),
+                    RequestMessage = request,
+                });
+        }
     }
 }

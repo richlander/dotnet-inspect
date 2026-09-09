@@ -209,7 +209,9 @@ public class DependsCommand
         }
     }
 
-    public static async Task<int> ExecutePackageDependsAsync(DependsOptions options)
+    public static async Task<int> ExecutePackageDependsAsync(
+        DependsOptions options,
+        CancellationToken cancellationToken = default)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -222,7 +224,13 @@ public class DependsCommand
                 return 1;
             }
             if (options.ShareFormat is not null)
-                return DependsShareProjection.Write(options);
+            {
+                return await DependsShareProjection.WriteAsync(
+                    options,
+                    context.HttpClient,
+                    logger,
+                    cancellationToken);
+            }
 
             var packageRef = options.PackageName!;
             var result = await DependencyGraphService.BuildPackageDependencyTreeAsync(

@@ -524,7 +524,8 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var shareOption = new Option<string?>("--share")
         {
-            Description = "Emit an exact NuGet package dependency view as a canonical Workspace packet or complete URL",
+            Description = "Emit an exact NuGet package dependency view as a complete URL (default) or canonical packet",
+            Arity = ArgumentArity.ZeroOrOne,
         };
         shareOption.AcceptOnlyFromAmong(
             StringComparer.OrdinalIgnoreCase,
@@ -555,7 +556,11 @@ public static class SearchCommandDefinitions
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
-            var share = parseResult.GetValue(shareOption);
+            bool shareRequested =
+                parseResult.GetResult(shareOption) is { Implicit: false };
+            string? share = shareRequested
+                ? parseResult.GetValue(shareOption) ?? "url"
+                : null;
             bool hasNonPackageShareInput =
                 !string.IsNullOrEmpty(targetType)
                 || packages.Length != 1
@@ -602,7 +607,11 @@ public static class SearchCommandDefinitions
                     return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
 
                 if (packages.Length == 1 && assemblies.Length == 0 && projects.Length == 0)
-                    return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
+                {
+                    return await DependsCommand.ExecutePackageDependsAsync(
+                        commonOptions with { PackageName = packages[0] },
+                        ct);
+                }
 
                 return TipWriter.MissingArgumentWithTips(dependsCommand,
                     "Type, package, or library required.",

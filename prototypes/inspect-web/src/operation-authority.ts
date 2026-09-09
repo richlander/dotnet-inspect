@@ -170,6 +170,22 @@ export interface PreparedOperationProducer {
   readonly abandon: () => undefined;
 }
 
+export interface OperationCancellationState {
+  readonly reason: OperationCancelReason | null;
+}
+
+class MutableOperationCancellationState implements OperationCancellationState {
+  #reason: OperationCancelReason | null = null;
+
+  get reason(): OperationCancelReason | null {
+    return this.#reason;
+  }
+
+  commit(reason: OperationCancelReason): void {
+    this.#reason = reason;
+  }
+}
+
 export type OperationPreparation<TPrepareError> =
   | {
       readonly kind: "prepared";
@@ -192,6 +208,7 @@ export interface OperationProducerAdapter<
     identity: OperationIdentity,
     input: TInput,
     sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
+    cancellation: OperationCancellationState,
   ) => OperationPreparation<TPrepareError>;
 }
 
@@ -290,6 +307,7 @@ interface OperationRecord<TValue, TError, TProgress, TDurable> {
   readonly outcomeDeferred: Deferred<OperationOutcome<TValue, TError>>;
   readonly quiescedDeferred: Deferred<void>;
   readonly handle: OperationHandle<TValue, TError>;
+  readonly cancellation: MutableOperationCancellationState;
   readonly sink: OperationProducerSink<
     TValue,
     TError,
@@ -399,6 +417,8 @@ function resolveOutcome<TValue, TError, TProgress, TDurable>(
 ): boolean {
   if (record.outcome !== null) return false;
   record.outcome = outcome;
+  if (outcome.kind === "canceled")
+    record.cancellation.commit(outcome.reason);
   record.outcomeDeferred.resolve(outcome);
   return true;
 }
@@ -530,6 +550,7 @@ function createRecord<TValue, TError, TProgress, TDurable>(
   const outcomeDeferred = deferred<OperationOutcome<TValue, TError>>();
   const quiescedDeferred = deferred<void>();
   let record: OperationRecord<TValue, TError, TProgress, TDurable>;
+  const cancellation = new MutableOperationCancellationState();
 
   const reserveTerminal = (
     outcome: OperationOutcome<TValue, TError>,
@@ -735,6 +756,7 @@ function createRecord<TValue, TError, TProgress, TDurable>(
     outcomeDeferred,
     quiescedDeferred,
     handle,
+    cancellation,
     sink,
     binding: null,
     outcome: null,
@@ -867,6 +889,7 @@ function createPage(
             allocation.identity,
             input,
             candidate.sink,
+            candidate.cancellation,
           );
           const sessionChanged = session.revision !== capturedRevision
             || (session.current?.identity.id ?? null) !== capturedCurrentId;

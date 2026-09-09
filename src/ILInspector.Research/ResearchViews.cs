@@ -7,7 +7,7 @@ using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using Inspector.Findings;
 using ILInspector.Instructions;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Research;
 

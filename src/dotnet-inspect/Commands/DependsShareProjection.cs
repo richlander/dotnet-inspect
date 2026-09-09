@@ -39,7 +39,11 @@ internal static class DependsShareProjection
         return null;
     }
 
-    internal static int Write(DependsOptions options)
+    internal static async Task<int> WriteAsync(
+        DependsOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        CancellationToken cancellationToken)
     {
         string packageReference = options.PackageName!;
         if (packageReference.EndsWith(
@@ -67,21 +71,6 @@ internal static class DependsShareProjection
                 $"--share cannot project NuGet package '{packageId}' because "
                 + "the published Browser reserves that id for the .NET Platform.");
         }
-        if (versionText is null
-            || versionText.Contains('*', StringComparison.Ordinal)
-            || string.Equals(
-                versionText,
-                "latest",
-                StringComparison.OrdinalIgnoreCase)
-            || versionText.Contains('+', StringComparison.Ordinal)
-            || !NuGetVersion.TryParse(
-                versionText,
-                out NuGetVersion? version))
-        {
-            return NonProjectable(
-                "--share requires one exact NuGet package version without "
-                + "ranges, wildcards, or build metadata.");
-        }
         if (!TryNormalizeFramework(
                 options.Tfm,
                 out string? framework))
@@ -90,8 +79,57 @@ internal static class DependsShareProjection
                 "--share requires one valid target framework with --tfm.");
         }
 
-        string normalizedVersion =
-            version.ToNormalizedString().ToLowerInvariant();
+        string normalizedVersion;
+        bool forceLatest = string.Equals(
+            versionText,
+            "latest",
+            StringComparison.OrdinalIgnoreCase);
+        if (versionText is null || forceLatest)
+        {
+            PackageCoordinateResolution resolution =
+                await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
+                    httpClient,
+                    new PackageCoordinate(packageId),
+                    sourceOptions: null,
+                    logger.Log,
+                    includePrerelease: false,
+                    useVersionCache: !forceLatest,
+                    cancellationToken).ConfigureAwait(false);
+            if (resolution
+                is not PackageCoordinateResolution.Resolved resolved)
+            {
+                return NonProjectable(
+                    resolution switch
+                    {
+                        PackageCoordinateResolution.Invalid invalid =>
+                            invalid.Message,
+                        PackageCoordinateResolution.Unavailable unavailable =>
+                            unavailable.Message,
+                        _ => throw new InvalidOperationException(
+                            "Unexpected package coordinate resolution result."),
+                    });
+            }
+
+            packageId = resolved.Coordinate.PackageId;
+            normalizedVersion = resolved.Coordinate.Version;
+        }
+        else
+        {
+            if (versionText.Contains('*', StringComparison.Ordinal)
+                || versionText.Contains('+', StringComparison.Ordinal)
+                || !NuGetVersion.TryParse(
+                    versionText,
+                    out NuGetVersion? version))
+            {
+                return NonProjectable(
+                    "--share requires one exact NuGet package version or "
+                    + "an unversioned package that resolves to one exact version; "
+                    + "ranges, wildcards, and build metadata are not projectable.");
+            }
+
+            normalizedVersion =
+                version.ToNormalizedString().ToLowerInvariant();
+        }
         var coordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 packageId,

@@ -60,6 +60,12 @@ one complete restoration result.
 
 Adjacent owners remain independent:
 
+- [CLI Workspace Sharing](cli-workspace-sharing.md) owns the public
+  `--share` gesture, its use of an inspection command's already-resolved
+  semantic state, terminal packet/URL output, refusal behavior, and
+  command-by-command adoption. It consumes this owner's scenario records and
+  typed packet-projection outcome rather than defining another Workspace or
+  packet grammar.
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
   descriptors, applicability, and availability, and owns its private execution
   bindings.
@@ -104,9 +110,11 @@ authority and carries only owner-issued activation and Navigation authority.
    replace the pseudo-package; each group expression lowers to exactly one
    `AssemblyContextGroup`.
 5. **The URL share packet is a terse projection of one scenario
-   composition**, produced and consumed by the browser's transposition layer.
-   The visible query is a human-readable courtesy label; the peer definition
-   records are always canonical.
+   composition**, produced and consumed through the product transposition
+   layer. CLI inspection commands may request that projection through the
+   separately owned [`--share` contract](cli-workspace-sharing.md); Inspect Web
+   consumes it for restoration. The visible query is a human-readable courtesy
+   label; the peer definition records are always canonical.
 6. **Complete committed views begin at definition schema version 2 and packet
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
    one canonical View Facet Registry ID field, one retained view state per
@@ -1479,6 +1487,13 @@ product demos, external-package Spotlight selection, and CLI canonical replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
 
+Browser history identifies retained Workspaces only within one loaded page
+session. An entry stamped by an earlier page load is an ordinary location, not
+a reference to a deleted Workspace in the current retained collection. After a
+reload, Back and Forward restore such locations into the active Workspace (or
+construct the first Workspace when none exists); they do not consume additional
+retained-Workspace capacity.
+
 A packet or definition remains inert data and cannot authorize acquisition.
 Restoration consumes the current owner-authorized activation demand required
 by each coordinate realizer and query owner. The coordinator carries that
@@ -1531,14 +1546,22 @@ One restoration attempt proceeds in this order:
    A late completion for a settled token is discarded and cannot activate.
 
 At most one unpublished new Workspace may exist. It is not selectable,
-rendered, addressable through ordinary host actions, or recorded in history
-before activation. A newer attempt closes the older attempt's Workspace before
-beginning another.
+represented in the published Workspace collection, addressable through ordinary
+host actions, or recorded in history before activation. The Browser host may
+render its construction progress or prepared result in the inert workbench while
+the attempt remains current; that provisional presentation has no active
+Workspace identity and failure restores the prior presentation. A newer attempt
+closes the older attempt's Workspace before beginning another.
 
-The Browser/Wasm host must define construction admission and retained-Workspace
-capacity policies before adoption. Published Workspaces remain live until the
-user deletes them. Per-Workspace budgets do not bound the retained collection;
-this design makes no process-wide peak-memory safety claim.
+The Browser/Wasm host admits at most four published Workspaces. A request for a
+fifth fails visibly before construction and directs the user to delete a
+Workspace first. Published Workspaces remain live until the user deletes them.
+The count aligns with the Browser engine's existing four-scope ceiling, but
+collection membership does not prove that one corresponding engine scope
+remains resident. Exact engine Workspace identity and close-on-deletion need
+their own integration gate before retained-lifecycle adoption is complete.
+Per-Workspace budgets alone do not bound the retained collection, and this
+design makes no process-wide peak-memory safety claim.
 
 The Workspace subject lists the published collection and identifies the active
 Workspace. Selecting another published Workspace changes only the active
@@ -2019,31 +2042,21 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
-- CLI `depends --package <id>@<exact-version> --tfm <tfm> --share
-  packet|url` projects the package Root through
-  `WorkspaceSharePacketTransposer` with the exact format-1 `dependencies`
+- The Package Dependencies share composition projects one exact package Root
+  through `WorkspaceSharePacketTransposer` with the format-1 `dependencies`
   compatibility token. The legacy lowering table maps that token to
-  `root.package-dependencies`; the packet does not carry graph results,
-  dependency-group indexes, or Browser runtime state. The published Browser
-  restores its package Dependencies lens and lazily computes the graph from the
-  exact coordinate and framework. Browser capture refuses an explicitly
-  selected dependency group that differs from the active framework because
-  format 1 cannot preserve that override, and canonical Dependencies
-  restoration clears any prior Browser-local group override before rendering.
-  The Browser Share action uses this canonical capture path even though
-  ordinary package-root address-bar state retains its simpler route form. The
-  producer performs no package acquisition or graph traversal, requires a
-  valid exact version and framework, and refuses local archives, configured
-  sources, floating versions, the Browser-reserved `Microsoft.NETCore.App`
-  Platform pseudo-package, row windows, counts, and competing output formats
-  before packet emission.
-  `DependsShare_PacketProjectsExactPackageDependencyView`,
-  `DependsShare_UrlWrapsCanonicalPacket`,
-  `DependsShare_RequiresExactCoordinateBeforeAcquisition`,
-  `DependsShare_RejectsLocalPackage`,
-  `DependsShare_RejectsConfiguredSource`,
-  `DependsShare_RejectsBrowserPlatformPackageId`, and
-  `DependsShare_RejectsConflictingOutput` gate the CLI boundary.
+  `root.package-dependencies`; the packet carries the exact package coordinate
+  and framework, not graph results, dependency-group indexes, CLI policy, or
+  Browser runtime state. CLI input resolution, output selection, and refusal
+  behavior belong to [CLI Workspace Sharing](cli-workspace-sharing.md).
+  The published Browser restores the package Dependencies lens and lazily
+  computes the graph from the packet coordinate and framework. Browser capture
+  refuses an explicitly selected dependency group that differs from the active
+  framework because format 1 cannot preserve that override, and canonical
+  Dependencies restoration clears any prior Browser-local group override
+  before rendering. The Browser Share action uses this canonical capture path
+  even though ordinary package-root address-bar state retains its simpler route
+  form.
   `canonical package dependency views restore the package root lens`,
   `canonical package views reject contradictory structural selection`,
   `capture projects package Dependencies through the packet lens`,

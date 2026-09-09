@@ -82,7 +82,7 @@ public void SomeExpensiveTheory(string assemblyName)
 - The decompiler suite uses the same trait, but its native xUnit console
   runner takes a different flag spelling than the CLI suite's Microsoft
   Testing Platform runner: `dotnet run --project
-  src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
+  tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
   (fast) vs. `-trait "Speed=Slow"` (slow-only). See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its

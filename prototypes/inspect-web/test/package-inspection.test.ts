@@ -106,9 +106,8 @@ function dependencyResult(
       isActive: true,
       dependencies: [{ id: "Example.Dependency", versionRange: "[1.0.0,)" }],
     }],
-    assemblyReferences: [],
+    assemblyReferences: { references: [] },
     dependencyGroupError: error,
-    assemblyReferenceError: null,
     compileLibrary: selectedCompileLibrary,
   };
 }
@@ -173,6 +172,7 @@ function performanceMember(): AppMemberSurface {
     stableSelector: "Bounds~surface",
     anchorDigest: "surface",
     canonicalSignature: "P:Example.Outer.Inner.Bounds",
+    anchorTypeFullName: "Example.Outer.Inner",
     graphSelectorKey: "property:Bounds",
     bodySelectors: [{
       token: 0x06000001,

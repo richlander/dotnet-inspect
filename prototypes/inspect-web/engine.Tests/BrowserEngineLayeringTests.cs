@@ -394,6 +394,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.AssemblyContextGroup",
             "DotnetInspector.Queries.AssemblyContextParticipant",
             "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+Rejected",
+            "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+UnsupportedBindingPolicy",
             "DotnetInspector.Queries.ImplementationComparisonBinding",
             "DotnetInspector.Queries.InspectionGraphSubject",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure",
