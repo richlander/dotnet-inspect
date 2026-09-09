@@ -30,6 +30,19 @@ public class DemoCommandTests
         });
     }
 
+    private static async Task<(int ExitCode, string Output, string Error)> RunCliWithLineWindowAsync(
+        params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                root.Parse(args),
+                args);
+        });
+    }
+
     [Fact]
     public async Task ExecuteList_IncludesEveryHomeDemo()
     {
@@ -574,6 +587,43 @@ public class DemoCommandTests
             CliRowSelectionCommandRegistry.TryGetActiveAdoption(
                 parseResult,
                 out _));
+    }
+
+    [Fact]
+    public async Task Cli_DemoScenario_ShorthandBeforeScenarioRetainsLineLimit()
+    {
+        var (exitCode, output, error) =
+            await RunCliWithLineWindowAsync(
+                "demo",
+                "-1",
+                ProductDemoIds.StjSerializer);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Theory]
+    [InlineData("bad")]
+    [InlineData("2147483648")]
+    public async Task Cli_DemoScenario_InvalidLimitRetainsIntegerDiagnostic(
+        string value)
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                ProductDemoIds.StjSerializer,
+                "-n",
+                value);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Cannot parse value '{value}' for option '-n' as an integer.",
+            error.Trim());
     }
 
     [Fact]

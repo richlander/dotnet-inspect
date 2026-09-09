@@ -291,6 +291,18 @@ public static class UtilityCommandDefinitions
                 result.AddError(
                     "-n may only be specified once when running a demo.");
             }
+            else if (result.GetResult(limitOption) is
+                {
+                    Implicit: false,
+                    Tokens.Count: 1
+                } limitResult
+                && !int.TryParse(limitResult.Tokens[0].Value, out _))
+            {
+                result.AddError(
+                    $"Cannot parse argument '{limitResult.Tokens[0].Value}' "
+                    + "for option '-n' as expected type "
+                    + "'System.Nullable`1[System.Int32]'.");
+            }
         });
 
         listCommand.SetAction(parseResult =>
