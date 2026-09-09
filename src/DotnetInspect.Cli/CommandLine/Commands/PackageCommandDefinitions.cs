@@ -164,11 +164,9 @@ public static class PackageCommandDefinitions
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption),
             validateLowering: (result, lowering) =>
-                lowering.LineIntent is not null
-                    && opts.ResolveFormat(result) == OutputFormat.Json
-                    ? "--lines and --tail-lines cannot be combined with JSON output; "
-                        + "use semantic -n to select complete JSON rows."
-                    : null);
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.ResolveFormat(result),
+                    lowering));
 
         // Search subcommand
         var searchCommand = CreatePackageSearchCommand(

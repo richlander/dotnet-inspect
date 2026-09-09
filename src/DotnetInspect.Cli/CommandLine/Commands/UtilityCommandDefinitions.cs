@@ -254,9 +254,8 @@ public static class UtilityCommandDefinitions
             result => IsDemoListAdoption(
                 result.GetValue(scenarioArg)),
             validateLowering: (result, lowering) =>
-                ValidateDemoListRowSelection(
-                    opts,
-                    result,
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.ResolveFormat(result),
                     lowering));
         CliRowSelectionCommandRegistry.Register(
             listCommand,
@@ -264,9 +263,8 @@ public static class UtilityCommandDefinitions
             rowCapabilities,
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
-                ValidateDemoListRowSelection(
-                    opts,
-                    result,
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.ResolveFormat(result),
                     lowering));
 
         demoCommand.Validators.Add(result =>
@@ -316,10 +314,6 @@ public static class UtilityCommandDefinitions
 
             if (!TryGetDemoListRowSelection(
                     parseResult,
-                    limitOption,
-                    rowsOption,
-                    linesOption,
-                    tailLinesOption,
                     out var rowSelection))
             {
                 return 1;
@@ -350,10 +344,6 @@ public static class UtilityCommandDefinitions
             {
                 if (!TryGetDemoListRowSelection(
                         parseResult,
-                        limitOption,
-                        rowsOption,
-                        linesOption,
-                        tailLinesOption,
                         out var rowSelection))
                 {
                     return 1;
@@ -376,49 +366,21 @@ public static class UtilityCommandDefinitions
         return demoCommand;
     }
 
-    private static string? ValidateDemoListRowSelection(
-        SharedOptions opts,
-        ParseResult parseResult,
-        CliRowSelectionLowering<string> lowering) =>
-        lowering.LineIntent is not null
-            && opts.ResolveFormat(parseResult) == OutputFormat.Json
-                ? "--lines and --tail-lines cannot be combined with JSON "
-                    + "output; use semantic -n to select complete JSON rows."
-                : null;
-
     private static bool TryGetDemoListRowSelection(
         ParseResult parseResult,
-        Option limitOption,
-        Option rowsOption,
-        Option<bool> linesOption,
-        Option<bool> tailLinesOption,
         out RowSelectionIntent<string>? rowSelection)
     {
-        if (CliRowSelectionCommandRegistry.TryGetLowering(
+        if (CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
-                out CliRowSelectionLowering<string>? lowering))
+                "Demo",
+                out rowSelection,
+                out string? error))
         {
-            rowSelection = lowering!.SemanticIntent;
             return true;
         }
 
-        bool hasExplicitRowSelection =
-            parseResult.GetResult(limitOption) is { Implicit: false }
-            || parseResult.GetResult(rowsOption) is { Implicit: false }
-            || CommandLineBuilder.HasParsedOption(parseResult, "--head")
-            || CommandLineBuilder.HasParsedOption(parseResult, "--tail")
-            || parseResult.GetValue(linesOption)
-            || parseResult.GetValue(tailLinesOption);
-        if (hasExplicitRowSelection)
-        {
-            CommandError.Write(
-                "Demo row selection was not lowered before execution.");
-            rowSelection = null;
-            return false;
-        }
-
-        rowSelection = null;
-        return true;
+        CommandError.Write(error!);
+        return false;
     }
 
     private static bool IsDemoListAdoption(

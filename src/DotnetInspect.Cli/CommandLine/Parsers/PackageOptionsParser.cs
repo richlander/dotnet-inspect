@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -144,22 +145,16 @@ public static class PackageOptionsParser
             bareVersion
             || showLatestVersion
             || showPluralVersions;
-        CliRowSelectionCommandRegistry.TryGetLowering(
-            parseResult,
-            out CliRowSelectionLowering<string>? rowSelection);
-        bool hasExplicitRowSelection =
-            parseResult.GetResult(opts.Limit) is { Implicit: false }
-            || parseResult.GetResult(opts.Rows) is { Implicit: false }
-            || parseResult.GetValue(opts.Head)
-            || parseResult.GetValue(opts.Tail)
-            || parseResult.GetValue(args.LinesOption)
-            || parseResult.GetValue(args.TailLinesOption);
+        RowSelectionIntent<string>? versionRowSelection = null;
         if (showPluralVersions
-            && hasExplicitRowSelection
-            && rowSelection is null)
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package version",
+                out versionRowSelection,
+                out string? rowSelectionError))
         {
             return new InvalidArguments(
-                "Package version row selection was not lowered before execution.");
+                rowSelectionError!);
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -232,10 +227,7 @@ public static class PackageOptionsParser
             BodyRequested = bodyRequested,
             OutputPath = parseResult.GetValue(args.OutOption),
             Limit = (bareVersion || showLatestVersion) ? 1 : null,
-            VersionRowSelection =
-                showPluralVersions
-                    ? rowSelection?.SemanticIntent
-                    : null,
+            VersionRowSelection = versionRowSelection,
             ForceLatest = showLatestVersion,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
