@@ -47,6 +47,41 @@ export interface CloneCandidateInspectionState {
   selectedRank: number | null;
 }
 
+export interface CloneCandidateEndpointNavigationAuthority {
+  generation: number;
+}
+
+export function createCloneCandidateEndpointNavigationAuthority():
+CloneCandidateEndpointNavigationAuthority {
+  return { generation: 0 };
+}
+
+export function beginCloneCandidateEndpointNavigation(
+  authority: CloneCandidateEndpointNavigationAuthority,
+  state: CloneCandidateInspectionState,
+): number {
+  const generation = ++authority.generation;
+  state.navigationLoading = true;
+  state.navigationError = "";
+  return generation;
+}
+
+export function retireCloneCandidateEndpointNavigation(
+  authority: CloneCandidateEndpointNavigationAuthority,
+  state: CloneCandidateInspectionState,
+): void {
+  authority.generation++;
+  state.navigationLoading = false;
+  state.navigationError = "";
+}
+
+export function cloneCandidateEndpointNavigationIsCurrent(
+  authority: CloneCandidateEndpointNavigationAuthority,
+  generation: number,
+): boolean {
+  return generation === authority.generation;
+}
+
 export function createCloneCandidateInspectionState():
 CloneCandidateInspectionState {
   return {

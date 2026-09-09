@@ -69,9 +69,13 @@ import {
   createEngineWorkerCloneCandidateClient,
 } from "./engine-worker-client.ts";
 import {
+  beginCloneCandidateEndpointNavigation,
   buildCloneCandidateRequest,
+  cloneCandidateEndpointNavigationIsCurrent,
+  createCloneCandidateEndpointNavigationAuthority,
   createCloneCandidateInspectionCoordinator,
   createCloneCandidateInspectionState,
+  retireCloneCandidateEndpointNavigation,
   type CloneCandidateInspectionState,
   type CloneCandidateRequestInput,
 } from "./clone-candidate-inspection.ts";
@@ -2048,7 +2052,8 @@ const cloneCandidateInspection =
     render,
   });
 let cloneCandidateReloadScheduled = false;
-let cloneEndpointNavigationGeneration = 0;
+const cloneEndpointNavigation =
+  createCloneCandidateEndpointNavigationAuthority();
 
 function captureView(): WorkspaceView | null {
   if (!state.package) return null;
@@ -2987,6 +2992,17 @@ function cloneCandidateSurfaceIsActive(): boolean {
     || (activeScope === "member" && state.memberSection === "clone");
 }
 
+function retireCloneEndpointNavigationOutsideClone(): void {
+  if (cloneCandidateSurfaceIsActive()
+    || (!state.cloneCandidates.navigationLoading
+      && !state.cloneCandidates.navigationError)) {
+    return;
+  }
+  retireCloneCandidateEndpointNavigation(
+    cloneEndpointNavigation,
+    state.cloneCandidates);
+}
+
 function currentCloneCandidateRequestInput(): {
   input: CloneCandidateRequestInput | null;
   reason: string;
@@ -3173,8 +3189,9 @@ function applyCloneCandidateAction(action: CloneCandidateViewAction): void {
       }
       return;
     case "select":
-      cloneEndpointNavigationGeneration++;
-      state.cloneCandidates.navigationLoading = false;
+      retireCloneCandidateEndpointNavigation(
+        cloneEndpointNavigation,
+        state.cloneCandidates);
       cloneCandidateInspection.selectRank(action.rank);
       return;
     case "navigate":
@@ -4348,6 +4365,7 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
+  retireCloneEndpointNavigationOutsideClone();
   reconcileCloneCandidateInspectionForRender();
   const graphExplorerWasOpen = graphExplorer.isOpen;
   graphExplorer.beforeRender(graphExplorerKey());
@@ -12540,7 +12558,9 @@ function singleProjectedGraphMember(
 async function openCloneCandidateEndpoint(
   action: Extract<CloneCandidateViewAction, { kind: "navigate" }>,
 ) {
-  const navigationGeneration = ++cloneEndpointNavigationGeneration;
+  retireCloneCandidateEndpointNavigation(
+    cloneEndpointNavigation,
+    state.cloneCandidates);
   const cloneRevision = state.cloneCandidates.revision;
   const cloneRequest = state.cloneCandidates.request;
   const document = state.cloneCandidates.result?.kind === "Available"
@@ -12580,16 +12600,19 @@ async function openCloneCandidateEndpoint(
     return;
   }
 
+  const navigationGeneration = beginCloneCandidateEndpointNavigation(
+    cloneEndpointNavigation,
+    state.cloneCandidates);
   const requestJson = JSON.stringify(cloneRequest);
   const navigationIsCurrent = () =>
-    navigationGeneration === cloneEndpointNavigationGeneration
+    cloneCandidateEndpointNavigationIsCurrent(
+      cloneEndpointNavigation,
+      navigationGeneration)
     && cloneRevision === state.cloneCandidates.revision
     &&
     cloneCandidateSurfaceIsActive()
     && state.cloneCandidates.request !== null
     && JSON.stringify(state.cloneCandidates.request) === requestJson;
-  state.cloneCandidates.navigationLoading = true;
-  state.cloneCandidates.navigationError = "";
   render();
   try {
     const projection = await inspectGraphMemberSurfaceByMethodAddress(

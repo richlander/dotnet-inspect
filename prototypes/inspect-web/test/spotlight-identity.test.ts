@@ -3578,7 +3578,10 @@ test("browser history reuses available identities and publishes only unavailable
     /function invalidateWorkspaceAsyncOwners\(\): void \{\s*memberDetailInspection\.invalidate\(\);/);
   assert.match(
     appSource,
-    /async function openCloneCandidateEndpoint\([\s\S]*const cloneRevision = state\.cloneCandidates\.revision;[\s\S]*navigationGeneration === cloneEndpointNavigationGeneration[\s\S]*cloneRevision === state\.cloneCandidates\.revision/);
+    /function retireCloneEndpointNavigationOutsideClone\(\): void \{[\s\S]*cloneCandidateSurfaceIsActive\(\)[\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*function render\([\s\S]*retireCloneEndpointNavigationOutsideClone\(\);/);
+  assert.match(
+    appSource,
+    /async function openCloneCandidateEndpoint\([\s\S]*retireCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*const cloneRevision = state\.cloneCandidates\.revision;[\s\S]*beginCloneCandidateEndpointNavigation\([\s\S]*cloneEndpointNavigation,[\s\S]*state\.cloneCandidates\)[\s\S]*cloneCandidateEndpointNavigationIsCurrent\([\s\S]*cloneEndpointNavigation,[\s\S]*navigationGeneration\)[\s\S]*cloneRevision === state\.cloneCandidates\.revision/);
   assert.match(
     appSource,
     /const workspaceModalContextIsAvailable = \(\) =>\s*pendingWorkspaceConstruction === null/);

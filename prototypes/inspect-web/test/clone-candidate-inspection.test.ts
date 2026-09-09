@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  beginCloneCandidateEndpointNavigation,
   buildCloneCandidateRequest,
+  cloneCandidateEndpointNavigationIsCurrent,
+  createCloneCandidateEndpointNavigationAuthority,
   createCloneCandidateInspectionCoordinator,
   createCloneCandidateInspectionState,
+  retireCloneCandidateEndpointNavigation,
   type CloneCandidateInspectionDependencies,
   type CloneCandidateRequestInput,
 } from "../src/clone-candidate-inspection.ts";
@@ -69,6 +73,42 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+test("leaving Clone retires endpoint navigation without discarding search evidence", () => {
+  const state = createCloneCandidateInspectionState();
+  const authority = createCloneCandidateEndpointNavigationAuthority();
+  const retainedRequest = buildCloneCandidateRequest(
+    input,
+    state.breadth,
+    state.discovery).request;
+  assert.ok(retainedRequest);
+  const retainedResult = result(retainedRequest);
+  state.request = retainedRequest;
+  state.result = retainedResult;
+  state.selectedRank = 3;
+  const revision = state.revision;
+
+  const generation = beginCloneCandidateEndpointNavigation(authority, state);
+  assert.equal(state.navigationLoading, true);
+  assert.equal(
+    cloneCandidateEndpointNavigationIsCurrent(authority, generation),
+    true);
+
+  retireCloneCandidateEndpointNavigation(authority, state);
+  assert.equal(state.navigationLoading, false);
+  assert.equal(state.navigationError, "");
+  assert.equal(
+    cloneCandidateEndpointNavigationIsCurrent(authority, generation),
+    false);
+
+  assert.equal(state.request, retainedRequest);
+  assert.equal(state.result, retainedResult);
+  assert.equal(state.selectedRank, 3);
+  assert.equal(state.revision, revision);
+  assert.equal(
+    cloneCandidateEndpointNavigationIsCurrent(authority, generation),
+    false);
+});
 
 test("defaults build Everything plus SimilarNames over package participants", () => {
   const state = createCloneCandidateInspectionState();

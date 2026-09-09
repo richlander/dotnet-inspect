@@ -26,7 +26,8 @@ const maximumClonePayloadDepth = 32;
 const maximumClonePayloadEntries = 100_000;
 const maximumClonePackages = 12;
 const maximumCloneSeeds = 1_000;
-const maximumCloneLibraries = 256;
+// The producer independently admits implementation and reference-only roles.
+const maximumCloneLibraries = 256 * 2;
 const maximumCloneRows = 100;
 
 export interface EngineWorkerCloneCandidateFacade {

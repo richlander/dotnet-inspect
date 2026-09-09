@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type {
   BrowserCloneCandidateDocument,
+  BrowserCloneCandidateLibraryCoverage,
   BrowserCloneCandidateRequest,
   BrowserCloneCandidateResult,
 } from "../src/facades/inspect-web-analysis.d.ts";
@@ -134,6 +135,46 @@ function result(
     subject: null,
     detail: kind === "Rejected" ? "No candidates were available." : null,
     metadataRootReason: null,
+  };
+}
+
+function libraryCoverage(
+  ordinal: number,
+): BrowserCloneCandidateLibraryCoverage {
+  return {
+    participant: {
+      ordinal,
+      assembly: {
+        name: `Participant.${ordinal}`,
+        version: "1.0.0.0",
+        culture: null,
+        publicKeyToken: null,
+      },
+      provenance: {
+        kind: "Package",
+        packageId: `Participant.${ordinal}`,
+        packageVersion: "1.0.0",
+        tfm: "net11.0",
+        rid: null,
+        framework: null,
+        frameworkVersion: null,
+        project: null,
+        resolverSource: null,
+        contentRef: null,
+        digest: null,
+        declaredName: null,
+      },
+      moduleVersionId: null,
+    },
+    membership: ordinal === 0 ? "ContainingLibrary" : "Available",
+    admitted: ordinal === 0,
+    candidateMethods: 0,
+    discoveredMethods: 0,
+    retrievalPairs: 0,
+    nameComparisonWork: 0,
+    failures: [],
+    analysisBlockers: [],
+    isComplete: true,
   };
 }
 
@@ -287,7 +328,7 @@ for (const kind of [
   });
 }
 
-test("Clone Candidates rejects malformed and oversized boundary payloads", () => {
+test("Clone Candidates enforces request, result, and producer coverage boundaries", () => {
   assert.equal(engineWorkerCloneCandidateInput.decode({
     requestJson: "{",
   }).kind, "rejected");
@@ -315,11 +356,22 @@ test("Clone Candidates rejects malformed and oversized boundary payloads", () =>
       seeds: Array.from({ length: 1_001 }, () => null),
     },
   }).kind, "rejected");
+  for (const count of [256, 257, 512]) {
+    assert.equal(engineWorkerCloneCandidateValue.decode({
+      ...result("Available"),
+      document: {
+        ...emptyDocument,
+        libraries: Array.from({ length: count }, (_, ordinal) =>
+          libraryCoverage(ordinal)),
+      },
+    }).kind, "decoded");
+  }
   assert.equal(engineWorkerCloneCandidateValue.decode({
     ...result("Available"),
     document: {
       ...emptyDocument,
-      libraries: Array.from({ length: 257 }, () => null),
+      libraries: Array.from({ length: 513 }, (_, ordinal) =>
+        libraryCoverage(ordinal)),
     },
   }).kind, "rejected");
 });
