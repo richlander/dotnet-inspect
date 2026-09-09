@@ -2,6 +2,7 @@ import type { OperationCancelReason } from "./operation-authority.ts";
 import type { WorkerProducerClassRegistry } from "./worker-runtime-core.ts";
 import {
   decodeBoundMainToWorkerEnvelope,
+  decodeControlPayload,
   decodeStartPayload,
   decodeUnboundInitializationEnvelope,
   decodeWorkerEventEntries,
@@ -100,6 +101,8 @@ export interface WorkerOperationRegistration<
   TValue,
   TError,
   TOperationDiagnostic,
+  TControlInput = never,
+  TControlResult = never,
 > {
   readonly kind: string;
   readonly allowance: WorkerLivenessAllowance;
@@ -121,6 +124,14 @@ export interface WorkerOperationRegistration<
     operation: WorkerWireOperationReference,
     reason: OperationCancelReason,
   ) => boolean | Promise<boolean>;
+  readonly control?: {
+    readonly input: BoundedPayloadDecoder<TControlInput>;
+    readonly invoke: (
+      operation: WorkerWireOperationReference,
+      input: TControlInput,
+    ) => WorkerOperationControlResult<TControlResult>
+      | Promise<WorkerOperationControlResult<TControlResult>>;
+  };
 }
 
 type WorkerCancel = (
@@ -128,10 +139,22 @@ type WorkerCancel = (
   reason: OperationCancelReason,
 ) => boolean | Promise<boolean>;
 
+type WorkerOperationControlResult<TValue> =
+  | { readonly kind: "acknowledged"; readonly value: TValue }
+  | { readonly kind: "not-active" };
+
+type WorkerControl = (
+  envelope: Extract<
+    RawMainToWorkerEnvelope,
+    { readonly kind: "control" }
+  >,
+) => Promise<WorkerOperationControlResult<unknown>>;
+
 interface WorkerOperationDispatchHandlers {
   readonly accepted: (
     allowance: WorkerLivenessAllowance,
     cancel: WorkerCancel | null,
+    control: WorkerControl | null,
   ) => boolean;
   readonly rejected: (error: unknown, diagnostic: unknown) => void;
   readonly settled: (
@@ -172,12 +195,21 @@ export class WorkerOperationCatalog {
   readonly #registrations =
     new Map<string, ErasedWorkerOperationRegistration>();
 
-  register<TInput, TValue, TError, TOperationDiagnostic>(
+  register<
+    TInput,
+    TValue,
+    TError,
+    TOperationDiagnostic,
+    TControlInput = never,
+    TControlResult = never,
+  >(
     registration: WorkerOperationRegistration<
       TInput,
       TValue,
       TError,
-      TOperationDiagnostic
+      TOperationDiagnostic,
+      TControlInput,
+      TControlResult
     >,
   ): void {
     if (this.#registrations.has(registration.kind))
@@ -194,11 +226,29 @@ export class WorkerOperationCatalog {
           return;
         }
         const cancel = registration.cancel;
+        const control = registration.control;
         const accepted = handlers.accepted(
           registration.allowance,
           cancel === undefined
             ? null
             : (operation, reason) => cancel(operation, reason),
+          control === undefined
+            ? null
+            : async controlEnvelope => {
+                const controlDecoded = decodeControlPayload(
+                  controlEnvelope,
+                  control.input,
+                );
+                if (controlDecoded.kind === "failure") {
+                  throw new Error(controlDecoded.failure.message, {
+                    cause: controlDecoded.failure,
+                  });
+                }
+                return await control.invoke(
+                  controlEnvelope.operation,
+                  controlDecoded.value.payload,
+                );
+              },
         );
         if (!accepted) return;
         let result:
@@ -268,6 +318,9 @@ export interface WorkerRuntimeRealmOptions<TBootstrap, TDiagnostic> {
 interface WorkerActiveOperation {
   readonly operation: WorkerWireOperationReference;
   readonly cancel: WorkerCancel | null;
+  readonly control: WorkerControl | null;
+  controlHighWater: number;
+  controlOpen: boolean;
   settling: boolean;
 }
 
@@ -508,6 +561,10 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       await this.#processCancel(decoded.value);
       return;
     }
+    if (decoded.value.kind === "control") {
+      await this.#processControl(decoded.value);
+      return;
+    }
     this.#processProbe(decoded.value.probeSequence);
   }
 
@@ -585,11 +642,14 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       envelope,
       context,
       {
-        accepted: (allowance, cancel) => {
+        accepted: (allowance, cancel, control) => {
           if (this.#terminated || this.#failed) return false;
           admitted = {
             operation: envelope.operation,
             cancel,
+            control,
+            controlHighWater: 0,
+            controlOpen: true,
             settling: false,
           };
           this.#active.set(envelope.operation.operationId, admitted);
@@ -636,6 +696,7 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       && active.operation.operationSequence
         === envelope.operation.operationSequence
       && !active.settling) {
+      active.controlOpen = false;
       running = active.cancel === null
         ? false
         : await active.cancel(envelope.operation, envelope.reason);
@@ -646,6 +707,75 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       kind: "cancel-acknowledged",
       operation: envelope.operation,
       status: running ? "running" : "not-active",
+    });
+  }
+
+  async #processControl(
+    envelope: Extract<RawMainToWorkerEnvelope, { readonly kind: "control" }>,
+  ): Promise<void> {
+    if (envelope.operation.operationSequence > this.#operationHighWater) {
+      this.#declareFailure({
+        kind: "future-control",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+      });
+      return;
+    }
+    const active = this.#active.get(envelope.operation.operationId);
+    if (active === undefined
+      || active.operation.operationSequence
+        !== envelope.operation.operationSequence
+      || !active.controlOpen
+      || active.settling) {
+      this.#emit({
+        protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+        epochToken: this.#requiredEpochToken(),
+        kind: "control-acknowledged",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+        status: "not-active",
+      });
+      return;
+    }
+    if (envelope.controlSequence <= active.controlHighWater) {
+      this.#declareFailure({
+        kind: "control-sequence-replay",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+        highWater: active.controlHighWater,
+      });
+      return;
+    }
+    active.controlHighWater = envelope.controlSequence;
+    if (active.control === null) {
+      this.#declareFailure({
+        kind: "unsupported-operation-control",
+        operation: envelope.operation,
+      });
+      return;
+    }
+    const result = await active.control(envelope);
+    if (this.#terminated || this.#failed) return;
+    if (result.kind === "not-active") {
+      active.controlOpen = false;
+      this.#emit({
+        protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+        epochToken: this.#requiredEpochToken(),
+        kind: "control-acknowledged",
+        operation: envelope.operation,
+        controlSequence: envelope.controlSequence,
+        status: "not-active",
+      });
+      return;
+    }
+    this.#emit({
+      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
+      epochToken: this.#requiredEpochToken(),
+      kind: "control-acknowledged",
+      operation: envelope.operation,
+      controlSequence: envelope.controlSequence,
+      status: "acknowledged",
+      payload: result.value,
     });
   }
 
@@ -690,6 +820,7 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       return;
     }
     active.settling = true;
+    active.controlOpen = false;
     this.#active.delete(operation.operationId);
     this.#emit({
       protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,

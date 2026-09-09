@@ -27,10 +27,11 @@ import {
   type FakeWorkerOperationRegistration,
   type FakeWorkerRuntimeOptions,
   type WorkerRuntimeBoundaryErrors,
+  type WorkerRuntimeControlledOperationAdapter,
+  type WorkerRuntimeControlledOperationRegistration,
   type WorkerRuntimeFailure,
   type WorkerRuntimeFailureKind,
   type WorkerRuntimeLifecycleListeners,
-  type WorkerRuntimeOperationRegistration,
   type WorkerRuntimePreparationError,
   type WorkerRuntimeSource,
   type WorkerRuntimeTransportBinding,
@@ -57,12 +58,16 @@ interface TestDiagnostic {
   readonly detail: unknown;
 }
 
-type TestAdapter = OperationProducerAdapter<
+type TestAdapter = WorkerRuntimeControlledOperationAdapter<
   string,
   string,
   string,
   string,
-  WorkerRuntimePreparationError
+  WorkerRuntimePreparationError,
+  never,
+  string,
+  string,
+  string
 >;
 type TestSession = OperationSession<
   string,
@@ -113,6 +118,9 @@ interface HarnessOptions {
   readonly encodeInput?: (
     input: string,
   ) => BoundedPayloadDecodeResult<unknown>;
+  readonly encodeControlInput?: (
+    input: string,
+  ) => BoundedPayloadDecodeResult<unknown>;
   readonly clockUnsubscribeError?: Error;
   readonly lifecycleUnsubscribeError?: Error;
   readonly create?: () => void;
@@ -137,6 +145,14 @@ interface HarnessOptions {
     string,
     TestDiagnostic
   >["cancel"];
+  readonly control?: WorkerOperationRegistration<
+    string,
+    string,
+    string,
+    TestDiagnostic,
+    string,
+    string
+  >["control"] | null;
   readonly allowance?: WorkerLivenessAllowance;
   readonly omitResponse?: FakeWorkerRuntimeOptions<
     string,
@@ -283,13 +299,26 @@ function mainRegistration(
         reason: "oversized",
         message: "Input exceeds 32 code units.",
       },
-): WorkerRuntimeOperationRegistration<
+  encodeControlInput: (
+    input: string,
+  ) => BoundedPayloadDecodeResult<unknown> = input => input.length <= 32
+    ? { kind: "decoded", value: input }
+    : {
+        kind: "rejected",
+        reason: "oversized",
+        message: "Control input exceeds 32 code units.",
+      },
+): WorkerRuntimeControlledOperationRegistration<
   string,
   string,
   string,
   TestDiagnostic,
   string,
-  WorkerRuntimePreparationError
+  WorkerRuntimePreparationError,
+  never,
+  string,
+  string,
+  string
 > {
   return {
     kind: "echo",
@@ -301,6 +330,12 @@ function mainRegistration(
     progress: stringDecoder(),
     mapPreparationError: error => error,
     boundaryErrors: boundaryErrors(kind => `boundary:${kind}`),
+    control: {
+      encodeInput: encodeControlInput,
+      value: stringDecoder(),
+      mapRequestError: error => `control:${error.kind}`,
+      boundaryErrors: boundaryErrors(kind => `control-boundary:${kind}`),
+    },
   };
 }
 
@@ -339,7 +374,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
   const workerProducerClasses: WorkerProducerClassRegistry[] = [];
   for (let index = 0; index < workerCount; index++) {
     const operations = new FakeWorkerOperationCatalog();
-    operations.register({
+    operations.register<string, string, string, TestDiagnostic, string, string>({
       kind: "echo",
       allowance: options.workerAllowance ?? allowance,
       input: stringDecoder(),
@@ -352,6 +387,17 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
         value: input,
       })),
       ...(options.cancel === undefined ? {} : { cancel: options.cancel }),
+      ...(options.control === null
+        ? {}
+        : {
+            control: options.control ?? {
+              input: stringDecoder(),
+              invoke: (_operation, input) => ({
+                kind: "acknowledged",
+                value: `controlled:${input}`,
+              }),
+            },
+          }),
     });
     const workerClasses = createProducerClasses(
       producerClassDefinitions,
@@ -538,8 +584,12 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
             options.createProbeSequenceAllocator,
         }),
   });
-  const adapter = host.registerOperation(
-    mainRegistration(allowance, options.encodeInput),
+  const adapter = host.registerControlledOperation(
+    mainRegistration(
+      allowance,
+      options.encodeInput,
+      options.encodeControlInput,
+    ),
   );
   return {
     environment,
@@ -683,6 +733,17 @@ function operationMessages(worker: TestWorker): readonly string[] {
   return kinds;
 }
 
+function workerReceivedMessage(worker: TestWorker, kind: string): object {
+  for (const message of worker.receivedMessages) {
+    if (typeof message === "object"
+      && message !== null
+      && ownDataProperty(message, "kind") === kind) {
+      return message;
+    }
+  }
+  throw new Error(`Expected Worker to receive ${kind}.`);
+}
+
 function ownDataProperty(value: object, property: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(value, property);
   if (descriptor === undefined || !("value" in descriptor)) return undefined;
@@ -711,10 +772,18 @@ function createRealmHarness(options: {
     string,
     TestDiagnostic
   >["cancel"];
+  readonly control?: WorkerOperationRegistration<
+    string,
+    string,
+    string,
+    TestDiagnostic,
+    string,
+    string
+  >["control"];
 } = {}) {
   const messages: RawWorkerToMainEnvelope[] = [];
   const operations = new WorkerOperationCatalog();
-  operations.register({
+  operations.register<string, string, string, TestDiagnostic, string, string>({
     kind: "echo",
     allowance: { kind: "bounded", maxSilentActiveMilliseconds: 20 },
     input: stringDecoder(),
@@ -724,6 +793,7 @@ function createRealmHarness(options: {
     }),
     invoke: options.invoke ?? (input => ({ kind: "succeeded", value: input })),
     ...(options.cancel === undefined ? {} : { cancel: options.cancel }),
+    ...(options.control === undefined ? {} : { control: options.control }),
   });
   const realm = new WorkerRuntimeRealm({
     bootstrap: options.bootstrap ?? {
@@ -973,6 +1043,209 @@ test("production realm awaits cancellation before later commands but not physica
   second.resolve({ kind: "succeeded", value: "second" });
   await flushRealm();
   realm.dispose();
+});
+
+test("production realm serializes typed control acknowledgment before later commands", async () => {
+  const first = deferred<TestSettlement>();
+  const second = deferred<TestSettlement>();
+  const control = deferred<{
+    readonly kind: "acknowledged";
+    readonly value: string;
+  }>();
+  const contexts: WorkerOperationContext[] = [];
+  const { realm, messages } = createRealmHarness({
+    invoke: (input, context) => {
+      contexts.push(context);
+      return input === "first" ? first.promise : second.promise;
+    },
+    control: {
+      input: stringDecoder(),
+      invoke: (reference, input) => {
+        assert.deepEqual(reference, {
+          operationId: "first",
+          operationSequence: 1,
+        });
+        assert.equal(input, "credit");
+        return control.promise;
+      },
+    },
+  });
+  realm.receive(realmInitialization());
+  await flushRealm();
+  const operation = { operationId: "first", operationSequence: 1 };
+  realm.receive(workerEnvelope(1, {
+    kind: "start", operation, operationKind: "echo", payload: "first",
+  }));
+  realm.receive(workerEnvelope(1, {
+    kind: "control",
+    operation,
+    controlSequence: 1,
+    payload: "credit",
+  }));
+  realm.receive(workerEnvelope(1, { kind: "probe", probeSequence: 1 }));
+  realm.receive(workerEnvelope(1, {
+    kind: "start",
+    operation: { operationId: "second", operationSequence: 2 },
+    operationKind: "echo",
+    payload: "second",
+  }));
+  await flushRealm();
+  assert.deepEqual(messages.map(message => message.kind), ["ready", "accepted"]);
+  assert.equal(contexts.length, 1);
+
+  first.resolve({ kind: "succeeded", value: "first" });
+  await flushRealm();
+  assert.equal(messages.at(-1)?.kind, "settled");
+  control.resolve({ kind: "acknowledged", value: "granted" });
+  await flushRealm();
+  assert.deepEqual(messages.slice(-3), [
+    workerEnvelope(1, {
+      kind: "control-acknowledged",
+      operation,
+      controlSequence: 1,
+      status: "acknowledged",
+      payload: "granted",
+    }),
+    workerEnvelope(1, { kind: "probe-acknowledged", probeSequence: 1 }),
+    workerEnvelope(1, {
+      kind: "accepted",
+      operation: { operationId: "second", operationSequence: 2 },
+      allowance: { kind: "bounded", maxSilentActiveMilliseconds: 20 },
+    }),
+  ]);
+  assert.equal(contexts.length, 2);
+  second.resolve({ kind: "succeeded", value: "second" });
+  await flushRealm();
+  realm.dispose();
+});
+
+test("production realm closes control admission before cancellation awaits", async () => {
+  const settlement = deferred<TestSettlement>();
+  const cancellation = deferred<boolean>();
+  let controls = 0;
+  const { realm, messages } = createRealmHarness({
+    invoke: () => settlement.promise,
+    cancel: () => cancellation.promise,
+    control: {
+      input: stringDecoder(),
+      invoke: (_reference, input) => {
+        controls++;
+        return { kind: "acknowledged", value: input };
+      },
+    },
+  });
+  realm.receive(realmInitialization());
+  await flushRealm();
+  const operation = { operationId: "control", operationSequence: 1 };
+  realm.receive(workerEnvelope(1, {
+    kind: "start", operation, operationKind: "echo", payload: "input",
+  }));
+  await flushRealm();
+
+  realm.receive(workerEnvelope(1, {
+    kind: "cancel", operation, reason: "user",
+  }));
+  realm.receive(workerEnvelope(1, {
+    kind: "control", operation, controlSequence: 1, payload: "late",
+  }));
+  await flushRealm();
+  assert.equal(controls, 0);
+  cancellation.resolve(true);
+  await flushRealm();
+  assert.equal(controls, 0);
+  assert.deepEqual(messages.slice(-2), [
+    workerEnvelope(1, {
+      kind: "cancel-acknowledged",
+      operation,
+      status: "running",
+    }),
+    workerEnvelope(1, {
+      kind: "control-acknowledged",
+      operation,
+      controlSequence: 1,
+      status: "not-active",
+    }),
+  ]);
+
+  settlement.resolve({ kind: "canceled", reason: "user" });
+  await flushRealm();
+  realm.dispose();
+});
+
+test("production realm returns not-active for an absent nonfuture operation", async () => {
+  const { realm, messages } = createRealmHarness();
+  realm.receive(realmInitialization());
+  await flushRealm();
+  const operation = { operationId: "completed", operationSequence: 1 };
+  realm.receive(workerEnvelope(1, {
+    kind: "start", operation, operationKind: "echo", payload: "input",
+  }));
+  await flushRealm();
+  assert.equal(messages.at(-1)?.kind, "settled");
+
+  realm.receive(workerEnvelope(1, {
+    kind: "control", operation, controlSequence: 1, payload: "late",
+  }));
+  await flushRealm();
+  assert.deepEqual(messages.at(-1), workerEnvelope(1, {
+    kind: "control-acknowledged",
+    operation,
+    controlSequence: 1,
+    status: "not-active",
+  }));
+  realm.dispose();
+});
+
+test("production realm rejects replayed active control sequences and future references", async () => {
+  const settlement = deferred<TestSettlement>();
+  const { realm, messages } = createRealmHarness({
+    invoke: () => settlement.promise,
+    control: {
+      input: stringDecoder(),
+      invoke: (_reference, input) => ({
+        kind: "acknowledged",
+        value: input,
+      }),
+    },
+  });
+  realm.receive(realmInitialization());
+  await flushRealm();
+  const operation = { operationId: "control", operationSequence: 1 };
+  realm.receive(workerEnvelope(1, {
+    kind: "start", operation, operationKind: "echo", payload: "input",
+  }));
+  realm.receive(workerEnvelope(1, {
+    kind: "control", operation, controlSequence: 1, payload: "first",
+  }));
+  await flushRealm();
+  assert.equal(messages.at(-1)?.kind, "control-acknowledged");
+  realm.receive(workerEnvelope(1, {
+    kind: "control", operation, controlSequence: 1, payload: "replayed",
+  }));
+  await flushRealm();
+  assert.equal(messages.at(-1)?.kind, "epoch-failed");
+  realm.dispose();
+
+  const future = createRealmHarness({
+    control: {
+      input: stringDecoder(),
+      invoke: (_reference, input) => ({
+        kind: "acknowledged",
+        value: input,
+      }),
+    },
+  });
+  future.realm.receive(realmInitialization());
+  await flushRealm();
+  future.realm.receive(workerEnvelope(1, {
+    kind: "control",
+    operation: { operationId: "future", operationSequence: 1 },
+    controlSequence: 1,
+    payload: "credit",
+  }));
+  await flushRealm();
+  assert.equal(future.messages.at(-1)?.kind, "epoch-failed");
+  future.realm.dispose();
 });
 
 test("production realm failure suppresses progress and new commands but preserves admitted release", async () => {
@@ -3508,6 +3781,534 @@ test("not-active acknowledgment may follow settlement and retires the compact re
   assert.equal(harness.failures.length, 0);
   assert.equal(harness.host.snapshot().compactControlRecords, 0);
   await handle.quiesced;
+});
+
+test("typed operation control acknowledges the exact active operation", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({ invoke: () => settlement.promise });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "more"),
+    { kind: "acknowledged", value: "controlled:more" },
+  );
+  assert.deepEqual(operationMessages(harness.workers[0]!), [
+    "initialize",
+    "start",
+    "control",
+  ]);
+
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await handle.quiesced;
+});
+
+test("operation control is confined to its registration instance", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({ invoke: () => settlement.promise });
+  const otherAdapter = harness.host.registerControlledOperation({
+    ...mainRegistration({
+      kind: "bounded",
+      maxSilentActiveMilliseconds: 20,
+    }),
+    kind: "other",
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(
+    await otherAdapter.requestControl(handle.id, "more"),
+    { kind: "failed", error: "control:operation-mismatch" },
+  );
+  assert.equal(
+    operationMessages(harness.workers[0]!)
+      .filter(kind => kind === "control").length,
+    0,
+  );
+
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await handle.quiesced;
+});
+
+test("operation control rejects oversized input before posting", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({ invoke: () => settlement.promise });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "x".repeat(33)),
+    { kind: "failed", error: "control:payload-rejected" },
+  );
+  assert.equal(
+    operationMessages(harness.workers[0]!)
+      .filter(kind => kind === "control").length,
+    0,
+  );
+
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await handle.quiesced;
+});
+
+test("operation control reserves busy state before reentrant encoding", async () => {
+  const settlement = deferred<TestSettlement>();
+  const nestedRequests:
+    Array<ReturnType<TestAdapter["requestControl"]>> = [];
+  let harness: TestHarness;
+  let handle: OperationHandle<string, string>;
+  let reenter = true;
+  harness = createHarness({
+    invoke: () => settlement.promise,
+    encodeControlInput: input => {
+      if (reenter) {
+        reenter = false;
+        nestedRequests.push(
+          harness.adapter.requestControl(handle.id, "nested"),
+        );
+      }
+      return { kind: "decoded", value: input };
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const outer = harness.adapter.requestControl(handle.id, "outer");
+  assert.deepEqual(await nestedRequests[0]!, {
+    kind: "failed",
+    error: "control:control-busy",
+  });
+  await harness.environment.flushAsync();
+  assert.deepEqual(await outer, {
+    kind: "acknowledged",
+    value: "controlled:outer",
+  });
+  assert.equal(
+    operationMessages(harness.workers[0]!)
+      .filter(kind => kind === "control").length,
+    1,
+  );
+
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await handle.quiesced;
+});
+
+test("reentrant cancellation during control encoding prevents the post", async () => {
+  const settlement = deferred<TestSettlement>();
+  let handle: OperationHandle<string, string>;
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    encodeControlInput: input => {
+      handle.cancel("user");
+      return { kind: "decoded", value: input };
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "more"),
+    { kind: "not-active" },
+  );
+  assert.deepEqual(operationMessages(harness.workers[0]!), [
+    "initialize",
+    "start",
+    "cancel",
+  ]);
+
+  settlement.resolve({ kind: "canceled", reason: "user" });
+  await handle.quiesced;
+});
+
+test("reentrant restart during control encoding prevents the post", async () => {
+  const settlement = deferred<TestSettlement>();
+  let harness: TestHarness;
+  harness = createHarness({
+    invoke: () => settlement.promise,
+    encodeControlInput: input => {
+      harness.host.restart();
+      return { kind: "decoded", value: input };
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "more"),
+    {
+      kind: "failed",
+      error: "control:operation-closed",
+    },
+  );
+  assert.equal(
+    operationMessages(harness.workers[0]!)
+      .filter(kind => kind === "control").length,
+    0,
+  );
+  assert.deepEqual(await handle.outcome, {
+    kind: "canceled",
+    reason: "worker-restarted",
+  });
+  await handle.quiesced;
+});
+
+for (const cutoff of [
+  {
+    name: "restart",
+    apply: (harness: TestHarness) => {
+      harness.host.restart();
+    },
+  },
+  {
+    name: "disposal",
+    apply: (harness: TestHarness) => {
+      harness.host.dispose();
+    },
+  },
+] as const) {
+  test(`deferred ${cutoff.name} during control encoding prevents the post`, async () => {
+    const settlement = deferred<TestSettlement>();
+    let applyCutoff: (() => void) | null = null;
+    let controlResult:
+      ReturnType<TestAdapter["requestControl"]> | null = null;
+    let harness: TestHarness;
+    harness = createHarness({
+      invoke: () => settlement.promise,
+      encodeControlInput: input => {
+        applyCutoff?.();
+        return { kind: "decoded", value: input };
+      },
+    });
+    await startReady(harness);
+    const identity = captureIdentity();
+    const outcomes: OperationOutcome<string, string>[] = [];
+    let quiesced = false;
+    const sink: OperationProducerSink<string, string, string> = {
+      reportProgress: () => {
+        harness.workers[0]!.emitHeartbeat();
+        controlResult = harness.adapter.requestControl(identity.id, "more");
+        return undefined;
+      },
+      reportDurable: () => undefined,
+      reportUnexpectedTerminal: () => undefined,
+      reportUnexpectedFailure: () => undefined,
+      ...terminalCallbacks<string, string>(outcome => {
+        outcomes.push(outcome);
+        return undefined;
+      }),
+      reportQuiesced: () => {
+        quiesced = true;
+        return undefined;
+      },
+    };
+    preparedBinding(
+      harness.adapter.prepare(identity, "input", sink),
+    ).activate();
+    await harness.environment.flushAsync();
+    applyCutoff = () => cutoff.apply(harness);
+
+    harness.workers[0]!.emitRaw(workerEnvelope(1, {
+      kind: "progress",
+      operation: {
+        operationId: identity.id,
+        operationSequence: identity.sequence,
+      },
+      payload: "progress",
+    }));
+
+    assert.notEqual(controlResult, null);
+    if (controlResult === null)
+      throw new Error("Expected a reentrant control request.");
+    assert.deepEqual(await controlResult, { kind: "not-active" });
+    assert.equal(
+      operationMessages(harness.workers[0]!)
+        .filter(kind => kind === "control").length,
+      0,
+    );
+    assert.deepEqual(outcomes, [{
+      kind: "canceled",
+      reason: "worker-restarted",
+    }]);
+    assert.equal(quiesced, true);
+  });
+}
+
+test("a pending operation control rejects overlap and retains its acknowledgment after settlement", async () => {
+  const settlement = deferred<TestSettlement>();
+  const control = deferred<{
+    readonly kind: "acknowledged";
+    readonly value: string;
+  }>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    control: {
+      input: stringDecoder(),
+      invoke: () => control.promise,
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const first = harness.adapter.requestControl(handle.id, "first");
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "second"),
+    { kind: "failed", error: "control:control-busy" },
+  );
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().compactControlRecords, 1);
+
+  control.resolve({ kind: "acknowledged", value: "granted" });
+  await harness.environment.flushAsync();
+  assert.deepEqual(await first, {
+    kind: "acknowledged",
+    value: "granted",
+  });
+  assert.equal(harness.host.snapshot().compactControlRecords, 0);
+  await handle.quiesced;
+});
+
+test("malformed operation control acknowledgment fails the epoch", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    omitResponse: kind => kind === "control-acknowledged",
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const pending = harness.adapter.requestControl(handle.id, "more");
+  await harness.environment.flushAsync();
+  const controlMessage = workerReceivedMessage(
+    harness.workers[0]!,
+    "control",
+  );
+  const epochToken = harness.host.snapshot().epochToken;
+  assert.ok(epochToken !== null);
+  harness.workers[0]!.emitRaw(workerEnvelope(epochToken, {
+    kind: "control-acknowledged",
+    operation: ownDataProperty(controlMessage, "operation"),
+    controlSequence: ownDataProperty(controlMessage, "controlSequence"),
+    status: "acknowledged",
+    payload: 42,
+  }));
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "protocol");
+  assert.deepEqual(await pending, {
+    kind: "failed",
+    error: "control-boundary:protocol",
+  });
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  harness.environment.advanceActive(20);
+  await harness.environment.flushAsync();
+  await handle.quiesced;
+});
+
+test("active operation without control support fails the epoch", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    control: null,
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const pending = harness.adapter.requestControl(handle.id, "more");
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "worker-declared");
+  assert.deepEqual(await pending, {
+    kind: "failed",
+    error: "control-boundary:worker-declared",
+  });
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await harness.environment.flushAsync();
+  await handle.quiesced;
+});
+
+test("cancellation closes control admission without discarding a posted response", async () => {
+  const settlement = deferred<TestSettlement>();
+  const control = deferred<{
+    readonly kind: "acknowledged";
+    readonly value: string;
+  }>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    cancel: () => true,
+    control: {
+      input: stringDecoder(),
+      invoke: () => control.promise,
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const pending = harness.adapter.requestControl(handle.id, "first");
+  handle.cancel("user");
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "second"),
+    { kind: "not-active" },
+  );
+  control.resolve({ kind: "acknowledged", value: "granted-before-cancel" });
+  settlement.resolve({ kind: "canceled", reason: "user" });
+  await harness.environment.flushAsync();
+  assert.deepEqual(await pending, {
+    kind: "acknowledged",
+    value: "granted-before-cancel",
+  });
+  await handle.quiesced;
+});
+
+test("boundary closure fails the caller but retains the posted control response", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    omitResponse: kind => kind === "control-acknowledged",
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const pending = harness.adapter.requestControl(handle.id, "more");
+  await harness.environment.flushAsync();
+  const controlMessage = workerReceivedMessage(
+    harness.workers[0]!,
+    "control",
+  );
+  const epochToken = harness.host.snapshot().epochToken;
+  assert.ok(epochToken !== null);
+
+  harness.workers[0]!.emitRaw(workerEnvelope(epochToken, {
+    kind: "heartbeat",
+    unexpected: true,
+  }));
+  await harness.environment.flushAsync();
+  assert.deepEqual(await pending, {
+    kind: "failed",
+    error: "control-boundary:protocol",
+  });
+
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().compactControlRecords, 1);
+
+  harness.workers[0]!.emitRaw(workerEnvelope(epochToken, {
+    kind: "control-acknowledged",
+    operation: ownDataProperty(controlMessage, "operation"),
+    controlSequence: ownDataProperty(controlMessage, "controlSequence"),
+    status: "acknowledged",
+    payload: "ignored-after-closure",
+  }));
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().compactControlRecords, 0);
+  await handle.quiesced;
+});
+
+test("not-active control acknowledgment closes the operation control port", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    control: {
+      input: stringDecoder(),
+      invoke: () => ({ kind: "not-active" }),
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "more"),
+    { kind: "not-active" },
+  );
+  assert.deepEqual(
+    await harness.adapter.requestControl(handle.id, "again"),
+    { kind: "not-active" },
+  );
+  assert.equal(
+    operationMessages(harness.workers[0]!)
+      .filter(kind => kind === "control").length,
+    1,
+  );
+
+  settlement.resolve({ kind: "succeeded", value: "done" });
+  await handle.quiesced;
+});
+
+test("matching probe acknowledgment proves a covered missing Control response", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    omitResponse: kind => kind === "control-acknowledged",
+    controlResponseGraceMilliseconds: 5,
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const pending = harness.adapter.requestControl(handle.id, "more");
+  await harness.environment.flushAsync();
+  harness.environment.advanceActive(5);
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "control-response");
+  assert.deepEqual(await pending, {
+    kind: "failed",
+    error: "control-boundary:control-response",
+  });
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "boundary:control-response",
+  });
 });
 
 test("cancellation acknowledgment cannot precede admission and worker rejects future cancellation", async () => {

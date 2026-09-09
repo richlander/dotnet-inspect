@@ -28,8 +28,11 @@ publication path from
 [#5570](https://github.com/richlander/dotnet-inspect/issues/5570).
 Feature adapters can compose it with the complete managed nonterminal
 callback from [#5419](https://github.com/richlander/dotnet-inspect/issues/5419).
-Concrete feature adoption remains separate; transport support does not move
-Package Query or Source into the Worker.
+The operation-addressed typed control protocol is implemented under
+[#6376](https://github.com/richlander/dotnet-inspect/issues/6376), with Package
+Query match-credit replenishment as its first named consumer. Concrete feature
+adoption remains separate; transport and control support do not move Package
+Query or Source into the Worker.
 
 ## Decision
 
@@ -44,6 +47,8 @@ The host:
 - holds activated operation starts until one consumer-owned bootstrap barrier
   fulfills and the worker reports matching readiness;
 - exchanges only closed, versioned, validated messages;
+- carries at most one outstanding typed feature control per accepted operation,
+  with an exact acknowledgment before the compact operation record can retire;
 - retains bounded replay evidence through sequence high-water marks and active
   records rather than completed-operation tombstones;
 - accounts for task-loop evidence, accepted operations, and managed epoch-work
@@ -94,6 +99,30 @@ worker-local caches are lost. Planned restart produces
 `canceled("worker-restarted")`; an unexpected startup, crash, worker-declared,
 protocol, or watchdog loss produces a boundary failure.
 
+### Bounded operation control
+
+An accepted operation may expose one feature-owned typed control. The page
+addresses a request to the operation-authority ID; the Worker adapter resolves
+that ID to the retained full operation reference and permits at most one
+outstanding request. A concurrent request fails visibly as busy rather than
+creating an unbounded queue.
+
+The Worker processes control requests in the same serialized command lane as
+Start, Cancel, and Probe. The feature handler returns either an acknowledged
+typed result or `not-active`; invocation alone never claims that the feature
+accepted the control. Cancellation, physical settlement, boundary closure, and
+`not-active` close further control admission. Restart and disposal close local
+control admission when their source-event cutoff is queued, even though earlier
+arrived source events still dispatch before that cutoff. An already posted request remains
+a response obligation and may be acknowledged after settlement, while the
+compact operation record retains only the exact correlation and result
+decoder needed to validate that response.
+
+This control is not an operation start, progress event, durable event, or
+terminal result. Its first consumer is Package Query match-credit
+replenishment, whose credit amount and managed linearization remain
+feature-owned.
+
 ### Shared physical work
 
 Managed work that outlives its final operation wrapper can retain the epoch
@@ -138,6 +167,8 @@ This document owns:
 - worker creation and one current worker realm per runtime host;
 - page-lifetime worker-epoch identity and non-reuse;
 - the closed main-to-worker and worker-to-main protocol;
+- operation-addressed control sequencing, validation, acknowledgment, response
+  obligations, and compact-record retention;
 - validation and ordering of worker messages;
 - the worker-side operation dispatch catalog, liveness declarations, and
   idle-compatible producer-class capabilities;
@@ -510,6 +541,25 @@ Worker boundary. Type Source has no nonterminal payload, so its progress codec
 rejects every value and its liveness allowance is unbounded. These are protocol
 and liveness bounds, not a responsiveness claim.
 
+An operation with feature control registers a separate bounded request encoder,
+Worker decoder and handler, acknowledgment decoder, local-request error
+mapping, and boundary-error table. Only the returned control-capable adapter
+can issue that operation kind's control. It resolves a page-issued operation ID
+to a retained record created by the same registration instance; it does not
+expose or reconstruct the operation sequence.
+
+The adapter reserves a positive per-operation control sequence and its one
+outstanding slot before calling the request encoder. Rejected or throwing
+encoding consumes that sequence without posting a message. A reentrant request
+therefore fails visibly as `control-busy`; the runtime retains no
+pending-request queue. The adapter revalidates epoch, record, and control-port
+authority after the encoder returns before posting. A normal
+acknowledgment decodes the feature result, while `not-active` closes the
+control port. Cancellation and closure also close the port. A posted request
+survives physical settlement as a response obligation, and its exact
+acknowledgment can complete after settlement without reopening the port or
+regaining publication authority.
+
 Abandoning a prepared binding synchronously releases its retained state and
 prepared lifetime without assigning Worker work. Once an activated binding
 reaches the head of the prepared lane, it installs one epoch-assigned record
@@ -574,15 +624,17 @@ decode likewise performs no global cross-operation payload selection: the
 operation reference selects the active record and its result, error,
 diagnostic, or progress codecs.
 
-Protocol version 2 adds the closed `Events` variant. Peers must agree on the
-exact version; an older peer is not silently treated as supporting durable
-delivery.
+Protocol version 3 adds the closed `Control` and `ControlAcknowledged`
+variants to version 2's `Events` transport. Peers must agree on the exact
+version; an older peer is not silently treated as supporting durable delivery
+or operation control.
 
 The main-to-worker inventory is:
 
 ```text
 Initialize(bootstrap, idleHeartbeatInterval, idleAllowanceMilliseconds)
 Start(operation, kind, payload)
+Control(operation, controlSequence, payload)
 Cancel(operation, reason)
 Probe(probeSequence)
 ```
@@ -595,6 +647,8 @@ StartupFailed(diagnostic)
 Accepted(operation, allowance)
 Rejected(operation, error, diagnostic)
 CancelAcknowledged(operation, running | not-active)
+ControlAcknowledged(operation, controlSequence,
+  acknowledged(payload) | not-active)
 Progress(operation, payload)
 Events(operation, entries)
 Settled(operation,
@@ -623,6 +677,14 @@ synchronous diagnostic observer can reenter operation APIs. `Rejected` is the
 exclusive never-accepted alternative and proves that no operation-scoped
 worker or managed resource was admitted; the adapter reports its failure and
 quiescence together.
+
+`Control` is valid only for an operation kind that registered feature-control
+support. It carries the exact operation reference, a positive safe
+`controlSequence`, and a bounded feature request payload.
+`ControlAcknowledged` echoes that correlation and carries the handler's closed
+`acknowledged` or `not-active` result. `not-active` means that this request did
+not take effect; it does not imply terminal settlement. Successfully invoking
+the handler is not acknowledgment.
 
 Promise rejection from the managed facade is not a `Failed` managed result. It
 is a worker boundary failure and begins unexpected epoch draining because the
@@ -691,7 +753,8 @@ lifetime.
 The worker retains:
 
 - one highest received operation sequence;
-- one active map keyed by operation ID and sequence; and
+- one active map keyed by operation ID and sequence, including each active
+  record's highest received control sequence; and
 - no completed-operation tombstones.
 
 A `Start` whose sequence is not strictly greater than the received high-water
@@ -706,6 +769,14 @@ An operation ID already present in the active map is ambiguous and fails the
 epoch. Historical operation-ID uniqueness remains an operation-authority
 precondition; the runtime does not retain every completed opaque ID to
 re-prove it.
+
+For an active operation, `Control` requires a control-capable registration and
+a control sequence strictly greater than that record's high-water mark.
+Duplicate or non-increasing active control sequences fail the epoch. A future
+operation sequence also fails the epoch. A structurally valid nonfuture
+operation reference absent from the active map receives `not-active`: without
+completed-operation tombstones, the Worker cannot distinguish every historical
+reference from an invented one and does not claim that proof.
 
 A valid start installs its protocol record and sends `Accepted` before invoking
 managed code. `Accepted` means the operation passed worker admission. The same
@@ -744,13 +815,15 @@ The main adapter sends at most one `Cancel` for an assigned record. It sends
 none for a held start settled before readiness. Main-to-worker message ordering
 ensures a posted `Start` precedes its posted `Cancel`.
 
-The worker processes `Start`, `Cancel`, and `Probe` through one serialized
-protocol-command lane. A command cannot let the next command begin until it
-has committed its required immediate response:
+The worker processes `Start`, `Control`, `Cancel`, and `Probe` through one
+serialized protocol-command lane. A command cannot let the next command begin
+until it has committed its required immediate response:
 
 - `Start` commits `Accepted` or `Rejected`, invokes an accepted facade function
   without awaiting its returned Promise in the lane, and attaches settlement
   handling outside the lane;
+- `Control` commits `ControlAcknowledged` after its feature handler returns
+  `acknowledged` or `not-active`;
 - `Cancel` commits `CancelAcknowledged` after its keyed managed cancellation
   call completes; and
 - `Probe` commits `ProbeAcknowledged`.
@@ -776,22 +849,33 @@ arrive while the wire record is still accepted when managed settlement has
 sealed cancellation but has not yet crossed the release barrier. The main host
 retains the record until its `Rejected` or `Settled` closure also arrives.
 
+The main host closes feature-control admission when cancellation is requested,
+physical closure arrives, `not-active` is acknowledged, or the epoch closes.
+The Worker closes it when cancellation begins or operation settlement starts.
+Closure rejects later local requests without posting them. It does not erase a
+request already posted: that exact response remains mandatory and may arrive
+after `Settled`.
+
 No cancellation acknowledgment can commit while the operation is still
 awaiting its `Accepted` or `Rejected` response.
 
 The main protocol record is released when:
 
 - `Rejected` or `Settled` has arrived; and
-- the one cancellation acknowledgment has arrived when `Cancel` was sent.
+- the one cancellation acknowledgment has arrived when `Cancel` was sent; and
+- every posted control acknowledgment has arrived.
 
 After physical closure, the sink and payload are released even when a compact
-control-response record must remain for a pending acknowledgment. No feature
-observer or managed callback is retained by that record.
+control-response record must remain for a pending acknowledgment. That record
+retains the operation reference, exact control sequence, bounded result
+decoder, and pending caller completion needed to validate and deliver the
+response. It retains no operation sink, start payload, progress callback,
+durable-event callback, or managed callback.
 
 Missing responses are not inferred from elapsed operation duration. A bounded
 control-response grace can cause the host to post a `Probe` after an
-unanswered `Start` or `Cancel`. That probe snapshots the exact earlier response
-obligations it covers. The serialized command lane delays its acknowledgment
+unanswered `Start`, `Control`, or `Cancel`. That probe snapshots the exact
+earlier response obligations it covers. The serialized command lane delays its acknowledgment
 until every earlier command has completed its response-commit point. If a
 covered required response is still absent when the matching
 `ProbeAcknowledged` arrives, the handler completed without its contractually
@@ -1342,7 +1426,17 @@ deterministic scheduling rather than a real browser worker. It includes:
 - running cancellation, `not-active` race validation, one acknowledgment,
   closure-before-record-release, and compact post-settlement acknowledgment
   retention;
-- unanswered start and cancellation requests where matching probe
+- operation-addressed feature controls with bounded request and acknowledgment
+  codecs, exact registration ownership, one-outstanding busy rejection,
+  reentrant encoding with nested control, cancellation, immediate epoch
+  closure, and deferred restart or disposal cutoff,
+  active-sequence replay and future-reference rejection, honest `not-active`
+  for absent nonfuture references, handler acknowledgment versus
+  `not-active`, cancellation and settlement closing admission, settlement
+  before acknowledgment, compact-record retirement, unsupported active
+  registrations, malformed results, and boundary closure with an outstanding
+  response obligation;
+- unanswered start, control, and cancellation requests where matching probe
   acknowledgment from the serialized command lane proves a missing covered
   response and begins bounded draining, a later serialized response proving a
   missing probe acknowledgment, heartbeats alone preserving that outstanding
@@ -1509,6 +1603,12 @@ on the main thread. It includes one neighboring operation not used to tune any
 bound, progress, cooperative cancellation, supersession, planned restart,
 unexpected worker loss, and worker-local cache loss across epochs.
 
+The focused
+[Worker-controls model](models/inspect-web-worker-controls/README.md) checks
+the abstract admission-closure, exact-correlation, response-obligation, and
+compact-record-retention properties. It does not replace the executable
+protocol gate or prove feature-owned control semantics.
+
 ## Migration
 
 Implementation proceeds without moving operation authority or feature meaning
@@ -1524,23 +1624,26 @@ into the runtime host:
 4. add durable event batches (**implemented**) consuming #5570 and the
    complete managed nonterminal handoff in #5826 under #5419, before moving the
    existing Package Query stream;
-5. prepare the existing source operation's typed worker adapter for the
+5. add operation-addressed typed feature control with bounded codecs, one
+   outstanding request, exact acknowledgment, and compact-record retention
+   (**implemented**) for later Package Query match-credit adoption;
+6. prepare the existing source operation's typed worker adapter for the
    [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client)
    (**implemented** without a production caller);
-6. connect keyed cancellation, progress, managed settlement, and epoch-work
+7. connect keyed cancellation, progress, managed settlement, and epoch-work
    reporting through their existing owners;
-7. prove real-browser responsiveness and hard realm release; and
-8. migrate additional feature lifecycle adapters only after each declares its
+8. prove real-browser responsiveness and hard realm release; and
+9. migrate additional feature lifecycle adapters only after each declares its
    own payload and liveness policy.
 
-These eight production-host adoption steps are tracked by #5418 under #4937
+These nine production-host adoption steps are tracked by #5418 under #4937
 and #4571, with composition handoffs mapped by #5095. The first feature
 consumer is the existing source operation in
-issue #5420, not a duplicate feature. Steps 4-7 must be satisfied before the
-client's production cutover lands: adapter preparation, lifecycle connection,
-and browser evidence are prerequisites, not work deferred until after
+issue #5420, not a duplicate feature. Steps 4-8 must be satisfied before the
+client's production cutover lands: event transport, control transport, adapter
+preparation, lifecycle connection, and browser evidence are prerequisites, not work deferred until after
 activation. The client owner activates the required bindings and retires direct
-main-thread managed dispatch together. Step 8 is subsequent feature lifecycle
+main-thread managed dispatch together. Step 9 is subsequent feature lifecycle
 adoption, not permission to retain a second runtime. The approved
 inspect-web-only scope does not imply a CLI runtime migration. Typed feature
 results continue to reach their existing rendering owners; this binding adds
