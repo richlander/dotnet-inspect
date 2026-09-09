@@ -71,8 +71,11 @@ public sealed class AuthoredRebuildFidelityTests
     [Trait("Speed", "Slow")]
     public void AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff()
     {
-        var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
-            FixtureCatalog.DiffPair.OldAssemblyPath());
+        string assemblyPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        using ReturnToSender.CompilationClosure closure =
+            ReturnToSender.CreateCompilationClosure(assemblyPath);
+        var decompiler = ReturnToSender.CompileBackPropertyGetters(
+            assemblyPath, maxTargets: 1, closure).Single();
         var context = new RecordedBuildContext(
             IsDeterministic: true,
             CompleteOptions(),
@@ -110,9 +113,11 @@ public sealed class AuthoredRebuildFidelityTests
                 directory,
                 "fixture",
                 MetadataReference.CreateFromFile(dependencyPath));
+            using ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
             ReturnToSender.Result decompiler =
-                ReturnToSender.CompileBackFirstPropertyGetter(
-                    assemblyPath);
+                ReturnToSender.CompileBackPropertyGetters(
+                    assemblyPath, maxTargets: 1, closure).Single();
 
             CompileFixture(
                 "namespace D; public sealed class After { }",
