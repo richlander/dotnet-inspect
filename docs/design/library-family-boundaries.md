@@ -293,7 +293,8 @@ measurement moves to `DotnetInspect.Cli`; and single-consumer helpers move
 beside their consumers.
 
 `DotnetInspector.Services` likewise has no aggregate successor. Package
-components move to the package owner, platform components to the
+components move to the
+[PackageHouse Composition](package-house.md) owner, platform components to the
 [`PlatformHouse`](platform-house-reference-processing.md) owner above the lower
 [Platform Target Currency](platform-target-currency.md), source-byte transport
 to the independent `SourceFetch` root, PDB-specific source composition to the
