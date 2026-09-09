@@ -3202,6 +3202,10 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     return this.#realm.activeEpochWorkCount;
   }
 
+  fail(detail: unknown): void {
+    this.#realm.fail(detail);
+  }
+
   get terminated(): boolean {
     return this.#realm.disposed;
   }

@@ -4129,6 +4129,52 @@ test("a pending operation control rejects overlap and retains its acknowledgment
   await handle.quiesced;
 });
 
+test("worker failure preserves an admitted control acknowledgment for natural draining", async () => {
+  const settlement = deferred<TestSettlement>();
+  const control = deferred<{
+    readonly kind: "acknowledged";
+    readonly value: string;
+  }>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    control: {
+      input: stringDecoder(),
+      invoke: () => control.promise,
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const pending = harness.adapter.requestControl(handle.id, "more");
+  await harness.environment.flushAsync();
+  harness.workers[0]!.fail(new Error("worker boundary failed"));
+  await harness.environment.flushAsync();
+  assert.deepEqual(await pending, {
+    kind: "failed",
+    error: "control-boundary:worker-declared",
+  });
+
+  settlement.resolve({ kind: "succeeded", value: "physical release" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().compactControlRecords, 1);
+  control.resolve({ kind: "acknowledged", value: "late acknowledgment" });
+  await harness.environment.flushAsync();
+
+  assert.equal(
+    harness.workers[0]!.emittedMessages
+      .filter(message => message.kind === "control-acknowledged").length,
+    1,
+  );
+  assert.equal(harness.host.snapshot().compactControlRecords, 0);
+  assert.equal(harness.workers[0]!.activeOperationCount, 0);
+  assert.equal(harness.workers[0]!.terminated, true);
+  await handle.quiesced;
+});
+
 test("malformed operation control acknowledgment fails the epoch", async () => {
   const settlement = deferred<TestSettlement>();
   const harness = createHarness({

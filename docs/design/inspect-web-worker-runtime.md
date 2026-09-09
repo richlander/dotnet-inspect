@@ -858,6 +858,9 @@ forwarding still follows that callout. The Worker closes admission when
 cancellation begins or operation settlement starts. Closure rejects later
 local requests without posting them. It does not erase a request already
 posted: that exact response remains mandatory and may arrive after `Settled`.
+If the Worker declares epoch failure after invoking a control handler, new
+commands remain refused but that already-invoked handler may still emit its
+exact acknowledgment while the realm drains. Realm destruction suppresses it.
 The main host drops the authority cancellation state at physical release.
 
 No cancellation acknowledgment can commit while the operation is still
@@ -1159,8 +1162,11 @@ rather than waiting for the remaining drain budget.
 A worker that has declared epoch failure refuses new starts, cancellation
 commands, probes, and epoch-work leases. Settlement callbacks and
 epoch-work-finish calls for work admitted before that declaration still emit
-their physical release evidence. They cannot replace the committed failure,
-but they permit the main host to release the failed realm naturally.
+their physical release evidence. A control handler invoked before the
+declaration likewise emits its exact acknowledgment after returning; this
+retires the preexisting response obligation but cannot replace the committed
+failure or admit another command. These responses permit the main host to
+release the failed realm naturally.
 
 A live failed realm receives one bounded active-time drain budget. It may
 release accepted operations and epoch-work leases naturally. It is terminated

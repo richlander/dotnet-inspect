@@ -755,7 +755,7 @@ export class WorkerRuntimeRealm<TBootstrap, TDiagnostic> {
       return;
     }
     const result = await active.control(envelope);
-    if (this.#terminated || this.#failed) return;
+    if (this.#terminated) return;
     if (result.kind === "not-active") {
       active.controlOpen = false;
       this.#emit({
