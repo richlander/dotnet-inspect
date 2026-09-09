@@ -684,7 +684,8 @@ test("an assembly block reports an available managed ReadyToRun header", () => {
 
   assert.match(
     readyToRun,
-    /ReadyToRun[\s\S]*Component · v9\.1[\s\S]*PlatformNeutralSource[\s\S]*ManifestMetadata[\s\S]*RVA 0x5678/);
+    /ReadyToRun[\s\S]*Component[\s\S]*R2R format version<\/strong>9\.1[\s\S]*PlatformNeutralSource[\s\S]*ManifestMetadata[\s\S]*RVA 0x5678/);
+  assert.doesNotMatch(readyToRun, /Component · v9\.1/);
   assert.match(ilOnly, /ReadyToRun[\s\S]*No/);
 });
 
