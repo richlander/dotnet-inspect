@@ -14,6 +14,7 @@ using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.SourceLink;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Queries.Tests;
@@ -156,6 +157,54 @@ public sealed partial class AssemblyContextSourceQueryTests
             SourceChecksumVerification.Exact,
             type.Inspection.ChecksumVerification);
         Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
+    public async Task BodylessType_AcquiresInferredChecksumVerifiedPdbSource()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(BodylessSourceFixture).Assembly.Location);
+        TestAssembly assembly = TestAssembly.Create(image);
+        using var host = QueryHost.WithSource(
+            File.ReadAllBytes(
+                Path.Combine(
+                    FindRepositoryRoot(),
+                    "fixtures",
+                    "queries",
+                    "DotnetInspector.Queries.EmbeddedFixtures",
+                    nameof(BodylessSourceFixture) + ".cs")));
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    nameof(BodylessSourceFixture)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var source =
+            Assert.IsType<AssemblyTypeSource.Pdb>(
+                Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                        result)
+                    .Source);
+        Assert.Contains(
+            "public interface BodylessSourceFixture",
+            source.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.Inferred,
+            source.Inspection.Mapping?.ResolutionMethod);
+        Assert.Equal(
+            SourceChecksumVerification.Exact,
+            source.Inspection.ChecksumVerification);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Single(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
     [Fact]
@@ -3778,6 +3827,12 @@ public sealed partial class AssemblyContextSourceQueryTests
                 allowLocalSourceReads:
                     allowLocalSourceReads);
 
+        internal static QueryHost WithSource(
+            byte[] sourceBytes)
+            => new(
+                new SymbolPackageHandler(snupkg: null),
+                new SourceHandler(sourceBytes));
+
         internal static QueryHost WithoutPdb(
             SymbolAcquisitionLimits? symbolAcquisitionLimits = null,
             bool allowLocalSourceReads = false,
@@ -4465,6 +4520,26 @@ public sealed partial class AssemblyContextSourceQueryTests
         public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request) =>
             null!;
+    }
+
+    static string FindRepositoryRoot()
+    {
+        for (DirectoryInfo? directory =
+                 new(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(
+                Path.Combine(
+                    directory.FullName,
+                    "dotnet-inspect.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not locate the repository root.");
     }
 
     public static class SourceFixture

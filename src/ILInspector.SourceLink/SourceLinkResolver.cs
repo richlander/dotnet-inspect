@@ -89,7 +89,10 @@ public sealed class SourceLinkResolver
         return _exactTypesByDefinitionName!.TryGetValue(
             type,
             out PdbTypeDocumentInfo? match)
-                ? ResolveTypeSource(match, allowDocumentInference: false)
+                ? ResolveTypeSource(
+                    match,
+                    allowDocumentInference: true,
+                    filePathComparer: StringComparer.Ordinal)
                 : null;
     }
 
@@ -107,19 +110,21 @@ public sealed class SourceLinkResolver
             return null;
         }
 
-        return ResolveTypeSource(type, allowDocumentInference: true);
+        return ResolveTypeSource(
+            type,
+            allowDocumentInference: true,
+            filePathComparer: StringComparer.OrdinalIgnoreCase);
     }
 
     TypeSourceInfo? ResolveTypeSource(
         PdbTypeDocumentInfo type,
-        bool allowDocumentInference)
+        bool allowDocumentInference,
+        StringComparer filePathComparer)
     {
         string simpleName = type.TypeSimpleName;
+        bool hasCorrelatedDocuments = type.Documents.Count > 0;
         Dictionary<string, PartialSourceFile> files =
-            new(
-                allowDocumentInference
-                    ? StringComparer.OrdinalIgnoreCase
-                    : StringComparer.Ordinal);
+            new(filePathComparer);
 
         foreach (var documents in type.Documents.GroupBy(
             static document => document.FilePath,
@@ -144,13 +149,13 @@ public sealed class SourceLinkResolver
             if (!allowDocumentInference)
                 return null;
 
-            string? inferred = DocumentPaths
+            string? inferredPath = DocumentPaths
                 .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path)
                     .Equals(simpleName, StringComparison.OrdinalIgnoreCase));
-            if (inferred is null)
+            if (inferredPath is null)
                 return null;
 
-            var file = Decorate(inferred);
+            var file = Decorate(inferredPath);
             return new TypeSourceInfo(
                 file.FilePath,
                 file.SourceUrl,
@@ -167,6 +172,9 @@ public sealed class SourceLinkResolver
             primary.SourceUrl,
             LineNumber: null,
             primary.GitHubBrowseUrl,
+            hasCorrelatedDocuments
+                ? SourceResolutionMethod.SourceLink
+                : SourceResolutionMethod.Inferred,
             Checksum: primary.Checksum,
             ChecksumAlgorithm: primary.ChecksumAlgorithm)
         {

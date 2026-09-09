@@ -18,6 +18,12 @@ After a Portable PDB maps a member or type to a checksummed source document,
    repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
 3. The remote SourceLink URL.
 
+For an exact TypeDef with no method-correlated document, such as a bodyless
+interface, SourceLink may infer matching PDB documents by filename. The exact
+metadata type is resolved before that inference, and the resulting mapping
+retains `Inferred` rather than presenting the filename relationship as a
+sequence-point correlation.
+
 `PdbSourceHouse` is the clearing house for this PDB-provenance-based source
 scenario: it composes the candidate origins, fetch policy, checksum
 verification, source decoding, and typed failure outcomes into one settled

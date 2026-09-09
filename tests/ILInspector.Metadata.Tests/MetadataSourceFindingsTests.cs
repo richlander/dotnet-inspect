@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -365,7 +366,7 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
-    public void ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments()
+    public void ExactTypeSourceResolution_IsOrdinal()
     {
         using var context = PdbContext.Open(
             typeof(MetadataSourceFindingsTests).Assembly.Location);
@@ -406,6 +407,34 @@ public sealed class MetadataSourceFindingsTests
             StringComparison.Ordinal);
         Assert.Empty(upper.AdditionalSourceFiles);
         Assert.Empty(lower.AdditionalSourceFiles);
+    }
+
+    [Fact]
+    public void ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch()
+    {
+        using var context = PdbContext.Open(
+            typeof(BodylessSourceFixture).Assembly.Location);
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeof(BodylessSourceFixture).Namespace!,
+                    [nameof(BodylessSourceFixture)]))
+            .Name;
+
+        var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name));
+
+        Assert.EndsWith(
+            nameof(BodylessSourceFixture) + ".cs",
+            source.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SourceLinkResolver.SourceResolutionMethod.Inferred,
+            source.ResolutionMethod);
+        Assert.Empty(source.AdditionalSourceFiles);
     }
 
     [Fact]

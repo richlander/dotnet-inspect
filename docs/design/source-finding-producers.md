@@ -134,16 +134,25 @@ verifies the portable-PDB checksum, extracts the member body, and returns a
 path, and returns the complete checksum-verified PDB document with its typed
 mapping, document, and checksum verdict. The PDB correlation retains that
 structured name rather than indexing its non-injective dotted projection, and
-duplicate exact identities are rejected instead of selecting the first row. It does not
-use SourceLink's simple-name compatibility fallback or case-insensitive
-document inference.
-`MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments`
+duplicate exact identities are rejected instead of selecting the first row.
+After that exact TypeDef match, SourceLink may use its case-insensitive filename
+inference over the PDB document census. This covers bodyless interfaces and
+other declarations that produce no sequence points; when no method-correlated
+document exists, the mapping retains `Inferred` as the resolution method. It
+does not let a simple-name type lookup replace the exact identity, and exact
+document-path deduplication remains ordinal.
+`MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinal`,
+`MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch`,
 and
 `MetadataSourceFindingsTests.ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity`
-gate that boundary. Request conversion uses `ApiType.DefinitionName` when
-available; an older surface's string `MetadataName` is accepted only for an
-unambiguous top-level name, because `+` cannot distinguish nesting from a
-literal metadata character. This is gated by
+gate that boundary. The shared resolution reaches CLI source-file projection
+and browser/Wasm type-source acquisition; the latter additionally proves
+checksum-verified acquisition through
+`AssemblyContextSourceQueryTests.BodylessType_AcquiresInferredChecksumVerifiedPdbSource`.
+Request conversion uses `ApiType.DefinitionName` when available; an older
+surface's string `MetadataName` is accepted only for an unambiguous top-level
+name, because `+` cannot distinguish nesting from a literal metadata character.
+This is gated by
 `AssemblyContextSourceQueryTests.RequestFromLegacyApiType_RequiresUnambiguousMetadataName`.
 
 Whole-document type output refuses more than 500,000 logical lines before
