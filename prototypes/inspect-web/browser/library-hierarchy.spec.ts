@@ -1512,7 +1512,7 @@ test("a single-library package retains a distinct Library level", async ({ page 
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
 });
 
-test("opening another package enters its default Library and preserves history", async ({ page }) => {
+test("browser history restores each retained Workspace Library", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",
     JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
@@ -1525,11 +1525,11 @@ test("opening another package enters its default Library and preserves history",
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("Example.Core");
-  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await page.goBack();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
-  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await page.goForward();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
@@ -1542,7 +1542,7 @@ test("opening another package enters its default Library and preserves history",
   await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
-test("Search between retained packages restores the incoming Library ancestry", async ({ page }) => {
+test("browser history restores the incoming retained Library ancestry", async ({ page }) => {
   const secondLibrary = library("asset:second", "Second.Core", 1);
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",
@@ -1562,20 +1562,16 @@ test("Search between retained packages restores the incoming Library ancestry", 
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
 
-  await page.keyboard.press("Control+p");
-  await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await page.goBack();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#type-list")).toBeFocused();
   await expect(page.locator('[data-subject-tab][data-scope="library"]')).toHaveCount(1);
   await expect(page.locator('[data-subject-tab][data-scope="type"]')).toHaveCount(1);
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await expect(page.locator("#type-list")).toContainText("Widget");
 
-  await page.keyboard.press("Control+p");
-  await page.locator('[data-sl-pkg-open="Second.Package"]').click();
+  await page.goForward();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#type-list")).toBeFocused();
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowRight");

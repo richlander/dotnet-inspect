@@ -1531,14 +1531,22 @@ One restoration attempt proceeds in this order:
    A late completion for a settled token is discarded and cannot activate.
 
 At most one unpublished new Workspace may exist. It is not selectable,
-rendered, addressable through ordinary host actions, or recorded in history
-before activation. A newer attempt closes the older attempt's Workspace before
-beginning another.
+represented in the published Workspace collection, addressable through ordinary
+host actions, or recorded in history before activation. The Browser host may
+render its construction progress or prepared result in the inert workbench while
+the attempt remains current; that provisional presentation has no active
+Workspace identity and failure restores the prior presentation. A newer attempt
+closes the older attempt's Workspace before beginning another.
 
-The Browser/Wasm host must define construction admission and retained-Workspace
-capacity policies before adoption. Published Workspaces remain live until the
-user deletes them. Per-Workspace budgets do not bound the retained collection;
-this design makes no process-wide peak-memory safety claim.
+The Browser/Wasm host admits at most four published Workspaces. A request for a
+fifth fails visibly before construction and directs the user to delete a
+Workspace first. Published Workspaces remain live until the user deletes them.
+The count aligns with the Browser engine's existing four-scope ceiling, but
+collection membership does not prove that one corresponding engine scope
+remains resident. Exact engine Workspace identity and close-on-deletion need
+their own integration gate before retained-lifecycle adoption is complete.
+Per-Workspace budgets alone do not bound the retained collection, and this
+design makes no process-wide peak-memory safety claim.
 
 The Workspace subject lists the published collection and identifies the active
 Workspace. Selecting another published Workspace changes only the active
