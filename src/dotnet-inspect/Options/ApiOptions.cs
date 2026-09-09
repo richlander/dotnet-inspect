@@ -246,6 +246,8 @@ public partial record ApiOptions : IProjectionOptions
     public RowWindow? Rows { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
+    public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
+        CloneCandidateQueryOptions.Default;
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>
@@ -271,7 +273,8 @@ public partial record ApiOptions : IProjectionOptions
         || SelectDefault
         || Columns is { Length: > 0 }
         || Fields is { Length: > 0 }
-        || BodyKindQuery.HasFilter;
+        || BodyKindQuery.HasFilter
+        || CloneCandidateQuery.HasPredicates;
 
     /// <summary>
     /// Returns the appropriate Markout formatter for the current output format.

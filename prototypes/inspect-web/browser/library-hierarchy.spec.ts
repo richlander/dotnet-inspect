@@ -253,15 +253,24 @@ async function installFacades(
         if (!selected) throw new Error("Unknown library: " + asset);
         return {
           assemblies: [{
-            assembly: selected.name + ".dll", metadataVersion: "v4.0.30319",
-            metadataVersionTruncated: false, kind: "Ecma335", isAssembly: true,
-            metadataSize: 512, projectedTableTotal: 1, heaps: [],
-            tables: [{ index: 0, name: "Module", rowCount: 1, isProjected: true }], headers: {}
+            assembly: selected.name + ".dll",
+            metadataRoots: [{
+              requestedRoot: "Cli", canonicalRoot: "Cli",
+              rootRelativeVirtualAddress: 256, rootSize: 512, aliasesCliMetadata: false,
+              metadataVersion: "v4.0.30319", metadataVersionTruncated: false,
+              kind: "Ecma335", isAssembly: true, metadataSize: 512,
+              projectedTableTotal: 1, heaps: [],
+              tables: [{ index: 0, name: "Module", rowCount: 1, isProjected: true }],
+              headers: {}
+            }],
+            cliMetadataError: null, manifestMetadataError: null,
+            readyToRun: null, readyToRunError: null
           }],
           inspectionError: null, compileLibrary: surface.compileLibrary
         };
       }
-      export async function queryPackageMetadataTable(id, version, framework, asset, index, startRowId) {
+      export async function queryPackageMetadataTable(
+        id, version, framework, asset, metadataRoot, index, startRowId) {
         document.documentElement.dataset.tableRequest = asset;
         return { index, name: "Module", rowCount: 1, startRowId, columns: [], rows: [], error: null };
       }`,
