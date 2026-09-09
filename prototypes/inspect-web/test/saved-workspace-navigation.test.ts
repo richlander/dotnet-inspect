@@ -646,24 +646,31 @@ test("retained Workspace snapshots make cancelled Platform work retryable", () =
   h.state.platformCatalogStatus = { loading: true, error: "" };
   h.state.platformOpeningStatus = { loading: true, error: "" };
 
-  const snapshot = runInNewContext(
+  const snapshot: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
     h.context,
-  ) as {
-    state: {
-      platformCatalogStatus: { loading: boolean; error: string };
-      platformOpeningStatus: { loading: boolean; error: string };
-    };
-  };
+  );
+  assert.ok(snapshot !== null && typeof snapshot === "object"
+    && "state" in snapshot);
+  const snapshotState = snapshot.state;
+  assert.ok(snapshotState !== null && typeof snapshotState === "object"
+    && "platformCatalogStatus" in snapshotState
+    && "platformOpeningStatus" in snapshotState);
+  const catalogStatus = snapshotState.platformCatalogStatus;
+  const openingStatus = snapshotState.platformOpeningStatus;
+  assert.ok(catalogStatus !== null && typeof catalogStatus === "object"
+    && "loading" in catalogStatus && "error" in catalogStatus);
+  assert.ok(openingStatus !== null && typeof openingStatus === "object"
+    && "loading" in openingStatus && "error" in openingStatus);
 
-  assert.equal(snapshot.state.platformCatalogStatus.loading, false);
+  assert.equal(catalogStatus.loading, false);
   assert.equal(
-    snapshot.state.platformCatalogStatus.error,
+    catalogStatus.error,
     "Platform catalog loading was interrupted.",
   );
-  assert.equal(snapshot.state.platformOpeningStatus.loading, false);
+  assert.equal(openingStatus.loading, false);
   assert.equal(
-    snapshot.state.platformOpeningStatus.error,
+    openingStatus.error,
     "Platform Library opening was interrupted.",
   );
   assert.deepEqual(h.state.platformCatalogStatus, { loading: true, error: "" });
