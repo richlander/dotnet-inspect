@@ -507,13 +507,19 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(httpTimeoutOption);
 
         // Type command (type discovery, compact table)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateTypeCommand(opts, out var typeArgs));
+        Command typeCommand =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out var typeArgs);
+        rootCommand.Subcommands.Add(typeCommand);
 
         // Member command (member inspection, docs by default)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateMemberCommand(opts, out var memberArgs));
+        Command memberCommand =
+            ApiCommandDefinitions.CreateMemberCommand(opts, out var memberArgs);
+        rootCommand.Subcommands.Add(memberCommand);
 
         // Library command
-        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateLibraryCommand(opts));
+        Command libraryCommand =
+            InspectionCommandDefinitions.CreateLibraryCommand(opts);
+        rootCommand.Subcommands.Add(libraryCommand);
 
         // Cache command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCacheCommand(opts));
@@ -550,7 +556,11 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 
         // Package command
-        rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts, out var packageArgs));
+        Command packageCommand =
+            PackageCommandDefinitions.CreatePackageCommand(
+                opts,
+                out var packageArgs);
+        rootCommand.Subcommands.Add(packageCommand);
 
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
@@ -564,7 +574,19 @@ public static class CommandLineBuilder
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts, typeArgs, memberArgs, packageArgs));
+        rootCommand.Subcommands.Add(
+            RouterCommandDefinition.Create(
+                rootCommand,
+                opts,
+                typeArgs,
+                memberArgs,
+                packageArgs,
+                [
+                    packageCommand,
+                    libraryCommand,
+                    typeCommand,
+                    memberCommand,
+                ]));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
