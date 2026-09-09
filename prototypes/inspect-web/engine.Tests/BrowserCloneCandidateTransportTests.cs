@@ -25,6 +25,8 @@ public sealed class BrowserCloneCandidateTransportTests
         "DotnetInspector.CloneSearchFixtures.dll";
     const string CloneTransportAssembly =
         "InspectWeb.CloneTransportFixtures.dll";
+    const string MethodBodyAssembly =
+        "InspectWeb.MethodBodyFixtures.dll";
     const string Framework = "net11.0";
 
     [Fact]
@@ -358,6 +360,49 @@ public sealed class BrowserCloneCandidateTransportTests
                 .Seed.MethodDefinitionToken);
     }
 
+    [Fact]
+    public async Task ExportMapsReferenceMembersToImplementationIdentities()
+    {
+        await using ReferenceFixture fixture =
+            await ReferenceFixture.Open();
+
+        BrowserCloneCandidateResult method =
+            await fixture.Query(
+                Seed(
+                    BrowserCloneCandidateSeedKind.Member,
+                    fixture.Method.TypeDefinitionId,
+                    fixture.Method.Member),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            method.Kind);
+        Assert.NotEqual(
+            fixture.Method.Member.CanonicalSignature,
+            method.Document!.Seed.Member!.CanonicalSignature);
+        Assert.Single(method.Document.Seeds);
+
+        Assert.NotEqual(
+            fixture.Value.Body!.MetadataToken,
+            fixture.Value.ImplementationBodyToken);
+        BrowserCloneCandidateResult accessor =
+            await fixture.Query(
+                Seed(
+                    BrowserCloneCandidateSeedKind.Member,
+                    fixture.Value.TypeDefinitionId,
+                    fixture.Value.Member,
+                    fixture.Value.Body),
+                BrowserCloneCandidateBreadth.Self,
+                BrowserCloneCandidateDiscovery.All);
+        Assert.Equal(
+            BrowserCloneCandidateResultKind.Available,
+            accessor.Kind);
+        Assert.Equal(
+            fixture.Value.ImplementationBodyToken,
+            Assert.Single(accessor.Document!.Seeds)
+                .Seed.MethodDefinitionToken);
+    }
+
     static BrowserCloneCandidateSeedRequest Seed(
         BrowserCloneCandidateSeedKind kind,
         string? type = null,
@@ -446,7 +491,6 @@ public sealed class BrowserCloneCandidateTransportTests
                     $"lib/{Framework}/{CloneTransportAssembly}",
                     neighbor);
             }
-
             await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
                 new BrowserPackage(
                     packageId,
@@ -643,8 +687,172 @@ public sealed class BrowserCloneCandidateTransportTests
         }
     }
 
+    sealed class ReferenceFixture : IAsyncDisposable
+    {
+        ReferenceFixture(
+            string packageId,
+            MemberCase method,
+            MemberCase value)
+        {
+            PackageId = packageId;
+            Method = method;
+            Value = value;
+        }
+
+        internal string PackageId { get; }
+        internal MemberCase Method { get; }
+        internal MemberCase Value { get; }
+
+        internal static async Task<ReferenceFixture> Open()
+        {
+            string packageId =
+                "Clone.Transport.Reference."
+                    + Guid.NewGuid().ToString("N");
+            await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+                new BrowserPackage(
+                    packageId,
+                    "1.0.0",
+                    File.ReadAllBytes(
+                        FixtureCatalog.InspectWebMethodBodies
+                            .AssetPath("package")),
+                    fromCache: false));
+
+            using AssemblyInspectionSession referenceSession =
+                AssemblyInspectionSession.Open(
+                    FixtureCatalog.InspectWebMethodBodies
+                        .AssetPath("reference"));
+            ApiSurface reference =
+                referenceSession.ApiSurface(includeAll: true);
+            ApiType referenceType =
+                Assert.Single(
+                    reference.Types,
+                    type =>
+                        type.DefinitionName?.ToMetadataFullName()
+                            == "InspectWeb.MethodBodyFixtures.Left");
+            ApiMember method =
+                Assert.Single(
+                    referenceType.Members,
+                    member =>
+                        member.Name == "Compute"
+                        && member.SignatureModel?.Parameters.Count == 1);
+            ApiMember value =
+                Assert.Single(
+                    referenceType.Members,
+                    member =>
+                        member.Name == "Value"
+                        && member.Kind == "property");
+            CallGraphMemberBodySelector referenceGetter =
+                Assert.Single(
+                    CallGraphMemberResolver.CreateBodySelectors(
+                        referenceType,
+                        value),
+                    selector => selector.MemberName == "get_Value");
+
+            using AssemblyInspectionSession implementationSession =
+                AssemblyInspectionSession.Open(
+                    FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
+            ApiSurface implementation =
+                implementationSession.ApiSurface(includeAll: true);
+            ApiType implementationType =
+                Assert.Single(
+                    implementation.Types,
+                    type =>
+                        type.DefinitionName?.ToMetadataFullName()
+                            == "InspectWeb.MethodBodyFixtures.Left");
+            ApiMember implementationValue =
+                Assert.Single(
+                    implementationType.Members,
+                    member =>
+                        member.Name == "Value"
+                        && member.Kind == "property");
+            CallGraphMemberBodySelector implementationGetter =
+                Assert.Single(
+                    CallGraphMemberResolver.CreateBodySelectors(
+                        implementationType,
+                        implementationValue),
+                    selector => selector.MemberName == "get_Value");
+
+            return new ReferenceFixture(
+                packageId,
+                new MemberCase(
+                    referenceType.DefinitionName!.ToEscapedFullName(),
+                    Project(ApiMemberIdentity.GetMemberAnchor(
+                        referenceType,
+                        method)),
+                    null),
+                new MemberCase(
+                    referenceType.DefinitionName!.ToEscapedFullName(),
+                    Project(ApiMemberIdentity.GetMemberAnchor(
+                        referenceType,
+                        value)),
+                    new BrowserCloneCandidateBodySelection(
+                        referenceGetter.MemberName,
+                        referenceGetter.SelectorKey,
+                        referenceGetter.BodyToken),
+                    implementationGetter.BodyToken));
+        }
+
+        internal async Task<BrowserCloneCandidateResult> Query(
+            BrowserCloneCandidateSeedRequest seed,
+            BrowserCloneCandidateBreadth breadth,
+            BrowserCloneCandidateDiscovery discovery)
+        {
+            var request = new BrowserCloneCandidateRequest(
+                1,
+                [
+                    new BrowserCloneCandidatePackage(
+                        PackageId,
+                        "1.0.0",
+                        Framework),
+                ],
+                0,
+                MethodBodyAssembly,
+                seed,
+                breadth,
+                discovery);
+            string json =
+                await AnalysisExports.QueryCloneCandidates(
+                    JsonSerializer.Serialize(
+                        request,
+                        BrowserAnalysisJsonContext.Default
+                            .BrowserCloneCandidateRequest));
+            return JsonSerializer.Deserialize(
+                    json,
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserCloneCandidateResult)
+                ?? throw new InvalidOperationException(
+                    "The Clone Candidates transport returned no result.");
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            BrowserInspectionScope scope;
+            await using (BrowserScopeResolution resolution =
+                await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
+                    [
+                        new BrowserPackageRequest(
+                            PackageId,
+                            "1.0.0",
+                            Framework),
+                    ]))
+            {
+                scope = resolution.Scope;
+            }
+            await BrowserPackageWorkspace.RemoveScopeAsync(scope);
+        }
+
+        static BrowserCloneMemberAnchor Project(MemberAnchor anchor) =>
+            new(
+                anchor.StableSelector,
+                anchor.CanonicalSignature,
+                anchor.Fingerprint,
+                anchor.TypeFullName,
+                anchor.MemberName);
+    }
+
     sealed record MemberCase(
         string TypeDefinitionId,
         BrowserCloneMemberAnchor Member,
-        BrowserCloneCandidateBodySelection? Body);
+        BrowserCloneCandidateBodySelection? Body,
+        int? ImplementationBodyToken = null);
 }

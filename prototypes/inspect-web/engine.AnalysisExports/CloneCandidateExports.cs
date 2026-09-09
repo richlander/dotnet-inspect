@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -116,66 +118,172 @@ public static partial class AnalysisExports
             requested.Fingerprint,
             requested.TypeFullName,
             requested.MemberName);
-        if (body is null)
-            return logical;
+        BrowserWorkspaceParticipant surfaceParticipant =
+            scope.TryGetSurfaceParticipant(containingLibrary)
+            ?? throw new ArgumentException(
+                "The selected Clone Candidates library has no browser API "
+                    + "surface for its Member identity.",
+                nameof(containingLibrary));
+        LogicalMember source = scope.UseSurfaceParticipant(
+            surfaceParticipant,
+            (group, participant) => ResolveLogicalMember(
+                BrowserMemberResolution.ImplementationSurface(
+                    group,
+                    participant),
+                type,
+                logical));
 
-        return BrowserSurfaceProjection.Require(
-            scope.UseImplementationParticipant(
-                containingLibrary,
-                (group, participant) =>
+        return scope.UseMetadataParticipant(
+            containingLibrary,
+            (group, participant) =>
+            {
+                ApiSurface implementation =
+                    BrowserMemberResolution.ImplementationSurface(
+                        group,
+                        participant);
+                LogicalMember mapped = ResolveCorrespondingMember(
+                    implementation,
+                    type,
+                    source);
+                if (body is null)
                 {
-                    ApiSurface surface =
-                        BrowserMemberResolution.ImplementationSurface(
-                            group,
-                            participant);
-                    CallGraphMemberResolution selected =
-                        BrowserMemberResolution
-                            .ResolveImplementationMember(
-                                surface,
-                                type.ToEscapedFullName(),
-                                body.MemberName,
-                                body.SelectorKey,
-                                body.MetadataToken);
-                    ApiMember[] logicalMembers =
-                    [
-                        .. selected.Type.Members
-                            .Where(member =>
-                                ApiMemberIdentity.GetMemberAnchor(
-                                    selected.Type,
-                                    member)
-                                == logical)
-                            .Take(2),
-                    ];
-                    if (logicalMembers.Length != 1
-                        || !CallGraphMemberResolver
-                            .CreateBodySelectors(
-                                selected.Type,
-                                logicalMembers[0])
-                            .Any(candidate =>
-                                candidate.BodyToken
-                                    == body.MetadataToken
-                                && candidate.MemberName
-                                    == body.MemberName
-                                && candidate.SelectorKey
-                                    == body.SelectorKey))
+                    if (mapped.Member.MetadataToken is { } token
+                        && MetadataTokens.EntityHandle(token).Kind
+                            == HandleKind.MethodDefinition)
                     {
-                        throw new ArgumentException(
-                            "The selected body does not belong to the "
-                                + "requested logical member.",
-                            nameof(body));
+                        return BrowserSurfaceProjection.Require(
+                            AssemblyContextMethodAnchorQuery
+                                .ExecuteParticipant(
+                                    group,
+                                    participant,
+                                    type,
+                                    token,
+                                    mapped.Member.IsExtension),
+                            $"Clone seed '{type.ToEscapedFullName()}."
+                                + $"{mapped.Member.Name}'");
                     }
 
-                    return AssemblyContextMethodAnchorQuery
-                        .ExecuteParticipant(
-                            group,
-                            participant,
-                            type,
-                            selected.BodyToken,
-                            selected.Member.IsExtension);
-                }),
-            $"Clone seed '{type.ToEscapedFullName()}."
-                + $"{body.MemberName}'");
+                    return ApiMemberIdentity.GetMemberAnchor(
+                        mapped.Type,
+                        mapped.Member);
+                }
+
+                CallGraphMemberResolution selected =
+                    BrowserMemberResolution.ResolveImplementationMember(
+                        implementation,
+                        type.ToEscapedFullName(),
+                        body.MemberName,
+                        body.SelectorKey,
+                        body.MetadataToken);
+                if (!CallGraphMemberResolver
+                    .CreateBodySelectors(source.Type, source.Member)
+                    .Any(candidate =>
+                        candidate.BodyToken == body.MetadataToken
+                        && candidate.MemberName == body.MemberName
+                        && candidate.SelectorKey == body.SelectorKey))
+                {
+                    throw new ArgumentException(
+                        "The selected body does not belong to the "
+                            + "requested logical member.",
+                        nameof(body));
+                }
+
+                if (!CallGraphMemberResolver
+                    .CreateBodySelectors(mapped.Type, mapped.Member)
+                    .Any(candidate =>
+                        candidate.BodyToken == selected.BodyToken))
+                {
+                    throw new ArgumentException(
+                        "The selected body does not belong to the "
+                            + "requested logical member.",
+                        nameof(body));
+                }
+
+                return BrowserSurfaceProjection.Require(
+                    AssemblyContextMethodAnchorQuery.ExecuteParticipant(
+                        group,
+                        participant,
+                        type,
+                        selected.BodyToken,
+                        mapped.Member.IsExtension),
+                    $"Clone seed '{type.ToEscapedFullName()}."
+                        + $"{body.MemberName}'");
+            });
     }
+
+    static LogicalMember ResolveLogicalMember(
+        ApiSurface surface,
+        MetadataTypeDefinitionName type,
+        MemberAnchor member)
+    {
+        ApiType resolvedType = ResolveType(surface, type);
+        ApiMember[] matches =
+        [
+            .. resolvedType.Members
+                .Where(candidate =>
+                    ApiMemberIdentity.GetMemberAnchor(
+                        resolvedType,
+                        candidate)
+                    == member)
+                .Take(2),
+        ];
+        return matches.Length == 1
+            ? new LogicalMember(resolvedType, matches[0])
+            : throw new ArgumentException(
+                "The Clone Candidates member does not resolve uniquely in "
+                    + "the selected browser API surface.",
+                nameof(member));
+    }
+
+    static LogicalMember ResolveCorrespondingMember(
+        ApiSurface implementation,
+        MetadataTypeDefinitionName type,
+        LogicalMember source)
+    {
+        ApiType resolvedType = ResolveType(implementation, type);
+        string selector =
+            CallGraphMemberResolver.CreateSelector(
+                source.Type,
+                source.Member).Key;
+        ApiMember[] matches =
+        [
+            .. resolvedType.Members
+                .Where(candidate =>
+                    candidate.Kind == source.Member.Kind
+                    && candidate.Name == source.Member.Name
+                    && CallGraphMemberResolver.CreateSelector(
+                            resolvedType,
+                            candidate).Key
+                        == selector)
+                .Take(2),
+        ];
+        return matches.Length == 1
+            ? new LogicalMember(resolvedType, matches[0])
+            : throw new ArgumentException(
+                "The Clone Candidates member does not map uniquely to the "
+                    + "selected implementation.",
+                nameof(source));
+    }
+
+    static ApiType ResolveType(
+        ApiSurface surface,
+        MetadataTypeDefinitionName type)
+    {
+        ApiType[] matches =
+        [
+            .. surface.Types
+                .Where(candidate =>
+                    candidate.DefinitionName == type)
+                .Take(2),
+        ];
+        return matches.Length == 1
+            ? matches[0]
+            : throw new InvalidOperationException(
+                $"The selected browser API surface does not contain exactly "
+                    + $"one TypeDef '{type.ToEscapedFullName()}'.");
+    }
+
+    sealed record LogicalMember(ApiType Type, ApiMember Member);
 
     static MetadataTypeDefinitionName ParseTypeDefinition(
         string identity) =>
