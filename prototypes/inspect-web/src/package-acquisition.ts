@@ -292,23 +292,29 @@ function defaultAssembly(
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
 ): AppPackage {
-  if (result.compileLibrary.status !== "Selected") {
+  const rootOnly = result.compileLibrary.status === "NoCompileAssets"
+    || result.compileLibrary.status === "EmptyCompileGroup";
+  if (result.compileLibrary.status !== "Selected" && !rootOnly) {
     throw new Error(
       result.compileLibrary.message
       || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
   }
-  const assembly = defaultAssembly(
-    result,
-    "The package query did not return its selected assembly descriptor.");
+  const assembly = rootOnly ? null : defaultAssembly(
+      result,
+      "The package query did not return its selected assembly descriptor.");
   const inspectionErrors = surfaceInspectionErrors(result);
+  if (rootOnly) {
+    inspectionErrors.push(result.compileLibrary.message
+      || `No compile Library is available (${result.compileLibrary.status}).`);
+  }
   return {
     id: result.package,
     version: result.version,
     frameworks: [...(result.frameworks ?? [])],
     activeFramework: result.activeFramework,
-    assembly: assembly.name,
-    assemblyId: assembly.id,
-    assemblyAsset: assembly.asset,
+    assembly: assembly?.name ?? "",
+    assemblyId: assembly?.id ?? "",
+    assemblyAsset: assembly?.asset ?? "",
     source: { kind: "nuget.org" },
     assemblies: [...(result.assemblies ?? [])],
     types: packageTypes(result),
@@ -482,6 +488,7 @@ function promoteRuntimePackagePrimary(
 }
 
 export interface PackageAcquisitionDependencies {
+  queryPackageRoot?(rootRequest: string): Promise<InspectedPackageSurface>;
   queryPackage(
     packageId: string,
     version: string,
@@ -508,6 +515,7 @@ export interface NuGetPackageRequest {
   packageId: string;
   version: string;
   framework: string;
+  rootRequest?: string;
   replacePackage?: AppPackage | null;
   isCurrent?: () => boolean;
 }
@@ -579,10 +587,18 @@ export function createPackageAcquisition(
 
   return {
     async loadPackage(request) {
-      const result = await dependencies.queryPackage(
-        request.packageId,
-        request.version,
-        request.framework);
+      let result: InspectedPackageSurface;
+      if (request.rootRequest !== undefined) {
+        if (!dependencies.queryPackageRoot) {
+          throw new Error("Exact package Root opening is unavailable.");
+        }
+        result = await dependencies.queryPackageRoot(request.rootRequest);
+      } else {
+        result = await dependencies.queryPackage(
+          request.packageId,
+          request.version,
+          request.framework);
+      }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
       const packageModel = createNuGetPackageModel(result);

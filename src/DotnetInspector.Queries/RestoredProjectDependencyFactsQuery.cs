@@ -394,6 +394,75 @@ public abstract record RestoredProjectDeclarationResult
     public sealed record Failed(RestoredProjectDeclarationFailure Failure) : RestoredProjectDeclarationResult;
 }
 
+/// <summary>
+/// Positive evidence that the selected declaration group carries a valid
+/// <c>packagesToPrune</c> map.
+/// </summary>
+public sealed record RestoredProjectPackagePruningEvidence(
+    RestoredProjectDeclarationGroupIdentity DeclarationGroup);
+
+/// <summary>Why selected-group package-pruning evidence could not be projected.</summary>
+public enum RestoredProjectPackagePruningFailureReason
+{
+    /// <summary>More than one declaration group corresponds to the selected target.</summary>
+    AmbiguousDeclarationGroupAssociation,
+
+    /// <summary>The selected group's <c>packagesToPrune</c> member is not an object.</summary>
+    InvalidShape,
+
+    /// <summary>One or more pruning rules has an invalid package identity or version range.</summary>
+    InvalidRule,
+
+    /// <summary>The pruning-rule collection exceeds its configured bound.</summary>
+    ConfiguredLimitExceeded,
+}
+
+/// <summary>A content-free package-pruning evidence failure.</summary>
+public sealed record RestoredProjectPackagePruningFailure(
+    RestoredProjectPackagePruningFailureReason Reason,
+    int Count = 1)
+{
+    public int Count { get; } = Count >= 1
+        ? Count
+        : throw new ArgumentOutOfRangeException(
+            nameof(Count),
+            Count,
+            "A failure count must be at least one.");
+
+    public string Message => Reason switch
+    {
+        RestoredProjectPackagePruningFailureReason
+            .AmbiguousDeclarationGroupAssociation =>
+                "More than one project.frameworks group corresponds to the selected target.",
+        RestoredProjectPackagePruningFailureReason.InvalidShape =>
+            "The selected declaration group's packagesToPrune member has an invalid shape.",
+        RestoredProjectPackagePruningFailureReason.InvalidRule =>
+            "A packagesToPrune entry has an invalid package identity or version range.",
+        RestoredProjectPackagePruningFailureReason.ConfiguredLimitExceeded =>
+            "The packagesToPrune collection exceeds a configured resource limit.",
+        _ => "Package-pruning evidence could not be projected.",
+    };
+}
+
+/// <summary>The closed outcome of projecting selected-group package-pruning evidence.</summary>
+public abstract record RestoredProjectPackagePruningResult
+{
+    private RestoredProjectPackagePruningResult()
+    {
+    }
+
+    /// <summary>A valid <c>packagesToPrune</c> map was associated with the selected target.</summary>
+    public sealed record Available(RestoredProjectPackagePruningEvidence Evidence) :
+        RestoredProjectPackagePruningResult;
+
+    /// <summary>No selected-group <c>packagesToPrune</c> evidence is available.</summary>
+    public sealed record Unavailable : RestoredProjectPackagePruningResult;
+
+    /// <summary>Present pruning evidence could not be associated or validated soundly.</summary>
+    public sealed record Failed(RestoredProjectPackagePruningFailure Failure) :
+        RestoredProjectPackagePruningResult;
+}
+
 /// <summary>One resolved package node reached from the root, with its aggregate direct/transitive role.</summary>
 public sealed record RestoredProjectPackageNode(
     RestoredProjectPackageNodeIdentity Identity,
@@ -406,7 +475,20 @@ public sealed record RestoredProjectGraphEdge(
     RestoredProjectPackageNodeIdentity Dependency,
     string CanonicalVersionConstraint,
     InertString SourceVersionConstraintSpelling,
-    RestoredProjectDependencyRole Role);
+    RestoredProjectDependencyRole Role,
+    RestoredProjectDeclarationGroupIdentity? DeclarationAssociation)
+{
+    public RestoredProjectGraphParentIdentity Parent { get; } =
+        Parent ?? throw new ArgumentNullException(nameof(Parent));
+
+    public RestoredProjectDeclarationGroupIdentity? DeclarationAssociation { get; } =
+        (Parent is RestoredProjectGraphParentIdentity.Root)
+            == DeclarationAssociation.HasValue
+                ? DeclarationAssociation
+                : throw new ArgumentException(
+                    "A root edge requires its correlated declaration group, and a non-root edge cannot carry one.",
+                    nameof(DeclarationAssociation));
+}
 
 /// <summary>Why one graph-phase fact could not be represented, or why the whole phase failed.</summary>
 public enum RestoredProjectGraphFailureReason
@@ -533,6 +615,7 @@ public sealed record RestoredProjectDependencyFacts(
     RestoredProjectSelectedTarget? SelectedTarget,
     RestoredProjectRootIdentity Root,
     RestoredProjectDeclarationResult Declaration,
+    RestoredProjectPackagePruningResult PackagePruning,
     RestoredProjectGraphResult Graph);
 
 /// <summary>Why the whole document could not be admitted.</summary>
@@ -598,6 +681,7 @@ public static class RestoredProjectDependencyFactsQuery
     public const int MaxDeclarationGroups = 256;
     public const int MaxDeclaredPackages = 4096;
     public const int MaxDeclaredProjectReferences = 4096;
+    public const int MaxPackagePruningRules = 4096;
     public const int MaxGraphNodes = 8192;
     public const int MaxGraphEdges = 16384;
 
@@ -672,13 +756,21 @@ public static class RestoredProjectDependencyFactsQuery
                     : $"{selectedTarget.FrameworkIdentity}/{selectedTarget.RuntimeIdentifierIdentity}";
 
             RestoredProjectDeclarationResult declaration = ProjectDeclaration(root);
+            RestoredProjectPackagePruningResult packagePruning =
+                ambiguousTargetIdentity
+                    ? new RestoredProjectPackagePruningResult.Unavailable()
+                    : ProjectPackagePruning(root, schemaVersion, selectedCandidate);
 
             RestoredProjectGraphResult graph = ambiguousTargetIdentity
                 ? new RestoredProjectGraphResult.Failed(
                     new RestoredProjectGraphFailure(RestoredProjectGraphFailureReason.AmbiguousTargetIdentity))
                 : ProjectGraph(root, schemaVersion, selectedCandidate, targetsElement, targetsPresent);
 
-            string factsDigest = ComputeFactsDigest(targetIdentityText, declaration, graph);
+            string factsDigest = ComputeFactsDigest(
+                targetIdentityText,
+                declaration,
+                packagePruning,
+                graph);
             var selectionIdentity = new RestoredProjectSelectionIdentity(targetIdentityText, factsDigest);
             var rootIdentity = new RestoredProjectRootIdentity(selectionIdentity);
 
@@ -689,6 +781,7 @@ public static class RestoredProjectDependencyFactsQuery
                     selectedTarget,
                     rootIdentity,
                     RescopeDeclaration(declaration, selectionIdentity),
+                    RescopePackagePruning(packagePruning, selectionIdentity),
                     RescopeGraph(graph, rootIdentity)));
         }
     }
@@ -961,9 +1054,7 @@ public static class RestoredProjectDependencyFactsQuery
             // The group is identified by its exact authored pivot occurrence: canonical text only
             // when the pivot is already exactly its recognized canonical spelling, so case-only
             // variants stay distinct groups instead of colliding into one identity.
-            string pivotIdentity = recognized && string.Equals(normalizedTfm, rawPivot, StringComparison.Ordinal)
-                ? normalizedTfm
-                : RestoredProjectIdentityText.Opaque(rawPivot);
+            string pivotIdentity = DeclarationPivotIdentity(rawPivot, recognized, normalizedTfm);
 
             ImmutableArray<RestoredProjectDeclaredPackage> packages = [];
             if (pivotProperty.Value.TryGetProperty("dependencies", out JsonElement dependencies))
@@ -1011,6 +1102,14 @@ public static class RestoredProjectDependencyFactsQuery
                 ? RestoredProjectPhaseCompletion.Complete
                 : RestoredProjectPhaseCompletion.Incomplete);
     }
+
+    static string DeclarationPivotIdentity(
+        string rawPivot,
+        bool recognized,
+        string normalizedTfm) =>
+        recognized && string.Equals(normalizedTfm, rawPivot, StringComparison.Ordinal)
+            ? normalizedTfm
+            : RestoredProjectIdentityText.Opaque(rawPivot);
 
     /// <summary>How one <c>project.frameworks</c> dependency entry classifies itself.</summary>
     enum DeclaredTargetKind
@@ -1200,6 +1299,7 @@ public static class RestoredProjectDependencyFactsQuery
         var traversal = new GraphTraversal(
             selectedTargetValue,
             correlation.Constraints,
+            correlation.DeclarationGroupPivotIdentity!,
             correlation.LimitExceeded);
         traversal.Traverse(rootEntries);
         return traversal.Build();
@@ -1219,10 +1319,102 @@ public static class RestoredProjectDependencyFactsQuery
     readonly record struct RootConstraintCorrelation(
         RootCorrelationOutcome Outcome,
         Dictionary<string, List<RootConstraint>> Constraints,
+        string? DeclarationGroupPivotIdentity = null,
         bool LimitExceeded = false);
 
     static Dictionary<string, List<RootConstraint>> EmptyRootConstraints =>
         new(StringComparer.Ordinal);
+
+    static RestoredProjectPackagePruningResult ProjectPackagePruning(
+        JsonElement root,
+        int schemaVersion,
+        TargetCandidate? selectedCandidate)
+    {
+        if (selectedCandidate is not { } candidate)
+            return new RestoredProjectPackagePruningResult.Unavailable();
+
+        RootCorrelationOutcome correlation = CorrelateFrameworkGroup(
+            root,
+            schemaVersion,
+            candidate,
+            out JsonProperty matchedProperty);
+        if (correlation == RootCorrelationOutcome.Unavailable)
+            return new RestoredProjectPackagePruningResult.Unavailable();
+        if (correlation == RootCorrelationOutcome.Ambiguous)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason
+                        .AmbiguousDeclarationGroupAssociation));
+        }
+        if (correlation == RootCorrelationOutcome.InvalidShape)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason.InvalidShape));
+        }
+
+        JsonElement group = matchedProperty.Value;
+        if (!group.TryGetProperty("packagesToPrune", out JsonElement packagesToPrune))
+            return new RestoredProjectPackagePruningResult.Unavailable();
+        if (packagesToPrune.ValueKind != JsonValueKind.Object)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason.InvalidShape));
+        }
+
+        int scanned = 0;
+        int invalid = 0;
+        foreach (JsonProperty rule in EnumeratePropertiesInCanonicalOrder(packagesToPrune))
+        {
+            if (++scanned > MaxPackagePruningRules)
+            {
+                return new RestoredProjectPackagePruningResult.Failed(
+                    new RestoredProjectPackagePruningFailure(
+                        RestoredProjectPackagePruningFailureReason.ConfiguredLimitExceeded));
+            }
+
+            string rawPackageId = rule.Name;
+            if (rawPackageId.Length == 0
+                || rawPackageId.Length > MaxScalarCharacters
+                || !PackageCoordinateResolver.IsCanonicalPackageId(rawPackageId)
+                || rule.Value.ValueKind != JsonValueKind.String)
+            {
+                invalid++;
+                continue;
+            }
+
+            string? rawVersionRange = rule.Value.GetString();
+            if (rawVersionRange is not { Length: > 0 }
+                || rawVersionRange.Length > MaxScalarCharacters
+                || !VersionRange.TryParse(rawVersionRange, out _))
+            {
+                invalid++;
+            }
+        }
+
+        if (invalid > 0)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason.InvalidRule,
+                    invalid));
+        }
+
+        string rawPivot = matchedProperty.Name;
+        bool recognized = NuGetTargetFrameworkIdentity.TryNormalize(
+            rawPivot,
+            out string normalizedTfm);
+        string pivotIdentity = DeclarationPivotIdentity(
+            rawPivot,
+            recognized,
+            normalizedTfm);
+
+        return new RestoredProjectPackagePruningResult.Available(
+            new RestoredProjectPackagePruningEvidence(
+                new RestoredProjectDeclarationGroupIdentity(default!, pivotIdentity)));
+    }
 
     /// <summary>
     /// Finds the single <c>project.frameworks</c> group corresponding to the selected target and
@@ -1234,39 +1426,30 @@ public static class RestoredProjectDependencyFactsQuery
         int schemaVersion,
         TargetCandidate candidate)
     {
-        if (!root.TryGetProperty("project", out JsonElement project)
-            || project.ValueKind != JsonValueKind.Object
-            || !project.TryGetProperty("frameworks", out JsonElement frameworks)
-            || frameworks.ValueKind != JsonValueKind.Object)
-        {
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Unavailable, EmptyRootConstraints);
-        }
+        RootCorrelationOutcome correlation = CorrelateFrameworkGroup(
+            root,
+            schemaVersion,
+            candidate,
+            out JsonProperty matchedProperty);
+        if (correlation != RootCorrelationOutcome.Correlated)
+            return new RootConstraintCorrelation(correlation, EmptyRootConstraints);
 
-        JsonElement? matched = null;
-        foreach (JsonProperty pivot in EnumeratePropertiesInCanonicalOrder(frameworks))
-        {
-            if (pivot.Name.Length == 0
-                || pivot.Name.Length > MaxScalarCharacters
-                || !CorrelatesWithPivot(pivot.Name, schemaVersion, candidate))
-            {
-                continue;
-            }
-
-            if (matched is not null)
-                return new RootConstraintCorrelation(RootCorrelationOutcome.Ambiguous, EmptyRootConstraints);
-
-            matched = pivot.Value;
-        }
-
-        if (matched is not { } group)
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Unavailable, EmptyRootConstraints);
-
-        if (group.ValueKind != JsonValueKind.Object)
-            return new RootConstraintCorrelation(RootCorrelationOutcome.InvalidShape, EmptyRootConstraints);
+        JsonElement group = matchedProperty.Value;
+        string rawPivot = matchedProperty.Name;
+        bool recognized = NuGetTargetFrameworkIdentity.TryNormalize(
+            rawPivot,
+            out string normalizedTfm);
+        string declarationGroupPivotIdentity =
+            DeclarationPivotIdentity(rawPivot, recognized, normalizedTfm);
 
         var constraints = new Dictionary<string, List<RootConstraint>>(StringComparer.Ordinal);
         if (!group.TryGetProperty("dependencies", out JsonElement dependencies))
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Correlated, constraints);
+        {
+            return new RootConstraintCorrelation(
+                RootCorrelationOutcome.Correlated,
+                constraints,
+                declarationGroupPivotIdentity);
+        }
 
         if (dependencies.ValueKind != JsonValueKind.Object)
             return new RootConstraintCorrelation(RootCorrelationOutcome.InvalidShape, EmptyRootConstraints);
@@ -1316,7 +1499,51 @@ public static class RestoredProjectDependencyFactsQuery
                 occurrences.Add(constraint);
         }
 
-        return new RootConstraintCorrelation(RootCorrelationOutcome.Correlated, constraints, limitExceeded);
+        return new RootConstraintCorrelation(
+            RootCorrelationOutcome.Correlated,
+            constraints,
+            declarationGroupPivotIdentity,
+            limitExceeded);
+    }
+
+    static RootCorrelationOutcome CorrelateFrameworkGroup(
+        JsonElement root,
+        int schemaVersion,
+        TargetCandidate candidate,
+        out JsonProperty matchedProperty)
+    {
+        matchedProperty = default;
+        if (!root.TryGetProperty("project", out JsonElement project)
+            || project.ValueKind != JsonValueKind.Object
+            || !project.TryGetProperty("frameworks", out JsonElement frameworks)
+            || frameworks.ValueKind != JsonValueKind.Object)
+        {
+            return RootCorrelationOutcome.Unavailable;
+        }
+
+        JsonProperty? matched = null;
+        foreach (JsonProperty pivot in EnumeratePropertiesInCanonicalOrder(frameworks))
+        {
+            if (pivot.Name.Length == 0
+                || pivot.Name.Length > MaxScalarCharacters
+                || !CorrelatesWithPivot(pivot.Name, schemaVersion, candidate))
+            {
+                continue;
+            }
+
+            if (matched is not null)
+                return RootCorrelationOutcome.Ambiguous;
+
+            matched = pivot;
+        }
+
+        if (matched is not { } correlated)
+            return RootCorrelationOutcome.Unavailable;
+        if (correlated.Value.ValueKind != JsonValueKind.Object)
+            return RootCorrelationOutcome.InvalidShape;
+
+        matchedProperty = correlated;
+        return RootCorrelationOutcome.Correlated;
     }
 
     /// <summary>
@@ -1365,6 +1592,7 @@ public static class RestoredProjectDependencyFactsQuery
     {
         readonly JsonElement _selectedTarget;
         readonly Dictionary<string, List<RootConstraint>> _rootConstraints;
+        readonly string _rootDeclarationGroupPivotIdentity;
         readonly Dictionary<string, string> _uniqueKeyByName = new(StringComparer.OrdinalIgnoreCase);
         readonly HashSet<string> _ambiguousNames = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, RestoredProjectPackageNodeIdentity> _packageNodes = new(StringComparer.Ordinal);
@@ -1380,10 +1608,12 @@ public static class RestoredProjectDependencyFactsQuery
         public GraphTraversal(
             JsonElement selectedTarget,
             Dictionary<string, List<RootConstraint>> rootConstraints,
+            string rootDeclarationGroupPivotIdentity,
             bool rootConstraintLimitExceeded)
         {
             _selectedTarget = selectedTarget;
             _rootConstraints = rootConstraints;
+            _rootDeclarationGroupPivotIdentity = rootDeclarationGroupPivotIdentity;
             if (rootConstraintLimitExceeded)
                 _failures.Add(RestoredProjectGraphFailureReason.ConfiguredLimitExceeded);
             IndexTargetNodes();
@@ -1525,7 +1755,8 @@ public static class RestoredProjectDependencyFactsQuery
                     "",
                     packageIdentity,
                     constraint.CanonicalConstraint,
-                    constraint.SourceSpelling);
+                    constraint.SourceSpelling,
+                    _rootDeclarationGroupPivotIdentity);
             }
 
             _directPackages.Add(packageIdentity.Coordinate);
@@ -1634,7 +1865,8 @@ public static class RestoredProjectDependencyFactsQuery
                 parentKey,
                 packageIdentity,
                 range.ToNormalizedString(),
-                new InertString(TextPolicy.Field, rawConstraint, MaxScalarCharacters));
+                new InertString(TextPolicy.Field, rawConstraint, MaxScalarCharacters),
+                declarationGroupPivotIdentity: null);
             Push(matchedKey!, RestoredProjectGraphParentIdentity.CreatePackageParent(packageIdentity));
         }
 
@@ -1648,7 +1880,8 @@ public static class RestoredProjectDependencyFactsQuery
             string parentKey,
             RestoredProjectPackageNodeIdentity dependency,
             string canonicalConstraint,
-            InertString sourceConstraint)
+            InertString sourceConstraint,
+            string? declarationGroupPivotIdentity)
         {
             if (++_edgeOccurrenceCount > MaxGraphEdges)
             {
@@ -1689,7 +1922,12 @@ public static class RestoredProjectDependencyFactsQuery
                 dependency,
                 canonicalConstraint,
                 sourceConstraint,
-                role));
+                role,
+                declarationGroupPivotIdentity is null
+                    ? null
+                    : new RestoredProjectDeclarationGroupIdentity(
+                        default!,
+                        declarationGroupPivotIdentity)));
         }
 
         bool TryBuildPackageIdentity(string matchedKey, out RestoredProjectPackageNodeIdentity identity)
@@ -1833,6 +2071,21 @@ public static class RestoredProjectDependencyFactsQuery
             _ => declaration,
         };
 
+    static RestoredProjectPackagePruningResult RescopePackagePruning(
+        RestoredProjectPackagePruningResult packagePruning,
+        RestoredProjectSelectionIdentity selection) =>
+        packagePruning switch
+        {
+            RestoredProjectPackagePruningResult.Available available =>
+                new RestoredProjectPackagePruningResult.Available(
+                    new RestoredProjectPackagePruningEvidence(
+                        available.Evidence.DeclarationGroup with
+                        {
+                            Selection = selection,
+                        })),
+            _ => packagePruning,
+        };
+
     static RestoredProjectGraphResult RescopeGraph(
         RestoredProjectGraphResult graph,
         RestoredProjectRootIdentity root)
@@ -1859,12 +2112,16 @@ public static class RestoredProjectDependencyFactsQuery
             {
                 RestoredProjectGraphParentIdentity parent = RescopeParent(e.Parent);
                 RestoredProjectPackageNodeIdentity dependency = Rescope(e.Dependency);
-                return e with
-                {
-                    Identity = new RestoredProjectEdgeIdentity(parent, dependency),
-                    Parent = parent,
-                    Dependency = dependency,
-                };
+                return new RestoredProjectGraphEdge(
+                    new RestoredProjectEdgeIdentity(parent, dependency),
+                    parent,
+                    dependency,
+                    e.CanonicalVersionConstraint,
+                    e.SourceVersionConstraintSpelling,
+                    e.Role,
+                    e.DeclarationAssociation is { } association
+                        ? association with { Selection = root.Selection }
+                        : null);
             })];
 
         return new RestoredProjectGraphResult.Available(packages, edges, available.Failures, available.Completion);
@@ -1882,12 +2139,14 @@ public static class RestoredProjectDependencyFactsQuery
     static string ComputeFactsDigest(
         string targetIdentity,
         RestoredProjectDeclarationResult declaration,
+        RestoredProjectPackagePruningResult packagePruning,
         RestoredProjectGraphResult graph)
     {
         var text = new StringBuilder();
-        Field(text, "rpdf/1");
+        Field(text, "rpdf/2");
         Field(text, targetIdentity);
         AppendDeclaration(text, declaration);
+        AppendPackagePruning(text, packagePruning);
         AppendGraph(text, graph);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
     }
@@ -1938,6 +2197,30 @@ public static class RestoredProjectDependencyFactsQuery
         }
     }
 
+    static void AppendPackagePruning(
+        StringBuilder text,
+        RestoredProjectPackagePruningResult packagePruning)
+    {
+        switch (packagePruning)
+        {
+            case RestoredProjectPackagePruningResult.Available available:
+                Field(text, "package-pruning.available");
+                Field(text, available.Evidence.DeclarationGroup.PivotIdentity);
+                break;
+            case RestoredProjectPackagePruningResult.Unavailable:
+                Field(text, "package-pruning.unavailable");
+                break;
+            case RestoredProjectPackagePruningResult.Failed failed:
+                Field(text, "package-pruning.failed");
+                Count(text, (int)failed.Failure.Reason);
+                Count(text, failed.Failure.Count);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown package-pruning result: {packagePruning.GetType().FullName}");
+        }
+    }
+
     static void AppendGraph(StringBuilder text, RestoredProjectGraphResult graph)
     {
         switch (graph)
@@ -1961,6 +2244,7 @@ public static class RestoredProjectDependencyFactsQuery
                     Field(text, edge.Dependency.Coordinate.Version);
                     Field(text, edge.CanonicalVersionConstraint);
                     Count(text, (int)edge.Role);
+                    Field(text, edge.DeclarationAssociation?.PivotIdentity ?? "");
                 }
 
                 Count(text, available.Failures.Length);

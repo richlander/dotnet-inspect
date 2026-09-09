@@ -129,6 +129,23 @@ public sealed class PackageRootBinding
             runtimeIdentifier);
     }
 
+    internal static PackageRootBinding CreateFromReacquiredSource(
+        AcquiredPackageSourcePayload payload,
+        PackageRootReacquisitionRequest request)
+    {
+        RealizedMemberCoordinate.Package coordinate = request.Coordinate;
+        return Create(
+            payload,
+            coordinate.PackageId,
+            coordinate.PackageId,
+            coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinate.Framework,
+            request.SelectionTargetFramework,
+            coordinate.RuntimeIdentifier);
+    }
+
     /// <summary>
     /// Binds a payload acquired through the resolved multi-source path.
     /// </summary>

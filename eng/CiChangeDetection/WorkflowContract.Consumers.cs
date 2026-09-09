@@ -120,8 +120,7 @@ internal static partial class WorkflowContract
                 "jobs.repository-guards setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
             },
             "jobs.repository-guards setup step.with");
 
@@ -140,7 +139,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             cache,
             "uses",
-            "actions/cache@v4",
+            "actions/cache@v6",
             "jobs.repository-guards cache step");
         RequireExactScalarValues(
             GetRequiredMapping(

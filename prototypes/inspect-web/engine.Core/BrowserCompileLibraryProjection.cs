@@ -138,8 +138,10 @@ internal static class BrowserFrameworkText
 }
 
 /// <summary>
-/// The platform workspace's product-owned package identity. Facades report it verbatim.
+/// The Platform workspace's aggregate product-owned surface identity used by
+/// existing Browser URL restoration; family remains separate typed provenance.
 /// </summary>
+[SupportedOSPlatform("browser")]
 internal static class BrowserPlatformIdentity
 {
     internal const string PackageName = "Microsoft.NETCore.App";

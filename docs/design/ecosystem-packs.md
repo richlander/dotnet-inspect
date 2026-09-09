@@ -29,15 +29,24 @@ and their CLI/browser discovery remain staged under #5728 and #6012.
 The [website example](#aspire-prefix-discovery-website-mockup) is a mockup,
 not shipped behavior. Existing search and full Integration behavior is unchanged.
 
-[Approved lazy traversal](approved-lazy-traversal.md) records the approved
-target experience for compact namespace hints, core-package starting points,
-Integration-owned contract knowledge, and Platform as an ecosystem selecting
-source-owned discovery/acquisition bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
+[Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md) records the approved
+target experience for inert ecosystem registration, compact namespace hints,
+core-package starting points, Integration-owned contract knowledge, and
+Platform as an ecosystem selecting source-owned discovery/acquisition
+bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
 under #6028 is implemented by #6037: discovery and exact lookup expose inert
 namespace hints and core-package priorities, covered by the
 [retrieval-knowledge gates](#retrieval-knowledge-gates).
 Executable source contributions retain separate prerequisites under #6012
-and #5728; the new metadata does not advertise traversal availability.
+and #5728; the metadata does not establish Workspace registration or
+call-graph reachability.
+The
+[Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+owns the explicit projection from one selected pack and the application-owned
+default sequence into lower immutable declarations. This catalog retains
+application identity and contribution authorship; the handoff does not make
+Queries or browser Core depend on this assembly.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -64,6 +73,9 @@ Supporting owners:
   package discovery, paging, failures, and payload acquisition.
 - [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
   owns realization and workspace generations.
+- [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
+  owns lower declaration identity, explicit pack correspondence, projection
+  outcomes, and product-default validation.
 - [Inspection bundles and demos](../inspection-space.md#inspection-bundles-and-demos)
   owns the bundle and runtime-workspace composition boundary.
 - [Capability-driven section registry spike](capability-section-registry-spike.md)
@@ -135,6 +147,13 @@ It does not own:
   beyond the catalog's declared pack-local core-package preference; or
 - runtime plugins, registration, discovery, unloading, or mutation.
 
+The lower Workspace projection is not another catalog capability implemented
+by copying descriptor fields at selection time. This owner explicitly pairs a
+pack with one handoff-owned immutable declaration and separately authors the
+ordered product-default identities. The handoff defines projection validation
+and lower shape; this owner decides which shipped packs and contributions are
+paired.
+
 The exact claim is:
 
 > The host-neutral application catalog defines how one ecosystem contribution
@@ -142,7 +161,8 @@ The exact claim is:
 > static contributions ship and supplies their data, product-demo sources, and
 > scanner implementations. Namespace hints and core-package priorities are
 > inert discovery knowledge, not type identity, package-set membership, source
-> availability, or traversal permission. Product-demo inventory, grouping, display metadata,
+> availability, Workspace registration, or call-graph reachability.
+> Product-demo inventory, grouping, display metadata,
 > and product order are application-catalog concerns; demo records, resolution,
 > section admission, run plans, and execution remain Workspace Definitions
 > concerns. The co-located Package Set Registry remains a separate owner, while
@@ -420,6 +440,12 @@ The application manifest follows the repository's static-registry pattern:
 - selecting Integration analysis returns only the selected pack's static
   scanner binding to Integration orchestration.
 
+Workspace projection follows the same inert materialization rule. Selecting a
+pack's lower declaration or discovering product defaults returns only retained
+immutable handoff values. It does not resolve a package set, run a prefix
+query, inspect a platform catalog, invoke a scanner, construct a Workspace, or
+acquire content.
+
 The pattern does not require constructing an ecosystem object at any stage.
 The scanner binding statically roots its method and may materialize one
 process-lifetime delegate value when the table initializes. That value is not
@@ -536,8 +562,8 @@ or browser-Core component references the application registry.
 
 ## Retrieval hints and core packages
 
-This is the focused catalog contract for #6028, implemented by #6037 within stage 2 of the
-[eight-stage lazy-traversal adoption plan](approved-lazy-traversal.md#ownership-and-adoption).
+This is the focused catalog contract for #6028, implemented by #6037 within the
+[Workspace-registration adoption plan](workspace-registration-and-call-graph-scope.md#ownership-and-adoption).
 The existing registry and ordinary non-friend consumer suites enforce the
 [retrieval-knowledge gates](#retrieval-knowledge-gates).
 
@@ -614,7 +640,7 @@ core sequence, a curated set, or the presence of a pack identity.
 
 In particular, `ecosystem.platform` already groups product demos. It can retain
 that identity without pretending that its package-backed demos supply
-source-native Platform traversal. This slice neither creates a Platform
+platform-source-owned traversal. This slice neither creates a Platform
 package set nor substitutes a `System.*` package prefix for a platform target.
 The applicable source owner must issue its discovery/acquisition binding
 before the catalog can expose that separate capability.
@@ -917,8 +943,18 @@ add-on APIs rather than obsolete package versions of shared-framework
 fundamentals. Aspire starts with its hosting API. These choices are product
 preferences, not popularity rankings or complete ecosystem inventories.
 Platform deliberately contributes no package coordinate as a substitute for
-its future source-native discovery/acquisition binding. This metadata is not
-derived from package-set membership or demo records.
+its future platform-source-owned discovery/acquisition binding. This metadata
+is not derived from package-set membership or demo records.
+
+The initial Workspace projection is staged under
+[the focused handoff](workspace-ecosystem-registration-handoff.md). Its
+application-owned default order is Platform, ASP.NET Core, then
+Microsoft.Extensions, which deliberately differs from ordinary pack discovery
+order. Platform requires a source-owned runtime population declaration;
+ASP.NET Core requires both its source-owned shared-framework population and
+the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
+recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
+one of those defaults population-complete.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
@@ -1242,6 +1278,7 @@ The owner tracks may advance independently:
 | Product demo | Workspace Definitions issues the lazy source binding; #5772 transfers application-authored sources and host discovery to the ecosystem catalog. |
 | Recorded prefix | #6094 supplies `PackagePrefixDeclaration` under #5602; catalog registration and host discovery adopt it separately from query execution. |
 | Semantic scanner | #5719 issues the opaque binding and decoded observation-context contract. |
+| Workspace registration | #6307 owns the lower declaration and catalog projection; platform population and exact-library coordinates remain separate source-owner prerequisites under #6012. |
 
 1. Lock this focused pack pattern.
 2. Advance whichever independent owner track is needed for the first real pack.

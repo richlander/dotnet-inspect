@@ -12,6 +12,13 @@ public sealed class PackageAcquisitionCandidateIssuer
 {
     private readonly object _issuer = new();
 
+    internal bool OwnsCandidate(
+        PackageAcquisitionCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        return candidate.HasIssuer(_issuer);
+    }
+
     /// <summary>
     /// Issues one caller-pinned candidate from an already-authorized source set.
     /// </summary>

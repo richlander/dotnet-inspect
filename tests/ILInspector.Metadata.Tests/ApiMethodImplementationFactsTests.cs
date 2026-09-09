@@ -86,6 +86,8 @@ public sealed class ApiMethodImplementationFactsTests
         Assert.NotNull(original.MethodImplementation);
         Assert.Same(original.MethodImplementation, projected.MethodImplementation);
         Assert.Equal(original.HasMethodBody, projected.HasMethodBody);
+        Assert.Equal(ApiMethodSemanticsKind.None, original.MethodSemantics);
+        Assert.Equal(original.MethodSemantics, projected.MethodSemantics);
     }
 
     [Theory]

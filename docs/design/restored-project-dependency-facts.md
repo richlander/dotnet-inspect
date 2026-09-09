@@ -5,7 +5,8 @@ declared-dependency and restored-graph evidence without transferring filesystem,
 restore, presentation, or normalized cross-input ownership into the query
 layer.
 
-**Status:** implementation contract for #5314.
+**Status:** implementation contract for #5314, evolved with pruning-processing
+evidence under #6266.
 
 ## Owner
 
@@ -15,11 +16,12 @@ The **Restored Project Dependency Facts Query** in
 - bounded parsing of exact caller-supplied `project.assets.json` UTF-8 bytes;
 - deterministic target-framework and optional runtime-identifier selection;
 - immutable project-authored package declaration groups;
+- typed evidence that package-pruning evaluation ran for the selected target;
 - exact resolved package coordinates and package-resolving graph edges;
 - content-scoped identities for the selection, root, declaration groups, graph
   nodes, and graph edges;
-- independent declaration and graph capability, provenance, completion, and
-  failure evidence; and
+- independent declaration, pruning-processing, and graph capability,
+  provenance, completion, and failure evidence; and
 - construction-time containment of artifact-authored display text.
 
 The query does not accept a path, read a file, evaluate MSBuild, initiate
@@ -94,8 +96,8 @@ deterministic identity tie-breaker.
 Because matching collapses case, two target pivots may share one canonical
 target identity. That is detected before selection: the ambiguity fails the
 graph and selects no target rather than letting JSON property order decide
-which pivot wins. Detection is a graph-phase concern and leaves the declaration
-phase untouched.
+which pivot wins. Detection prevents target-associated pruning and graph
+projection while leaving the declaration phase untouched.
 
 An absent `targets` capability or an unsatisfied request is graph
 **unavailable**, not a complete-empty graph. A selected target whose own shape
@@ -108,15 +110,15 @@ input provenance. That digest is not semantic identity: harmless JSON property
 reordering changes it.
 
 The selection identity instead combines the selected target identity with a
-deterministic digest over the query's canonical declaration and selected-graph
-facts. That digest is computed from an unambiguous typed encoding in which
-every field is length-prefixed and every collection is preceded by its element
-count, so no artifact-authored string can be split or joined across field
-boundaries to forge a digest collision. No local path, project display name,
-request spelling, JSON property position, raw byte order, or rendered text
-participates. A default request and an explicit request that select the same
-target therefore share semantic selection identity while retaining distinct
-selection provenance.
+deterministic digest over the query's canonical declaration,
+pruning-processing, and selected-graph facts. That digest is computed from an
+unambiguous typed encoding in which every field is length-prefixed and every
+collection is preceded by its element count, so no artifact-authored string
+can be split or joined across field boundaries to forge a digest collision.
+No local path, project display name, request spelling, JSON property position,
+raw byte order, or rendered text participates. A default request and an
+explicit request that select the same target therefore share semantic
+selection identity while retaining distinct selection provenance.
 
 Every public identity string is one of two safe forms, and no artifact-authored
 text is ever emitted verbatim as identity:
@@ -243,7 +245,47 @@ Completion is explicit typed state rather than an inference from an empty
 failure collection, and an available phase cannot represent the invalid
 combinations of complete-with-failures or incomplete-without-failures.
 
-Declaration completion does not depend on graph availability or success.
+Declaration completion does not depend on pruning-processing or graph
+availability or success.
+
+## Package-pruning processing evidence
+
+The selected target is correlated with its uniquely corresponding
+`project.frameworks` group through the same schema-aware rule used for root
+constraints: schema version 3 uses canonical NuGet framework identity and
+schema version 4 uses the target alias. For a runtime-specific selected target,
+the evidence remains associated with its framework group because
+`packagesToPrune` is framework-scoped in the assets schema.
+
+A present `packagesToPrune` member is valid only when it is a JSON object whose
+property names are valid bounded package IDs and whose values are valid bounded
+NuGet version ranges. A valid empty object is positive evidence: it proves the
+typed processing capability is present even though it contains no pruning
+rules.
+
+The public evidence is deliberately smaller than the artifact map. It carries
+the exact selected declaration-group identity and establishes only that
+package-pruning evaluation ran for that restored target. It does not duplicate
+the platform package inventory, identify an exemption, or prove that any edge
+was removed. Valid rule-map contents beyond their validity do not participate
+in semantic selection identity because the query issues no rule rows. Exact
+source bytes remain available through content provenance.
+
+The pruning-processing phase is one of:
+
+- **Available** — a valid `packagesToPrune` object, including an empty object,
+  is associated with the selected target;
+- **Unavailable** — no target was selected, no uniquely corresponding
+  framework group is available, or the selected group has no
+  `packagesToPrune` member; or
+- **Failed** — association is ambiguous, the member is not an object, an entry
+  has an invalid package ID or version range, or the independent pruning-rule
+  bound is exceeded.
+
+Unavailable evidence means **not evidenced**, never that pruning did not run.
+Present invalid evidence remains a typed failure rather than becoming absence.
+Pruning availability or failure does not upgrade or downgrade declaration or
+graph completion.
 
 ## Restored graph projection
 
@@ -286,10 +328,17 @@ Public graph edges are package-resolving relationships:
 Each edge retains:
 
 - stable edge, parent-node, and dependency-node identities;
+- for a root edge, the exact correlated `project.frameworks` declaration-group
+  identity that supplied its authored constraint;
 - the exact resolved package coordinate;
 - canonical NuGet constraint semantics;
 - the source constraint as `InertString`; and
 - direct or transitive role relative to the restored root.
+
+A non-root edge carries no declaration-group association. The type enforces
+that root edges have the association and non-root edges do not, so a consumer
+can classify application authorship through owner-issued correspondence rather
+than through direct/transitive role.
 
 The package collection contains exactly the package nodes reached from the
 root. A package is direct when a root entry resolves to it; otherwise it is
@@ -336,7 +385,8 @@ cross-input comparison owner.
 
 Malformed or duplicate-bearing JSON, unsupported document shape, unsupported
 schema version, and configured whole-document limits are query failures.
-Declaration- and graph-local failures remain on their owning phase.
+Declaration-, pruning-processing-, and graph-local failures remain on their
+owning phase.
 
 Failure messages are derived only from closed reason values and optional
 numeric counts. They never quote package IDs, framework names, version text,
@@ -360,6 +410,7 @@ The query enforces fixed limits for:
 - authored framework groups;
 - authored package declarations;
 - authored project-reference declarations;
+- selected-group package-pruning rules;
 - selected-target nodes; and
 - reachable graph edges.
 
@@ -369,8 +420,9 @@ package chain.
 
 Exceeding a whole-document bound fails the query. Exceeding a declaration or
 graph collection bound leaves that phase incomplete when already-projected
-evidence remains usable; identity-ambiguity and fundamentally invalid section
-shape fail the phase.
+evidence remains usable. Exceeding the package-pruning rule bound fails only
+that independently projected evidence. Identity ambiguity and fundamentally
+invalid section shape fail their associated phase.
 
 The limits run in the Release test suite. A caller cannot opt out through a
 larger requested value.
@@ -397,10 +449,19 @@ The contract is gated by:
 - duplicate canonical target identity failing the graph regardless of JSON
   order while leaving the declaration phase usable;
 - authored groups retaining requested ranges and valid empty groups;
+- real SDK-produced `packagesToPrune` content yielding selected-group typed
+  pruning evidence, with a valid empty object remaining positive;
+- absent, non-object, invalid-entry, ambiguous-association, and configured-limit
+  pruning states remaining distinct and independent from declaration and graph
+  completion;
+- schema version 3 pruning evidence correlating a short declaration pivot with
+  its long selected target;
 - absent versus non-object `dependencies` at both declaration groups and
   reachable graph nodes;
 - unclassified dependency targets being invalid rather than assumed packages;
 - exact direct and transitive package coordinates plus a diamond edge shape;
+- root edges carrying their correlated declaration-group identity while
+  package- and project-parent edges carry no declaration association;
 - coalescing equal duplicate edges and refusing conflicting ones;
 - complete-empty, incomplete, unavailable, and failed graph outcomes;
 - declaration failure remaining independent of usable graph evidence and the
@@ -442,6 +503,8 @@ This owner does not:
 - locate `.csproj`, directory, or assets paths;
 - report project-not-found or assets-not-restored locator failures;
 - evaluate project files, choose MSBuild properties, restore, or build;
+- define package-pruning policy, direct-reference exemptions, platform-package
+  subsumption, or which graph edges pruning removed;
 - resolve package files under a global-packages directory;
 - normalize package and nuspec declarations into common evidence;
 - acquire package-owner metadata;

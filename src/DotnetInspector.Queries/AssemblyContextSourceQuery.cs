@@ -23,7 +23,7 @@ public sealed class AssemblyContextSourceQueryContext
         HttpClient symbolClient,
         IPdbStore pdbStore,
         IPackageSourceAuthorization packageSourceAuthorization,
-        SourceFetcher sourceFetcher)
+        SourceFetch sourceFetcher)
     {
         SymbolClient =
             symbolClient
@@ -35,7 +35,7 @@ public sealed class AssemblyContextSourceQueryContext
             packageSourceAuthorization
             ?? throw new ArgumentNullException(
                 nameof(packageSourceAuthorization));
-        SourceFetcher =
+        SourceFetch =
             sourceFetcher
             ?? throw new ArgumentNullException(nameof(sourceFetcher));
     }
@@ -46,7 +46,7 @@ public sealed class AssemblyContextSourceQueryContext
     {
         get;
     }
-    public SourceFetcher SourceFetcher { get; }
+    public SourceFetch SourceFetch { get; }
     public ISourceLinkIndexCache? SourceLinkCache { get; init; }
     public IReadOnlyList<string>? RepositoryPaths { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
@@ -828,12 +828,12 @@ public static class AssemblyContextSourceQuery
                     participant,
                     bindingPolicyVersion);
                 inspection =
-                    await PdbSourceAcquisition.AcquireMemberAsync(
+                    await PdbSourceHouse.AcquireMemberAsync(
                             source,
                             request.MetadataToken,
                             request.Member.MemberName,
                             findingSubject,
-                            context.SourceFetcher,
+                            context.SourceFetch,
                             context.RepositoryPaths,
                             cancellationToken,
                             allowLocalSource:
@@ -863,7 +863,7 @@ public static class AssemblyContextSourceQuery
                 participant,
                 bindingPolicyVersion);
             inspection =
-                PdbSourceAcquisition
+                PdbSourceHouse
                     .MemberPdbAcquisitionFailed(
                         findingSubject,
                         sourceResult.Failure!);
@@ -935,11 +935,11 @@ public static class AssemblyContextSourceQuery
                     participant,
                     bindingPolicyVersion);
                 pdbSource =
-                    await PdbSourceAcquisition.AcquireTypeAsync(
+                    await PdbSourceHouse.AcquireTypeAsync(
                             source,
                             request.Type,
                             findingSubject,
-                            context.SourceFetcher,
+                            context.SourceFetch,
                             context.RepositoryPaths,
                             cancellationToken,
                             allowLocalSource:
@@ -981,7 +981,7 @@ public static class AssemblyContextSourceQuery
                 participant,
                 bindingPolicyVersion);
             pdbSource =
-                PdbSourceAcquisition
+                PdbSourceHouse
                     .TypePdbAcquisitionFailed(
                         findingSubject,
                         sourceResult.Failure!);

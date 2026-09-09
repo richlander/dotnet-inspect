@@ -303,7 +303,7 @@ feature payload, not a hostile worker or cooperating browser code.
 
 The first profile admits a PDB Open destination only when the selected
 verified source document's resolved URL is accepted by
-`SourceLinkFetch.SourceLinkProvenance.BrowseUrl`. That owner constructs an
+`ILInspector.SourceLink.SourceLinkProvenance.BrowseUrl`. That owner constructs an
 HTTPS GitHub browse URL from an attributable immutable GitHub origin. The
 feature checks its own size budget before invoking that grammar.
 

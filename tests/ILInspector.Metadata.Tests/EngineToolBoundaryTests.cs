@@ -15,7 +15,7 @@ namespace ILInspector.Metadata.Tests;
 public class EngineToolBoundaryTests
 {
     [Fact]
-    public void MetadataHasNoSourceLinkFetchProjectReference()
+    public void MetadataHasNoSourceLinkProjectReference()
     {
         string project = Path.Combine(
             FindRepoRoot(),
@@ -27,7 +27,7 @@ public class EngineToolBoundaryTests
             ReadEvaluatedProjectReferences(project),
             reference => Path.GetFileNameWithoutExtension(
                     reference.Replace('\\', '/'))
-                .Equals("SourceLinkFetch", StringComparison.Ordinal));
+                .Equals("ILInspector.SourceLink", StringComparison.Ordinal));
     }
 
     [Fact]

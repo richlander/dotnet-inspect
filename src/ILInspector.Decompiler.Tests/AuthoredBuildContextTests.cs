@@ -23,7 +23,7 @@ public sealed class AuthoredBuildContextTests
         using var http = new HttpClient(new NoNetworkHandler());
         var results = await AuthoredRebuildFidelity.EvaluateAssembliesAsync(
             [FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath()],
-            1, http, new SourceFetcher(http));
+            1, http, new SourceFetch(http));
         var result = Assert.Single(results);
 
         Assert.True(result.ChecksumVerification == SourceChecksumVerification.Exact, result.Detail);

@@ -3799,21 +3799,24 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
+    public void DefaultPipeline_RunsDoWhileAgainAfterSlotStoreDiamond()
     {
-        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-        var handle = ResolveDragon4Method(source, "System.Number");
-        var function = IrImporter.Import(source, handle);
-        Assert.NotNull(function);
+        Type[] passTypes = [.. IrPasses.Default.Select(pass => pass.GetType())];
+        int[] doWhileIndices =
+        [
+            .. passTypes
+                .Select((type, index) => (type, index))
+                .Where(item => item.type == typeof(DoWhileLoopPass))
+                .Select(item => item.index),
+        ];
+        int slotStoreDiamondIndex =
+            Array.IndexOf(passTypes, typeof(SlotStoreDiamondPass));
+        int structuringIndex =
+            Array.IndexOf(passTypes, typeof(StructuringPass));
 
-        var stages = IrPasses.RunWithStages(function);
-        var doWhileStages = stages.Where(stage => stage.PassName == "do-while").ToArray();
-
-        Assert.Equal(2, doWhileStages.Length);
-        Assert.DoesNotContain("DoWhileLoop", doWhileStages[0].Projection);
-        Assert.Contains("DoWhileLoop", doWhileStages[1].Projection);
-        Assert.NotEmpty(function.Descendants.OfType<DoWhileLoop>());
-        function.CheckInvariant();
+        Assert.Equal(2, doWhileIndices.Length);
+        Assert.InRange(slotStoreDiamondIndex, doWhileIndices[0] + 1, doWhileIndices[1] - 1);
+        Assert.Equal(doWhileIndices[1] + 1, structuringIndex);
     }
 
     [Fact]

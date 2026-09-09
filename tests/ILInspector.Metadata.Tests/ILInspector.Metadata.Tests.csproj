@@ -21,12 +21,16 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="ILInspector.SourceLink" />
+    <AssemblyMetadata Include="D3FixtureProducerSdk" Value="$(NETCoreSdkVersion)" />
+    <EmbeddedResource Include="Corpus/custom-attribute-d3.json" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/NuGetFetch/NuGetFetch.csproj" />
     <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
     <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />

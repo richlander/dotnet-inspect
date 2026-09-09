@@ -6,8 +6,10 @@ the dotnet-inspect packages and the production site at
 rules live in [AGENTS.md](../AGENTS.md). The executable sources of truth are
 [release.yml](../.github/workflows/release.yml),
 [deploy-inspect-web.yml](../.github/workflows/deploy-inspect-web.yml), and
-[promote-inspect-web.yml](../.github/workflows/promote-inspect-web.yml); update
-this document when those workflows change. The repo-local
+[promote-inspect-web.yml](../.github/workflows/promote-inspect-web.yml), which
+calls
+[deploy-inspect-web-coreclr.yml](../.github/workflows/deploy-inspect-web-coreclr.yml);
+update this document when those workflows change. The repo-local
 [release skill](../.github/skills/release/SKILL.md) is the operator playbook and
 must stay aligned with this contract.
 
@@ -23,6 +25,7 @@ responsibilities:
 | `release.yml` | Manual dispatch | Verify certification, rebuild packages, and publish one selected commit |
 | `deploy-inspect-web.yml` | Pushes to `main` or manual dispatch from `main` | Build and deploy a staging site artifact for that commit |
 | `promote-inspect-web.yml` | Manual dispatch | Verify and promote one staged artifact to `https://dotnet-inspect.net` |
+| `deploy-inspect-web-coreclr.yml` | Called after production promotion | Build and deploy the same product commit and staged artifact identity with CoreCLR |
 
 The publish workflow accepts a successful `main` CI run ID to resolve the exact
 commit SHA and a Deep Inspect run ID as its heavy-validation evidence. It does
@@ -61,7 +64,11 @@ release unit:
   its push trigger and exceptionally from an operator dispatch, embedding that
   commit's `VersionPrefix`, full source SHA, and build timestamp.
 - `promote-inspect-web.yml` promotes that exact staged artifact without
-  rebuilding it.
+  rebuilding it, then calls `deploy-inspect-web-coreclr.yml` with the resolved
+  product SHA, staging run ID, and artifact ID.
+- `deploy-inspect-web-coreclr.yml` rebuilds the browser host with the pinned
+  CoreCLR cohort from that exact product SHA and compares it with the exact
+  compiler-async artifact promoted to production.
 
 Publish and promote together. Do not publish a new package version without
 promoting its matching site, and do not promote a site from a commit that is
@@ -258,9 +265,11 @@ publication succeeds, approve the site workflow; it revalidates the staging run
 and artifact identity, downloads the exact staged artifact with digest
 verification, and deploys it to `https://dotnet-inspect.net`.
 
-The release is complete only when both workflows succeed. Verify that the
-published package and GitHub release use the intended version and commit, then
-check the production site's status bar for the same version and linked commit.
+The release is complete only when both workflows succeed, including the
+promotion workflow's matching CoreCLR deployment. Verify that the published
+package and GitHub release use the intended version and commit, then check the
+production and CoreCLR sites' status bars for the same version and linked
+commit.
 
 ## Failure handling
 
@@ -303,6 +312,9 @@ check the production site's status bar for the same version and linked commit.
   successful Deep Inspect certification before the next ordinary release.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
+- **CoreCLR deployment fails after production promotion:** rerun the failed
+  jobs in the same promotion run so the CoreCLR workflow retains the promoted
+  SHA, staging run ID, and artifact ID.
 - **Either side resolves a different SHA:** cancel the package workflow
   and the promotion workflow immediately, then select matching evidence. If
   package publication already started, audit the partial immutable package set

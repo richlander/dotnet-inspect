@@ -15471,7 +15471,7 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// A failed acquisition of the selected row must stay visible rather than degrade into
-    /// success-shaped output. Only the transport is substituted, so the real SourceFetcher
+    /// success-shaped output. Only the transport is substituted, so the real SourceFetch
     /// still applies scheme restriction, caching, and status handling.
     /// </summary>
     [Fact]
@@ -22045,7 +22045,7 @@ public partial class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "Body Shapes", "SourceLink: Files", "SourceLink: Availability",
+                     "Unsafe Members", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
                      "Integration: Opportunities"
                  })
@@ -24645,6 +24645,7 @@ public partial class CommandExecutionTests
         [
             MetadataSectionNames.Heap,
             SectionNames.BodyShapes,
+            SectionNames.BodyShapeSummary,
         ];
 
         var pipeline = LibrarySections.CreatePipeline();
