@@ -1133,6 +1133,32 @@ for (const pendingRequest of ["Library", "catalog"] as const) {
   });
 }
 
+test("same-Workspace navigation retires superseded Platform catalog progress", async ({ page }) => {
+  await openPlatform(page, { catalogPending: true });
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Loading Platform catalog...",
+  );
+
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("finish-platform-catalog")));
+  await page.locator('[data-scope="platform"]').click();
+
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Platform catalog loading was interrupted.",
+  );
+  await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
+  await expect(page.locator("#inspector-panel")).not.toContainText(
+    "Loading Platform catalog...",
+  );
+});
+
 async function currentWorkspaceHistoryState(page: Page): Promise<{
   id: string | null;
   session: string | null;

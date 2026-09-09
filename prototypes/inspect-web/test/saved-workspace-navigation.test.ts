@@ -72,7 +72,7 @@ const hostNames = new Set([
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
-  "normalizeWorkspaceAsyncSnapshotState",
+  "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
   "invalidateWorkspaceAsyncOwners",
   "captureWorkspaceConstructionSnapshots", "cancelPendingWorkspaceConstruction",

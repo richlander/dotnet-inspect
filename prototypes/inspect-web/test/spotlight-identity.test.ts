@@ -3188,7 +3188,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
 
   assert.match(
     appSource,
-    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*cancelPendingWorkspaceConstruction\(\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);/);
+    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
   assert.match(
     appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*memberDetailInspection\.invalidate\(\);[\s\S]*releaseRetainedWorkspaceSnapshot\(pending\.retainedSnapshot\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(pending\.supersessionSnapshot\);/);
@@ -3241,7 +3241,10 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
     /platformLibraryRetry: snapshot\.platformLibraryRetry,\s*platformCatalogRetry: snapshot\.platformCatalogRetry,/);
   assert.match(
     appSource,
-    /if \(snapshotState\.platformCatalogStatus\.loading\)[\s\S]*error: "Platform catalog loading was interrupted\."[\s\S]*if \(snapshotState\.platformOpeningStatus\.loading\)[\s\S]*error: "Platform Library opening was interrupted\."/);
+    /function settleInterruptedPlatformStatus\(targetState: AppState\)[\s\S]*if \(targetState\.platformCatalogStatus\.loading\)[\s\S]*error: "Platform catalog loading was interrupted\."[\s\S]*if \(targetState\.platformOpeningStatus\.loading\)[\s\S]*error: "Platform Library opening was interrupted\."/);
+  assert.match(
+    appSource,
+    /const navigationSequence = \{[\s\S]*begin\(\): number \{[\s\S]*settleInterruptedPlatformStatus\(state\);[\s\S]*invalidate\(\): void \{[\s\S]*settleInterruptedPlatformStatus\(state\);/);
   assert.match(
     appSource,
     /retryAction: \(\) =>\s*restorePlatformHistoryView\(view, row, navigationSequence\.current\(\)\)/);

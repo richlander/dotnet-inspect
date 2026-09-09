@@ -1244,18 +1244,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.runtimePackLoading = false;
-  if (snapshotState.platformCatalogStatus.loading) {
-    snapshotState.platformCatalogStatus = {
-      loading: false,
-      error: "Platform catalog loading was interrupted.",
-    };
-  }
-  if (snapshotState.platformOpeningStatus.loading) {
-    snapshotState.platformOpeningStatus = {
-      loading: false,
-      error: "Platform Library opening was interrupted.",
-    };
-  }
+  settleInterruptedPlatformStatus(snapshotState);
   if (snapshotState.graphSource.status === "loading") {
     snapshotState.graphSource = {
       status: "cancelled",
@@ -1286,6 +1275,21 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   if (memberFactsLoading) snapshotState.memberFactsKey = "";
   if (memberDocumentationLoading) snapshotState.memberDocumentationKey = "";
+}
+
+function settleInterruptedPlatformStatus(targetState: AppState): void {
+  if (targetState.platformCatalogStatus.loading) {
+    targetState.platformCatalogStatus = {
+      loading: false,
+      error: "Platform catalog loading was interrupted.",
+    };
+  }
+  if (targetState.platformOpeningStatus.loading) {
+    targetState.platformOpeningStatus = {
+      loading: false,
+      error: "Platform Library opening was interrupted.",
+    };
+  }
 }
 
 function restoreCanonicalWorkspaceRestoreSnapshot(
@@ -2307,10 +2311,12 @@ const innerNavigationSequence = createNavigationSequence();
 const navigationSequence = {
   begin(): number {
     cancelPendingWorkspaceConstruction();
+    settleInterruptedPlatformStatus(state);
     return innerNavigationSequence.begin();
   },
   invalidate(): void {
     cancelPendingWorkspaceConstruction();
+    settleInterruptedPlatformStatus(state);
     innerNavigationSequence.invalidate();
   },
   current: () => innerNavigationSequence.current(),
