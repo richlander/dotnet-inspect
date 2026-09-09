@@ -205,13 +205,14 @@ The named production consumers are:
   [#5513](https://github.com/richlander/dotnet-inspect/issues/5513).
 
 The concrete Browser scenario is one active Workspace whose explicit
-membership contains one or more exact package and later non-package Roots. The
-Workspace editor can replace that membership, add to it, remove from it, or
-clear it. Navigation independently selects one current subject through the
-subject strip. Query-owned traversal may realize Platform and package
-dependencies without adding those libraries to explicit Root membership. The
-CLI consumes the same snapshot and results without adding retained terminal
-navigation.
+membership contains one or more exact package Roots and ecosystem
+registrations. The Workspace editor can replace that membership, add to it,
+remove from it, or clear it. Navigation independently selects one current
+subject through the subject strip. On Package, Type, or Member surfaces, one
+package is active in that strip without becoming the whole Workspace.
+Query-owned traversal may realize Platform and package dependencies without
+adding those libraries to explicit Root membership. The CLI consumes the same
+snapshot and results without adding retained terminal navigation.
 
 This infrastructure is warranted only to support that scenario. It deliberately
 does not add:
@@ -304,10 +305,11 @@ owners.
 
 Inspect Web exposes exactly one active Workspace. Activating a demo, share
 packet, imported definition, saved definition, or external package **Open**
-constructs a fresh replacement Workspace. The active Workspace remains usable
-until the replacement is complete, then the host swaps the active reference
-and closes the old Workspace. At most one unpublished replacement may coexist
-with the active Workspace; it is not selectable or independently presented.
+constructs a fresh Workspace independently from the active one. The active
+Workspace remains usable until construction is complete, then the host
+switches the active reference and closes the old Workspace. At most one
+unpublished new Workspace may coexist with the active Workspace; it is not
+selectable or independently presented.
 
 This component exposes no Workspace collection, switcher, name, or
 cross-Workspace operation. Each Workspace has one current scope
@@ -1273,17 +1275,18 @@ retained intent, and active-snapshot publication.
 [Workspace Definitions](workspace-definitions.md) owns portable schema,
 projection, and complete restoration. It constructs a fresh Workspace and
 supplies the complete ordered Root and registration intent to ordinary Scope
-operations there. Scope may publish normally because the replacement is not
+operations there. Scope may publish normally because the new Workspace is not
 yet active or observable through host navigation. This owner needs no
 uncommitted restoration fragment, candidate occurrence identity, or
 multi-owner commit participant.
 
-Every occurrence in the replacement Workspace is issued under that
-Workspace's fresh identity. Scope does not compare the active and replacement
-Workspaces for compatible membership, retain active occurrence identities, or
-transfer revisions between them. Definitions and the retained host own whether
-the fully prepared replacement becomes active; failure or supersession closes
-it and leaves this Workspace's current Scope unchanged.
+Every occurrence in the new Workspace is issued under that
+Workspace's fresh identity. Scope constructs only from the new Workspace's
+requested membership; it does not read active Workspace membership, retain
+active occurrence identities, or transfer revisions between Workspaces.
+Definitions and the retained host own whether the fully prepared Workspace
+becomes active; failure or supersession closes it and leaves the active
+Workspace's current Scope unchanged.
 
 Browser Back/Forward may construct the historical definition as a fresh
 replacement. It does not reactivate an old Scope revision or expose several

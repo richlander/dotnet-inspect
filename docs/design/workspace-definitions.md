@@ -113,9 +113,9 @@ authority and carries only owner-issued replacement and Navigation authority.
    open coordinate, and no browser lens, member-section, label, or CLI alias.
 7. **Restoration constructs and installs one fresh Workspace.** The active
    Workspace remains usable while ordinary owner APIs populate and validate an
-   unpublished replacement from one immutable canonical request. Failure,
-   supersession, or `ProjectionFailed` closes that replacement. A completely
-   prepared projectable or validly non-projectable replacement may become the
+   unpublished Workspace from one immutable canonical request. Failure,
+   supersession, or `ProjectionFailed` closes that Workspace. A completely
+   prepared projectable or validly non-projectable Workspace may become the
    one active Workspace under current host authority.
 
 ## The definition schema
@@ -1462,7 +1462,7 @@ and overload ordinals have no version-1 field and are never inferred from
 courtesy routes or host state.
 
 The adapter retains the exact decoded version-1 packet as the requested packet
-basis. If the fresh replacement realizes the same semantic state, that original
+basis. If the fresh Workspace realizes the same semantic state, that original
 canonical format-1 packet remains the installed location basis. Any owner
 reconciliation, later user change, or newly captured per-coordinate state
 projects as format 2. No version-2 writer emits a version-1 token, and no
@@ -1470,10 +1470,13 @@ version-1 writer accepts a Registry ID.
 
 ### Complete restoration
 
-Complete restoration constructs a fresh Workspace. It does not mutate the
-active Workspace in place, compare the two Workspaces for compatibility, or
-reuse Workspace-owned Roots, occurrence identities, contexts, sessions,
-budgets, Navigation state, or query authority.
+Complete restoration is a switch to an independently constructed Workspace.
+The active Workspace's composition is not input to the new Workspace and no
+compatibility relationship exists between them. Restoration does not mutate
+the active Workspace in place or reuse its Roots, occurrence identities,
+contexts, sessions, budgets, Navigation state, or query authority. Whether the
+two Workspaces share zero, some, or all requested package IDs has no bearing on
+the switch.
 
 This rule applies to saved definitions, share packets, Browser history,
 product demos, external-package Spotlight selection, and CLI canonical replay.
@@ -1498,24 +1501,27 @@ One restoration attempt proceeds in this order:
    plan and retains its exact canonical packet basis.
 3. Resolve legacy selectors, coordinate-backed identities, Registry IDs, query
    migrations, Platform/package pruning, and the complete multi-package Root
-   and registration intent. Missing, ambiguous, rejected, or incompatible
-   input fails under the same attempt token.
+   and registration intent. Missing, ambiguous, rejected, or invalid input
+   fails under the same attempt token. This is ordinary construction of the
+   requested Workspace, not a compatibility test against the active Workspace
+   or a cross-Root compatibility gate; each Root resolves under its own owner
+   contract.
 4. Construct one fresh Workspace. The coordinator is its sole holder until
    installation. Populate its complete explicit membership and registrations
    through ordinary Artifact and Scope operations. Every Workspace, Root
    occurrence, Scope revision, and Navigation identity is fresh; no identity
    or resource is transferred from the active Workspace.
 5. Establish the requested retained context, active subject, and lens through
-   ordinary Navigation in the replacement Workspace. Resolve each inactive
+   ordinary Navigation in the new Workspace. Resolve each inactive
    coordinate's saved view and query state without executing expensive work
    that its owner keeps explicit or capability-gated. Membership, subject
    focus, and traversal-derived realization remain separate.
-6. Project the complete replacement. A packet-sourced exact result retains its
-   canonical packet. Other projectable replacements emit canonical format 2.
+6. Project the complete Workspace. A packet-sourced exact result retains its
+   canonical packet. Other projectable Workspaces emit canonical format 2.
    A valid definition beyond packet grammar or bounds is `NonProjectable` but
-   remains installable; malformed candidate state or writer failure is
+   remains installable; malformed Workspace state or writer failure is
    `ProjectionFailed`.
-7. Return one immutable `CompleteWorkspaceReplacement` containing the fresh
+7. Return one immutable `CompleteWorkspaceActivation` containing the fresh
    Workspace, complete snapshot, request basis, projection classification, and
    owner evidence. The retained host may install it only while the exact
    intent and effect authority remain current. Installation is one active
@@ -1524,13 +1530,13 @@ One restoration attempt proceeds in this order:
 8. After installation, close the old Workspace outside the pointer-swap path.
    On decode, resolution, construction, Navigation, query, projection,
    cancellation, expiry, or supersession failure, close the unpublished
-   replacement and retain the active Workspace unchanged. A late completion
+   Workspace and retain the active Workspace unchanged. A late completion
    for a settled token is discarded and cannot install.
 
-At most one unpublished replacement may coexist with the active Workspace.
-The replacement is not selectable, rendered, addressable through ordinary
+At most one unpublished new Workspace may coexist with the active Workspace.
+The new Workspace is not selectable, rendered, addressable through ordinary
 host actions, or recorded in history before installation. A newer attempt
-closes the older replacement before beginning another.
+closes the older attempt's Workspace before beginning another.
 
 Fresh construction may temporarily duplicate resources present in the active
 Workspace. Shared immutable storage and package caches may avoid repeated
@@ -1640,12 +1646,11 @@ two persisted contracts are isomorphic.
 - **Packet consolidation.** The `popstate` handler currently re-implements
   restore inline; the loader introduced here should absorb it so every
   restore path is the same code.
-- **Retained-host replacement admission.** Inspect Web needs one owner for the
-  active Workspace reference, at most one unpublished replacement, exact
+- **Retained-host new-Workspace admission.** Inspect Web needs one owner for the
+  active Workspace reference, at most one unpublished new Workspace, exact
   current-intent installation, prompt close of every non-installed
-  replacement, and a combined-resource policy for the period when old and new
-  Workspaces coexist. Per-Workspace budgets do not supply that host-level
-  bound.
+  Workspace, and a combined-resource policy for the period when old and new
+  Workspaces coexist. Per-Workspace budgets do not supply that host-level bound.
 
 ## Open questions
 
@@ -1847,12 +1852,12 @@ Implementation must add, at minimum:
   construction, Navigation, query, projection, and host installation. It must
   cover inert packet/definition input with absent, stale, revoked, and
   incompatible activation authority; stale decode success and failure after a
-  newer intent; Root or Navigation failure after partial replacement
+  newer intent; Root or Navigation failure after partial new-Workspace
   construction; projectable and validly non-projectable installation;
   projection failure; supersession before installation; late completion; and
   initial failure with no active Workspace. Unauthorized input must reserve,
   acquire, and publish nothing. Every non-install outcome must close the
-  unpublished replacement, retain the active Workspace and its exact snapshot,
+  unpublished Workspace, retain the active Workspace and its exact snapshot,
   and carry the source-identifying failure evidence. Successful installation
   must publish the exact prepared Workspace once, preserve the request's packet
   or definition basis and projection classification, and remain reachable only

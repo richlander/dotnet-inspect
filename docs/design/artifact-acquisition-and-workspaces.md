@@ -22,11 +22,11 @@ handoff tracked by
 slice. The logical Workspace Scope contract is the upper slice in
 [#5701](https://github.com/richlander/dotnet-inspect/pull/5701).
 
-Fresh replacement Workspace restoration, tracked by
+Fresh Workspace construction and switching, tracked by
 [#6189](https://github.com/richlander/dotnet-inspect/issues/6189), deliberately
 adds no private Artifact candidate. Definitions constructs a new Workspace,
 populates and inspects it through ordinary owner APIs while the active
-Workspace remains usable, and returns it for one host-owned replacement or
+Workspace remains usable, and returns it for one host-owned switch or
 close. Artifact Acquisition owns each Workspace independently; it does not
 compare Workspaces for compatibility or transfer Workspace-owned resources
 between them.
@@ -3615,18 +3615,23 @@ membership or order, expansion policy, closure, Navigation focus, browser
 effects, portable schema, arbitrary transaction participants, durable recovery,
 or a second query-access protocol.
 
-#### Fresh replacement Workspace restoration
+#### Fresh Workspace construction and switching
 
 ##### Problem and strategy
 
-Suppose the active Workspace contains `Newtonsoft.Json`, and a saved Workspace
-definition requests `Newtonsoft.Json` plus `Humanizer.Core`, with a member from
-`Humanizer.dll` selected. The replacement must prove that both package Roots
-and the selected member are usable before replacing the active Workspace.
-Failure must leave the active Workspace unchanged.
+A saved definition describes one Workspace with `Newtonsoft.Json` and
+`Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
+selected. Opening that definition constructs exactly that Workspace. The
+currently active Workspace may contain any composition; its contents are not
+input to construction and are not a comparison operand. Once construction
+succeeds, the host switches to the new Workspace and Navigation makes
+`Humanizer.Core` active in the subject strip for the selected member. Failure
+leaves the existing active Workspace unchanged.
 
-Restoration does not compare the active and requested Workspaces for
-compatibility. It constructs a fresh Workspace with a fresh
+Restoration does not test compatibility between Workspaces or make a
+whole-Workspace compatibility judgment from package overlap or dependency
+relationships. Each requested Root resolves under its ordinary owner contract.
+Restoration constructs a fresh Workspace with a fresh
 `InspectionWorkspaceIdentity`, then uses the ordinary Artifact, Scope,
 Navigation, and query paths inside that unpublished Workspace:
 
@@ -3635,27 +3640,27 @@ Navigation, and query paths inside that unpublished Workspace:
 2. resolve and publish the complete requested multi-package Root set into that
    Workspace through ordinary Scope and Artifact publication;
 3. establish the requested subject focus and validate any saved view or query
-   state using ordinary operations against the replacement;
-4. return the complete replacement for one current-authority installation; or
+   state using ordinary operations in the new Workspace;
+4. return the complete new Workspace for one current-authority switch; or
 5. close it on every failure, refusal, cancellation, expiry, or supersession
    path.
 
 The active Workspace remains usable throughout preparation. Successful
-installation swaps the host's active Workspace reference once, then closes the
-old Workspace outside that non-yielding pointer change. Old operations may
+activation switches the host's active Workspace reference once, then closes
+the old Workspace outside that non-yielding pointer change. Old operations may
 drain under their existing leases, but their late effects are rejected by the
 consumer's existing intent and effect authority.
 
 ##### Isolation and reuse boundary
 
-The replacement shares no Workspace-owned Root, occurrence identity, artifact
+The new Workspace shares no Workspace-owned Root, occurrence identity, artifact
 session, context group, query lease, budget reservation, Navigation session,
 or mutable owner state with the active Workspace. Equal package coordinates do
 not trigger a compatibility decision or resource transfer. Storage and package
 caches may independently return the same immutable bytes to both Workspaces;
 cache reuse does not make either Workspace own the other's resources.
 
-Because the replacement is an ordinary Workspace, its published Roots use the
+Because the new Workspace is ordinary, its published Roots use the
 ordinary current-query path. Artifact Acquisition needs no candidate identity,
 candidate-specific query admission, retained-current Root borrowing,
 `CandidateOwned` receipt state, or complete-restoration publication adapter.
@@ -3669,34 +3674,34 @@ pruning and becomes one ordinary Root in the fresh multi-package Workspace.
 
 ##### Ownership and bounded coexistence
 
-Definitions owns the complete replacement value and restoration result.
+Definitions owns the complete new-Workspace value and restoration result.
 Artifact Acquisition owns construction, ordinary operation, close, and
 resource drainage for each Workspace. The retained host owns the active
 Workspace reference and changes it only under current owner-issued effect
 authority. The CLI normally has no prior Workspace, so its installation is the
-same construction path without a replacement swap.
+same construction path without switching from a prior active Workspace.
 
-A retained host admits at most one unpublished replacement at a time. A newer
-restoration supersedes and closes the older replacement before beginning
-another. The product exposes exactly one active Workspace; the unpublished
-replacement is not selectable, rendered, placed in history, or available to
-ordinary host actions.
+A retained host admits at most one unpublished new Workspace at a time. A newer
+restoration supersedes and closes the older attempt's Workspace before
+beginning another. The product exposes exactly one active Workspace; the
+unpublished Workspace is not selectable, rendered, placed in history, or
+available to ordinary host actions.
 
-Fresh construction means the old and replacement Workspaces coexist during
+Fresh construction means the old and new Workspaces coexist during
 preparation, and old resources may continue draining after installation.
 Per-Workspace budgets do not bound that combined peak. Browser/Wasm adoption
-must define and gate a host-level replacement admission policy before this path
+must define and gate a host-level new-Workspace admission policy before this path
 is implemented. This document makes no process-wide peak-memory safety claim.
 
 The required integration evidence is limited to:
 
-- a failed or superseded restoration closes the replacement and leaves the
+- a failed or superseded restoration closes the new Workspace and leaves the
   active Workspace usable;
-- a successful restoration installs the exact prepared Workspace once and
+- a successful restoration switches to the exact prepared Workspace once and
   closes the old Workspace without awaiting drainage on the swap path;
-- no Workspace-owned identity or resource transfers between old and
-  replacement Workspaces;
-- at most one unpublished replacement is admitted; and
+- no Workspace-owned identity or resource transfers between old and new
+  Workspaces;
+- at most one unpublished new Workspace is admitted; and
 - the adopting host enforces its declared combined-resource policy.
 
 The proposed coverage for the no-transfer absence claim is **partial**:

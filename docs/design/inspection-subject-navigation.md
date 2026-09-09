@@ -1051,11 +1051,11 @@ protected Navigation consumption is #5584.
 
 ## Fresh Workspace navigation initialization
 
-After Definitions constructs a fresh replacement Workspace and publishes its
+After Definitions constructs a fresh unpublished Workspace and publishes its
 complete explicit Root membership, it supplies Navigation with that exact
 Workspace, zero or one exact retained occurrence context, and the optional
 exact active subject and lens requested inside it. Every supplied identity was
-issued within the replacement Workspace; Navigation does not reconcile it with
+issued within the new Workspace; Navigation does not reconcile it with
 the active Workspace or retain an identity from that Workspace.
 
 The retained occurrence context is independent from the active subject. It
@@ -1087,16 +1087,16 @@ no retained context selects Workspace. The lens identity's exact subject must
 equal the requested subject. A path/subject mismatch, subject-less lower path,
 internally inconsistent context, or subject/lens mismatch fails before Registry
 resolution and aborts initialization. Navigation then resolves its subject and
-lens halves and publishes one complete snapshot inside the replacement
+lens halves and publishes one complete snapshot inside the new
 Workspace only when both halves succeed. Any half-failure closes the
-replacement through the Definitions coordinator, and supersession prevents an
-older replacement from becoming active. The focused local state machine is
+new Workspace through the Definitions coordinator, and supersession prevents
+an older attempt's Workspace from becoming active. The focused local state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
-This owner does not install the replacement Workspace or coordinate its
+This owner does not install the new Workspace or coordinate its
 lifetime. Complete Workspace construction and result classification belong to
 [Workspace Definitions](workspace-definitions.md); the retained host owns the
-current-authority swap. Navigation owns only the replacement Workspace's
+current-authority switch. Navigation owns only the new Workspace's
 internally complete current snapshot.
 
 Selecting a loaded coordinate, Library, Type, or Member in Spotlight uses
