@@ -295,8 +295,10 @@ beside their consumers.
 
 `DotnetInspector.Services` likewise has no aggregate successor. Package
 components move to the package owner, platform components to the
-`PlatformHouse` owner, source-byte transport to the independent `SourceFetch`
-root, PDB-specific source composition to the `PdbSourceHouse` owner, and
+`PlatformHouse` owner above the lower
+[Platform Target Currency](platform-target-currency.md), source-byte transport
+to the independent `SourceFetch` root, PDB-specific source composition to the
+`PdbSourceHouse` owner, and
 assembly-set or dependency-resolution components to their workspace or
 assembly-resolution owner. `House` remains reserved for the accepted
 clearing-house scenarios and does not become an assembly bucket.
