@@ -49,6 +49,19 @@ public static class MemberCommand
             return 1;
         }
 
+        if (MemberShareProjection.ValidateOptions(options) is { } shareOptionError)
+        {
+            CommandError.Write(shareOptionError);
+            return 1;
+        }
+        if (options.ShareFormat is not null
+            && !options.RouterDeferredTypeOrMember
+            && !HasExactMemberSelector(options))
+        {
+            MemberShareProjection.WriteExactSelectorRequired();
+            return 1;
+        }
+
         bool mayResolveImpliedMember =
             options.MemberFilter.Count == 0
             && options.TypeName is { } unresolvedTarget
@@ -334,6 +347,13 @@ public static class MemberCommand
                 };
             }
 
+            if (options.ShareFormat is not null
+                && !HasExactMemberSelector(options))
+            {
+                MemberShareProjection.WriteExactSelectorRequired();
+                return 1;
+            }
+
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {
@@ -510,6 +530,16 @@ public static class MemberCommand
                     DllPath = detailDllPath,
                     OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
                 };
+
+                if (effectiveOptions.ShareFormat is { } shareFormat)
+                {
+                    return MemberShareProjection.Write(
+                        source,
+                        loaded,
+                        apiType,
+                        selected,
+                        shareFormat);
+                }
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -1384,6 +1414,10 @@ public static class MemberCommand
                 : "Exact-member section selection requires exactly one member name.");
         return true;
     }
+
+    private static bool HasExactMemberSelector(MemberOptions options) =>
+        options.OverloadIndex.HasValue
+        || !string.IsNullOrWhiteSpace(options.MemberDigest);
 
     private static bool HasPotentialImpliedMember(string target)
     {

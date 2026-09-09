@@ -1,6 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Decompiler.Tests;
 

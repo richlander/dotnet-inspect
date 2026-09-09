@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
-namespace ILInspector.Findings;
+namespace Inspector.Findings;
 
 /// <summary>
 /// Opaque producer-issued identity for one sealed Finding census.

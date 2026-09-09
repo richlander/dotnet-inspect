@@ -128,12 +128,11 @@ substrates, and inspection producers that will extend that space.
   matching uses the original decoded text, never its contained display form.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
-- `src/ILInspector.Findings/` (target `Inspector.Findings`) contains the
-  domain-free observation, inspection, matching, transition, comparison,
-  complete analysis-diff, whole-census correlation, and exact-identity
-  correlation contracts shared by product producers. The `timeline` command
-  composes Metadata and Analysis producers over those same correlation
-  contracts.
+- `src/Inspector.Findings/` contains the domain-free observation, inspection,
+  matching, transition, comparison, complete analysis-diff, whole-census
+  correlation, and exact-identity correlation contracts shared by product
+  producers. The `timeline` command composes Metadata and Analysis producers
+  over those same correlation contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
@@ -152,10 +151,25 @@ substrates, and inspection producers that will extend that space.
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Its
   [Platform Library Population Declaration](design/platform-library-population-declaration.md)
-  additionally owns resource-free .NET runtime and ASP.NET Core relevance
-  values without target, view, source, or acquisition policy. Host adapter
-  adoption remains staged under #5602 and #6012; package-set identities remain
-  in the application catalog.
+  additionally owns resource-free platform-population relevance over the
+  lower owner-issued family without target, view, source, or acquisition
+  policy. Host adapter adoption remains staged under #5602 and #6012;
+  package-set identities remain in the application catalog.
+- Target `src/DotnetInspector.Platforms/` owns the
+  [Platform Target Currency](design/platform-target-currency.md): shared
+  package-neutral family, target-framework, exact version, and family-target
+  identities. Source adapters, PlatformHouse composition, and host adoption
+  remain separately staged under #6361, #6301, #6335, and #6228.
+- The target
+  [PlatformHouse Reference Processing](design/platform-house-reference-processing.md)
+  owner defines the sole product-facing platform reference-processing facade:
+  exact-target source settlement, pruning composition, and transparent
+  .NET Standard forwarding through Metadata. It also settles independent
+  reference-view XML and implementation-view PDB/SourceLink documentation
+  evidence against the same target and view correspondence. XML, PDB,
+  SourceLink, and source-comment algorithms, Workspace admission, the
+  assembly-reference ladder, and host presentation remain with their focused
+  owners.
 - `src/DotnetInspector.SourceDelegation/` implements the shared
   [source delegation](design/source-delegation.md) effect protocol and typed
   result contract. Its public contract harness exercises candidate selection,

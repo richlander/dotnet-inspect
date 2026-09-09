@@ -190,10 +190,11 @@ WorkspaceEcosystemPopulationDeclaration
 
 The platform arm retains the
 [Platform Library Population Declaration](platform-library-population-declaration.md)
-issued by Source Selection. Its closed values denote the .NET runtime or
-ASP.NET Core logical library population. This document does not define target
-selection, reference or implementation view, library inventory, acquisition,
-realization, completion, or failure behavior.
+issued by Source Selection. The declaration retains the lower
+[Platform Family](platform-target-currency.md#platform-family) for the .NET
+runtime or ASP.NET Core logical library population. This document does not
+define target selection, reference or implementation view, library inventory,
+acquisition, realization, completion, or failure behavior.
 
 The package-prefix arm retains `PackagePrefixDeclaration`, not
 `PackagePrefixRequest`. The registration records literal source intent without
