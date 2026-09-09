@@ -591,12 +591,6 @@ Neighboring ordered case:
 
 ```console
 $ dotnet-inspect demo list -n 2 --rows 2..3 --json
-Error: stage 2 (--rows 2..3) requires row 3 from stage 1's output, but only 2 rows are available.
-```
-
-The L2 structured failure is rendered as:
-
-```text
 Error: Demo row selection stage 2 requires row 3, but only 2 demo rows are available.
 ```
 
