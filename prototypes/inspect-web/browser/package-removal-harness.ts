@@ -105,7 +105,9 @@ function render() {
       escapeHtml,
     });
     bindWorkspaceSubject(app, {
-      onSelect: () => {}, onActivate: () => { status.textContent = "Activated"; },
+      onSelect: () => {}, onActivateWorkspace: () => {},
+      onDeleteWorkspace: () => {},
+      onActivate: () => { status.textContent = "Activated"; },
       onDemo: () => {}, onRetry: () => {},
       onRemove: key => {
         try { removal.removeLoaded(key); }
