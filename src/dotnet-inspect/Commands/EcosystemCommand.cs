@@ -24,6 +24,10 @@ public static class EcosystemCommand
 
     private const string CatalogDescription =
         "Product-configured ecosystem knowledge. This catalog is not an exhaustive description of the external ecosystems.";
+    private const string ConfiguredKnowledgeScope =
+        "Configured product knowledge; not a library observation.";
+    private const string UnboundKnowledgeScope =
+        "No Integration concepts are explicitly bound to this ecosystem in the current product build. This does not mean the external ecosystem has no integrations.";
     private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
@@ -42,6 +46,7 @@ public static class EcosystemCommand
 
         EcosystemSection[] sections = CreateSections(packs, focus);
         DocumentSchema schema = CreateSchema(sections);
+        string[]? projectedColumns = ResolveProjectedColumns(options);
         string[]? discover = NormalizeSectionAliases(options.Discover);
         string[]? select = NormalizeSectionAliases(options.Select);
 
@@ -112,6 +117,14 @@ public static class EcosystemCommand
         {
             return 1;
         }
+        var renderedNames = projectedColumns is { Length: > 0 }
+            ? selected
+                .Where(section =>
+                    schema.ValidateProjection(section.Name, projectedColumns)
+                        .Resolved.Length > 0)
+                .Select(section => section.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : selectedNames;
 
         if (options.Count)
         {
@@ -131,7 +144,9 @@ public static class EcosystemCommand
                 {
                     projection.SetRows(
                         section.Name,
-                        RowWindow.Apply(options.Rows, section.Rows).Count);
+                        renderedNames.Contains(section.Name)
+                            ? RowWindow.Apply(options.Rows, section.Rows).Count
+                            : 0);
                 }
                 CountOutput.Write(
                     projection,
@@ -389,43 +404,97 @@ public static class EcosystemCommand
         ImmutableArray<EcosystemPackDescriptor> packs,
         bool includeEcosystem)
     {
-        string[][] rows =
-        [
-            .. packs.SelectMany(pack =>
-                KnownConcepts(pack.Id).Select(concept =>
+        var rows = new List<string[]>();
+        foreach (EcosystemPackDescriptor pack in packs)
+        {
+            ImmutableArray<IntegrationConceptDescriptor> concepts =
+                KnownConcepts(pack.Id);
+            if (concepts.Length == 0)
+            {
+                if (!includeEcosystem)
                 {
-                    string relationships = string.Join(
+                    rows.Add(
+                    [
+                        "(none configured)",
+                        "",
+                        "",
+                        "not configured",
+                        UnboundKnowledgeScope,
+                    ]);
+                }
+                continue;
+            }
+
+            foreach (IntegrationConceptDescriptor concept in concepts)
+            {
+                string relationships = string.Join(
                         ", ",
                         concept.ProducerPolicies
                             .Select(policy => policy.RelationshipId)
                             .Distinct(StringComparer.Ordinal));
-                    return includeEcosystem
-                        ? new[]
-                        {
+                rows.Add(
+                    includeEcosystem
+                        ?
+                        [
                             pack.Title,
                             concept.DisplayLabel,
                             concept.Id.Value,
                             relationships,
-                        }
+                            "configured",
+                            ConfiguredKnowledgeScope,
+                        ]
                         :
                         [
                             concept.DisplayLabel,
                             concept.Id.Value,
                             relationships,
-                        ];
-                })),
-        ];
+                            "configured",
+                            ConfiguredKnowledgeScope,
+                        ]);
+            }
+        }
+
         return new EcosystemSection(
             KnownIntegrationsSection,
             "Integration concepts explicitly bound to this ecosystem by the current product build; these are not observations from a library.",
             includeEcosystem
-                ? ["Ecosystem", "Integration", "ID", "Evidence Relationships"]
-                : ["Integration", "ID", "Evidence Relationships"],
+                ?
+                [
+                    "Ecosystem",
+                    "Integration",
+                    "ID",
+                    "Evidence Relationships",
+                    "Binding",
+                    "Knowledge Scope",
+                ]
+                :
+                [
+                    "Integration",
+                    "ID",
+                    "Evidence Relationships",
+                    "Binding",
+                    "Knowledge Scope",
+                ],
             includeEcosystem
-                ? ["ecosystem", "integration", "id", "evidence_relationships"]
-                : ["integration", "id", "evidence_relationships"],
-            rows,
-            "No Integration concepts are explicitly bound to this ecosystem in the current product build. This does not mean the external ecosystem has no integrations.");
+                ?
+                [
+                    "ecosystem",
+                    "integration",
+                    "id",
+                    "evidence_relationships",
+                    "binding",
+                    "knowledge_scope",
+                ]
+                :
+                [
+                    "integration",
+                    "id",
+                    "evidence_relationships",
+                    "binding",
+                    "knowledge_scope",
+                ],
+            [.. rows],
+            UnboundKnowledgeScope);
     }
 
     private static EcosystemSection CreateDemosSection(
@@ -493,6 +562,21 @@ public static class EcosystemCommand
                     || value.Equals("@Integrations", StringComparison.OrdinalIgnoreCase)
                     ? KnownIntegrationsSection
                     : value),
+        ];
+    }
+
+    private static string[]? ResolveProjectedColumns(EcosystemOptions options)
+    {
+        if (options.Columns is not { Length: > 0 })
+            return options.Fields is { Length: > 0 } ? options.Fields : null;
+        if (options.Fields is not { Length: > 0 })
+            return options.Columns;
+
+        return
+        [
+            .. options.Columns
+                .Concat(options.Fields)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
     }
 

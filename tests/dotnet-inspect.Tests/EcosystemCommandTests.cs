@@ -139,12 +139,66 @@ public sealed class EcosystemCommandTests
             '\n',
             StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
-            "ecosystem\tintegration\tid\tevidence_relationships",
+            "ecosystem\tintegration\tid\tevidence_relationships\tbinding\tknowledge_scope",
             lines[0]);
         Assert.StartsWith(
-            "Aspire\tAspire\tintegration.aspire\t",
+            "Aspire\tAspire\tintegration.aspire\tintegration.observed, integration.opportunity\tconfigured\t",
+            lines[1]);
+        Assert.EndsWith(
+            "Configured product knowledge; not a library observation.",
             lines[1]);
         Assert.Equal(2, lines.Length);
+    }
+
+    [Theory]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Json)]
+    public async Task UnboundIntegrations_PreserveKnowledgeScopeInMachineFormats(
+        OutputFormat format)
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "microsoft-extensions",
+            Select = ["Integrations"],
+            Format = format,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("not configured", result.Output);
+        Assert.Contains(
+            "This does not mean the external ecosystem has no integrations.",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task MultiSectionCount_AssignsZeroToProjectedAwaySections()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            SelectDefault = true,
+            Columns = ["Package"],
+            Count = true,
+            Format = OutputFormat.Json,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(0, counts["Ecosystem Info"]);
+        Assert.Equal(0, counts["Namespace Hints"]);
+        Assert.Equal(1, counts["Core Packages"]);
+        Assert.Equal(1, counts["Tool Packages"]);
+        Assert.Equal(0, counts["Known Integrations"]);
+        Assert.Equal(0, counts["Demos"]);
     }
 
     [Fact]
