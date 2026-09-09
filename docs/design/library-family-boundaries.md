@@ -269,7 +269,7 @@ implementation belongs to separately tracked owner-scoped work.
 | --- | --- |
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Packages`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
-| Subject-neutral inspection substrate | Target `Inspector.Artifacts`, `Inspector.Findings`, and `Inspector.Text` |
+| Subject-neutral inspection substrate | `Inspector.Findings`; target `Inspector.Artifacts` and `Inspector.Text` |
 | Independent domain roots | `NuGetFetch`, `CSharpText`, `InertText`; target `SourceFetch`, `NetworkAccess`, and `UntrustedDocuments` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
