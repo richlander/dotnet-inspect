@@ -4,6 +4,7 @@ using CSharpText;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Planning;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -390,12 +391,23 @@ public static class SharedParsers
         string? typeName,
         out BodyKindQueryOptions bodyKindQuery,
         out PerformanceTriageOptions performanceTriage,
+        out CloneCandidateQueryOptions cloneCandidateQuery,
         TypeGestureIntent? typeGesture = null)
     {
         string[] whereExpressions =
             parseResult.GetValue(options.RowWhere) ?? [];
-        if (!BodyKindQueryOptions.TryExtract(
+        if (!CloneCandidateQueryOptions.TryExtract(
                 whereExpressions,
+                out cloneCandidateQuery,
+                out string[] nonCloneWhere,
+                out OptionError cloneCandidateError))
+        {
+            bodyKindQuery = BodyKindQueryOptions.Default;
+            performanceTriage = PerformanceTriageOptions.Default;
+            return cloneCandidateError;
+        }
+        if (!BodyKindQueryOptions.TryExtract(
+                nonCloneWhere,
                 out bodyKindQuery,
                 out string[] performanceWhere,
                 out OptionError bodyKindError))
@@ -434,6 +446,18 @@ public static class SharedParsers
                 typeScoped
                     ? "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one type query."
                     : "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one query.");
+        }
+        bool cloneCandidatesSelected =
+            options.ParseSelect(parseResult)?.Contains(
+                SectionNames.CloneCandidates,
+                StringComparer.OrdinalIgnoreCase) == true;
+        if ((cloneCandidateQuery.HasPredicates || cloneCandidatesSelected)
+            && (bodyKindQuery.HasFilter
+                || performanceTriage.HasFilters
+                || performanceTriage.HasRanking))
+        {
+            return new OptionError(
+                "Clone Candidates predicates cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
         }
 
         return null;

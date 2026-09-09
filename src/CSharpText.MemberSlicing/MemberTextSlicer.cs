@@ -1,25 +1,25 @@
 using CSharpText;
 
-namespace DotnetInspector.CSharpBodySlicer;
+namespace CSharpText.MemberSlicing;
 
 /// <summary>
-/// A visible portable-PDB sequence-point line cannot address the verified physical source.
+/// A supplied line coordinate cannot address the source text being sliced.
 /// </summary>
-public sealed class InvalidSequencePointCoordinatesException(
+public sealed class InvalidMemberTextCoordinatesException(
     string message,
     string parameterName)
     : ArgumentException(message, parameterName);
 
 /// <summary>
-/// Isolates one member's text from a C# source file, given the line range a portable PDB
-/// reports for that member.
+/// Isolates one member's text from a C# source file using a caller-supplied line range.
 /// </summary>
-public static class BodySlicer
+public static class MemberTextSlicer
 {
     /// <summary>
-    /// Locates the declaration containing the sequence-point range's first line and returns that
+    /// Locates the declaration containing the selection range's first line and returns that
     /// declaration's complete source span, dedented. The declaration index computes the file's
-    /// shape once; this method does not recover either boundary by scanning from the PDB range.
+    /// shape once; this method does not recover either boundary by scanning from the supplied
+    /// range.
     /// <para>
     /// Returns <see langword="null"/> when the index cannot vouch for the selected span, when the
     /// range maps to a type or namespace rather than an authored member declaration, or when a
@@ -30,50 +30,50 @@ public static class BodySlicer
     /// initializers can all have no declaration that this range can isolate.
     /// </para>
     /// <para>
-    /// Ordinary members select by the first line alone. Constructor ranges are different: field
-    /// and property initializer sequence points belong to the constructor, so their minimum line
-    /// may name an unrelated declaration. A constructor request therefore selects a known
-    /// constructor of matching staticness containing either range boundary, requires both
-    /// boundaries to be explained by that constructor or an initializer declaration, and refuses
-    /// an ambiguous range. Any member whose first or last line is shared with a sibling is likewise
-    /// refused because line-only evidence cannot remove the sibling's text. The index still owns
-    /// all source boundaries; <paramref name="methodName"/> is used only to recognize metadata's
-    /// constructor identities, never to match a source spelling.
+    /// Ordinary members select by the first line alone. Constructor ranges are different:
+    /// initializer lines may belong to the constructor, so the minimum line may name an unrelated
+    /// declaration. A constructor request therefore selects a known constructor of matching
+    /// staticness containing either range boundary, requires both boundaries to be explained by
+    /// that constructor or an initializer declaration, and refuses an ambiguous range. Any member
+    /// whose first or last line is shared with a sibling is likewise refused because line-only
+    /// evidence cannot remove the sibling's text. The index still owns all source boundaries;
+    /// <paramref name="methodName"/> is used only to recognize metadata-style constructor
+    /// identities, never to match a source spelling.
     /// </para>
     /// <para>
-    /// When <paramref name="visibleSequencePointStartLines"/> is supplied, each complete
-    /// conditional group with points in exactly one branch is projected to that branch before
-    /// selecting the declaration. Zero or multiple matching branches retain the lexical fallback.
+    /// When <paramref name="activeLineNumbers"/> is supplied, each complete conditional group
+    /// with active lines in exactly one branch is projected to that branch before selecting the
+    /// declaration. Zero or multiple matching branches retain the lexical fallback.
     /// A selected group that crosses exactly one declaration boundary is refused. When selected
     /// groups lie wholly inside the declaration, the slicer rebuilds an index without those
     /// selections and requires it to vouch for the same declaration boundaries. Projected-away
     /// text cannot therefore make a span look valid while slicing the original returns unmatched
-    /// directives or an unrelated dead-branch member. The PDB range endpoints and point lines must
-    /// be positive, ordered, and within the physical source; point lines must also be distinct. A
-    /// recognized <c>#line</c> directive refuses correlation because PDB coordinates may then be
-    /// remapped.
+    /// directives or an unrelated dead-branch member. The range endpoints and active lines must be
+    /// positive, ordered, and within the physical source; active lines must also be distinct. A
+    /// recognized <c>#line</c> directive refuses correlation because logical coordinates may then
+    /// differ from physical source lines.
     /// Gated by <c>AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch</c>,
     /// <c>AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe</c>,
-    /// <c>ExtractMethodBodyTests.PointsInMultipleBranches_DoNotGuessWhichBranchIsLive</c>, and
-    /// <c>ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided</c>.
+    /// <c>ExtractMemberTextTests.PointsInMultipleBranches_DoNotGuessWhichBranchIsLive</c>, and
+    /// <c>ExtractMemberTextTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided</c>.
     /// </para>
     /// </summary>
-    public static string? ExtractMethodBody(
+    public static string? ExtractMemberText(
         string sourceText,
         int startLine,
         int endLine,
         string methodName,
-        IReadOnlyList<int>? visibleSequencePointStartLines = null)
+        IReadOnlyList<int>? activeLineNumbers = null)
     {
         var sourceIndex = DeclarationIndex.Build(sourceText);
         var index = sourceIndex;
         IReadOnlyList<ConditionalSelection> conditionalSelections = [];
-        if (visibleSequencePointStartLines is { Count: > 0 } points)
+        if (activeLineNumbers is { Count: > 0 } points)
         {
             if (index.HasLineDirectives)
                 return null;
 
-            ValidateSequencePointCoordinates(startLine, endLine, points, index.LineCount);
+            ValidateMemberTextCoordinates(startLine, endLine, points, index.LineCount);
             conditionalSelections = SelectUniquelyEvidencedBranches(index, points);
             if (conditionalSelections.Count > 0)
             {
@@ -151,40 +151,40 @@ public static class BodySlicer
         return string.Join('\n', dedented).TrimEnd();
     }
 
-    private static void ValidateSequencePointCoordinates(
+    private static void ValidateMemberTextCoordinates(
         int startLine,
         int endLine,
-        IReadOnlyList<int> points,
+        IReadOnlyList<int> activeLineNumbers,
         int lineCount)
     {
         if (startLine <= 0)
         {
-            throw new InvalidSequencePointCoordinatesException(
-                "The portable-PDB sequence-point range must start on a positive physical line.",
+            throw new InvalidMemberTextCoordinatesException(
+                "The member-text range must start on a positive physical line.",
                 nameof(startLine));
         }
         if (endLine < startLine || endLine > lineCount)
         {
-            throw new InvalidSequencePointCoordinatesException(
-                "The portable-PDB sequence-point range cannot address the verified source text.",
+            throw new InvalidMemberTextCoordinatesException(
+                "The member-text range cannot address the supplied source text.",
                 nameof(endLine));
         }
 
         int previous = 0;
-        for (int i = 0; i < points.Count; i++)
+        for (int i = 0; i < activeLineNumbers.Count; i++)
         {
-            int line = points[i];
+            int line = activeLineNumbers[i];
             if (line <= previous)
             {
-                throw new InvalidSequencePointCoordinatesException(
-                    "Visible sequence-point start lines must be positive, sorted, and distinct.",
-                    nameof(points));
+                throw new InvalidMemberTextCoordinatesException(
+                    "Active line numbers must be positive, sorted, and distinct.",
+                    nameof(activeLineNumbers));
             }
             if (line > lineCount)
             {
-                throw new InvalidSequencePointCoordinatesException(
-                    "A visible sequence-point start line lies beyond the verified source text.",
-                    nameof(points));
+                throw new InvalidMemberTextCoordinatesException(
+                    "An active line number lies beyond the supplied source text.",
+                    nameof(activeLineNumbers));
             }
             previous = line;
         }
