@@ -13,6 +13,37 @@ public class BooleanFoldingSourceOffsetTests
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BooleanConstantComparison_PreservesExpressionOrigin(bool comparisonOperand)
+    {
+        var argument = new LoadArgument(0, "value", comparisonOperand ? Int32 : Boolean);
+        argument.SetSourceOffset(0x60);
+        IrExpression operand = comparisonOperand
+            ? new Comparison(ComparisonKind.GreaterThan, false, argument, new Constant(0, Int32))
+            : argument;
+        operand.InheritSourceOffset(argument);
+        var comparison = new Comparison(ComparisonKind.Equal, false, operand, new Constant(0, Int32));
+        comparison.SetSourceOffset(0x70);
+        var block = new Block(0);
+        block.Add(new Return(comparison));
+        var function = Function(block, Boolean,
+            [new Parameter("value", comparisonOperand ? Int32 : Boolean)]);
+
+        new BooleanFoldingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        IrExpression value = Assert.IsAssignableFrom<IrExpression>(
+            Assert.IsType<Return>(Assert.Single(block.Children)).Value);
+        Assert.Equal(0x70, value.SourceOffset);
+        Assert.Equal(0x60, value.Children[0].SourceOffset);
+        if (comparisonOperand)
+            Assert.Equal(ComparisonKind.LessThanOrEqual, Assert.IsType<Comparison>(value).Kind);
+        else
+            Assert.IsType<LogicalNot>(value);
+    }
+
     [Fact]
     public void NestedGuardFold_PreservesSourceOffset()
     {
@@ -252,6 +283,7 @@ public class BooleanFoldingSourceOffsetTests
                 new Constant(null, Object)),
             then,
             null);
+        guard.SetSourceOffset(0x42);
 
         var block = new Block(0);
         block.Add(initial);
@@ -265,6 +297,7 @@ public class BooleanFoldingSourceOffsetTests
 
         var folded = Assert.IsType<StoreLocal>(Assert.Single(block.Children));
         Assert.Equal(0x40, folded.SourceOffset);
+        Assert.Equal(0x42, Assert.IsType<Coalesce>(folded.Value).SourceOffset);
     }
 
     [Fact]
@@ -282,6 +315,7 @@ public class BooleanFoldingSourceOffsetTests
                 new Constant(null, Object)),
             then,
             null);
+        guard.SetSourceOffset(0x4a);
 
         var block = new Block(0);
         block.Add(initial);
@@ -295,7 +329,7 @@ public class BooleanFoldingSourceOffsetTests
         function.CheckInvariant();
 
         var folded = Assert.IsType<StoreStackSlot>(Assert.Single(block.Children));
-        Assert.IsType<Coalesce>(folded.Value);
+        Assert.Equal(0x4a, Assert.IsType<Coalesce>(folded.Value).SourceOffset);
         Assert.Equal(0x48, folded.SourceOffset);
     }
 

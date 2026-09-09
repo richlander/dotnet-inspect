@@ -753,6 +753,74 @@ This linear one-candidate operation adds no independent concurrent state
 machine. Bounded concurrency and result ordering belong to the later streaming
 pipeline; no TLA+ model is required for this contract.
 
+### Measured production baseline
+
+Issue [#6350](https://github.com/richlander/dotnet-inspect/issues/6350)
+establishes the first milestone-11 baseline without selecting a performance
+threshold. `tools/PackageAssemblyQueryBenchmark.json` pins five exact package
+coordinates, `net6.0`, the ordinal operand
+`Unexpected end when reading JSON`, the production default limits, and the
+complete expected CLI projection after excluding opaque Root reopening tokens.
+The file-based probe launches the built Release CLI and refuses a sample unless
+all five candidates complete without failure and reproduce the pinned semantic
+fingerprint.
+
+The product revision was
+`cf96f4e7be43e905a2bd1908ac1d8f42687cc095`, running .NET
+`11.0.0-rc.1.26425.128` on an AMD Ryzen 9 9900X Linux host with 24 logical
+processors. The raw reports preserve every sample:
+
+- [isolated-cache samples](../data/package-query/assembly-query-cold-2026-09-09.json);
+- [post-warmup samples](../data/package-query/assembly-query-warm-2026-09-09.json).
+
+| Cache state | Samples | Median elapsed | Median CPU | Median peak working set | Median candidates/s | HTTP requests/sample |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Isolated private cache | 3 | 870 ms | 430 ms | 115.5 MiB | 5.75 | 5 |
+| Shared private cache after warmup | 5 | 728 ms | 400 ms | 115.5 MiB | 6.87 | 5 |
+
+The warm samples ranged from 663 to 837 ms; 837 ms is the nearest-rank p95 for
+this five-sample observation. Every sample reported one matched candidate, four
+semantic misses, three matching occurrences, no failure or non-applicability,
+and fingerprint
+`68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0`.
+
+Build and reproduce from the repository root with the selected SDK:
+
+```bash
+"$DOTNET_ROOT/dotnet" build \
+  src/dotnet-inspect/dotnet-inspect.csproj -c Release
+"$DOTNET_ROOT/dotnet" run \
+  tools/PackageAssemblyQueryBenchmark.cs -c Release -- \
+  cf96f4e7be43e905a2bd1908ac1d8f42687cc095 \
+  artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll \
+  cold 3 artifacts/package-assembly-query-cold.json
+"$DOTNET_ROOT/dotnet" run \
+  tools/PackageAssemblyQueryBenchmark.cs -c Release --no-build -- \
+  cf96f4e7be43e905a2bd1908ac1d8f42687cc095 \
+  artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll \
+  warm 5 artifacts/package-assembly-query-warm.json
+```
+
+These are end-to-end process observations: CLI startup, configured acquisition,
+serial sparse projection and evaluation, rendering, and cleanup are all inside
+the measured boundary. "Isolated" gives each sample fresh private
+product-cache and `NUGET_PACKAGES` roots and disables the ordinary global NuGet
+cache; it does not reset DNS, CDN, kernel, or runtime state. "Warm" uses one
+unmeasured warmup and one shared private cache while retaining a fresh CLI
+process per measured sample. Both states still made five HTTP requests, so
+neither is isolated semantic-producer CPU evidence. Peak memory is the maximum
+process working set observed through the operating system counter at
+five-millisecond intervals, not managed live-heap bytes and not a restatement
+of the retained-image bound.
+
+**Decision:** retain the current serial five-candidate limit and conservative
+resource defaults. This first descriptive baseline does not justify the
+optional byte prefilter, concurrency, or larger limits. A later optimization
+proposal must first attribute acquisition and evaluator time separately; the
+persistent one-request-per-candidate behavior makes an acquisition experiment
+at least as relevant as a semantic prefilter, but this observation does not
+select either implementation.
+
 ## Outcome algebra
 
 One completed evaluation returns exactly one resource-free outcome. Every arm

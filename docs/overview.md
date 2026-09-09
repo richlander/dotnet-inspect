@@ -84,6 +84,11 @@ substrates, and inspection producers that will extend that space.
   package dependency routes without mutating a sealed assembly-context group.
   The source query owns a Decompiler fallback over retained assembly content;
   the
+  [authored project dependency facts](design/authored-project-dependency-facts.md)
+  owner projects bounded exact project XML into literal target observations,
+  package declarations, target-condition association, and typed incomplete
+  evidence without evaluating MSBuild;
+  the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The proposed
@@ -160,6 +165,14 @@ substrates, and inspection producers that will extend that space.
   package-neutral family, target-framework, exact version, and family-target
   identities. Source adapters, PlatformHouse composition, and host adoption
   remain separately staged under #6361, #6301, #6335, and #6228.
+- The target
+  [PackageHouse Composition](design/package-house.md) owner defines the sole
+  product-facing package settlement facade over typed package demands,
+  owner-issued source/input plans, version and pruning decisions, payload and
+  asset realization, target-aware dependency-edge correspondence, and
+  provenance-retaining Workspace, library, and platform-delegation handoffs.
+  Focused owner algorithms remain outside the House; adoption and retirement
+  are tracked by #6426.
 - The target
   [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md)
   owner defines the sole product-facing platform realization and

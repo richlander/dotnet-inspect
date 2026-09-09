@@ -24,8 +24,11 @@ fixtures/cli/DotnetInspector.CallerBinding.Contract
 fixtures/cli/DotnetInspector.CallerBinding.Facade
 fixtures/cli/DotnetInspector.HostileNameFixtures
 fixtures/cli/DotnetInspector.InstallScriptFixture
+fixtures/cli/DotnetInspector.MatchBinding.Decoy
+fixtures/cli/DotnetInspector.MatchBinding.Dependency
+fixtures/cli/DotnetInspector.MatchBinding.Facade
+fixtures/cli/DotnetInspector.MatchBinding.Implementation
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic
-fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.OptInNet11
 fixtures/diff/DiffAsmFixtures.Caller
