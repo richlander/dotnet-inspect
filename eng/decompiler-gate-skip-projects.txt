@@ -85,6 +85,7 @@ fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
+src/DotnetInspector.PlatformHouse
 src/DotnetInspector.Platforms
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
@@ -109,8 +110,10 @@ tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.PackageManifestCorpus
+tests/DotnetInspector.PlatformHouse.Tests
 tests/DotnetInspector.Platforms.Tests
 tests/DotnetInspector.Presentation.Tests
+tests/DotnetInspector.Queries.Consumer
 tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests

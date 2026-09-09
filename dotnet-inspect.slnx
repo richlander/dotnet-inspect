@@ -126,6 +126,7 @@
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <Project Path="src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
     <Project Path="src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
@@ -182,6 +183,7 @@
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
     <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.PlatformHouse.Tests/DotnetInspector.PlatformHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Platforms.Tests/DotnetInspector.Platforms.Tests.csproj" />
     <Project Path="tests/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />

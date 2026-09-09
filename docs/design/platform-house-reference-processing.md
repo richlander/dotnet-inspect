@@ -64,6 +64,11 @@ reference resolution ladder. PackageHouse delegation, Queries, Workspace
 composition, CLI platform operations, and Inspect Web adopt the same House
 contract in separately reviewed slices.
 
+Production-adoption step 3 is implemented by the resource-free request,
+operation, source-plan, contribution, outcome, and receipt contracts in
+`DotnetInspector.PlatformHouse`. No source implementation or product consumer
+moved in that slice.
+
 This is one owner claim. Documentation evidence is another facet of the same
 exact-target, reference-to-implementation settlement rather than a second
 platform architecture. The design specifies the House request, settlement,
