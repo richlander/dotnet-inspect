@@ -105,7 +105,8 @@ public sealed record AuthoredProjectTargetFrameworkIdentity
 /// <summary>One target-framework spelling observed directly in project syntax.</summary>
 public sealed record AuthoredProjectTargetFramework(
     AuthoredProjectTargetFrameworkIdentity Identity,
-    InertString SourceSpelling);
+    InertString SourceSpelling,
+    string SyntaxContextIdentity);
 
 /// <summary>Condition association established for one authored package declaration.</summary>
 public abstract record AuthoredProjectDependencyCondition
@@ -198,12 +199,25 @@ public sealed record AuthoredProjectDependencyLimitation(
             "A limitation count must be at least one.");
 }
 
+/// <summary>Unsupported dependency syntax retained without inventing a declaration.</summary>
+public enum AuthoredProjectUnresolvedDependencySyntaxKind
+{
+    PackageReferenceWithoutInclude,
+}
+
+/// <summary>Opaque identity for one unsupported dependency-syntax occurrence.</summary>
+public sealed record AuthoredProjectUnresolvedDependencySyntax(
+    AuthoredProjectUnresolvedDependencySyntaxKind Kind,
+    string OpaqueIdentity);
+
 /// <summary>Immutable facts projected from one exact authored project document.</summary>
 public sealed record AuthoredProjectDependencyFacts(
     AuthoredProjectIdentity Identity,
     AuthoredProjectContentProvenance ContentProvenance,
     ImmutableArray<AuthoredProjectTargetFramework> TargetFrameworks,
-    ImmutableArray<AuthoredProjectPackageDeclaration> PackageDeclarations);
+    ImmutableArray<AuthoredProjectPackageDeclaration> PackageDeclarations,
+    ImmutableArray<AuthoredProjectUnresolvedDependencySyntax>
+        UnresolvedDependencySyntax);
 
 /// <summary>The stable reason one authored project document could not be projected.</summary>
 public enum AuthoredProjectDependencyFactsFailureReason
@@ -282,6 +296,7 @@ public static class AuthoredProjectDependencyFactsQuery
     public const int MaxTargetFrameworkOccurrences = 256;
     public const int MaxPackageReferenceOccurrences = 4096;
     public const int MaxLimitationOccurrences = 4096;
+    public const int MaxXmlElementDepth = 256;
 
     private const string LegacyMsbuildNamespace =
         "http://schemas.microsoft.com/developer/msbuild/2003";
@@ -312,6 +327,7 @@ public static class AuthoredProjectDependencyFactsQuery
                 stream,
                 MaxProjectCharacters);
             XElement root = ValidateRoot(document);
+            ValidateElementDepth(root);
             XNamespace projectNamespace = root.Name.Namespace;
             var limitations = new LimitationAccumulator();
             ObserveImportsAndCentralManagement(
@@ -323,7 +339,7 @@ public static class AuthoredProjectDependencyFactsQuery
                     root,
                     projectNamespace,
                     limitations);
-            ImmutableArray<AuthoredProjectPackageDeclaration> declarations =
+            PackageProjection packageProjection =
                 ProjectPackageDeclarations(
                     root,
                     projectNamespace,
@@ -333,13 +349,15 @@ public static class AuthoredProjectDependencyFactsQuery
             var identity = new AuthoredProjectIdentity(
                 ComputeFactsDigest(
                     targets,
-                    declarations,
+                    packageProjection.Declarations,
+                    packageProjection.UnresolvedSyntax,
                     projectedLimitations));
             var facts = new AuthoredProjectDependencyFacts(
                 identity,
                 contentProvenance,
                 targets,
-                declarations);
+                packageProjection.Declarations,
+                packageProjection.UnresolvedSyntax);
             return projectedLimitations.IsEmpty
                 ? new AuthoredProjectDependencyFactsResult.Available(facts)
                 : new AuthoredProjectDependencyFactsResult.Incomplete(
@@ -400,6 +418,24 @@ public static class AuthoredProjectDependencyFactsQuery
         }
 
         return root;
+    }
+
+    private static void ValidateElementDepth(XElement root)
+    {
+        var pending = new Stack<(XElement Element, int Depth)>();
+        pending.Push((root, 1));
+        while (pending.TryPop(out (XElement Element, int Depth) current))
+        {
+            if (current.Depth > MaxXmlElementDepth)
+            {
+                throw Failure(
+                    AuthoredProjectDependencyFactsFailureReason
+                        .ConfiguredLimitExceeded);
+            }
+
+            foreach (XElement child in current.Element.Elements())
+                pending.Push((child, current.Depth + 1));
+        }
     }
 
     private static void ObserveImportsAndCentralManagement(
@@ -493,6 +529,23 @@ public static class AuthoredProjectDependencyFactsQuery
             ];
             ConditionCollection conditions =
                 CollectConditions(contextElements);
+            string syntaxContextIdentity = supportedPlacement
+                && conditions.Occurrences.IsEmpty
+                && conditions.AmbiguousElements.IsEmpty
+                    ? "unconditional"
+                    : OpaqueDigest(
+                        "apdf-target-context/1",
+                        [
+                            supportedPlacement
+                                ? "direct-property-group"
+                                : "unsupported-placement",
+                            conditions.AmbiguousElements.IsEmpty
+                                ? "unambiguous"
+                                : "ambiguous-attributes",
+                            .. conditions.Occurrences
+                                .Select(condition => condition.Value)
+                                .Order(StringComparer.Ordinal),
+                        ]);
             if (!supportedPlacement
                 || !conditions.Occurrences.IsEmpty
                 || !conditions.AmbiguousElements.IsEmpty)
@@ -520,6 +573,51 @@ public static class AuthoredProjectDependencyFactsQuery
             }
 
             string rawValue = Scalar(property.Value);
+            if (ContainsMsbuildExpression(rawValue))
+            {
+                occurrenceCount++;
+                if (occurrenceCount > MaxTargetFrameworkOccurrences)
+                {
+                    throw Failure(
+                        AuthoredProjectDependencyFactsFailureReason
+                            .ConfiguredLimitExceeded);
+                }
+
+                string unresolvedSource = rawValue.Trim();
+                ObserveExpressionLimitations(
+                    unresolvedSource,
+                    limitations);
+                if (unresolvedSource.Length == 0)
+                {
+                    limitations.Add(
+                        AuthoredProjectDependencyLimitationReason
+                            .UnsupportedTargetDeclaration);
+                    occurrenceSets.Add("");
+                    continue;
+                }
+
+                AuthoredProjectTargetFrameworkIdentity unresolved =
+                    AuthoredProjectTargetFrameworkIdentity.Unresolved(
+                        unresolvedSource);
+                string observationIdentity = OpaqueDigest(
+                    "apdf-target-observation/1",
+                    [
+                        unresolved.ComparisonIdentity,
+                        syntaxContextIdentity,
+                    ]);
+                observations.TryAdd(
+                    observationIdentity,
+                    new AuthoredProjectTargetFramework(
+                        unresolved,
+                        Inert(unresolvedSource),
+                        syntaxContextIdentity));
+                occurrenceSets.Add(
+                    OpaqueDigest(
+                        "apdf-target-set/1",
+                        [unresolved.ComparisonIdentity]));
+                continue;
+            }
+
             string[] parts = isMultiple
                 ? rawValue.Split(';')
                 : [rawValue];
@@ -544,14 +642,7 @@ public static class AuthoredProjectDependencyFactsQuery
                 }
 
                 AuthoredProjectTargetFrameworkIdentity identity;
-                if (ContainsMsbuildExpression(part))
-                {
-                    ObserveExpressionLimitations(part, limitations);
-                    identity =
-                        AuthoredProjectTargetFrameworkIdentity.Unresolved(
-                            part);
-                }
-                else if (NuGetTargetFrameworkIdentity.TryNormalize(
+                if (NuGetTargetFrameworkIdentity.TryNormalize(
                     part,
                     out string canonical))
                 {
@@ -567,11 +658,18 @@ public static class AuthoredProjectDependencyFactsQuery
                 }
 
                 occurrenceIdentities.Add(identity.ComparisonIdentity);
+                string observationIdentity = OpaqueDigest(
+                    "apdf-target-observation/1",
+                    [
+                        identity.ComparisonIdentity,
+                        syntaxContextIdentity,
+                    ]);
                 observations.TryAdd(
-                    identity.ComparisonIdentity,
+                    observationIdentity,
                     new AuthoredProjectTargetFramework(
                         identity,
-                        Inert(part)));
+                        Inert(part),
+                        syntaxContextIdentity));
             }
 
             occurrenceSets.Add(
@@ -596,17 +694,23 @@ public static class AuthoredProjectDependencyFactsQuery
         [
             .. observations.Values.OrderBy(
                 target => target.Identity.ComparisonIdentity,
-                StringComparer.Ordinal),
+                StringComparer.Ordinal)
+                .ThenBy(
+                    target => target.SyntaxContextIdentity,
+                    StringComparer.Ordinal),
         ];
     }
 
-    private static ImmutableArray<AuthoredProjectPackageDeclaration>
+    private static PackageProjection
         ProjectPackageDeclarations(
             XElement root,
             XNamespace projectNamespace,
             LimitationAccumulator limitations)
     {
         var candidates = new List<DeclarationCandidate>();
+        var unresolved =
+            ImmutableArray.CreateBuilder<
+                AuthoredProjectUnresolvedDependencySyntax>();
         int occurrenceCount = 0;
 
         foreach (XElement item in root.Descendants()
@@ -636,6 +740,13 @@ public static class AuthoredProjectDependencyFactsQuery
             }
 
             string[] includes = AttributeValues(item, "Include");
+            if (includes.Length == 0)
+            {
+                limitations.Add(
+                    AuthoredProjectDependencyLimitationReason
+                        .UnsupportedPackageReferenceShape);
+                syntaxFields.Add("missing-include");
+            }
             if (includes.Length > 1)
             {
                 limitations.Add(
@@ -676,14 +787,6 @@ public static class AuthoredProjectDependencyFactsQuery
                 }
             }
 
-            if (includes.Length == 0)
-            {
-                limitations.Add(
-                    AuthoredProjectDependencyLimitationReason
-                        .UnsupportedPackageReferenceShape);
-                continue;
-            }
-
             string? sourcePackageId = includes.Length == 1
                 ? includes[0]
                 : null;
@@ -707,11 +810,6 @@ public static class AuthoredProjectDependencyFactsQuery
                             .InvalidPackageId);
                 }
             }
-            string packageIdentity = canonicalId
-                ?? OpaqueDigest(
-                    "apdf-package-identity/1",
-                    [.. includes.Order(StringComparer.Ordinal)]);
-
             VersionProjection version = ProjectVersion(
                 item,
                 projectNamespace,
@@ -742,6 +840,26 @@ public static class AuthoredProjectDependencyFactsQuery
                 : OpaqueDigest(
                     "apdf-declaration-syntax/1",
                     [.. syntaxFields]);
+            if (includes.Length == 0)
+            {
+                unresolved.Add(
+                    new AuthoredProjectUnresolvedDependencySyntax(
+                        AuthoredProjectUnresolvedDependencySyntaxKind
+                            .PackageReferenceWithoutInclude,
+                        OpaqueDigest(
+                            "apdf-unresolved-package-syntax/1",
+                            [
+                                version.Identity,
+                                ConditionIdentity(condition),
+                                syntaxIdentity,
+                            ])));
+                continue;
+            }
+
+            string packageIdentity = canonicalId
+                ?? OpaqueDigest(
+                    "apdf-package-identity/1",
+                    [.. includes.Order(StringComparer.Ordinal)]);
             candidates.Add(
                 new DeclarationCandidate(
                     packageIdentity,
@@ -755,7 +873,13 @@ public static class AuthoredProjectDependencyFactsQuery
         }
 
         ObserveConflictingDeclarations(candidates, limitations);
-        return AggregateDeclarations(candidates);
+        return new PackageProjection(
+            AggregateDeclarations(candidates),
+            unresolved
+                .OrderBy(
+                    syntax => syntax.OpaqueIdentity,
+                    StringComparer.Ordinal)
+                .ToImmutableArray());
     }
 
     private static VersionProjection ProjectVersion(
@@ -975,7 +1099,8 @@ public static class AuthoredProjectDependencyFactsQuery
                 projectedValue,
                 out VersionRange? range))
         {
-            canonicalVersion = range.ToNormalizedString();
+            canonicalVersion =
+                range.ToNormalizedString().ToLowerInvariant();
         }
 
         VersionForm[] identityForms =
@@ -1250,6 +1375,8 @@ public static class AuthoredProjectDependencyFactsQuery
     private static string ComputeFactsDigest(
         ImmutableArray<AuthoredProjectTargetFramework> targets,
         ImmutableArray<AuthoredProjectPackageDeclaration> declarations,
+        ImmutableArray<AuthoredProjectUnresolvedDependencySyntax>
+            unresolvedSyntax,
         ImmutableArray<AuthoredProjectDependencyLimitation> limitations)
     {
         var text = new StringBuilder();
@@ -1259,6 +1386,7 @@ public static class AuthoredProjectDependencyFactsQuery
         {
             Count(text, (int)target.Identity.Kind);
             Field(text, target.Identity.ComparisonIdentity);
+            Field(text, target.SyntaxContextIdentity);
         }
 
         Count(text, declarations.Length);
@@ -1266,6 +1394,14 @@ public static class AuthoredProjectDependencyFactsQuery
         {
             Field(text, declaration.Identity.FactsDigest);
             Count(text, declaration.SourceOccurrenceCount);
+        }
+
+        Count(text, unresolvedSyntax.Length);
+        foreach (AuthoredProjectUnresolvedDependencySyntax syntax
+            in unresolvedSyntax)
+        {
+            Count(text, (int)syntax.Kind);
+            Field(text, syntax.OpaqueIdentity);
         }
 
         Count(text, limitations.Length);
@@ -1650,6 +1786,11 @@ public static class AuthoredProjectDependencyFactsQuery
         string? CanonicalVersionConstraint,
         string? SourceVersionConstraint,
         string Identity);
+
+    private sealed record PackageProjection(
+        ImmutableArray<AuthoredProjectPackageDeclaration> Declarations,
+        ImmutableArray<AuthoredProjectUnresolvedDependencySyntax>
+            UnresolvedSyntax);
 
     private sealed record VersionForm(
         string Kind,

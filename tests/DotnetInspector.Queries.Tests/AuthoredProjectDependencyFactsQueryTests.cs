@@ -769,6 +769,77 @@ public sealed class AuthoredProjectDependencyFactsQueryTests
     }
 
     [Fact]
+    public void Execute_TargetFrameworkExpressionSemicolonsDoNotInventTargets()
+    {
+        AuthoredProjectDependencyFactsResult.Incomplete result = Incomplete(
+            """
+            <Project>
+              <PropertyGroup>
+                <TargetFrameworks>$(Targets.Replace(';net8.0;', ';net9.0;'))</TargetFrameworks>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        AuthoredProjectTargetFramework target =
+            Assert.Single(result.Value.TargetFrameworks);
+        Assert.Equal(
+            AuthoredProjectTargetFrameworkKind.Unresolved,
+            target.Identity.Kind);
+        Assert.Null(target.Identity.CanonicalFramework);
+        Assert.DoesNotContain(
+            result.Value.TargetFrameworks,
+            candidate => candidate.Identity.CanonicalFramework is
+                "net8.0" or "net9.0");
+    }
+
+    [Fact]
+    public void Execute_TargetConditionsContributeToSemanticIdentity()
+    {
+        AuthoredProjectDependencyFactsResult.Incomplete first = Incomplete(
+            ConditionalTargetsProject("Debug", "Release"));
+        AuthoredProjectDependencyFactsResult.Incomplete second = Incomplete(
+            ConditionalTargetsProject("Release", "Debug"));
+
+        Assert.NotEqual(first.Value.Identity, second.Value.Identity);
+    }
+
+    [Fact]
+    public void Execute_IncludeLessPackageOperationsContributeToIdentity()
+    {
+        AuthoredProjectDependencyFactsResult.Incomplete first = Incomplete(
+            IncludeLessUpdateProject("1.0"));
+        AuthoredProjectDependencyFactsResult.Incomplete second = Incomplete(
+            IncludeLessUpdateProject("2.0"));
+
+        Assert.Single(first.Value.PackageDeclarations);
+        Assert.Single(first.Value.UnresolvedDependencySyntax);
+        Assert.NotEqual(first.Value.Identity, second.Value.Identity);
+    }
+
+    [Fact]
+    public void Execute_NuGetEquivalentPrereleaseConstraintsDoNotConflict()
+    {
+        AuthoredProjectDependencyFacts facts = Available(
+            """
+            <Project>
+              <ItemGroup>
+                <PackageReference Include="Example.Package"
+                                  Version="1.0.0-alpha" />
+                <PackageReference Include="example.package"
+                                  Version="1.0.0-ALPHA" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        AuthoredProjectPackageDeclaration declaration =
+            Assert.Single(facts.PackageDeclarations);
+        Assert.Equal(2, declaration.SourceOccurrenceCount);
+        Assert.Equal(
+            "[1.0.0-alpha, )",
+            declaration.CanonicalVersionConstraint);
+    }
+
+    [Fact]
     public void Execute_ConflictingDeclarationsAreIncomplete()
     {
         AuthoredProjectDependencyFactsResult.Incomplete result = Incomplete(
@@ -1005,6 +1076,44 @@ public sealed class AuthoredProjectDependencyFactsQueryTests
         AssertLimitFailure(
             Execute($"<Project><!--{comment}--></Project>"));
     }
+
+    [Fact]
+    public void Execute_EnforcesXmlElementDepthLimit()
+    {
+        string opening = string.Concat(
+            Enumerable.Repeat(
+                "<Nested>",
+                AuthoredProjectDependencyFactsQuery.MaxXmlElementDepth));
+        string closing = string.Concat(
+            Enumerable.Repeat(
+                "</Nested>",
+                AuthoredProjectDependencyFactsQuery.MaxXmlElementDepth));
+
+        AssertLimitFailure(
+            Execute($"<Project>{opening}{closing}</Project>"));
+    }
+
+    private static string ConditionalTargetsProject(
+        string net8Configuration,
+        string net9Configuration) =>
+        $$"""
+        <Project>
+          <PropertyGroup>
+            <TargetFramework Condition="'$(Configuration)' == '{{net8Configuration}}'">net8.0</TargetFramework>
+            <TargetFramework Condition="'$(Configuration)' == '{{net9Configuration}}'">net9.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        """;
+
+    private static string IncludeLessUpdateProject(string version) =>
+        $$"""
+        <Project>
+          <ItemGroup>
+            <PackageReference Include="Example.Direct" Version="1.0" />
+            <PackageReference Update="Example.Imported" Version="{{version}}" />
+          </ItemGroup>
+        </Project>
+        """;
 
     private static string VersionAlternativesProject(string conditionedVersion) =>
         $$"""

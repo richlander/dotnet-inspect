@@ -56,6 +56,8 @@ One execution over exact admitted XML bytes returns:
 - literal target-framework observations;
 - package declarations with package identity, requested version constraint,
   source spelling, source-occurrence count, and condition association;
+- opaque typed evidence for package-reference syntax that cannot establish one
+  direct declaration;
 - a complete or incomplete syntax projection; or
 - a content-free document-wide failure.
 
@@ -97,6 +99,11 @@ Recognized values use canonical NuGet short-folder identity. Unrecognized
 literal values remain distinct through opaque identity and retain an inert
 source spelling.
 
+An expression-bearing target value is retained as one unresolved observation
+before any semicolon splitting. Semicolons inside property functions, item
+expressions, or metadata expressions therefore cannot invent literal targets
+from expression arguments.
+
 The following produce incomplete evidence rather than an inferred target:
 
 - a target property containing property, item, or metadata expansion;
@@ -110,7 +117,9 @@ The following produce incomplete evidence rather than an inferred target:
 All independently recognized target observations remain available when the
 overall result is incomplete. An absent target property is valid authored
 syntax and does not itself make the result incomplete: targets may come from
-evaluation outside this basis.
+evaluation outside this basis. Each target observation also retains opaque
+syntax-context identity, so changing its unsupported placement or conditions
+changes semantic project identity without claiming their evaluated result.
 
 ## Package declarations
 
@@ -128,7 +137,9 @@ uses lowercase canonical identity while retaining the source spelling as
 `InertString`. A valid NuGet version constraint uses
 `NuGet.Versioning.VersionRange` normalized spelling while retaining the source
 spelling separately. Requested constraints remain constraints; this query
-never invents a resolved package coordinate.
+never invents a resolved package coordinate. Canonical constraint identity
+normalizes case where NuGet equality is case-insensitive, including prerelease
+labels.
 
 Equivalent occurrences with the same canonical package ID, canonical
 constraint, and condition identity form one declaration with an exact source
@@ -215,6 +226,7 @@ The query enforces independent configured limits for:
 - admitted XML bytes;
 - decoded XML characters;
 - one scalar spelling;
+- XML element depth;
 - target observations;
 - package-reference occurrences; and
 - typed limitation occurrences.
@@ -248,7 +260,7 @@ length-prefixed canonical encoding of:
 
 - canonical target observations;
 - canonical declarations and condition identities;
-- unresolved declaration state;
+- opaque target syntax context and unresolved dependency syntax;
 - source-occurrence counts; and
 - typed limitation reasons and counts.
 
@@ -318,10 +330,15 @@ The implementation is gated by
 | `Execute_GlobalPackageReferenceIsCentralManagementEvidence` | Global package-reference syntax cannot collapse into a complete-empty project. |
 | `Execute_CentralManagementPropertyPresenceIsIncomplete` | Empty, false, or nested central-management property syntax remains visible without flattened interpretation. |
 | `Execute_ItemAndMetadataExpressionsAreNotLiteralFrameworks` | Item and metadata expressions remain unresolved rather than opaque literal frameworks. |
+| `Execute_TargetFrameworkExpressionSemicolonsDoNotInventTargets` | Semicolons inside an unresolved MSBuild expression cannot create literal target observations. |
+| `Execute_TargetConditionsContributeToSemanticIdentity` | Material changes to unresolved target conditions change project identity. |
+| `Execute_IncludeLessPackageOperationsContributeToIdentity` | Package item operations without Include remain typed opaque evidence and affect identity. |
+| `Execute_NuGetEquivalentPrereleaseConstraintsDoNotConflict` | NuGet-equivalent prerelease casing collapses into one declaration with exact occurrence count. |
 | `Execute_ConflictingDeclarationsAreIncomplete` | Conflicting constraints remain separate and cannot become a complete declaration. |
 | `Execute_ContentAndSemanticIdentityRemainDistinct` | Formatting and casing alter content provenance without altering semantic identity. |
 | `Execute_RejectsMalformedDtdAndUnsupportedRoots` | Hardened XML and root-shape failures remain visible and content-free. |
 | `Execute_Enforces*Limit` | Byte, decoded-character, scalar, target-observation, package-reference, and limitation bounds fail closed. |
+| `Execute_EnforcesXmlElementDepthLimit` | Deep unsupported XML fails visibly before recursive canonicalization can exhaust the process stack. |
 | `Execute_HostileTextIsContainedAtConstruction` | Exposed source spellings are inert and failures echo no source content. |
 
 Inline exact XML inputs are the correct fixtures for syntax-shape and boundary
