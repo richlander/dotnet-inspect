@@ -471,6 +471,51 @@ selected the lower declaration. The House request and receipt retain the exact
 Workspace revision and `PlatformLibraryPopulationDeclaration`; they do not
 depend on application ecosystem identity or display metadata.
 
+### Family mismatch example and continuation
+
+Suppose one selected ASP.NET Core registration retains:
+
+```text
+Workspace revision: 42
+ecosystem registration: ASP.NET Core
+population declaration: Platform(AspNetCore)
+```
+
+The population planner incorrectly issues:
+
+```text
+target demand:
+  family: DotNetRuntime
+  framework: net11.0
+  version policy: current Workspace platform band
+```
+
+`PlatformHouse` returns a typed rejection retaining the declared
+`AspNetCore` family and requested `DotNetRuntime` family. It performs no target
+discovery, source selection, acquisition, artifact-cache publication, Metadata
+work, or Workspace replacement for that request. The House may retain the
+typed rejection under its ordinary failure-cache contract.
+
+After the rejection, the population planner:
+
+1. associates it with the exact ASP.NET Core registration and platform
+   contribution that produced the request;
+2. does not retry with a rewritten family, infer a family from the ecosystem
+   label, substitute the separately registered runtime population, or route
+   the `Microsoft.AspNetCore.` package prefix through `PlatformHouse`;
+3. may retain successful results from independently selected runtime or
+   package-prefix contributions under the consuming operation's result
+   contract; and
+4. reports the selected ASP.NET Core platform population as rejected, so an
+   ecosystem or graph result requiring that population cannot claim complete
+   coverage.
+
+The consuming operation decides whether its result algebra returns a rejected
+operation or a partial result carrying this rejection. It cannot turn the
+mismatch into absence or a success-shaped empty population. Because no source
+was consulted, changing source authorization or adding a package is not the
+remedy; the operation-planning correspondence must be corrected.
+
 The registration does not choose the target framework or version. A Workspace
 operation may provide an already-settled target context or an explicit
 selection policy. Equal TFM or version text across `DotNetRuntime` and
@@ -1413,6 +1458,7 @@ The implementation and adoption slices own these Release gates:
 | --- | --- |
 | Target settlement | An exact demand is retained unchanged; a selecting demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
 | Workspace population correspondence | The operation association retains the exact Workspace revision and ecosystem registration; the House request and receipt retain the exact revision, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
+| Workspace family mismatch | An `AspNetCore` population declaration paired with a `DotNetRuntime` target demand rejects before target or source work, remains associated with the selected registration, triggers no retry or relabeling, and prevents complete population coverage. |
 | Fresh-default realization | Selecting the three fresh ecosystem defaults issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |
 | Family separation | Equal TFM or version text and an ASP.NET Core runtime support closure cannot merge the runtime and ASP.NET Core registrations or their exact family targets. |
 | Focal-length integration | `Self`, `SelfAndRegisteredEcosystems`, and `Everything` select the documented population sets without granting source authority or silently omitting a failed selected contribution. |
