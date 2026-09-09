@@ -328,6 +328,10 @@ internal static class BrowserPlatformCallGraph
                         + $"participate in type resolution "
                         + $"({rejected.Failure.Kind}: "
                         + $"{rejected.Failure.Detail})."),
+                AssemblyContextTypeResolutionResult.UnsupportedBindingPolicy unsupported =>
+                    throw new InvalidOperationException(
+                        $"Platform assembly '{unsupported.Assembly.Identity.Name}' "
+                        + "does not provide acquisition-free type-resolution policy."),
                 _ => throw new InvalidOperationException(
                     "Unknown assembly-context type-resolution result."),
             };
