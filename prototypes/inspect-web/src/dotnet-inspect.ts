@@ -182,7 +182,11 @@ import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.t
 import { bindSavedWorkspaces, restoreSavedWorkspaceFocus } from "./saved-workspaces-view.ts";
 import {
   createSourceInspectionCoordinator,
+  graphSourceAutoLoadRequest,
+  graphSourceIsOpen,
+  graphSourceRequest,
   type GraphSourceRequest,
+  type GraphSourceState,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
 import {
@@ -994,10 +998,7 @@ const initialState = {
   runtimePackLoading: false,
   runtimePackError: "",
   selectedBodyTarget: null,
-  graphSourceOpen: false,
-  graphSource: null,
-  graphSourceLoading: false,
-  graphSourceError: "",
+  graphSource: { status: "closed" as const },
   docViewerOpen: false,
   docViewer: null,
   docViewerLoading: false,
@@ -1005,9 +1006,6 @@ const initialState = {
   docViewerHtml: "",
   docViewerMeta: null,
   docViewerSeq: 0,
-  graphSourceTitle: "",
-  graphSourceRequest: null,
-  graphSourceSeq: 0,
   styleTiers: null,
   styleOptions: null,
   styleCatalogError: "",
@@ -1077,10 +1075,9 @@ interface StateOverrides {
   platformRecent: PlatformRecent[];
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
-  graphSource: BrowserSource | null;
+  graphSource: GraphSourceState;
   docViewer: InspectedPackageDocument | null;
   docViewerMeta: DocViewerMeta | null;
-  graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
   history: string[];
@@ -1245,7 +1242,13 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.runtimePackLoading = false;
-  snapshotState.graphSourceLoading = false;
+  if (snapshotState.graphSource.status === "loading") {
+    snapshotState.graphSource = {
+      status: "cancelled",
+      request: snapshotState.graphSource.request,
+      title: snapshotState.graphSource.title,
+    };
+  }
   snapshotState.docViewerLoading = false;
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
@@ -1253,7 +1256,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
   snapshotState.graphMemberNavigationSeq++;
-  snapshotState.graphSourceSeq++;
   snapshotState.docViewerSeq++;
 
   if (memberSourceLoading) snapshotState.memberSourceKey = "";
@@ -1281,7 +1283,6 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
-  const graphSourceSeq = state.graphSourceSeq;
   const docViewerSeq = state.docViewerSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
@@ -1299,8 +1300,6 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
   state.graphMemberNavigationSeq =
     Math.max(graphMemberNavigationSeq, snapshot.state.graphMemberNavigationSeq) + 1;
-  state.graphSourceSeq =
-    Math.max(graphSourceSeq, snapshot.state.graphSourceSeq) + 1;
   state.docViewerSeq =
     Math.max(docViewerSeq, snapshot.state.docViewerSeq) + 1;
   state.platformIndex = platformIndex;
@@ -2728,7 +2727,9 @@ function canRestoreWorkbenchFocus(
 ) {
   return generation === spotlightFocusGeneration
     && focusGeneration === documentFocusGeneration
-    && !state.spotlightOpen && !state.graphSourceOpen && !state.docViewerOpen
+    && !state.spotlightOpen
+    && !graphSourceIsOpen(state.graphSource)
+    && !state.docViewerOpen
     && !state.settings && !state.keyboardHelp
     && !applicationMenuOwnsFocus(document) && !isTextEntry();
 }
@@ -4591,7 +4592,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
-      ${state.graphSourceOpen ? renderGraphSource() : ""}
+      ${graphSourceIsOpen(state.graphSource) ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
     </div>
     ${renderApplicationMenu(true)}
@@ -4736,16 +4737,12 @@ function renderWorkspaceCatalogView() {
 function maybeAutoLoadVisibleSource() {
   const kind = currentSourceOperationKind();
   if (kind === "graph") {
-    if (state.graphSourceRequest
-      && sourceRequestNeedsLoad(
-        true,
-        state.graphSourceLoading,
-        state.graphSource,
-        state.graphSourceError)) {
+    const target = graphSourceAutoLoadRequest(state.graphSource);
+    if (target) {
       observeAsync(
         openGraphSource(
-          state.graphSourceRequest.request,
-          state.graphSourceRequest.title),
+          target.request,
+          target.title),
         "Loading graph source");
     }
     return;
@@ -9528,7 +9525,7 @@ function workbenchOverlayOwnsFocus() {
 
 function workbenchModalOwnsFocus() {
   return state.spotlightOpen
-    || state.graphSourceOpen
+    || graphSourceIsOpen(state.graphSource)
     || state.docViewerOpen
     || state.memberAnnotatedModal !== null
     || state.methodBodyDiff.open
@@ -12565,7 +12562,9 @@ function typeGraphAvailable() {
 function graphExplorerKey(): string | null {
   if (state.home || state.loading || state.error || state.packageQueryOpen
     || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
-    || state.spotlightOpen || state.docViewerOpen || state.graphSourceOpen
+    || state.spotlightOpen
+    || state.docViewerOpen
+    || graphSourceIsOpen(state.graphSource)
     || state.memberAnnotatedModal) return null;
   if (scope() === "package" && state.packageLens === "dependencies") {
     return JSON.stringify(["dependencies", packageDependenciesSignature()]);
@@ -13548,11 +13547,13 @@ function invalidateSourceCaches() {
 function reloadVisibleSource() {
   switch (currentSourceReloadKind()) {
     case "graph":
-      if (state.graphSourceRequest) {
+      {
+        const target = graphSourceRequest(state.graphSource);
+        if (!target) break;
         observeAsync(
           openGraphSource(
-            state.graphSourceRequest.request,
-            state.graphSourceRequest.title),
+            target.request,
+            target.title),
           "Reloading graph source");
       }
       break;
@@ -13670,11 +13671,10 @@ function renderSettingsViewHtml() {
 }
 
 function renderGraphSource() {
+  const graphSource = state.graphSource;
+  if (!graphSourceIsOpen(graphSource)) return "";
   return renderGraphSourcePure({
-    title: state.graphSourceTitle,
-    loading: state.graphSourceLoading,
-    source: state.graphSource,
-    error: state.graphSourceError,
+    state: graphSource,
     escapeHtml,
     highlightCSharp,
   });
@@ -15180,7 +15180,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.packageQueryOpen
     && !state.loading
     && !state.error
-    && !state.graphSourceOpen
+    && !graphSourceIsOpen(state.graphSource)
     && !state.docViewerOpen
     && state.memberAnnotatedModal === null
     && !state.methodBodyDiff.open
@@ -15192,7 +15192,7 @@ const workspaceModalContextIsAvailable = () =>
   pendingWorkspaceConstruction === null
   && !state.home && !state.packageQueryOpen && !state.loading && !state.error;
 const graphSourceContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.graphSourceOpen;
+  workspaceModalContextIsAvailable() && graphSourceIsOpen(state.graphSource);
 const annotatedSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.memberAnnotatedModal !== null;
 const embeddedAnnotatedSourceDetailContextIsActive = () =>

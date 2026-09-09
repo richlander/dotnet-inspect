@@ -220,7 +220,7 @@ function harness() {
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
     sourceRequestGeneration: 0, typeMetadataGeneration: 0,
-    docViewerSeq: 0, graphSourceSeq: 0,
+    docViewerSeq: 0, graphSource: { status: "closed" },
     platformDrillLoading: false, platformDrillError: "",
     graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "", graphMemberNavigationError: "",
     pendingGraphMemberDeepLink: null as object | null,
@@ -359,6 +359,8 @@ function harness() {
     HTMLElement: class { isContentEditable = false; },
     URL, URLSearchParams, Error, structuredClone, Set,
     MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
+    graphSourceIsOpen: (value: { status: string }) =>
+      value.status !== "closed",
     retainedWorkspaces: {
       get activeWorkspaceId() {
         return state.package ? "workspace-1" : null;
@@ -582,7 +584,6 @@ test("canonical restoration preserves coordinator-owned comparison state identit
   h.state.typeMetadataGeneration = 8;
   h.state.memberCallGraphSeq = 9;
   h.state.graphMemberNavigationSeq = 10;
-  h.state.graphSourceSeq = 11;
   h.state.docViewerSeq = 12;
   void runInNewContext(
     "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
@@ -596,7 +597,6 @@ test("canonical restoration preserves coordinator-owned comparison state identit
   assert.equal(h.state.typeMetadataGeneration, 9);
   assert.equal(h.state.memberCallGraphSeq, 10);
   assert.equal(h.state.graphMemberNavigationSeq, 11);
-  assert.equal(h.state.graphSourceSeq, 12);
   assert.equal(h.state.docViewerSeq, 13);
 });
 
