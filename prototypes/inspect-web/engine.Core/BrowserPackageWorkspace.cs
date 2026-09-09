@@ -1557,13 +1557,15 @@ internal static class BrowserPackageWorkspace
     internal static Task<string[]> GetVersionsAsync(
         string packageId,
         IPackageSourceClient source,
-        TimeSpan timeout) =>
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             deadline => GetVersionsCoreAsync(
                 packageId,
                 source,
                 deadline.Token),
-            timeout);
+            timeout,
+            cancellationToken);
 
     static async Task<string[]> GetVersionsCoreAsync(
         string packageId,
@@ -2897,6 +2899,12 @@ internal sealed class BrowserPackage
                         displayPackageId: PackageId)
                 : throw new InvalidOperationException(
                     "Only an acquisition-issued Browser package can create a bound package Root.");
+
+    internal PackageInspectionInput CreateInspectionInput() =>
+        PackageInspectionInput.CreateFromPayload(
+            _acquiredPayload
+            ?? throw new InvalidOperationException(
+                "Only an acquisition-issued Browser package can create an inspection input."));
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any

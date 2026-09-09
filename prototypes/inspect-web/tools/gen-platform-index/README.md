@@ -1,49 +1,68 @@
-# Platform-assembly index generator
+# Platform library catalog generator
 
-Offline build tool that produces `assets/platform-index.tsv` — a compact,
-instantly-loadable map of the .NET platform assemblies for each target
-framework: their file/assembly names, which are **facades**, and the
-implementation assembly a facade forwards to.
+This SDK-side tool produces `assets/platform-index.json`: an exact-version
+catalog that lets Inspect Web search and browse Platform before downloading
+runtime packs. It reads metadata with SRM; it never loads inspected assemblies.
 
-It is **not** part of the WASM app; it runs on the full SDK. The prototype ships
-the generated TSV as a static asset so the browser gets a first-take hint about
-platform libraries without downloading or decoding any pack.
+The browser defaults to .NET 11. Generation discovers the newest common
+NuGet version for each supported release line, including previews and RCs,
+across these four packages:
 
-## What it indexes
+- `Microsoft.NETCore.App.Ref`
+- `Microsoft.NETCore.App.Runtime.linux-x64`
+- `Microsoft.AspNetCore.App.Ref`
+- `Microsoft.AspNetCore.App.Runtime.linux-x64`
 
-- `Microsoft.NETCore.App.Ref` — the authoritative public assembly set + logical
-  public type counts per assembly, for `net6.0`–`net10.0`.
-- `Microsoft.NETCore.App.Runtime.linux-x64` — the physical assemblies, used only
-  to detect facades (`ExportedType`-only, no `TypeDef`) and their forward target
-  (e.g. `System.Runtime` → `System.Private.CoreLib`).
-- `NETStandard.Library.Ref` (2.1) and `NETStandard.Library` (2.0) — the
-  netstandard reference facades over `netstandard.dll`.
+NuGet semantic version ordering and intersection keep reference membership and
+runtime metadata on the same exact build. An unavailable version or invalid
+managed inventory fails generation rather than producing a partial catalog.
+Historical net6.0-net10.0 and reference-only netstandard catalogs remain
+available; they are not substituted for the default target.
 
-Everything is metadata-only via `System.Reflection.Metadata` (SRM); no assembly
-is loaded.
+## Catalog format
 
-## TSV schema
+The root has `schemaVersion: 1`, `defaultFramework: "net11.0"`, and `targets`.
+Each target has `tfm`, exact package `version`, and `rows`. Each row carries:
 
-One row per `(tfm, assembly)`:
-
-| column | meaning |
+| Field | Meaning |
 | --- | --- |
-| `tfm` | `net6.0`…`net10.0`, `netstandard2.0`, `netstandard2.1` |
-| `assembly` | simple assembly name (e.g. `System.Runtime`) |
-| `file` | file name (e.g. `System.Runtime.dll`) |
-| `kind` | `impl` \| `facade` \| `ref` |
-| `forwardsTo` | for a facade, the implementation assembly its exported types resolve to |
-| `version` | assembly version |
-| `publicTypes` | logical top-level public type count (from the ref assembly) |
+| `tfm`, `pack`, `packVersion` | Exact target and supplying framework family |
+| `assembly`, `file`, `version` | Physical assembly name, file, and assembly version |
+| `kind` | `facade`, `impl`, or reference-only `ref` |
+| `forwardsTo` | Dominant direct forwarding destination for a facade, otherwise null |
+| `publicTypes` | Metadata-owned meaningful public type count, preferring reference metadata |
+| `inReferencePack` | Membership in the reference-pack library inventory |
+| `hasImplementation` | A corresponding runtime assembly is available |
+
+The tool reuses `AssemblySurfaceClassifier`, `AssemblyDetailScanner`, and
+`PackageAssetSelector.SelectPlatformPack`; it does not maintain a second
+classification or runtime-layout policy. Facade detection uses the physical
+assembly's forwarding-only meaningful public surface, excluding
+compiler-generated names, not reference membership or `.Private.` naming.
+The three visual roles are
+facades, implementations represented in the reference pack, and private
+implementations outside it. The last two both have `kind: "impl"`.
+The dominant forwarding destination is a browsing hint, not authority for
+type resolution.
 
 ## Regenerate
 
-Run after each SDK band ships a new patch (packs are cached under
-`$TMPDIR/inspect-pack-cache`):
+From the repository root, with the repository-selected SDK:
 
 ```bash
-dotnet run genindex.cs -- ../../assets/platform-index.tsv
+dotnet run prototypes/inspect-web/tools/gen-platform-index/genindex.cs \
+  -c Release -- prototypes/inspect-web/assets/platform-index.json
 ```
 
-Downloaded pack `.nupkg`s are cached, so re-runs that only add a TFM are fast.
-The result is deterministic and reviewable; commit the updated TSV.
+Downloads are cached under the OS temporary directory's `inspect-pack-cache`
+directory. Commit the generated JSON together with related producer changes.
+The catalog does not update during an ordinary build or require network access
+in PR CI. Runtime version discovery can offer newer builds, but their inventory
+must be acquired for that exact version before changing a selected target.
+
+The inspect-web CI job compiles the generator. `test/platform-index.test.ts`
+exercises catalog loading, exact-version association, reference membership,
+role examples, and the shipped .NET 11 target. Engine catalog tests cover
+dynamic discovery and acquisition; browser tests cover Platform presentation
+and navigation. The owning experience is issue #6013 and
+[Platform subject](../../../../docs/design/inspect-web-navigation-presentation.md#platform-subject).

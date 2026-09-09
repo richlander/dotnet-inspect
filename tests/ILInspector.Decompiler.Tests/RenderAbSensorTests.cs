@@ -24,6 +24,28 @@ public class RenderAbSensorTests
         Assert.DoesNotContain("_g__Own_", output);
     }
 
+    [Theory]
+    [InlineData(typeof(HeterogeneousArmSample), nameof(HeterogeneousArmSample.GuardedArea))]
+    [InlineData(typeof(HeterogeneousArmSample), nameof(HeterogeneousArmSample.Area))]
+    [InlineData(typeof(PatternSwitchSample), nameof(PatternSwitchSample.Classify))]
+    public void RenderAbMatchesMetadataBackedProductProjection(Type type, string methodName)
+    {
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var expectedFunction = IrImporter.Import(source, type.FullName!, methodName);
+        var actualFunction = IrImporter.Import(source, type.FullName!, methodName);
+        Assert.NotNull(expectedFunction);
+        Assert.NotNull(actualFunction);
+
+        string? expected = CSharpPrinter.PrintRaised(
+            expectedFunction!,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint).Output;
+        string? actual = RenderAbSensor.Render(source, actualFunction!);
+
+        Assert.Contains("switch", expected);
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public void RenderAbSemanticLane_CatchesParseValidCompileInvalidRegression()
     {
