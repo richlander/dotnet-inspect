@@ -32,6 +32,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
+| [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
@@ -75,6 +76,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md) | Host-neutral composition from one normalized declaration to an exact source-authorized package candidate, typed failure, or incomplete source evidence. |
 | [Package Dependency Traversal](design/package-dependency-traversal.md) | Source-authorized exact package-manifest traversal with typed graph identity, root-relative depth, failures, completion, and shared CLI/Browser consumption. |
 | [Dependency Evidence CLI](design/dependency-evidence-cli.md) | CLI command, input binding, sections, count exactness, Markout and JSON lowering, diagnostics, and routing for normalized dependency evidence. |
+| [Authored Project Dependency Facts](design/authored-project-dependency-facts.md) | Host-neutral exact-project-XML target observations, package declarations, condition association, identity, incomplete evidence, failure, and containment. |
 | [Restored Project Dependency Facts](design/restored-project-dependency-facts.md) | Host-neutral `project.assets.json` declarations, resolved package graph, typed identity, completion, failure, and containment. |
 | [Restored Project Dependency Traversal](design/restored-project-dependency-traversal.md) | Host-neutral root-relative restored-project traversal: typed project-reference and package relationships, minimum distance, depth boundaries, scoped failures, completion, and topology identity. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
@@ -121,6 +123,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
+| [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
 | [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
 | [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection for Inspect Web, plus retained explicit Gallery input for other shared Query consumers. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
@@ -148,6 +151,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Local Comparison Publication](design/local-comparison-publication.md) | Queries-owned result association and terminal evidence for the first borrowed-input, two-host method-comparison route. |
 | [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md) | Explicit same-assembly pair interaction, managed feature projection, and typed Browser Method Body Diff presentation. |
 | [Inspect Web Package Reference Result](design/inspect-web-package-reference-result.md) | Native C# reference-list or failure results, generated TypeScript consumption, and settled reference-view diagnostics. |
+| [Inspect Web Graph Source State](design/inspect-web-graph-source-state.md) | One feature-owned Graph Source modal state with distinct pending, available, failed, and cancelled outcomes. |
 | [Inspect Web Source Comparison](design/inspect-web-source-comparison.md) | Explicit package-version/member pair interaction, paired Source query adoption, and authored-source changes, moves, provenance, and non-success in the browser. |
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Analysis String-Literal-Use Pattern](design/analysis-string-literal-use-pattern.md) | Bounded ordinal matching over decoded `ldstr` occurrences with durable instruction identity, contained literal evidence, and typed incomplete outcomes. |

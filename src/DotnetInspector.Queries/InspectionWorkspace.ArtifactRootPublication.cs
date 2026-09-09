@@ -263,15 +263,17 @@ public sealed partial class InspectionWorkspace
         InspectionWorkspaceIdentity workspace,
         ArtifactRootCorrespondence correspondence,
         ArtifactRootGenerationReference generation,
-        AssemblyBindingPolicyVersion? expectedPolicy = null)
+        AssemblyBindingPolicyVersion? expectedPolicy = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(correspondence);
         ArgumentNullException.ThrowIfNull(generation);
-        await _rootCompositionGate.WaitAsync().ConfigureAwait(false);
+        await _rootCompositionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             lock (_gate)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 ArtifactRootFailure? failure = RootWorkspaceFailure(workspace);
                 if (failure is not null)
                     return new ArtifactRootResult<ArtifactRootQueryLease>.Rejected(failure.Value);

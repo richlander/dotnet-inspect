@@ -2359,7 +2359,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!state\.docViewerOpen[\s\S]*!state\.spotlightOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);
@@ -3801,7 +3801,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| state\.sourceDiff\.open\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| state\.methodBodyDiff\.open\s*\|\| state\.sourceDiff\.open\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -4223,6 +4223,9 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(autoLoadBody, /kind === "graph"/);
   assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
   assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
+  assert.match(
+    autoLoadBody,
+    /graphSourceAutoLoadRequest\(state\.graphSource\)/);
   assert.match(autoLoadBody, /openGraphSource\(/);
   const annotatedLoader =
     appSource.match(
@@ -4248,7 +4251,7 @@ test("source operations cancel when superseded or hidden", () => {
     home: false,
     package: {},
     atPackageRoot: false,
-    graphSourceOpen: false,
+    graphSource: { status: "closed" },
     lens: "source",
     selectedMemberKey: "",
     memberSection: "overview"
@@ -4271,7 +4274,7 @@ test("source operations cancel when superseded or hidden", () => {
     activeSourceOperationKind({
       ...visible,
       atPackageRoot: true,
-      graphSourceOpen: true
+      graphSource: { status: "ready" }
     }),
     "graph");
   assert.equal(
@@ -4344,10 +4347,7 @@ test("source operations cancel when superseded or hidden", () => {
     memberSourceError: "",
     typeSourceLoading: false,
     typeSourceKey: "",
-    typeSourceError: "",
-    graphSourceLoading: false,
-    graphSourceError: "",
-    graphSourceSeq: 0
+    typeSourceError: ""
   };
   assert.equal(beginSourceRequestState(requestState), 5);
   assert.equal(requestState.memberSourceLoading, false);
