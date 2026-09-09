@@ -17,7 +17,7 @@ public record AssemblyAttributeInfo(
 /// <summary>
 /// Information about a type forwarder.
 /// </summary>
-public record TypeForwarderInfo(
+public sealed record TypeForwarderInfo(
     string TypeName,
     string TargetAssembly);
 

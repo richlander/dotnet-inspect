@@ -70,7 +70,10 @@ public sealed class WorkspaceResearchTargetDemoTests
             Assert.Contains("After composition: Unavailable / UnboundBinding", missing);
             Assert.Contains("Effective target: none", missing);
             Assert.DoesNotContain("After address:", missing);
-            string divergent = Section(output, "Divergent domains");
+            string divergent = Section(
+                output,
+                "Divergent domains",
+                "Targeted implementation comparison");
             Assert.Contains("Before effective domain: ContractsImplementation", divergent);
             Assert.Contains("After effective domain: ReplacementImplementation", divergent);
             Assert.Contains("Before-domain correspondence: BeforeOnly", divergent);
@@ -79,8 +82,22 @@ public sealed class WorkspaceResearchTargetDemoTests
             Assert.Contains("Comparison work item: none", divergent);
             foreach (string section in new[] { forwarded, missing, divergent })
                 Assert.Contains("Supplemental acquisition requests: 0", section);
+            string comparison = Section(
+                output,
+                "Targeted implementation comparison");
+            Assert.Contains(
+                "Forwarder use: Before hop 0 metadata.type-forwarder "
+                + "N.Type -> ContractsImplementation",
+                comparison);
+            Assert.Contains(
+                "Forwarder use: After hop 0 metadata.type-forwarder "
+                + "N.Type -> ContractsImplementation",
+                comparison);
+            Assert.Contains("C# body exact: False", comparison);
+            Assert.Contains("IL body exact: False", comparison);
+            Assert.Contains("Supplemental acquisition requests: 0", comparison);
             MatchCollection addresses = Regex.Matches(output, @"(?:Before|After) address: ([0-9a-f-]{36}):0x([0-9A-F]{8})");
-            Assert.Equal(5, addresses.Count);
+            Assert.Equal(7, addresses.Count);
             foreach (Match address in addresses)
             {
                 Assert.True(Guid.TryParseExact(address.Groups[1].Value, "D", out Guid mvid));

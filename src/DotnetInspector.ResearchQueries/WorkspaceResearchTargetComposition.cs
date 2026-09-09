@@ -26,6 +26,46 @@ internal sealed class WorkspaceResearchTargetCompositionRequest
         ResearchTargetDomain domain,
         ResearchTargetDomainSideCensus census,
         AssemblyResolutionScope resolutionScope)
+        : this(
+            group, root, capturedVersion, population, projected, resolution,
+            question, side, scope, declaringType, resolutionScope,
+            domain, census)
+    {
+    }
+
+    internal WorkspaceResearchTargetCompositionRequest(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant root,
+        AssemblyBindingPolicyVersion capturedVersion,
+        QueryComparisonPopulation<ImplementationComparisonBinding> population,
+        ProjectedQueryPopulation projected,
+        ResearchTargetResolution resolution,
+        QueryComparisonQuestionId question,
+        QueryComparisonSide side,
+        ResearchTargetScope scope,
+        MetadataTypeDefinitionName declaringType,
+        AssemblyResolutionScope resolutionScope)
+        : this(
+            group, root, capturedVersion, population, projected, resolution,
+            question, side, scope, declaringType, resolutionScope,
+            domain: null, census: null)
+    {
+    }
+
+    WorkspaceResearchTargetCompositionRequest(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant root,
+        AssemblyBindingPolicyVersion capturedVersion,
+        QueryComparisonPopulation<ImplementationComparisonBinding> population,
+        ProjectedQueryPopulation projected,
+        ResearchTargetResolution resolution,
+        QueryComparisonQuestionId question,
+        QueryComparisonSide side,
+        ResearchTargetScope scope,
+        MetadataTypeDefinitionName declaringType,
+        AssemblyResolutionScope resolutionScope,
+        ResearchTargetDomain? domain,
+        ResearchTargetDomainSideCensus? census)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(root);
@@ -36,8 +76,9 @@ internal sealed class WorkspaceResearchTargetCompositionRequest
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(declaringType);
-        ArgumentNullException.ThrowIfNull(domain);
-        ArgumentNullException.ThrowIfNull(census);
+        if ((domain is null) != (census is null))
+            throw new ArgumentException(
+                "A terminal domain and census must be supplied together.");
         Group = group;
         Root = root;
         CapturedVersion = capturedVersion;
@@ -63,8 +104,8 @@ internal sealed class WorkspaceResearchTargetCompositionRequest
     public QueryComparisonSide Side { get; }
     public ResearchTargetScope Scope { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
-    public ResearchTargetDomain Domain { get; }
-    public ResearchTargetDomainSideCensus Census { get; }
+    public ResearchTargetDomain? Domain { get; }
+    public ResearchTargetDomainSideCensus? Census { get; }
     public AssemblyResolutionScope ResolutionScope { get; }
 }
 
@@ -261,6 +302,8 @@ public static class WorkspaceResearchTargetCompositionQuery
     {
         QueryComparisonInputId rootInput = inputs[rootRegistration];
         QueryToResearchPopulationReceipt populationReceipt = request.Projected.Receipt;
+        ResearchTargetDomain? domain = request.Domain;
+        ResearchTargetDomainSideCensus? census = request.Census;
         ResearchTargetAttempt? rootAttempt = WorkspaceResearchTargetCompositionValidator.UniqueAttempt(
             request.Scope, populationReceipt.Inputs[rootInput].Research);
         WorkspaceTypeResolutionEvidence projectedEvidence =
@@ -304,13 +347,25 @@ public static class WorkspaceResearchTargetCompositionQuery
 
         ResearchTargetAttempt? attempt =
             WorkspaceResearchTargetCompositionValidator.UniqueAttempt(request.Scope, mapped.Research);
+        domain ??= request.Scope.Domains.SingleOrDefault(candidate =>
+                candidate.Attempts.Any(item => ReferenceEquals(item, attempt)));
+        if (census is null && domain is not null)
+        {
+            ResearchComparisonSide side =
+                QueryPopulationProjection.ResearchSide(request.Side);
+            census = request.Resolution.Censuses.SingleOrDefault(candidate =>
+                ReferenceEquals(candidate.Domain, domain)
+                && candidate.Side == side);
+        }
         if (attempt is null
-            || !ReferenceEquals(attempt.Request.Domain, request.Domain.Id)
-            || !request.Domain.Attempts.Any(item => ReferenceEquals(item, attempt))
-            || !request.Census.Attempts.Any(item => ReferenceEquals(item, attempt)))
+            || domain is null
+            || census is null
+            || !ReferenceEquals(attempt.Request.Domain, domain.Id)
+            || !domain.Attempts.Any(item => ReferenceEquals(item, attempt))
+            || !census.Attempts.Any(item => ReferenceEquals(item, attempt)))
             return Reject(WorkspaceResearchTargetCompositionRejection.TerminalAttemptMismatch, attempt);
 
-        if (request.Census.Health != ResearchTargetCensusHealth.Healthy)
+        if (census.Health != ResearchTargetCensusHealth.Healthy)
             return Unavailable(WorkspaceResearchTargetCompositionUnavailability.BlockedTerminalCensus);
         if (attempt.Outcome is not ResearchTargetOutcome.Resolved target)
             return Unavailable(WorkspaceResearchTargetCompositionUnavailability.TerminalAttemptUnavailable);
@@ -335,7 +390,7 @@ public static class WorkspaceResearchTargetCompositionQuery
         var receipt = new WorkspaceResearchTargetCompositionReceipt(
             projection.Operation, new(projection.Operation), projection.Version(request.CapturedVersion),
             request.Question, request.Side, request.ResolutionScope, rootInput, terminalInput,
-            rootEvidence, effectiveEvidence, WorkspaceResearchTargetEvidenceProjection.Census(request.Census), evidence);
+            rootEvidence, effectiveEvidence, WorkspaceResearchTargetEvidenceProjection.Census(census), evidence);
         return new WorkspaceResearchTargetCompositionResult.Composed(receipt);
 
         WorkspaceResearchTargetCompositionResult.Rejected Reject(
@@ -343,13 +398,15 @@ public static class WorkspaceResearchTargetCompositionQuery
             => new(reason, evidence,
                 WorkspaceResearchTargetEvidenceProjection.Attempt(projection, rootAttempt),
                 WorkspaceResearchTargetEvidenceProjection.Attempt(projection, terminalAttempt),
-                WorkspaceResearchTargetEvidenceProjection.Census(request.Census));
+                census is null
+                    ? null
+                    : WorkspaceResearchTargetEvidenceProjection.Census(census));
         WorkspaceResearchTargetCompositionResult.Unavailable Unavailable(
             WorkspaceResearchTargetCompositionUnavailability reason)
             => new(reason, evidence,
                 WorkspaceResearchTargetEvidenceProjection.Attempt(projection, rootAttempt),
                 WorkspaceResearchTargetEvidenceProjection.Attempt(projection, attempt),
-                WorkspaceResearchTargetEvidenceProjection.Census(request.Census));
+                WorkspaceResearchTargetEvidenceProjection.Census(census));
     }
 
     static void EnsureVersions(ImmutableArray<IAssemblyBindingPolicy> policies, AssemblyBindingPolicyVersion captured)
@@ -455,18 +512,24 @@ internal static class WorkspaceResearchTargetCompositionValidator
         var researchInputs = receipt.Inputs.Values.Select(pair => pair.Research).ToArray();
         ResearchComparisonQuestionId question = receipt.Questions[request.Question];
         ResearchComparisonSide side = QueryPopulationProjection.ResearchSide(request.Side);
+        bool exactTerminalSelection = request.Domain is not null
+            && request.Census is not null;
         if (!ReferenceEquals(resolution.Operation, receipt.Operation.Research)
             || resolution.Scopes.Count(scope => ReferenceEquals(scope, request.Scope)) != 1
             || !ReferenceEquals(request.Scope.Question, question)
             || !ReferenceEquals(request.Scope.Id.Operation, resolution.Operation)
             || !string.Equals(request.Scope.DeclaringTypeFullName,
                 request.DeclaringType.ToMetadataFullName(), StringComparison.Ordinal)
-            || request.Scope.Domains.Count(domain => ReferenceEquals(domain, request.Domain)) != 1
-            || !ReferenceEquals(request.Domain.Scope, request.Scope.Id)
-            || !ReferenceEquals(request.Census.Domain, request.Domain)
-            || !ReferenceEquals(request.Census.Scope, request.Scope.Id)
-            || request.Census.Side != side
-            || resolution.Censuses.Count(census => ReferenceEquals(census, request.Census)) != 1
+            || (request.Domain is null) != (request.Census is null)
+            || exactTerminalSelection
+                && (request.Scope.Domains.Count(domain =>
+                        ReferenceEquals(domain, request.Domain)) != 1
+                    || !ReferenceEquals(request.Domain!.Scope, request.Scope.Id)
+                    || !ReferenceEquals(request.Census!.Domain, request.Domain)
+                    || !ReferenceEquals(request.Census.Scope, request.Scope.Id)
+                    || request.Census.Side != side
+                    || resolution.Censuses.Count(census =>
+                        ReferenceEquals(census, request.Census)) != 1)
             || !ExactSet(resolution.Scopes.Select(scope => scope.Id), resolution.Scopes.Select(scope => scope.Id))
             || !ExactSet(resolution.Domains.Select(domain => domain.Id), resolution.Domains.Select(domain => domain.Id))
             || !ExactSet(resolution.Domains, resolution.Scopes.SelectMany(scope => scope.Domains))

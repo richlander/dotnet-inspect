@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 
 using Inspector.Artifacts;
+using Inspector.Findings;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -135,6 +136,42 @@ public sealed class WorkspaceResearchTargetProjectionTests
                 Assert.Contains(arm, walker.Visited);
         foreach (Type currency in M.RetainedOwnerCurrency)
             Assert.Contains(currency, walker.Visited);
+    }
+
+    [Fact]
+    public void WorkspaceTypeForwarderUse_RetainsOnlyNativeFindingValues()
+    {
+        Type[] findingValues =
+        [
+            typeof(Finding<TypeForwarderInfo>),
+            typeof(FindingSubject),
+            typeof(FindingDescriptor),
+            typeof(FindingKey),
+            typeof(FindingSoftKey),
+            typeof(FindingMatchTier),
+            typeof(TypeForwarderInfo),
+        ];
+        var walker = new WorkspaceCapabilitySurfaceWalker(findingValues);
+
+        walker.Visit(typeof(WorkspaceTypeForwarderUse), "forwarder use");
+
+        Assert.All(findingValues, type => Assert.Contains(type, walker.Visited));
+        Assert.Contains(typeof(QueryComparisonInputId), walker.Visited);
+    }
+
+    [Fact]
+    public void WorkspaceImplementationComparison_ImageFailureRetainsNoAssemblyCapability()
+    {
+        var walker = new WorkspaceCapabilitySurfaceWalker(
+            [typeof(CandidateOpenFailure)]);
+
+        walker.VisitMembers(
+            typeof(WorkspaceImplementationComparisonResult
+                .ParticipantImageUnavailable),
+            "participant image failure");
+
+        Assert.Contains(typeof(AssemblyReferenceIdentity), walker.Visited);
+        Assert.DoesNotContain(typeof(ResolvedAssemblyReference), walker.Visited);
     }
 
     public static TheoryData<Type, string> ProhibitedCarriers => new()

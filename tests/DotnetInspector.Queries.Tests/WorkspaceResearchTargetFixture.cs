@@ -253,7 +253,8 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
     // The Metadata tests' SRM fixture pattern, extended with a real MethodDef and IL body.
     internal static byte[] BuildAssembly(
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
-        Guid? mvid = null, bool leadingType = false, string methodName = "Value", Version? version = null)
+        Guid? mvid = null, bool leadingType = false, string methodName = "Value",
+        Version? version = null, int methodResult = 42)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(0, metadata.GetOrAddString(name + ".dll"),
@@ -277,7 +278,7 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
                 result => result.Type().Int32(), _ => { });
             var instructions = new BlobBuilder();
             var encoder = new InstructionEncoder(instructions);
-            encoder.LoadConstantI4(42);
+            encoder.LoadConstantI4(methodResult);
             encoder.OpCode(ILOpCode.Ret);
             int body = new MethodBodyStreamEncoder(bodies).AddMethodBody(encoder);
             metadata.AddMethodDefinition(MethodAttributes.Public | MethodAttributes.Static,
