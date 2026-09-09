@@ -103,6 +103,35 @@ public abstract record PackageAssetSelection
 }
 
 /// <summary>
+/// Resource-free evidence binding one runtime asset-selection outcome to the
+/// content generation and exact request that produced it.
+/// </summary>
+public sealed class PackageAssetSelectionReceipt
+{
+    internal PackageAssetSelectionReceipt(
+        PackageContentGenerationIdentity generation,
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier,
+        PackageAssetSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(selection);
+        Generation = generation;
+        RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+        Selection = selection;
+    }
+
+    public PackageContentGenerationIdentity Generation { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
+
+    public PackageAssetSelection Selection { get; }
+}
+
+/// <summary>
 /// Selects one effective assembly asset universe from package content, over
 /// <see cref="IPackageContent.EnumerateEntries"/> only, so a host without a
 /// filesystem uses the same selection as the desktop cache.
@@ -197,6 +226,29 @@ public static class PackageAssetSelector
     /// <paramref name="runtimeIdentifier"/>.
     /// </summary>
     public static PackageAssetSelection Select(
+        IPackageContent content,
+        string targetFramework,
+        string? runtimeIdentifier = null) =>
+        Evaluate(content, targetFramework, runtimeIdentifier).Selection;
+
+    /// <summary>
+    /// Selects the effective asset universe and retains its exact invocation
+    /// correspondence without retaining package content.
+    /// </summary>
+    public static PackageAssetSelectionReceipt Evaluate(
+        IPackageContent content,
+        string targetFramework,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return new PackageAssetSelectionReceipt(
+            content.GenerationIdentity,
+            targetFramework,
+            runtimeIdentifier,
+            SelectCore(content, targetFramework, runtimeIdentifier));
+    }
+
+    private static PackageAssetSelection SelectCore(
         IPackageContent content,
         string targetFramework,
         string? runtimeIdentifier = null)
