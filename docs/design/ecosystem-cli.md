@@ -38,14 +38,18 @@ questions; only the first has an answer today.
 ## Command grammar
 
 ```text
-dotnet-inspect ecosystem [-S <section|@category>] [-D] [--framework <spec>]
+dotnet-inspect ecosystem [<ecosystem>] [-S <section|@category>] [-D] [--framework <spec>]
 ```
 
-The command takes **no subject operand**. That is a deliberate structural
-property, not an omission: it is what prevents the CLI being re-exposed beneath
-it. There is no `ecosystem library X` or `ecosystem type Y`, because drill-in
-already belongs to `library`, `type`, and `member`, which reach ecosystem
-content through their own source options.
+The optional operand names one registered ecosystem and narrows the registry to
+it. It is a row selector, not a subject route.
+
+**One operand, no sub-verb.** There is no `ecosystem aspire library X` and no
+`ecosystem <id> <kind> <name>`. Drill-in already belongs to `library`, `type`,
+and `member`, which reach ecosystem content through their own source options,
+and a second operand is where this command would begin re-exposing them. That
+bound is the property to preserve; the absence of *any* operand was only one way
+of getting it.
 
 `--framework` selects the platform target for sections that need one. It has
 no effect on ecosystems that declare no platform target.
@@ -94,6 +98,33 @@ the default `-v:m` view. The shared remainder joins at `-v:n`.
 is not the command's high-value section, so it must never enter an automatic
 preset. Its cost is `NetworkFree`: the prune data ships inside installed
 reference packs, so the answer needs no acquisition.
+
+## Discovery here, observation on the subject
+
+This command answers what the product *knows*; `library` answers what a
+specific artifact *contains*. Integrations make the split concrete, because
+both sides have a claim to the word:
+
+| Command | Section | Rows |
+| --- | --- | --- |
+| `ecosystem aspire` | `Integration Concepts` | The concepts this build can recognize |
+| `library X` | `Integration: <Concept>`, under `@Integrations` | Occurrences found in that library |
+
+The names are the product's existing vocabulary rather than new coinage.
+`IntegrationSectionNames.Prefix` is already `"Integration: "`, the same
+`Domain: Leaf` family as `Performance:`, and `IntegrationConceptDescriptor` is
+already the type naming a concept.
+
+Distinguishing them by an epistemic adjective — *Known* versus *Observed*
+integrations — would violate
+[section naming](section-model.md#naming), which uses concise noun phrases and
+`Domain: Leaf`, and would introduce a synonym for a concept the product already
+names. The rows differ in kind, so they take different noun phrases; nothing
+needs to assert how confident the product is.
+
+This owner renders the concept catalog. It does not scan, and it makes no claim
+that the catalog is exhaustive about the real ecosystem — it is the finite
+knowledge configured into one product build.
 
 ## Demos are cross-referenced, not re-exposed
 
