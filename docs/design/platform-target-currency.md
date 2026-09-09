@@ -4,6 +4,8 @@
 
 This document is the normative owner for the shared Platform target currency
 tracked by [#6361](https://github.com/richlander/dotnet-inspect/issues/6361).
+The contract-floor implementation is tracked by
+[#6378](https://github.com/richlander/dotnet-inspect/issues/6378).
 It is a focused prerequisite for:
 
 - the platform-first product direction in
@@ -474,8 +476,8 @@ application launch remain outside this contract.
 There are nine counted production-adoption steps:
 
 1. Lock this focused target-currency design under #6361.
-2. Implement the package-neutral values in the target
-   `DotnetInspector.Platforms` contract floor.
+2. Implement the package-neutral values in the
+   `DotnetInspector.Platforms` contract floor under #6378.
 3. Have Source Selection retain `PlatformFamily` in
    `PlatformLibraryPopulationDeclaration`.
 4. Have pruning retain `PlatformFamilyTarget` instead of its parallel

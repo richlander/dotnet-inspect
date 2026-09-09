@@ -1,9 +1,9 @@
 # CLI Workspace sharing
 
 The **CLI Workspace Sharing** design is the normative owner for one public
-gesture: projecting the effective state of an already-resolved
-`dotnet-inspect` invocation into a portable Workspace scenario and emitting
-that scenario as a canonical packet or complete Inspect Web URL.
+gesture: serializing the resolved semantic invocation of an inspection into a
+portable Workspace scenario and emitting that scenario as a canonical packet
+or complete Inspect Web URL.
 
 The end-to-end adoption tracker is
 [#6150](https://github.com/richlander/dotnet-inspect/issues/6150). The producing
@@ -22,8 +22,9 @@ contract below. Further command adoption remains unverified until the gates in
 CLI Workspace Sharing owns:
 
 - the common `--share` gesture and its packet-versus-URL selection;
-- the requirement to project the command's effective resolved state rather
-  than reconstructing it through another command;
+- the requirement to serialize the command's resolved semantic invocation
+  rather than reconstructing it through another command or serializing the
+  inspected content;
 - classification of semantic command inputs, local execution policy, and
   terminal CLI presentation when sharing;
 - CLI output, refusal, and exit behavior; and
@@ -58,10 +59,12 @@ remains intact until that canonical encoding boundary.
    `package`, `library`, `type`, `member`, `depends`, `graph`, or other
    invocation through a second Workspace-construction grammar merely to obtain
    a link.
-3. **Sharing captures effective typed state, not argv.** Commands hand
-   owner-issued coordinates, identities, selectors, facets, and query payloads
-   to Workspace Definitions. A packet never persists command names, option
-   spellings, display text, or a shell command line.
+3. **Sharing serializes the resolved semantic invocation, not argv, target
+   content, or results.** Commands hand owner-issued coordinates, identities,
+   selectors, facets, and query payloads to Workspace Definitions. A packet
+   never persists command names, option spellings, a shell command line,
+   acquired artifact bytes, live inspection objects, result rows, or rendered
+   text.
 4. **A bare `--share` emits the complete URL.** URL sharing is the primary
    agent-to-human handoff. `--share packet` explicitly requests only the
    canonical base64url packet; `--share url` is the explicit spelling of the
@@ -81,6 +84,36 @@ remains intact until that canonical encoding boundary.
    authorization and capabilities when opening the URL.
 
 ## CLI contract
+
+### The serialized value is the inspection recipe
+
+The **resolved semantic invocation** is the product-owned inspection recipe
+that exists after CLI parsing, normalization, source selection, default
+resolution, and any exact identity resolution required by the command, but
+before observation and rendering:
+
+```text
+CLI argv
+   |
+   v
+parse, normalize, and resolve exact portable identity
+   |
+   v
+resolved semantic invocation
+   |-- --share --------------------> scenario packet or URL
+   `-- execute target observation -> inspection result
+```
+
+Sharing takes the upper branch. It serializes what the caller asked the product
+to inspect: acquisition coordinates, Workspace context, structural focus,
+exact subject selectors, selected facets or queries, traversal choices, and
+other portable semantic options. It does not serialize the target being
+inspected or the answer produced by inspecting it.
+
+The distinction is semantic rather than temporal. A command may need bounded
+acquisition or metadata resolution to establish an exact portable coordinate
+or subject identity, but those acquired bytes and live objects remain evidence
+used to resolve the recipe. They do not become packet payload.
 
 ### Append sharing to the working invocation
 
@@ -164,9 +197,10 @@ portable identity. This has four consequences:
    query when the portable contract represents it. Sharing never chooses the
    first row or another arbitrary result to manufacture a singular subject.
 
-The handoff must use typed command results or plans. Serializing argv and
-re-parsing it, invoking another CLI command, recovering identity from rendered
-output, or rebuilding state from display strings are all prohibited.
+The handoff must use typed command requests, plans, or resolution receipts.
+Serializing argv and re-parsing it, invoking another CLI command, embedding
+acquired target content, recovering identity from rendered output, or
+rebuilding state from display strings are all prohibited.
 
 ### Work and acquisition
 
@@ -279,8 +313,8 @@ Neighboring cases prove the boundary:
 ## Non-goals
 
 - A new Workspace construction language or serialized CLI grammar.
-- A snapshot of inspection results or guarantee that remote content remains
-  available.
+- Inspected artifact content, live inspection objects, a snapshot of inspection
+  results, or a guarantee that remote content remains available.
 - Uploading artifacts, opening a browser, hosting shortened URLs, or storing
   scenarios server-side.
 - Treating a packet as source authorization or embedding credentials.
@@ -302,8 +336,9 @@ Each adoption must add focused Release gates proving:
 
 - appending `--share` consumes the same normalized source, context, subject,
   facet, query, and traversal state as the ordinary command plan;
-- no argv serialization, synthetic command invocation, rendered-text identity,
-  or duplicate source/focus grammar participates in the projection;
+- no argv serialization, synthetic command invocation, acquired target
+  content, result payload, rendered-text identity, or duplicate source/focus
+  grammar participates in the projection;
 - bare `--share`, explicit `url`, and `packet` produce the required scalar and
   no ordinary report;
 - a uniquely resolved floating input is pinned to its exact portable
