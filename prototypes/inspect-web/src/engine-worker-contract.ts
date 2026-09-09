@@ -1,4 +1,7 @@
-import { WorkerProducerClassRegistry } from "./worker-runtime-core.ts";
+import {
+  WorkerProducerClassRegistry,
+  type WorkerRuntimeBoundaryErrors,
+} from "./worker-runtime-core.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
 export const engineWorkerPolicy = {
@@ -41,5 +44,17 @@ export function engineWorkerDiagnostic(detail: unknown): string {
       : "Worker runtime boundary failure.";
   return message.slice(0, 4_096);
 }
+
+export const engineWorkerBoundaryErrors:
+WorkerRuntimeBoundaryErrors<string> = {
+  startup: "Worker startup failed.",
+  "worker-crash": "Worker realm was lost.",
+  protocol: "Worker protocol failed.",
+  watchdog: "Worker event loop stopped responding.",
+  "control-response": "Worker control response was missing.",
+  "probe-exhaustion": "Worker probe identity was exhausted.",
+  "worker-declared": "Worker reported a runtime failure.",
+  "worker-message": "Worker message delivery failed.",
+};
 
 export const engineWorkerCanaryKind = "runtime-async-lowering-canary";

@@ -5,6 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>receiver with { X = value, ... }</c>. The supported shape is a synthesized
 /// record clone threaded through a stack-slot dup chain, followed by member
 /// stores on those slots and exactly one downstream load of the mutated clone.
+/// Clone identity and dispatch remain attached to the raised node.
 /// </summary>
 public sealed class WithExpressionPass : IIrPass
 {
@@ -29,8 +30,9 @@ public sealed class WithExpressionPass : IIrPass
         IReadOnlyList<IrNode> Consumed,
         IrExpression Receiver,
         IReadOnlyList<InitializerEntry> Entries,
+        LoadStackSlot Use,
         MethodRef CloneMethod,
-        LoadStackSlot Use);
+        bool CloneIsVirtual);
 
     static Plan? TryBuild(IrFunction function, StoreStackSlot seed, Call clone)
     {
@@ -98,28 +100,51 @@ public sealed class WithExpressionPass : IIrPass
             consumed,
             clone.Arguments[0],
             entries,
+            outsideUses[0],
             clone.Callee,
-            outsideUses[0]);
+            clone.IsVirtual);
     }
 
     static bool IsRecordCloneCall(Call clone)
     {
-        if (!GeneratedCodeIdentity.IsRecordCloneMethod(clone.Callee) || clone.Arguments is not [var receiver])
+        if (!GeneratedCodeIdentity.IsRecordCloneMethod(clone.Callee)
+            || clone.ConstrainedTo is not null
+            || clone.Arguments is not [var receiver])
             return false;
 
         var receiverType = receiver.ResultType;
         return receiverType is not null
             && receiverType.Equals(clone.Callee.DeclaringType)
-            && receiverType.Equals(clone.Callee.ReturnType);
+            && receiverType.Equals(clone.Callee.ReturnType)
+            && (clone.IsVirtual || HasExactRuntimeType(receiver, receiverType));
     }
 
+    static bool HasExactRuntimeType(IrExpression receiver, TypeRef receiverType)
+        => receiver is NewObject creation
+            && creation.Constructor.DeclaringType.Equals(receiverType);
+
+    /// <summary>
+    /// One member store on the threaded clone, or <c>null</c> when it cannot be
+    /// spelled inside <c>with { ... }</c>.
+    /// <para>
+    /// A property entry is admitted only when its setter call dispatched
+    /// virtually. <c>receiver with { P = v }</c> re-emits a virtual setter call
+    /// on the clone, so raising a direct (non-virtual) setter store — the
+    /// spelling of <c>base.P = v</c>, which a with-expression cannot encode —
+    /// would restore virtual dispatch the input did not have.
+    /// </para>
+    /// </summary>
     static InitializerEntry? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
     {
-        StoreProperty { HasInstance: true, Instance: LoadStackSlot receiver } property
+        StoreProperty { HasInstance: true, IsVirtual: true, Instance: LoadStackSlot receiver } property
             when aliasSlots.Contains(receiver.Slot)
                 && property.IndexArguments.Count == 0
                 && ObjectInitializerPass.IsInitializerSpellable(property)
-            => new InitializerEntry(property.PropertyName, [property.Value], ConsumedMethod: property.Accessor),
+            => new InitializerEntry(
+                property.PropertyName,
+                [property.Value],
+                ConsumedMethod: property.Accessor,
+                ConsumedMethodIsVirtual: true),
 
         StoreField { Instance: LoadStackSlot receiver } field
             when aliasSlots.Contains(receiver.Slot) && CSharpNaming.IsEscapableIdentifier(field.Field.Name)
@@ -153,7 +178,8 @@ public sealed class WithExpressionPass : IIrPass
         var withExpression = new WithExpression(
             plan.Receiver,
             plan.Entries,
-            plan.CloneMethod);
+            plan.CloneMethod,
+            plan.CloneIsVirtual);
         withExpression.InheritSourceOffset(plan.Receiver);
         plan.Use.ReplaceWith(withExpression);
     }

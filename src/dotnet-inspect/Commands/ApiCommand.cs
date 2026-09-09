@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspector.CommandLine;
-using DotnetInspector.CSharpBodySlicer;
+using CSharpText.MemberSlicing;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -611,12 +611,23 @@ public class ApiCommand
             };
         }
         (options, string? findingCensusSelectionError) =
-            NormalizeFindingCensusSelection(
+            NormalizeExactOnlySectionSelection(
                 options,
-                memberPipeline.SelectableSectionNames);
+                memberPipeline.SelectableSectionNames,
+                SectionNames.FindingCensus);
         if (findingCensusSelectionError is not null)
         {
             CommandError.Write(findingCensusSelectionError);
+            return (null!, 1);
+        }
+        (options, string? cloneCandidatesSelectionError) =
+            NormalizeExactOnlySectionSelection(
+                options,
+                memberPipeline.SelectableSectionNames,
+                SectionNames.CloneCandidates);
+        if (cloneCandidatesSelectionError is not null)
+        {
+            CommandError.Write(cloneCandidatesSelectionError);
             return (null!, 1);
         }
         if (options is
@@ -761,62 +772,20 @@ public class ApiCommand
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }
 
-    private static (ApiOptions Options, string? Error) NormalizeFindingCensusSelection(
+    private static (ApiOptions Options, string? Error) NormalizeExactOnlySectionSelection(
         ApiOptions options,
-        IReadOnlyList<string> memberSections)
+        IReadOnlyList<string> memberSections,
+        string section)
     {
-        if (options.IncludeSections?.Contains(SectionNames.FindingCensus) != true
-            || options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true)
-        {
-            return (options, null);
-        }
-
-        bool hasNonExactFindingCensusSelector =
-            options.Select?.Any(selector =>
-            {
-                if (selector.StartsWith('@'))
-                    return false;
-                var (matches, _) = SelectResolver.ResolveSingle(
-                    selector,
-                    memberSections);
-                return matches.Count == 1
-                       && matches[0].Equals(
-                           SectionNames.FindingCensus,
-                           StringComparison.OrdinalIgnoreCase);
-            }) == true;
-        if (hasNonExactFindingCensusSelector)
-        {
-            return (
-                options,
-                $"section '{SectionNames.FindingCensus}' requires an exact -S selector.");
-        }
-
-        bool hasBroadFindingCensusSelector =
-            options.Select?.Any(selector =>
-            {
-                if (selector.StartsWith('@'))
-                    return false;
-                var (matches, _) = SelectResolver.ResolveSingle(
-                    selector,
-                    memberSections);
-                return matches.Count > 1
-                       && matches.Contains(
-                           SectionNames.FindingCensus,
-                           StringComparer.OrdinalIgnoreCase);
-            }) == true;
-        if (!SelectResolver.IsAllSelector(options.Select)
-            && !hasBroadFindingCensusSelector)
-        {
-            return (
-                options,
-                $"section '{SectionNames.FindingCensus}' cannot be selected through a category.");
-        }
-
-        var sections = new HashSet<string>(
+        var normalized = SelectResolver.NormalizeExactOnlySection(
+            options.Select,
             options.IncludeSections,
-            StringComparer.OrdinalIgnoreCase);
-        sections.Remove(SectionNames.FindingCensus);
-        return (options with { IncludeSections = sections }, null);
+            options.ExactIncludeSections,
+            memberSections,
+            section);
+        return normalized.Error is null
+            ? (options with { IncludeSections = normalized.Sections }, null)
+            : (options, normalized.Error);
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
@@ -826,34 +795,39 @@ public class ApiCommand
         if (selectResult.Sections is not { } sections)
             return options.BodyKindQuery.HasFilter
                 && options.Select is { Length: > 0 }
-                ? $"--where Kind=... targets section '{SectionNames.BodyShapes}'."
+                ? $"--where Kind=... targets section '{SectionNames.BodyShapes}' "
+                    + $"or '{SectionNames.BodyShapeSummary}'."
                 : null;
 
-        bool selected = sections.Contains(SectionNames.BodyShapes);
+        bool selected = BodyKindQueryOptions.IsSelected(sections);
         if (options.BodyKindQuery.HasFilter)
         {
             return selected
                 ? null
-                : $"--where Kind=... targets section '{SectionNames.BodyShapes}'. "
-                    + $"Omit -S or include -S \"{SectionNames.BodyShapes}\".";
+                : $"--where Kind=... targets section '{SectionNames.BodyShapes}' "
+                    + $"or '{SectionNames.BodyShapeSummary}'. Omit -S or select one of these sections.";
         }
 
         if (!selected)
             return null;
 
-        const string required =
-            "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
+        string required =
+            $"Section '{sections.First(section => BodyKindQueryOptions.Sections.Contains(
+                section, StringComparer.OrdinalIgnoreCase))}' "
+            + "requires --where \"Kind=<C# Body Kinds ID>\".";
         bool explicitlyTargetsBodyShapes =
             options is MemberOptions { MemberSectionsPreResolved: true }
-                ? selectResult.ExactSections.Contains(SectionNames.BodyShapes)
+                ? BodyKindQueryOptions.IsSelected(selectResult.ExactSections)
                 : TargetsBodyShapes(options, options.Select);
         if (explicitlyTargetsBodyShapes
-            || sections.Count == 1)
+            || options.EffectiveDiscovery && TargetsBodyShapes(options, options.Discover)
+            || sections.All(section => BodyKindQueryOptions.Sections.Contains(
+                section, StringComparer.OrdinalIgnoreCase)))
         {
             return required;
         }
 
-        sections.Remove(SectionNames.BodyShapes);
+        sections.ExceptWith(BodyKindQueryOptions.Sections);
         return null;
     }
 
@@ -873,8 +847,9 @@ public class ApiCommand
                 pipeline.InfoSectionNames,
                 pipeline.GetCategoryMap());
             if (!resolved.HasError
-                && resolved.Sections is { Count: 1 } sections
-                && sections.Contains(SectionNames.BodyShapes))
+                && resolved.Sections is { Count: > 0 } sections
+                && sections.All(section => BodyKindQueryOptions.Sections.Contains(
+                    section, StringComparer.OrdinalIgnoreCase)))
             {
                 return true;
             }
@@ -1287,6 +1262,17 @@ public class ApiCommand
 
         var filtered = BuildFilteredTypeForSections(type, options);
         var (empty, _) = pipeline.GetEmptySections(filtered, options.Verbosity, options.IncludeSections);
+        if (BodyKindQueryOptions.IsSelected(options.IncludeSections))
+        {
+            var bodyFiltered = BuildFilteredTypeForBodyShapes(type, options);
+            var (emptyBodySections, _) = pipeline.GetEmptySections(
+                bodyFiltered,
+                options.Verbosity,
+                options.IncludeSections);
+            empty.RemoveAll(BodyKindQueryOptions.Sections.Contains);
+            empty.AddRange(emptyBodySections.Where(BodyKindQueryOptions.Sections.Contains));
+        }
+
         if (empty.Count == 0)
             return;
 
@@ -1301,8 +1287,19 @@ public class ApiCommand
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
+        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: true);
+
+    internal static ApiType BuildFilteredTypeForBodyShapes(ApiType type, ApiOptions options)
+        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: false);
+
+    private static ApiType BuildFilteredType(
+        ApiType type,
+        ApiOptions options,
+        bool excludeCompilerGeneratedNames)
     {
-        var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
+        IEnumerable<ApiMember> members = type.Members;
+        if (excludeCompilerGeneratedNames)
+            members = members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
@@ -1381,6 +1378,7 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
+        LibraryCommand.AddCloneCandidateSchema(detailSchema);
         if (!includeExactMemberColumns)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
@@ -1613,7 +1611,7 @@ public class ApiCommand
                 resolved.Sections ?? [],
                 StringComparer.OrdinalIgnoreCase);
             if (!options.BodyKindQuery.HasFilter)
-                discoveredSections.Remove(SectionNames.BodyShapes);
+                discoveredSections.ExceptWith(BodyKindQueryOptions.Sections);
             return discoveredSections;
         }
 
@@ -2244,17 +2242,17 @@ public class ApiCommand
             string? content = null;
             SourceChecksumVerification checksumVerification =
                 SourceChecksumVerification.Unavailable;
-            var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
+            var localBytes = DotnetInspector.Services.PdbSourceHouse.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                checksumVerification = PdbSourceHouse.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
+                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2264,17 +2262,17 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                checksumVerification = PdbSourceHouse.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
+                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+                var fetch = await PdbSourceHouse.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
@@ -2376,7 +2374,7 @@ public class ApiCommand
     {
         try
         {
-            string? sourceCode = BodySlicer.ExtractMethodBody(
+            string? sourceCode = MemberTextSlicer.ExtractMemberText(
                 content,
                 startLine,
                 endLine,
@@ -2406,7 +2404,7 @@ public class ApiCommand
                 pdbPath,
                 MemberSourceTooComplex: true);
         }
-        catch (InvalidSequencePointCoordinatesException)
+        catch (InvalidMemberTextCoordinatesException)
         {
             return new ResolvedMethodSource(
                 null,
@@ -2603,10 +2601,8 @@ public class ApiCommand
                     + "Use --jsonl, --tsv, --table, or --print.");
                 return 1;
             }
-            if (GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.BodyShapes)
-                && options.IncludeSections?.Contains(
-                    SectionNames.BodyShapes) == true)
+            if (BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, options))
+                && BodyKindQueryOptions.IsSelected(options.IncludeSections))
             {
                 CommandError.Write(
                     "Document --json cannot represent Body Shapes analysis. "
@@ -2698,7 +2694,7 @@ public class ApiCommand
                 var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
-                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    if (BodyKindQueryOptions.IsSelected(requestedSections))
                     {
                         ApiOutputFormatter.PopulateBodyShapes(
                             view,
@@ -2717,13 +2713,14 @@ public class ApiCommand
 
             if (options is TypeOptions
                 && options.DllPath is { } typeBodyShapeDllPath
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.BodyShapes))
+                && BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, options)))
             {
                 ApiOutputFormatter.PopulateBodyShapes(
                     view,
                     typeBodyShapeDllPath,
                     options.PdbPath,
-                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(
+                        BuildFilteredTypeForBodyShapes(type, options)),
                     options,
                     sourceAssembly);
             }
@@ -3280,8 +3277,8 @@ public class ApiCommand
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
             fetcher,
             selectedSource.FilePath,
             rawUrl,
@@ -3430,12 +3427,28 @@ public class ApiCommand
             filteredType,
             options.IncludeSections,
             explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
-        if (!options.BodyKindQuery.HasFilter)
+        ApiType? bodyFilteredType = null;
+        if (options.BodyKindQuery.HasFilter)
+        {
+            bodyFilteredType = BuildFilteredTypeForBodyShapes(apiType, options);
+            var bodyEffective = memberPipeline.GetDiscoverableSections(
+                    bodyFilteredType,
+                    options.IncludeSections,
+                    explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true })
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var normallyEffective = effective.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            effective = memberPipeline.SelectableSectionNames
+                .Where(section => BodyKindQueryOptions.Sections.Contains(
+                        section, StringComparer.OrdinalIgnoreCase)
+                    ? bodyEffective.Contains(section)
+                    : normallyEffective.Contains(section))
+                .ToList();
+        }
+        else
         {
             effective = effective
-                .Where(section => !section.Equals(
-                    SectionNames.BodyShapes,
-                    StringComparison.OrdinalIgnoreCase))
+                .Where(section => !BodyKindQueryOptions.Sections.Contains(
+                    section, StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
@@ -3447,6 +3460,17 @@ public class ApiCommand
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
+        if (bodyFilteredType is not null)
+        {
+            var bodyRenderManifest = BuildTypeRenderManifest(
+                bodyFilteredType,
+                options,
+                discoveryRenderSections,
+                acquisition);
+            renderManifest.ReplaceSectionsFrom(
+                bodyRenderManifest,
+                BodyKindQueryOptions.Sections);
+        }
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();
@@ -3630,7 +3654,7 @@ public class ApiCommand
                 var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
-                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    if (BodyKindQueryOptions.IsSelected(requestedSections))
                     {
                         ApiOutputFormatter.PopulateBodyShapes(
                             view,
@@ -3665,13 +3689,14 @@ public class ApiCommand
 
             if (renderOptions is TypeOptions
                 && renderOptions.DllPath is { } typeBodyShapeDllPath
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.BodyShapes))
+                && BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, renderOptions)))
             {
                 ApiOutputFormatter.PopulateBodyShapes(
                     view,
                     typeBodyShapeDllPath,
                     renderOptions.PdbPath,
-                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(
+                        BuildFilteredTypeForBodyShapes(type, renderOptions)),
                     renderOptions,
                     acquisition?.SourceAssembly);
             }

@@ -252,7 +252,7 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
                 .ConfigureAwait(false);
         }
         catch (PackageAssemblyRoleCorrespondenceException failure) when (
-            !failure.Data.Contains("DotnetInspector.Artifacts.Workspaces.CleanupFailures")
+            !failure.Data.Contains("Inspector.Artifacts.Workspaces.CleanupFailures")
             && !failure.Data.Contains("DotnetInspector.Queries.WorkspaceCleanupFailure"))
         {
             return null;
@@ -455,7 +455,7 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
             InspectionWorkspaceCloseReport report =
                 await workspace.CloseAsync().ConfigureAwait(false);
             if (!report.ArtifactSessionCleanupFailures.IsEmpty)
-                failure.Data["DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
+                failure.Data["Inspector.Artifacts.Workspaces.CleanupFailures"] =
                     report.ArtifactSessionCleanupFailures;
         }
         catch (Exception cleanupFailure)

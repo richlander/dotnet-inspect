@@ -1,5 +1,5 @@
 using ILInspector.Instructions;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 

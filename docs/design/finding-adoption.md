@@ -153,9 +153,9 @@ regression can escape by falling into an excluded failure bucket.
   `PointerStoreUsesOriginalAddress_StaysCompileBackCheckable` in both fidelity
   views. The docket may accept `Exact` or `OpcodeDiff`, but not disappearance,
   `RecompileFail`, or `ContextFail`. See
-  [`FidelityGateTests`](../../src/ILInspector.Decompiler.Tests/FidelityGateTests.cs)
+  [`FidelityGateTests`](../../tests/ILInspector.Decompiler.Tests/FidelityGateTests.cs)
   and
-  [`LoweredFidelityGateTests`](../../src/ILInspector.Decompiler.Tests/LoweredFidelityGateTests.cs).
+  [`LoweredFidelityGateTests`](../../tests/ILInspector.Decompiler.Tests/LoweredFidelityGateTests.cs).
 
 ## 7. Correlate through the census and identity tiers
 
@@ -177,8 +177,8 @@ failure to the cell. Pins:
 `CellException_BecomesFailureAndLaterCellsStillEvaluate`,
 `EmptyOwnedCensus_PreservesSubjectAvailabilityTransitions`, and
 `ProbeOrder_DoesNotChangeTimelineOrder` in
-[`TimelineCommandTests`](../../src/dotnet-inspect.Tests/TimelineCommandTests.cs).
-See [`FindingCensusCorrelation`](../../src/ILInspector.Findings/FindingCorrelation.cs).
+[`TimelineCommandTests`](../../tests/dotnet-inspect.Tests/TimelineCommandTests.cs).
+See [`FindingCensusCorrelation`](../../src/Inspector.Findings/FindingCorrelation.cs).
 
 ## 8. Equality is not correspondence
 
@@ -195,7 +195,7 @@ keeping matching key-driven. The test that pins this behavior is
 `FindingPayloadEquality_IsProducerOwnedButMatchingRemainsKeyDriven`: equal keys
 still match while unequal payload content reports unequal, and that is correct.
 See [Finding value semantics](finding-value-equality.md) and
-[`FindingValueEquality`](../../src/ILInspector.Findings/FindingValueEquality.cs).
+[`FindingValueEquality`](../../src/Inspector.Findings/FindingValueEquality.cs).
 
 ## 9. Retain provenance without promoting judgments
 

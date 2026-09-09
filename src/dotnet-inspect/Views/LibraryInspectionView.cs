@@ -871,6 +871,14 @@ public class LibraryInspectionView
             .Select(BodyShapeRow.FromMatch)
             .ToList();
 
+    [MarkoutSection(
+        Name = SectionNames.BodyShapeSummary,
+        EmptyText = "No matching body shapes found.")]
+    public List<BodyShapeSummaryRow>? BodyShapeSummarySection =>
+        _data.EffectiveBodyShapeSearchResult is { } result
+            ? BodyShapeSummaryRow.FromMatches(result.Matches)
+            : null;
+
     public bool HasTopLeverage =>
         _data.TopLeverageQueryResult is TopLeverageResult.Available
             { Methods.IsEmpty: false };
@@ -2012,7 +2020,10 @@ public sealed record ReadyToRunImageRow
 {
     public required string Role { get => field; init => field = LibraryViewText.Contain(value); }
     public required string Advertisements { get => field; init => field = LibraryViewText.Contain(value); }
+
+    [MarkoutPropertyName("R2R Format Version")]
     public required string Version { get => field; init => field = LibraryViewText.Contain(value); }
+
     public required string Flags { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Header RVA")]

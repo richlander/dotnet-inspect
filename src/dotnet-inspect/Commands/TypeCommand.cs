@@ -8,6 +8,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Markout;
 using DotnetInspector.Services;
@@ -93,6 +94,7 @@ public static class TypeCommand
             JsonArray = options.JsonArray,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,
+            CloneCandidateQuery = options.CloneCandidateQuery,
             SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
             RenderConfigWarnings = options.RenderConfigWarnings,
@@ -319,6 +321,49 @@ public static class TypeCommand
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).
                     effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
+
+                    if (!CloneCandidatesCommand.ValidatePredicateSelection(
+                            effectiveOptions.CloneCandidateQuery,
+                            effectiveOptions.IncludeSections))
+                    {
+                        return 1;
+                    }
+
+                    if (CloneCandidatesCommand.IsSelected(
+                            effectiveOptions.IncludeSections))
+                    {
+                        if (apiType.DefinitionName is not { } definitionName)
+                        {
+                            CommandError.Write(
+                                $"Type '{apiType.FullName}' has no exact metadata definition identity for Clone Candidates.");
+                            return 1;
+                        }
+                        if (effectiveOptions.DllPath is not { } clonePath)
+                        {
+                            CommandError.Write(
+                                $"Type '{apiType.FullName}' has no resolved assembly path for Clone Candidates.");
+                            return 1;
+                        }
+                        ResolvedAssemblyReference cloneAssembly =
+                            sourceAssembly
+                            ?? ResolvedAssemblyReference.CreateFromPath(
+                                clonePath,
+                                AssemblyResolutionProvenance.Local(
+                                    "type Clone Candidates"));
+                        return await CloneCandidatesCommand.ExecuteAsync(
+                            cloneAssembly,
+                            clonePath,
+                            new StructuralCloneSearchSeed.Type(
+                                definitionName),
+                            effectiveOptions.CloneCandidateQuery,
+                            CloneCandidateOutputOptions.From(
+                                effectiveOptions),
+                            new CloneCandidateWorkspaceOptions(
+                                source.PackageExtractPath,
+                                effectiveOptions.ProjectAssetsPath,
+                                effectiveOptions.Tfm,
+                                effectiveOptions.SourceOptions));
+                    }
 
                     // Real local names for the listing: acquire the portable
                     // PDB the same way the member command does — only when the
@@ -653,6 +698,7 @@ public static class TypeCommand
                [
                    SectionNames.DecompiledSource,
                    SectionNames.BodyShapes,
+                   SectionNames.BodyShapeSummary,
                ]);
 
     internal static bool AuthorizesSourceInfoAcquisition(

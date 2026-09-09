@@ -111,9 +111,10 @@ loaded after service creation advances `PdbContext.PdbVersion`; the service
 then re-extracts the map and invalidates its resolver, document, provenance,
 and type-index caches before the next query.
 
-SourceLinkFetch remains the dependency-free owner of map matching and
-provenance grammar. It does not open PE/PDB files and has no Metadata project
-dependency.
+Within `ILInspector.SourceLink`, `SourceLinkDocumentMap` remains the single
+owner of map matching and `SourceLinkProvenance` remains the single owner of
+provenance grammar. Those utilities do not open PE/PDB files;
+`SourceLinkService` composes them with Metadata's typed PDB context.
 
 ## Consumer boundaries
 
@@ -125,7 +126,7 @@ reachability and checksum statuses are operation results and presentation
 folds, not additional Findings.
 
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
-token. `PdbSourceAcquisition` consumes the same token-scoped mapping and
+token. `PdbSourceHouse` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
@@ -133,22 +134,45 @@ verifies the portable-PDB checksum, extracts the member body, and returns a
 path, and returns the complete checksum-verified PDB document with its typed
 mapping, document, and checksum verdict. The PDB correlation retains that
 structured name rather than indexing its non-injective dotted projection, and
-duplicate exact identities are rejected instead of selecting the first row. It does not
-use SourceLink's simple-name compatibility fallback or case-insensitive
-document inference.
-`MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments`
+duplicate exact identities are rejected instead of selecting the first row.
+After that exact TypeDef match, SourceLink may use its case-insensitive filename
+inference over the PDB document census only when the type has no
+method-correlated document and exactly one matching document path exists. This
+covers unambiguous bodyless interfaces and other declarations that produce no
+sequence points across C#, Visual Basic, and F# source documents. C# generated
+or partial-document suffixes such as `.g.cs` remain eligible. A correlated
+document remains primary regardless of unrelated filename matches, while
+multiple inferred matches decline to decompiler fallback. An inferred mapping
+retains `Inferred` as the resolution method. It does not let a simple-name type
+lookup replace the exact identity, and document paths remain ordinal across
+exact and legacy string entry points.
+`MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinal`,
+`MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_InfersDocumentAfterExactTypeMatch`,
+`MetadataSourceFindingsTests.ExactCorrelatedTypeSourceResolution_DoesNotAddFilenameInference`,
+`MetadataSourceFindingsTests.ExactBodylessTypeSourceResolution_DeclinesAmbiguousFilenameInference`,
+`MetadataSourceFindingsTests.ExactBodylessVisualBasicTypeSourceResolution_InfersDocument`,
 and
 `MetadataSourceFindingsTests.ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity`
-gate that boundary. Request conversion uses `ApiType.DefinitionName` when
-available; an older surface's string `MetadataName` is accepted only for an
-unambiguous top-level name, because `+` cannot distinguish nesting from a
-literal metadata character. This is gated by
+gate that boundary. The shared resolution reaches CLI source-file projection
+and browser/Wasm type-source acquisition; the latter additionally proves
+checksum-verified acquisition through
+`AssemblyContextSourceQueryTests.BodylessType_AcquiresInferredChecksumVerifiedPdbSource`
+and ambiguous-inference fallback through
+`AssemblyContextSourceQueryTests.AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler`.
+`CommandExecutionTests.SourceLinkFiles_DeclinesCaseDistinctBodylessDocuments`
+gates ordinal path identity through the CLI projection, while
+`CommandExecutionTests.SourceLinkFiles_InfersBodylessVisualBasicDocument`
+preserves extension-independent inference through that projection.
+Request conversion uses `ApiType.DefinitionName` when available; an older
+surface's string `MetadataName` is accepted only for an unambiguous top-level
+name, because `+` cannot distinguish nesting from a literal metadata character.
+This is gated by
 `AssemblyContextSourceQueryTests.RequestFromLegacyApiType_RequiresUnambiguousMetadataName`.
 
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 PDB-source attempt so Decompiler fallback can run.
-`PdbSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceHouseTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from
@@ -247,18 +271,19 @@ projection. The resulting declaration must remain sliceable with identical
 boundaries; otherwise the slicer refuses the result rather than include a
 sibling from an inactive branch.
 
-`SourceFetcher` delegates reusable verified bytes to an
+`SourceFetch` delegates reusable verified bytes to an
 `ISourceContentStore`. Its compatibility constructor retains the desktop
 `CoreCache`; content-only hosts supply `InMemorySourceContentStore`, so source
 acquisition has no ambient filesystem requirement.
 
 The same checksum evidence is carried through type, member-location, and
 IL-offset projections when those views can print or derive output from source
-content. Network responses are used only after the final response URL preserves
-the requested URL's attributable SourceLink origin and the bytes match the
-portable-PDB checksum. URLs outside the known provenance grammars carry no
-repository claim but still require the checksum before their content is
-rendered.
+content. Source acquisition follows redirects and uses a successful response
+only after the bytes match the portable-PDB checksum. Host policy authorizes
+the initial destination and transport containment; availability and integrity
+audits separately retain final-origin validation. URLs outside the known
+provenance grammars carry no repository claim but still require the checksum
+before their content is rendered.
 
 Compilation options and references describe available rebuild context. They do
 not claim that the context is complete enough to reproduce the original build.

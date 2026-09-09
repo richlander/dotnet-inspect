@@ -22,7 +22,6 @@ internal static class BrowserVocabulary
             section.Id,
             section.Name,
             section.Summary,
-            section.Categories,
             section.AcceptedBy,
             [.. section.Fields.Select(ToBrowserField)],
             [.. section.Values.Select(ToBrowserRow)]);

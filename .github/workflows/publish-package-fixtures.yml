@@ -33,8 +33,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Read fixture version
         id: fixture
@@ -51,7 +50,7 @@ jobs:
 
       - name: Validate fixture catalog
         shell: bash
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.PackageFixtureTests"
+        run: dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.PackageFixtureTests"
 
       - name: Pack fixture packages
         shell: bash

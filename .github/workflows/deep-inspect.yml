@@ -14,6 +14,7 @@ on:
           - package-sweep
           - authored-corpus
           - platform-test
+          - inspect-web
           - nightly
           - all
   schedule:
@@ -52,11 +53,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-package-sweep-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -116,11 +116,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -137,13 +136,13 @@ jobs:
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
 
       - name: Run CLI tests (including slow integration)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/dotnet-inspect.Tests -c Release
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
       - name: Run analysis tests (including slow)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
       - name: Restore vendored ILAssembler
         run: bash eng/restore-ilassembler.sh
@@ -198,11 +197,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -235,7 +233,7 @@ jobs:
       # reporting every affected suite makes the scheduled failure actionable.
       - name: Run CLI tests (all)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/dotnet-inspect.Tests -c Release
 
       - name: Run CSharpText tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -243,7 +241,7 @@ jobs:
 
       - name: Run artifact contract tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
       - name: Run ecosystem registry tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -255,23 +253,34 @@ jobs:
 
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
+        id: metadata
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          DOTNET_INSPECT_D3_REPORT: artifacts/custom-attribute-d3/result.json
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
+
+      - name: Upload custom-attribute D3 evidence
+        if: ${{ !cancelled() && (steps.metadata.outcome == 'success' || steps.metadata.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-attribute-d3-${{ matrix.rid }}
+          path: artifacts/custom-attribute-d3/result.json
+          if-no-files-found: error
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
 
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
 
       - name: Run presentation tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -279,7 +288,7 @@ jobs:
 
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- --fail-skips on
+        run: dotnet run --project tests/ILInspector.Research.Tests -c Release -- --fail-skips on
 
       - name: Check ilasm/ildasm/mdv result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
@@ -306,11 +315,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -321,7 +329,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Run decompiler corpus sweep
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 
   release-certification:
     name: Release certification
@@ -352,6 +360,49 @@ jobs:
           fi
           echo "Release certification passed for $GITHUB_SHA"
 
+  inspect-web:
+    name: Inspect Web comprehensive
+    # Complete mutation and dual-runtime evidence runs daily and on demand.
+    # Ordinary PRs retain fast boundary coverage; direct changes to these
+    # harnesses or their owners select the same comprehensive modes in CI.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'inspect-web' ||
+      inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: prototypes/inspect-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check complete generated facade contract
+        run: eng/generate-inspect-web-engine-facade.sh --check
+
+      - name: Test complete shared-runtime multi-facade canary
+        run: eng/test-inspect-web-multi-facade-canary.sh
+
+      - name: Test complete managed-operation bridge canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
+
   census:
     name: Census lane
     if: inputs.lane == 'census' || inputs.lane == 'all'
@@ -362,11 +413,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -550,7 +600,7 @@ jobs:
           "$DOTNET_ROOT/dotnet" --info
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-nightly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -625,7 +675,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release --no-restore
 
       - name: Run unsafe decompiler tests with nightly SDK
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
 
       - name: Gate net11 opt-in feature corpus
         shell: bash
@@ -704,11 +754,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -753,7 +802,7 @@ jobs:
 
       - name: Upload the run JSON
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deep-inspect-authored-corpus
           path: |
@@ -773,6 +822,7 @@ jobs:
       - platform-test
       - decompiler-corpus
       - release-certification
+      - inspect-web
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04

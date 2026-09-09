@@ -38,6 +38,11 @@ It consumes owner-issued facts and does not redefine their construction:
 - [Restored Project Dependency Facts](restored-project-dependency-facts.md)
   owns exact `project.assets.json` target selection, package nodes, and graph
   edges.
+- [Restored Project Dependency Traversal](restored-project-dependency-traversal.md),
+  tracked by [#5998](https://github.com/richlander/dotnet-inspect/issues/5998),
+  owns root-relative restored-project traversal: typed project-reference and
+  package relationships, minimum distance from the restored root, depth
+  boundaries, scoped failures, completion, and topology identity.
 - Metadata and Services own type hierarchy, assembly-reference, and package
   resolution facts.
 - [Package Source Model](package-source-model.md) owns source authorization,
@@ -119,7 +124,8 @@ The delivery plan has seven steps:
 3. Define typed package dependency traversal under
    [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
 4. Define typed restored-project root and project-reference traversal under
-   [#5998](https://github.com/richlander/dotnet-inspect/issues/5998).
+   [#5998](https://github.com/richlander/dotnet-inspect/issues/5998), specified
+   by [Restored Project Dependency Traversal](restored-project-dependency-traversal.md).
 5. Replace the lossy tree-owned `depends` model with one typed Markout graph
    and edge-row projection under
    [#3320](https://github.com/richlander/dotnet-inspect/issues/3320).

@@ -583,6 +583,8 @@ public static class ApiSectionDemandIndex
             SectionNames.CallGraph,
             SectionNames.UnsafeOperations,
             SectionNames.BodyShapes,
+            SectionNames.BodyShapeSummary,
+            SectionNames.CloneCandidates,
             SectionNames.Facts,
             SectionNames.IL);
 

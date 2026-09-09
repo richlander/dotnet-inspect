@@ -86,12 +86,15 @@ public static class CommandLineBuilder
             ownershipParse = rootCommand.Parse(ownershipArgs);
         }
 
-        return ArgumentPreprocessor.TryGetStaleDirectionFlagError(
-            ownershipArgs,
-            CliRowSelectionCommandRegistry.OwnsShortLimit(
+        if (CliRowSelectionCommandRegistry.OwnsShortLimit(
                 ownershipParse,
-                ownershipArgs),
-            out error);
+                ownershipArgs))
+        {
+            error = null;
+            return false;
+        }
+
+        return ArgumentPreprocessor.TryGetStaleDirectionFlagError(ownershipArgs, out error);
     }
 
     /// <summary>
@@ -117,6 +120,22 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        if (args.FirstOrDefault()?.StartsWith('-') == true
+            && processed.FirstOrDefault() == "router")
+        {
+            string[] packageArguments = [PackageCommand.Name, .. args];
+            ParseResult packageParse = rootCommand.Parse(packageArguments);
+            if ((HasParsedOption(packageParse, "--versions")
+                    || HasParsedOption(packageParse, "--versions-with-feed"))
+                && RouterCommandDefinition.IsAcquisitionFreePackageRoute(
+                    processed[1..], rootCommand))
+            {
+                // These lenses already select the package route. Keep the original
+                // positional order rather than hoisting a target across its flags.
+                return ArgumentPreprocessor.PreprocessArgs(packageArguments);
+            }
+        }
+
         ParseResult parseResult = rootCommand.Parse(processed);
         if (processed.FirstOrDefault() == "router"
             || CliRowSelectionCommandRegistry.OwnsShortLimit(
@@ -222,6 +241,23 @@ public static class CommandLineBuilder
             return 1;
         }
         parseResult = rowSelection.ParseResult;
+
+        // The adopted format guard retains its precedence over positional validation.
+        if (rowSelection.HasCompatibilityError)
+        {
+            CommandError.Write(rowSelection.Error!);
+            return 1;
+        }
+
+        if (CliOptionValueValidation.FindError(
+                parseResult,
+                rowSelection.Arguments ?? rawArgs
+                    ?? [.. parseResult.Tokens.Select(static token => token.Value)],
+                rowSelection.PresenceOptions) is { } optionValueError)
+        {
+            CommandError.Write(optionValueError);
+            return 1;
+        }
 
         if (WriteParseErrors(parseResult))
             return 1;
@@ -471,13 +507,19 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(httpTimeoutOption);
 
         // Type command (type discovery, compact table)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateTypeCommand(opts, out var typeArgs));
+        Command typeCommand =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out var typeArgs);
+        rootCommand.Subcommands.Add(typeCommand);
 
         // Member command (member inspection, docs by default)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateMemberCommand(opts, out var memberArgs));
+        Command memberCommand =
+            ApiCommandDefinitions.CreateMemberCommand(opts, out var memberArgs);
+        rootCommand.Subcommands.Add(memberCommand);
 
         // Library command
-        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateLibraryCommand(opts));
+        Command libraryCommand =
+            InspectionCommandDefinitions.CreateLibraryCommand(opts);
+        rootCommand.Subcommands.Add(libraryCommand);
 
         // Cache command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCacheCommand(opts));
@@ -514,7 +556,11 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 
         // Package command
-        rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts, out var packageArgs));
+        Command packageCommand =
+            PackageCommandDefinitions.CreatePackageCommand(
+                opts,
+                out var packageArgs);
+        rootCommand.Subcommands.Add(packageCommand);
 
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
@@ -528,7 +574,19 @@ public static class CommandLineBuilder
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts, typeArgs, memberArgs, packageArgs));
+        rootCommand.Subcommands.Add(
+            RouterCommandDefinition.Create(
+                rootCommand,
+                opts,
+                typeArgs,
+                memberArgs,
+                packageArgs,
+                [
+                    packageCommand,
+                    libraryCommand,
+                    typeCommand,
+                    memberCommand,
+                ]));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));

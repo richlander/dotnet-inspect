@@ -573,12 +573,12 @@ renderable but intentionally carry no navigable definition identity. Property
 and event accessors resolve through their opaque body selector when no physical
 method token survives projection.
 
-Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
+Coverage lives in `tests/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
 (edge direction and inversion, duplicates/cycles, node-kind precedence,
 deterministic ids and ordering, loop annotations across collapse and inversion,
 cross-assembly / generic-recursion-collapse / return-type identity behavior, the
 bodiless-target combined view, and the two-different-unsupported-roots rejection)
-and in `src/DotnetInspector.Queries.Tests/MemberCallGraphSessionTests.cs` for
+and in `tests/DotnetInspector.Queries.Tests/MemberCallGraphSessionTests.cs` for
 progressive acquisition and bounded cross-library callee neighborhoods.
-`src/dotnet-inspect.Tests/MemberCallGraphSectionTests.cs` covers the CLI section,
+`tests/dotnet-inspect.Tests/MemberCallGraphSectionTests.cs` covers the CLI section,
 its lowerings, and its `--fields` projection.

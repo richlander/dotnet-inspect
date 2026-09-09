@@ -12,7 +12,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
 using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
@@ -205,6 +205,8 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage,
                 BodyKindQueryOptions = options.BodyKindQuery,
                 IntegrationQuery = options.IntegrationQuery,
+                BodyShapeSections = options.IncludeSections,
+                BodyShapeSummaryRows = options.Rows,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();

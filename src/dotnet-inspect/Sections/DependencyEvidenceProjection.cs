@@ -8,6 +8,7 @@ namespace DotnetInspector.Sections;
 /// <summary>The closed declaration state of one admitted root, as a projected row value.</summary>
 public enum DependencyEvidenceDeclarationState
 {
+    NotApplicable,
     Available,
     Unavailable,
     Failed,
@@ -50,8 +51,8 @@ public sealed record DependencyEvidenceDependencyRow(
     int RootIndex,
     PackageDependencyEvidenceRootIdentity RootIdentity,
     InertString RootDisplay,
-    PackageDependencyEvidenceRootOwner Owner,
-    PackageDependencyEvidenceSourceKind SourceKind,
+    PackageDependencyEvidenceInputKind Owner,
+    PackageDependencyEvidenceAcquisitionForm SourceKind,
     int GroupIndex,
     PackageDependencyEvidenceGroupIdentity GroupIdentity,
     string GroupOrderKey,
@@ -71,8 +72,8 @@ public sealed record DependencyEvidenceRootRow(
     int RootIndex,
     PackageDependencyEvidenceRootIdentity Identity,
     InertString Display,
-    PackageDependencyEvidenceRootOwner Owner,
-    PackageDependencyEvidenceSourceKind SourceKind,
+    PackageDependencyEvidenceInputKind Owner,
+    PackageDependencyEvidenceAcquisitionForm SourceKind,
     InertString? SourceLabel,
     string? PackageId,
     string? PackageVersion,
@@ -105,7 +106,7 @@ public sealed record DependencyEvidenceGroupRow(
     int RootIndex,
     PackageDependencyEvidenceRootIdentity RootIdentity,
     InertString RootDisplay,
-    PackageDependencyEvidenceRootOwner Owner,
+    PackageDependencyEvidenceInputKind Owner,
     int GroupIndex,
     PackageDependencyEvidenceGroupIdentity Identity,
     string OrderKey,
@@ -157,7 +158,7 @@ public sealed record DependencyEvidenceRestoredPackageRow(
 public sealed record DependencyEvidenceFailureRow(
     DependencyEvidenceFailurePhase Phase,
     string Reason,
-    PackageDependencyEvidenceSourceKind? SourceKind,
+    PackageDependencyEvidenceAcquisitionForm? SourceKind,
     int? RootIndex,
     PackageDependencyEvidenceRootIdentity? RootIdentity,
     PackageDependencyEvidenceGroupIdentity? Group,
@@ -272,6 +273,8 @@ public sealed record DependencyEvidenceProjection(
             {
                 PackageDependencyEvidenceDeclarationResult.Available =>
                     DependencyEvidenceDeclarationState.Available,
+                PackageDependencyEvidenceDeclarationResult.NotApplicable =>
+                    DependencyEvidenceDeclarationState.NotApplicable,
                 PackageDependencyEvidenceDeclarationResult.Unavailable =>
                     DependencyEvidenceDeclarationState.Unavailable,
                 _ => DependencyEvidenceDeclarationState.Failed,
@@ -294,7 +297,7 @@ public sealed record DependencyEvidenceProjection(
                         index,
                         root.Identity,
                         root.Display,
-                        root.Provenance.Owner,
+                        root.InputKind,
                         groupIndex,
                         group.Identity,
                         group.OrderKey,
@@ -319,8 +322,8 @@ public sealed record DependencyEvidenceProjection(
                             index,
                             root.Identity,
                             root.Display,
-                            root.Provenance.Owner,
-                            root.Provenance.SourceKind,
+                            root.InputKind,
+                            root.Provenance.AcquisitionForm,
                             groupIndex,
                             group.Identity,
                             group.OrderKey,
@@ -355,54 +358,81 @@ public sealed record DependencyEvidenceProjection(
                     groupIndexes));
         }
 
-        var graph = root.Graph as PackageDependencyEvidenceGraphResult.Available;
-        if (graph is not null)
+        var relationships =
+            root.Relationships
+                as PackageDependencyEvidenceRelationshipResult.Available;
+        if (relationships is not null)
         {
-            foreach (RestoredProjectPackageNode node in graph.Packages)
+            foreach (PackageDependencyEvidenceResolvedPackage package in
+                relationships.Packages)
             {
+                RestoredProjectPackageNodeIdentity identity =
+                    ReadRestoredPackageIdentity(package.Identity);
                 packages.Add(
                     new DependencyEvidenceRestoredPackageRow(
                         index,
                         root.Identity,
                         root.Display,
-                        node.Identity,
-                        node.Identity.Coordinate.PackageId,
-                        node.Identity.Coordinate.Version,
-                        node.Role));
+                        identity,
+                        package.Coordinate.PackageId,
+                        package.Coordinate.Version,
+                        ReadRestoredRole(package.Role)));
             }
 
-            foreach (RestoredProjectGraphEdge edge in graph.Edges)
+            foreach (PackageDependencyEvidenceRelationship relationship in
+                relationships.Relationships)
             {
+                RestoredProjectGraphParentIdentity parent =
+                    ReadRestoredParent(relationship.Parent);
+                RestoredProjectPackageNodeIdentity dependency =
+                    ReadRestoredPackageIdentity(relationship.Dependency);
                 (DependencyEvidenceEdgeParentKind parentKind,
                     string? parentPackageId,
                     string? parentPackageVersion,
-                    string? parentProjectIdentity) = ReadParent(edge.Parent);
+                    string? parentProjectIdentity) = ReadParent(parent);
                 edges.Add(
                     new DependencyEvidenceRestoredEdgeRow(
                         index,
                         root.Identity,
                         root.Display,
-                        edge.Identity,
+                        ReadRestoredRelationshipIdentity(relationship.Identity),
                         parentKind,
-                        edge.Parent,
+                        parent,
                         parentPackageId,
                         parentPackageVersion,
                         parentProjectIdentity,
-                        edge.Dependency,
-                        edge.Dependency.Coordinate.PackageId,
-                        edge.Dependency.Coordinate.Version,
-                        edge.CanonicalVersionConstraint,
-                        edge.SourceVersionConstraintSpelling,
-                        edge.Role));
+                        dependency,
+                        relationship.ResolvedCoordinate.PackageId,
+                        relationship.ResolvedCoordinate.Version,
+                        relationship.CanonicalRequestedConstraint
+                            ?? throw new InvalidOperationException(
+                                "A restored-project relationship requires a requested constraint."),
+                        relationship.SourceRequestedConstraintSpelling
+                            ?? throw new InvalidOperationException(
+                                "A restored-project relationship requires source constraint evidence."),
+                        ReadRestoredRole(relationship.Role)));
             }
 
-            foreach (RestoredProjectGraphFailure failure in graph.Failures)
-                failures.Add(ProjectGraphFailure(index, root, failure));
+            foreach (PackageDependencyEvidenceRelationshipFailure failure in
+                relationships.Failures)
+            {
+                failures.Add(
+                    ProjectGraphFailure(
+                        index,
+                        root,
+                        ReadRestoredRelationshipFailure(failure)));
+            }
         }
-        else if (root.Graph is PackageDependencyEvidenceGraphResult.Failed
-            failedGraph)
+        else if (root.Relationships
+            is PackageDependencyEvidenceRelationshipResult.Failed
+                failedRelationships)
         {
-            failures.Add(ProjectGraphFailure(index, root, failedGraph.Failure));
+            failures.Add(
+                ProjectGraphFailure(
+                    index,
+                    root,
+                    ReadRestoredRelationshipFailure(
+                        failedRelationships.Failure)));
         }
 
         roots.Add(
@@ -410,8 +440,8 @@ public sealed record DependencyEvidenceProjection(
                 index,
                 root.Identity,
                 root.Display,
-                root.Provenance.Owner,
-                root.Provenance.SourceKind,
+                root.InputKind,
+                root.Provenance.AcquisitionForm,
                 root.Provenance.SourceLabel,
                 coordinate.PackageId,
                 coordinate.Version,
@@ -437,19 +467,19 @@ public sealed record DependencyEvidenceProjection(
                 root.Selection.SelectedSourceOccurrence,
                 root.Selection.RequestedFramework,
                 root.Selection.SelectedFramework,
-                root.Graph switch
+                root.Relationships switch
                 {
-                    PackageDependencyEvidenceGraphResult.NotApplicable =>
+                    PackageDependencyEvidenceRelationshipResult.NotApplicable =>
                         DependencyEvidenceGraphState.NotApplicable,
-                    PackageDependencyEvidenceGraphResult.Available =>
+                    PackageDependencyEvidenceRelationshipResult.Available =>
                         DependencyEvidenceGraphState.Available,
-                    PackageDependencyEvidenceGraphResult.Unavailable =>
+                    PackageDependencyEvidenceRelationshipResult.Unavailable =>
                         DependencyEvidenceGraphState.Unavailable,
                     _ => DependencyEvidenceGraphState.Failed,
                 },
-                graph?.Completion,
-                graph?.Packages.Length ?? 0,
-                graph?.Edges.Length ?? 0,
+                relationships?.Completion,
+                relationships?.Packages.Length ?? 0,
+                relationships?.Relationships.Length ?? 0,
                 root.RestoredTarget?.FrameworkIdentity,
                 root.RestoredTarget?.SourceFrameworkSpelling,
                 root.RestoredTarget?.RuntimeIdentifierIdentity,
@@ -465,7 +495,7 @@ public sealed record DependencyEvidenceProjection(
                 new DependencyEvidenceFailureRow(
                     DependencyEvidenceFailurePhase.Root,
                     package.Failure.Reason.ToString(),
-                    package.SourceKind,
+                    package.AcquisitionForm,
                     null,
                     null,
                     null,
@@ -481,7 +511,7 @@ public sealed record DependencyEvidenceProjection(
                 new DependencyEvidenceFailureRow(
                     DependencyEvidenceFailurePhase.Root,
                     restored.Failure.Reason.ToString(),
-                    restored.SourceKind,
+                    restored.AcquisitionForm,
                     null,
                     null,
                     null,
@@ -499,7 +529,7 @@ public sealed record DependencyEvidenceProjection(
                     profile.ManifestFailureReason is { } manifestReason
                         ? $"{profile.Kind}.{manifestReason}"
                         : profile.Kind.ToString(),
-                    PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+                    PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                     null,
                     null,
                     null,
@@ -515,7 +545,7 @@ public sealed record DependencyEvidenceProjection(
                 new DependencyEvidenceFailureRow(
                     DependencyEvidenceFailurePhase.Root,
                     acquisition.Reason.ToString(),
-                    acquisition.SourceKind,
+                    acquisition.AcquisitionForm,
                     null,
                     null,
                     null,
@@ -557,7 +587,7 @@ public sealed record DependencyEvidenceProjection(
                 new DependencyEvidenceFailureRow(
                     DependencyEvidenceFailurePhase.Declaration,
                     "ConflictingPackageDeclaration",
-                    root.Provenance.SourceKind,
+                    root.Provenance.AcquisitionForm,
                     index,
                     root.Identity,
                     group,
@@ -575,7 +605,7 @@ public sealed record DependencyEvidenceProjection(
                 new DependencyEvidenceFailureRow(
                     DependencyEvidenceFailurePhase.Declaration,
                     "InvalidPackageDeclaration",
-                    root.Provenance.SourceKind,
+                    root.Provenance.AcquisitionForm,
                     index,
                     root.Identity,
                     group,
@@ -592,7 +622,7 @@ public sealed record DependencyEvidenceProjection(
                 new DependencyEvidenceFailureRow(
                     DependencyEvidenceFailurePhase.Declaration,
                     restored.Failure.Reason.ToString(),
-                    root.Provenance.SourceKind,
+                    root.Provenance.AcquisitionForm,
                     index,
                     root.Identity,
                     null,
@@ -616,7 +646,7 @@ public sealed record DependencyEvidenceProjection(
         new(
             DependencyEvidenceFailurePhase.Graph,
             failure.Reason.ToString(),
-            root.Provenance.SourceKind,
+            root.Provenance.AcquisitionForm,
             index,
             root.Identity,
             null,
@@ -628,6 +658,63 @@ public sealed record DependencyEvidenceProjection(
             root.Provenance.SourceLabel,
             Prose(failure.Message),
             failure.Count);
+
+    private static RestoredProjectPackageNodeIdentity
+        ReadRestoredPackageIdentity(
+            PackageDependencyEvidencePackageIdentity identity) =>
+        identity is PackageDependencyEvidencePackageIdentity.RestoredProject
+            restored
+            ? restored.Identity
+            : throw new InvalidOperationException(
+                "The current CLI restored-package projection requires restored-project identity.");
+
+    private static RestoredProjectEdgeIdentity
+        ReadRestoredRelationshipIdentity(
+            PackageDependencyEvidenceRelationshipIdentity identity) =>
+        identity is PackageDependencyEvidenceRelationshipIdentity.RestoredProject
+            restored
+            ? restored.Identity
+            : throw new InvalidOperationException(
+                "The current CLI restored-edge projection requires restored-project identity.");
+
+    private static RestoredProjectGraphParentIdentity ReadRestoredParent(
+        PackageDependencyEvidenceRelationshipParentIdentity parent) =>
+        parent switch
+        {
+            PackageDependencyEvidenceRelationshipParentIdentity.Root root
+                when root.Identity
+                    is PackageDependencyEvidenceRootIdentity.RestoredProject
+                        restored =>
+                new RestoredProjectGraphParentIdentity.Root(restored.Identity),
+            PackageDependencyEvidenceRelationshipParentIdentity.Package package =>
+                new RestoredProjectGraphParentIdentity.Package(
+                    ReadRestoredPackageIdentity(package.Identity)),
+            PackageDependencyEvidenceRelationshipParentIdentity.Project project =>
+                new RestoredProjectGraphParentIdentity.Project(project.Identity),
+            _ => throw new InvalidOperationException(
+                "The current CLI restored-edge projection requires restored-project parent identity."),
+        };
+
+    private static RestoredProjectDependencyRole ReadRestoredRole(
+        PackageDependencyEvidenceRelationshipRole? role) =>
+        role switch
+        {
+            PackageDependencyEvidenceRelationshipRole.Direct =>
+                RestoredProjectDependencyRole.Direct,
+            PackageDependencyEvidenceRelationshipRole.Transitive =>
+                RestoredProjectDependencyRole.Transitive,
+            _ => throw new InvalidOperationException(
+                "The current CLI restored-graph projection requires a dependency role."),
+        };
+
+    private static RestoredProjectGraphFailure
+        ReadRestoredRelationshipFailure(
+            PackageDependencyEvidenceRelationshipFailure failure) =>
+        failure is PackageDependencyEvidenceRelationshipFailure.RestoredProject
+            restored
+            ? restored.Failure
+            : throw new InvalidOperationException(
+                "The current CLI restored-graph projection requires a restored-project failure.");
 
     private static PackageSourceResultIdentity? RootSource(
         PackageDependencyEvidenceRoot root) =>

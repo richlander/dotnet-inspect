@@ -11,12 +11,15 @@ public sealed class ConfiguredPackagePayloadResult
         ConfiguredPackageAuthority? authority,
         AcquiredPackageSourcePayload? payload,
         IReadOnlyList<PackageAuthorityFailure> failures,
+        IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null,
         IReadOnlyList<ConfiguredPackageAuthority>? reportingAuthorities = null,
         bool selectionUsesOriginalSources = false)
     {
         Authority = authority;
         Payload = payload;
         Failures = new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
+        NotFoundAuthorities = new ReadOnlyCollection<ConfiguredPackageAuthority>(
+            [.. notFoundAuthorities ?? []]);
         ReportingAuthorities = reportingAuthorities is null
             ? null
             : new ReadOnlyCollection<ConfiguredPackageAuthority>([.. reportingAuthorities]);
@@ -26,6 +29,7 @@ public sealed class ConfiguredPackagePayloadResult
     public ConfiguredPackageAuthority? Authority { get; }
     public AcquiredPackageSourcePayload? Payload { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
+    public IReadOnlyList<ConfiguredPackageAuthority> NotFoundAuthorities { get; }
     internal IReadOnlyList<ConfiguredPackageAuthority>? ReportingAuthorities { get; }
     internal bool SelectionUsesOriginalSources { get; }
 }
@@ -46,7 +50,8 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        string? requiredProducerKey = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentNullException.ThrowIfNull(createStore);
@@ -74,7 +79,40 @@ public sealed partial class DesktopPackageSourceComposition
                 operation);
         failures.AddRange(resolution.Failures);
         if (resolution.Candidate is not { } candidate)
+        {
+            if (requiredProducerKey is not null
+                && resolution.State
+                    == PackageAcquisitionCandidateResultState.Denied)
+            {
+                failures.Add(RequiredProducerUnavailable());
+            }
             return new(null, null, failures);
+        }
+        if (requiredProducerKey is not null)
+        {
+            ConfiguredPackageAuthority[] matchingAuthorities =
+            [
+                .. candidate.Authorities
+                    .Select(evidence => evidence.Authority)
+                    .Where(authority =>
+                        _authoritiesByAssociation.TryGetValue(
+                            authority.Association,
+                            out AuthorityEntry? entry)
+                        && entry.Client.Source.Producer.Key.Equals(
+                            requiredProducerKey,
+                            StringComparison.Ordinal)),
+            ];
+            if (matchingAuthorities.Length == 0)
+            {
+                failures.Add(RequiredProducerUnavailable());
+                return new(null, null, failures);
+            }
+
+            candidate = PackageAcquisitionCandidate.CreatePinned(
+                _candidateIssuer,
+                coordinate,
+                matchingAuthorities);
+        }
 
         return await AcquireCandidateAsync(
             candidate,
@@ -102,6 +140,7 @@ public sealed partial class DesktopPackageSourceComposition
                 "The package acquisition candidate belongs to another source composition.");
         }
 
+        var notFoundAuthorities = new List<ConfiguredPackageAuthority>();
         try
         {
             operation.ThrowIfExpired();
@@ -149,8 +188,14 @@ public sealed partial class DesktopPackageSourceComposition
                         limits, log, operation.OperationToken).ConfigureAwait(false);
                 operation.ThrowIfExpired();
                 if (cached is not null)
-                    return new(entry.Authority, cached, failures,
-                        selectedAuthorities, selectionUsesOriginalSources);
+                {
+                    return new(
+                        entry.Authority,
+                        cached,
+                        failures,
+                        reportingAuthorities: selectedAuthorities,
+                        selectionUsesOriginalSources: selectionUsesOriginalSources);
+                }
             }
 
             foreach (var (entry, store) in entries)
@@ -171,22 +216,36 @@ public sealed partial class DesktopPackageSourceComposition
                     operation.ThrowIfExpired();
                     RequireAuthority(entry.Client.Source, entry);
                     if (result is PackageSourcePayloadResult.Acquired acquired)
-                        return new(entry.Authority, acquired.Payload, failures,
-                            selectedAuthorities, selectionUsesOriginalSources);
+                    {
+                        return new(
+                            entry.Authority,
+                            acquired.Payload,
+                            failures,
+                            notFoundAuthorities,
+                            selectedAuthorities,
+                            selectionUsesOriginalSources);
+                    }
                     if (result is PackageSourcePayloadResult.Failed failed)
                     {
                         RequireAuthority(failed.Failure.Source, entry);
                         failures.Add(DescribePayloadFailure(entry.Source, failed.Failure));
                     }
-                    else if (result is PackageSourcePayloadResult.Unavailable { IsNotFound: false })
+                    else if (result is PackageSourcePayloadResult.Unavailable unavailable)
                     {
-                        failures.Add(new PackageAuthorityFailure(
-                            PackageSourceDisplay.ForDiagnostics(entry.Source),
-                            PackageAuthorityFailureKind.ResponseRejected,
-                            "The selected source did not supply a payload satisfying the package policy.")
+                        if (unavailable.IsNotFound)
                         {
-                            ResultSource = entry.Client.Source,
-                        });
+                            notFoundAuthorities.Add(entry.Authority);
+                        }
+                        else
+                        {
+                            failures.Add(new PackageAuthorityFailure(
+                                PackageSourceDisplay.ForDiagnostics(entry.Source),
+                                PackageAuthorityFailureKind.ResponseRejected,
+                                "The selected source did not supply a payload satisfying the package policy.")
+                            {
+                                ResultSource = entry.Client.Source,
+                            });
+                        }
                     }
                 }
                 catch (PackageSourceStreamException exception)
@@ -200,15 +259,24 @@ public sealed partial class DesktopPackageSourceComposition
                         Timeout = exception.Timeout,
                     });
                     if (exception.Timeout?.Kind == PackageSourceTimeoutKind.Operation)
-                        return new(null, null, failures);
+                    {
+                        return new(
+                            null,
+                            null,
+                            failures,
+                            notFoundAuthorities);
+                    }
                 }
             }
             operation.ThrowIfExpired();
-            return new(null, null, failures);
+            return new(null, null, failures, notFoundAuthorities);
         }
         catch (NuGetOperationTimeoutException)
         {
-            return PayloadOperationTimedOut(operation, failures);
+            return PayloadOperationTimedOut(
+                operation,
+                failures,
+                notFoundAuthorities);
         }
         catch (OperationCanceledException) when (operation.CancellationToken.IsCancellationRequested)
         {
@@ -216,13 +284,26 @@ public sealed partial class DesktopPackageSourceComposition
         }
         catch (OperationCanceledException) when (operation.OperationToken.IsCancellationRequested)
         {
-            return PayloadOperationTimedOut(operation, failures);
+            return PayloadOperationTimedOut(
+                operation,
+                failures,
+                notFoundAuthorities);
         }
     }
 
+    private static PackageAuthorityFailure RequiredProducerUnavailable() =>
+        new(
+            InertString.Empty,
+            PackageAuthorityFailureKind.Configuration,
+            "The producer required by the exact package request is not authorized by the configured sources.")
+        {
+            IsRequiredProducerUnavailable = true,
+        };
+
     private static ConfiguredPackagePayloadResult PayloadOperationTimedOut(
         NuGetOperationContext operation,
-        List<PackageAuthorityFailure> failures)
+        List<PackageAuthorityFailure> failures,
+        IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null)
     {
         failures.Add(new PackageAuthorityFailure(
             InertString.Empty, PackageAuthorityFailureKind.Timeout,
@@ -230,7 +311,7 @@ public sealed partial class DesktopPackageSourceComposition
         {
             Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
         });
-        return new(null, null, failures);
+        return new(null, null, failures, notFoundAuthorities);
     }
 
     private static PackageAuthorityFailure DescribePayloadFailure(

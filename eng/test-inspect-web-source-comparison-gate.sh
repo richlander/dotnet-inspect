@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dotnet=${DOTNET:-dotnet}
 site="${INSPECT_WEB_SOURCE_DIFF_SITE:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
+resolver="$repo_root/tools/InspectWebFixtureResolver"
+resolver_command=("$dotnet" run --project "$resolver" -c Release)
+if [[ "${INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD:-}" == "1" ]]; then
+  resolver_command+=(--no-build)
+fi
 
 if [[ ! -f "$site/inspect-web-source.js" ]]; then
   echo "Published Source facade not found at $site." >&2
@@ -11,7 +16,7 @@ if [[ ! -f "$site/inspect-web-source.js" ]]; then
 fi
 
 resolved=$(
-  "$dotnet" run --project "$repo_root/tools/InspectWebFixtureResolver" -c Release -- \
+  "${resolver_command[@]}" -- \
     inspect-web.source-comparison.v1:package \
     inspect-web.source-comparison.v2:package \
     inspect-web.source-comparison.v1:source \

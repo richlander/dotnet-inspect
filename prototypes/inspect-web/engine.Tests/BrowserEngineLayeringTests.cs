@@ -58,6 +58,7 @@ public sealed class BrowserEngineLayeringTests
             "T:ILInspector.Metadata.SignatureSpellability",
             banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
+        Assert.Contains("T:ILInspector.Metadata.ApiMemberMetadataAnchor", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyIdentityScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.ExtensionMethodScanner", banned);
@@ -340,6 +341,7 @@ public sealed class BrowserEngineLayeringTests
         string[] approvedOwners =
         [
             "DotnetInspector.Core.HardenedXml",
+            "DotnetInspector.Packages.AuthorityScopedFileSystemPackageStore",
             "DotnetInspector.Packages.BoundedContentReader",
             "DotnetInspector.Packages.FileSystemPackageStore",
             "DotnetInspector.Packages.FileSystemPdbStore",
@@ -392,6 +394,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.AssemblyContextGroup",
             "DotnetInspector.Queries.AssemblyContextParticipant",
             "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+Rejected",
+            "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+UnsupportedBindingPolicy",
             "DotnetInspector.Queries.ImplementationComparisonBinding",
             "DotnetInspector.Queries.InspectionGraphSubject",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure",
@@ -462,7 +465,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.GitHubUrlResolver",
             "DotnetInspector.Services.LocalRepoSourceAcquisition",
             "DotnetInspector.Services.NuspecParser",
-            "DotnetInspector.Services.PdbSourceAcquisition",
+            "DotnetInspector.Services.PdbSourceHouse",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
             "ILInspector.Metadata.ApiSurface",
@@ -475,8 +478,6 @@ public sealed class BrowserEngineLayeringTests
             "NuGetFetch.PackageSignatureVerifier",
             "NuGetFetch.SourceResolver",
             "NuGetFetch.TfmResolver",
-            "SourceLinkFetch.SourceLinkProvenance",
-            "SourceLinkFetch.SourceLinkResolver",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);

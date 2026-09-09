@@ -43,8 +43,20 @@ public sealed record SectionQueryCatalog(
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
+        if (command == "find")
+        {
+            queries.Add(new(
+                PackageProfileSections.Packages,
+                PackageQueryOptions.DiscoverySummary,
+                [PackageQueryOptions.QueryFacet]));
+        }
         if (command is "library" or "type" or "member")
         {
+            queries.Add(new(
+                SectionNames.CloneCandidates,
+                "Choose the Workspace participant breadth and candidate-method admission independently. "
+                + "The default is Breadth=Everything and Discovery=SimilarNames.",
+                [.. CloneCandidateQueryOptions.QueryFacets]));
             string[] performanceSections = command == "library"
                 ? PerformanceKinds.Sections
                 : [SectionNames.PerformanceTriage];
@@ -60,18 +72,24 @@ public sealed record SectionQueryCatalog(
                         : "Execution requires a selected type or member."),
                     PerformanceTriageOptions.QueryFacets));
             }
-            queries.Add(new(
-                SectionNames.BodyShapes,
-                "Exactly one Kind=... predicate is required. Values are C# Body Kinds vocabulary IDs. "
-                + (command == "library"
-                    ? "Other predicates narrow candidate methods before body-shape matching; ordering and --top are not supported."
-                    : "Other predicates, ordering, and --top cannot be combined with Kind."),
-                command == "library"
-                    ? [BodyKindQueryOptions.QueryFacet,
-                        .. PerformanceTriageOptions.QueryFacets
-                            .Where(facet => facet.Operators.Contains("--where"))
-                            .Select(facet => facet with { Operators = ["--where"] })]
-                    : [BodyKindQueryOptions.QueryFacet]));
+            foreach (string section in BodyKindQueryOptions.Sections)
+            {
+                queries.Add(new(
+                    section,
+                    "Exactly one Kind=... predicate is required. Values are C# Body Kinds vocabulary IDs. "
+                    + (section == SectionNames.BodyShapeSummary
+                        ? "Rows group exact rendered matches; Count measures occurrences before row windows, and --count counts groups. "
+                        : "")
+                    + (command == "library"
+                        ? "Other predicates narrow candidate methods before body-shape matching; ordering and --top are not supported."
+                        : "Other predicates, ordering, and --top cannot be combined with Kind."),
+                    command == "library"
+                        ? [BodyKindQueryOptions.QueryFacet,
+                            .. PerformanceTriageOptions.QueryFacets
+                                .Where(facet => facet.Operators.Contains("--where"))
+                                .Select(facet => facet with { Operators = ["--where"] })]
+                        : [BodyKindQueryOptions.QueryFacet]));
+            }
         }
         if (command == "library")
         {

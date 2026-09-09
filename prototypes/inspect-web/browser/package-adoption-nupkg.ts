@@ -98,6 +98,82 @@ export function healthyNupkg(
   ]);
 }
 
+/** One declared NuGet dependency in a fixture package's root manifest. */
+export interface ManifestDependency {
+  readonly id: string;
+  readonly versionRange: string;
+}
+
+// The root manifest of a fixture package, declaring one dependency group for the
+// fixture framework. Manifest dependency evidence needs a real manifest: the
+// package facade reads this nuspec through PackageDependencyGroupsQuery, so a
+// fixture without one carries no dependency groups at all.
+function nuspecBytes(
+  packageId: string,
+  version: string,
+  dependency: ManifestDependency,
+): Uint8Array {
+  return Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>${packageId}</id>
+    <version>${version}</version>
+    <dependencies>
+      <group targetFramework="${fixtureFramework}">
+        <dependency id="${dependency.id}" version="${dependency.versionRange}" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>
+`,
+    "utf8");
+}
+
+/**
+ * A healthy package that also carries a root manifest: the same valid managed
+ * assembly appears in the reference (compile) and implementation groups, and the
+ * manifest declares one dependency group for the fixture framework. Both the
+ * manifest dependency groups and the selected compile assembly's direct
+ * AssemblyRef rows are therefore real evidence.
+ */
+export function manifestBackedNupkg(
+  assemblyBytes: Uint8Array,
+  assemblyFileName: string,
+  packageId: string,
+  version: string,
+  dependency: ManifestDependency,
+): Buffer {
+  return storedZip([
+    { name: `${packageId}.nuspec`, bytes: nuspecBytes(packageId, version, dependency) },
+    { name: `ref/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+    { name: `lib/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+  ]);
+}
+
+/**
+ * A manifest-only package: an ordinary valid manifest declaring one dependency
+ * group, with no reference or implementation assets. This is a real package
+ * shape (a dependency-aggregating or documentation package), so its manifest
+ * dependency evidence stays healthy while no compile library can be selected
+ * and no assembly-reference list can exist.
+ */
+export function manifestOnlyNupkg(
+  packageId: string,
+  version: string,
+  dependency: ManifestDependency,
+): Buffer {
+  return storedZip([
+    { name: `${packageId}.nuspec`, bytes: nuspecBytes(packageId, version, dependency) },
+    {
+      name: "README.md",
+      bytes: Buffer.from(
+        `# ${packageId}\n\nDeclares dependencies and ships no compile assets.\n`,
+        "utf8"),
+    },
+  ]);
+}
+
 /**
  * A valid-reference / malformed-implementation package. Two assemblies with
  * distinct identities are both selected participants: the healthy carrier has

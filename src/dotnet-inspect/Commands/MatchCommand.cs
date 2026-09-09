@@ -102,14 +102,24 @@ public static class MatchCommand
                 return 1;
             }
 
-            var left = ResolveSelector(loaded.Api, loaded.ApiDllPath, options.LeftSelector);
+            var left = AttachBindingContext(
+                ResolveSelector(
+                    loaded.Api,
+                    loaded.ApiDllPath,
+                    options.LeftSelector),
+                loaded);
             if (left.Error is not null)
             {
                 CommandError.Write(left.Error);
                 return 1;
             }
 
-            var right = ResolveSelector(loaded.Api, loaded.ApiDllPath, options.RightSelector);
+            var right = AttachBindingContext(
+                ResolveSelector(
+                    loaded.Api,
+                    loaded.ApiDllPath,
+                    options.RightSelector),
+                loaded);
             if (right.Error is not null)
             {
                 CommandError.Write(right.Error);
@@ -127,6 +137,19 @@ public static class MatchCommand
                     $"'{options.LeftSelector}' and '{options.RightSelector}' resolve to different assemblies "
                         + $"({DistinguishingImageNames(left.OriginAssemblyPath, right.OriginAssemblyPath)}); "
                         + "match compares two methods within one retained assembly.");
+                return 1;
+            }
+
+            if (options.IncludeBody
+                && left.BindingContext is { } leftContext
+                && right.BindingContext is { } rightContext
+                && leftContext != rightContext)
+            {
+                CommandError.Write(
+                    $"'{options.LeftSelector}' and "
+                        + $"'{options.RightSelector}' resolve through "
+                        + "different binding contexts; match --body "
+                        + "requires one retained context.");
                 return 1;
             }
 
@@ -220,7 +243,18 @@ public static class MatchCommand
         string? Display,
         string? OriginAssemblyPath,
         string? Error,
-        ApiType? DeclaringType = null);
+        ApiType? DeclaringType = null,
+        SelectedTypeBindingContext? BindingContext = null);
+
+    static ResolvedSelector AttachBindingContext(
+        ResolvedSelector selector,
+        ApiServices.LoadedApiSurface loaded) =>
+        selector with
+        {
+            BindingContext = selector.DeclaringType is { } type
+                ? loaded.TryGetBindingContext(type)
+                : loaded.RootBindingContext,
+        };
 
     /// <summary>
     /// Canonicalizes an image path so two spellings of one file compare equal. A selector's origin
@@ -556,24 +590,86 @@ public static class MatchCommand
         MatchOptions options,
         CancellationToken cancellationToken)
     {
-        string image = left.OriginAssemblyPath!;
-        ResolvedAssemblyReference assembly =
-            (left.DeclaringType is { } type ? loaded.TryGetSourceAssembly(type) : null)
-            ?? ResolvedAssemblyReference.CreateFromPath(
-                image, AssemblyResolutionProvenance.Local("match --body"));
-        var policy = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(image)
+        AssemblyContextParticipant participant;
+        IReadOnlyList<AssemblyContextParticipant> participants;
+        if (left.BindingContext is { } bindingContext)
+        {
+            IReadOnlyList<
+                SelectedTypeBindingContext.SelectedBindingParticipant>
+                selectedParticipants;
+            try
             {
-                ProjectAssetsPath = options.ProjectAssetsPath,
-                RootPackageDirectory = source.PackageExtractPath,
-                TargetFramework = options.Tfm ?? source.SelectedTfm,
-                PackageSourceOptions = options.SourceOptions,
-                UsePackageSourcePolicy = source.PackageExtractPath is not null,
-            });
+                selectedParticipants =
+                    bindingContext.DiscoverParticipants(
+                        cancellationToken);
+            }
+            catch (OperationCanceledException exception)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                return MethodBodyDiffFormatter.QueryFailure(
+                    left.Display!,
+                    right.Display!,
+                    "Cancelled",
+                    side: null,
+                    exception.Message);
+            }
+
+            AssemblyContextParticipant[] occurrenceParticipants =
+            [
+                .. selectedParticipants.Select(candidate =>
+                        candidate.Occurrence is { } occurrence
+                            ? new AssemblyContextParticipant(
+                                occurrence,
+                                bindingContext.Policy)
+                            : new AssemblyContextParticipant(
+                                candidate.Assembly,
+                                NoResolverAssemblyBindingPolicy.Instance)),
+            ];
+            var groupPolicy =
+                SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                    occurrenceParticipants.Select(candidate => (
+                        candidate.Assembly,
+                        candidate.BindingPolicy)));
+            participants =
+            [
+                .. occurrenceParticipants.Select(candidate =>
+                    new AssemblyContextParticipant(
+                        candidate.Assembly,
+                        groupPolicy)),
+            ];
+            participant = participants.Single(candidate =>
+                ReferenceEquals(
+                    candidate.Assembly.Registration,
+                    bindingContext.Occurrence.Assembly.Registration));
+        }
+        else
+        {
+            string image = left.OriginAssemblyPath!;
+            ResolvedAssemblyReference assembly =
+                (left.DeclaringType is { } type
+                    ? loaded.TryGetSourceAssembly(type)
+                    : null)
+                ?? ResolvedAssemblyReference.CreateFromPath(
+                    image,
+                    AssemblyResolutionProvenance.Local("match --body"));
+            var policy = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(image)
+                {
+                    ProjectAssetsPath = options.ProjectAssetsPath,
+                    RootPackageDirectory = source.PackageExtractPath,
+                    TargetFramework = options.Tfm ?? source.SelectedTfm,
+                    PackageSourceOptions = options.SourceOptions,
+                    UsePackageSourcePolicy =
+                        source.PackageExtractPath is not null,
+                });
+            participant = new AssemblyContextParticipant(
+                assembly,
+                policy);
+            participants = [participant];
+        }
         using var workspace = new InspectionWorkspace();
-        var participant = new AssemblyContextParticipant(assembly, policy);
         using AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup([participant]);
+            workspace.CreateAssemblyContextGroup(participants);
 
         // The structural result retains the physical module identity and tokens selected above.
         // Carry those addresses, not names or a new token lookup, into the borrowed context.

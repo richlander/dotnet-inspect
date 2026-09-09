@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;

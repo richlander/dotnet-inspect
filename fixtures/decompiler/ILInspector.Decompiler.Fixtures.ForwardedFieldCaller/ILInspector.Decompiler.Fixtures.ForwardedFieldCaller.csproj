@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <MemorySafetyRules>updated</MemorySafetyRules>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" />
+  </ItemGroup>
+
+</Project>

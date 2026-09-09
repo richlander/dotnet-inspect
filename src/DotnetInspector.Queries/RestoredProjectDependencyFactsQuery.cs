@@ -394,6 +394,75 @@ public abstract record RestoredProjectDeclarationResult
     public sealed record Failed(RestoredProjectDeclarationFailure Failure) : RestoredProjectDeclarationResult;
 }
 
+/// <summary>
+/// Positive evidence that the selected declaration group carries a valid
+/// <c>packagesToPrune</c> map.
+/// </summary>
+public sealed record RestoredProjectPackagePruningEvidence(
+    RestoredProjectDeclarationGroupIdentity DeclarationGroup);
+
+/// <summary>Why selected-group package-pruning evidence could not be projected.</summary>
+public enum RestoredProjectPackagePruningFailureReason
+{
+    /// <summary>More than one declaration group corresponds to the selected target.</summary>
+    AmbiguousDeclarationGroupAssociation,
+
+    /// <summary>The selected group's <c>packagesToPrune</c> member is not an object.</summary>
+    InvalidShape,
+
+    /// <summary>One or more pruning rules has an invalid package identity or version range.</summary>
+    InvalidRule,
+
+    /// <summary>The pruning-rule collection exceeds its configured bound.</summary>
+    ConfiguredLimitExceeded,
+}
+
+/// <summary>A content-free package-pruning evidence failure.</summary>
+public sealed record RestoredProjectPackagePruningFailure(
+    RestoredProjectPackagePruningFailureReason Reason,
+    int Count = 1)
+{
+    public int Count { get; } = Count >= 1
+        ? Count
+        : throw new ArgumentOutOfRangeException(
+            nameof(Count),
+            Count,
+            "A failure count must be at least one.");
+
+    public string Message => Reason switch
+    {
+        RestoredProjectPackagePruningFailureReason
+            .AmbiguousDeclarationGroupAssociation =>
+                "More than one project.frameworks group corresponds to the selected target.",
+        RestoredProjectPackagePruningFailureReason.InvalidShape =>
+            "The selected declaration group's packagesToPrune member has an invalid shape.",
+        RestoredProjectPackagePruningFailureReason.InvalidRule =>
+            "A packagesToPrune entry has an invalid package identity or version range.",
+        RestoredProjectPackagePruningFailureReason.ConfiguredLimitExceeded =>
+            "The packagesToPrune collection exceeds a configured resource limit.",
+        _ => "Package-pruning evidence could not be projected.",
+    };
+}
+
+/// <summary>The closed outcome of projecting selected-group package-pruning evidence.</summary>
+public abstract record RestoredProjectPackagePruningResult
+{
+    private RestoredProjectPackagePruningResult()
+    {
+    }
+
+    /// <summary>A valid <c>packagesToPrune</c> map was associated with the selected target.</summary>
+    public sealed record Available(RestoredProjectPackagePruningEvidence Evidence) :
+        RestoredProjectPackagePruningResult;
+
+    /// <summary>No selected-group <c>packagesToPrune</c> evidence is available.</summary>
+    public sealed record Unavailable : RestoredProjectPackagePruningResult;
+
+    /// <summary>Present pruning evidence could not be associated or validated soundly.</summary>
+    public sealed record Failed(RestoredProjectPackagePruningFailure Failure) :
+        RestoredProjectPackagePruningResult;
+}
+
 /// <summary>One resolved package node reached from the root, with its aggregate direct/transitive role.</summary>
 public sealed record RestoredProjectPackageNode(
     RestoredProjectPackageNodeIdentity Identity,
@@ -406,7 +475,20 @@ public sealed record RestoredProjectGraphEdge(
     RestoredProjectPackageNodeIdentity Dependency,
     string CanonicalVersionConstraint,
     InertString SourceVersionConstraintSpelling,
-    RestoredProjectDependencyRole Role);
+    RestoredProjectDependencyRole Role,
+    RestoredProjectDeclarationGroupIdentity? DeclarationAssociation)
+{
+    public RestoredProjectGraphParentIdentity Parent { get; } =
+        Parent ?? throw new ArgumentNullException(nameof(Parent));
+
+    public RestoredProjectDeclarationGroupIdentity? DeclarationAssociation { get; } =
+        (Parent is RestoredProjectGraphParentIdentity.Root)
+            == DeclarationAssociation.HasValue
+                ? DeclarationAssociation
+                : throw new ArgumentException(
+                    "A root edge requires its correlated declaration group, and a non-root edge cannot carry one.",
+                    nameof(DeclarationAssociation));
+}
 
 /// <summary>Why one graph-phase fact could not be represented, or why the whole phase failed.</summary>
 public enum RestoredProjectGraphFailureReason
@@ -533,6 +615,7 @@ public sealed record RestoredProjectDependencyFacts(
     RestoredProjectSelectedTarget? SelectedTarget,
     RestoredProjectRootIdentity Root,
     RestoredProjectDeclarationResult Declaration,
+    RestoredProjectPackagePruningResult PackagePruning,
     RestoredProjectGraphResult Graph);
 
 /// <summary>Why the whole document could not be admitted.</summary>
@@ -598,6 +681,7 @@ public static class RestoredProjectDependencyFactsQuery
     public const int MaxDeclarationGroups = 256;
     public const int MaxDeclaredPackages = 4096;
     public const int MaxDeclaredProjectReferences = 4096;
+    public const int MaxPackagePruningRules = 4096;
     public const int MaxGraphNodes = 8192;
     public const int MaxGraphEdges = 16384;
 
@@ -606,10 +690,22 @@ public static class RestoredProjectDependencyFactsQuery
 
     public static RestoredProjectDependencyFactsResult Execute(
         ReadOnlyMemory<byte> assetsBytes,
-        RestoredProjectTargetRequest? request = null)
+        RestoredProjectTargetRequest? request = null) =>
+        Project(assetsBytes, request).Result;
+
+    /// <summary>
+    /// The single owner-issued projection over one exact assets byte sequence. It produces the
+    /// published facts result and, from the same admission, target selection, and graph walk, the
+    /// internal project-relationship topology that
+    /// <see cref="RestoredProjectDependencyTraversalQuery"/> consumes. There is exactly one
+    /// implementation of assets admission, target selection, and selected-target traversal.
+    /// </summary>
+    internal static RestoredProjectDependencyProjection Project(
+        ReadOnlyMemory<byte> assetsBytes,
+        RestoredProjectTargetRequest? request)
     {
         if (assetsBytes.Length > MaxAssetsBytes)
-            return Failed(RestoredProjectDependencyFailureReason.ConfiguredLimitExceeded);
+            return FailedProjection(RestoredProjectDependencyFailureReason.ConfiguredLimitExceeded);
 
         RestoredProjectContentProvenance provenance = RestoredProjectContentProvenance.FromBytes(assetsBytes);
 
@@ -620,26 +716,26 @@ public static class RestoredProjectDependencyFactsQuery
         }
         catch (JsonException)
         {
-            return Failed(RestoredProjectDependencyFailureReason.MalformedOrDuplicateBearingJson);
+            return FailedProjection(RestoredProjectDependencyFailureReason.MalformedOrDuplicateBearingJson);
         }
         catch (InvalidOperationException)
         {
-            return Failed(RestoredProjectDependencyFailureReason.MalformedOrDuplicateBearingJson);
+            return FailedProjection(RestoredProjectDependencyFailureReason.MalformedOrDuplicateBearingJson);
         }
 
         using (document)
         {
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
-                return Failed(RestoredProjectDependencyFailureReason.UnsupportedDocumentShape);
+                return FailedProjection(RestoredProjectDependencyFailureReason.UnsupportedDocumentShape);
             if (!ContainsOnlyValidJsonStrings(root))
-                return Failed(RestoredProjectDependencyFailureReason.MalformedOrDuplicateBearingJson);
+                return FailedProjection(RestoredProjectDependencyFailureReason.MalformedOrDuplicateBearingJson);
 
             if (!TryGetSchemaVersion(root, out int schemaVersion))
-                return Failed(RestoredProjectDependencyFailureReason.UnsupportedSchemaVersion);
+                return FailedProjection(RestoredProjectDependencyFailureReason.UnsupportedSchemaVersion);
 
             if (!TryReadTargetsShape(root, out JsonElement targetsElement, out bool targetsPresent))
-                return Failed(RestoredProjectDependencyFailureReason.UnsupportedDocumentShape);
+                return FailedProjection(RestoredProjectDependencyFailureReason.UnsupportedDocumentShape);
 
             // Duplicate canonical target identities are detected before selection so a
             // case-only pivot pair can never be resolved by JSON property order.
@@ -672,29 +768,44 @@ public static class RestoredProjectDependencyFactsQuery
                     : $"{selectedTarget.FrameworkIdentity}/{selectedTarget.RuntimeIdentifierIdentity}";
 
             RestoredProjectDeclarationResult declaration = ProjectDeclaration(root);
+            RestoredProjectPackagePruningResult packagePruning =
+                ambiguousTargetIdentity
+                    ? new RestoredProjectPackagePruningResult.Unavailable()
+                    : ProjectPackagePruning(root, schemaVersion, selectedCandidate);
 
+            RestoredProjectGraphTopology topology = RestoredProjectGraphTopology.Empty;
             RestoredProjectGraphResult graph = ambiguousTargetIdentity
                 ? new RestoredProjectGraphResult.Failed(
                     new RestoredProjectGraphFailure(RestoredProjectGraphFailureReason.AmbiguousTargetIdentity))
-                : ProjectGraph(root, schemaVersion, selectedCandidate, targetsElement, targetsPresent);
+                : ProjectGraph(root, schemaVersion, selectedCandidate, targetsElement, targetsPresent, out topology);
 
-            string factsDigest = ComputeFactsDigest(targetIdentityText, declaration, graph);
+            string factsDigest = ComputeFactsDigest(
+                targetIdentityText,
+                declaration,
+                packagePruning,
+                graph);
             var selectionIdentity = new RestoredProjectSelectionIdentity(targetIdentityText, factsDigest);
             var rootIdentity = new RestoredProjectRootIdentity(selectionIdentity);
 
-            return new RestoredProjectDependencyFactsResult.Available(
-                new RestoredProjectDependencyFacts(
-                    provenance,
-                    selectionIdentity,
-                    selectedTarget,
-                    rootIdentity,
-                    RescopeDeclaration(declaration, selectionIdentity),
-                    RescopeGraph(graph, rootIdentity)));
+            return new RestoredProjectDependencyProjection(
+                new RestoredProjectDependencyFactsResult.Available(
+                    new RestoredProjectDependencyFacts(
+                        provenance,
+                        selectionIdentity,
+                        selectedTarget,
+                        rootIdentity,
+                        RescopeDeclaration(declaration, selectionIdentity),
+                        RescopePackagePruning(packagePruning, selectionIdentity),
+                        RescopeGraph(graph, rootIdentity))),
+                RescopeTopology(topology, rootIdentity));
         }
     }
 
     static RestoredProjectDependencyFactsResult Failed(RestoredProjectDependencyFailureReason reason) =>
         new RestoredProjectDependencyFactsResult.Failed(new RestoredProjectDependencyFailure(reason));
+
+    static RestoredProjectDependencyProjection FailedProjection(RestoredProjectDependencyFailureReason reason) =>
+        new(Failed(reason), RestoredProjectGraphTopology.Empty);
 
     static bool ContainsOnlyValidJsonStrings(JsonElement value)
     {
@@ -961,9 +1072,7 @@ public static class RestoredProjectDependencyFactsQuery
             // The group is identified by its exact authored pivot occurrence: canonical text only
             // when the pivot is already exactly its recognized canonical spelling, so case-only
             // variants stay distinct groups instead of colliding into one identity.
-            string pivotIdentity = recognized && string.Equals(normalizedTfm, rawPivot, StringComparison.Ordinal)
-                ? normalizedTfm
-                : RestoredProjectIdentityText.Opaque(rawPivot);
+            string pivotIdentity = DeclarationPivotIdentity(rawPivot, recognized, normalizedTfm);
 
             ImmutableArray<RestoredProjectDeclaredPackage> packages = [];
             if (pivotProperty.Value.TryGetProperty("dependencies", out JsonElement dependencies))
@@ -1011,6 +1120,14 @@ public static class RestoredProjectDependencyFactsQuery
                 ? RestoredProjectPhaseCompletion.Complete
                 : RestoredProjectPhaseCompletion.Incomplete);
     }
+
+    static string DeclarationPivotIdentity(
+        string rawPivot,
+        bool recognized,
+        string normalizedTfm) =>
+        recognized && string.Equals(normalizedTfm, rawPivot, StringComparison.Ordinal)
+            ? normalizedTfm
+            : RestoredProjectIdentityText.Opaque(rawPivot);
 
     /// <summary>How one <c>project.frameworks</c> dependency entry classifies itself.</summary>
     enum DeclaredTargetKind
@@ -1146,8 +1263,10 @@ public static class RestoredProjectDependencyFactsQuery
         int schemaVersion,
         TargetCandidate? selectedCandidate,
         JsonElement targetsElement,
-        bool targetsPresent)
+        bool targetsPresent,
+        out RestoredProjectGraphTopology topology)
     {
+        topology = RestoredProjectGraphTopology.Empty;
         if (!targetsPresent || selectedCandidate is not { } candidate)
             return new RestoredProjectGraphResult.Unavailable();
 
@@ -1200,9 +1319,15 @@ public static class RestoredProjectDependencyFactsQuery
         var traversal = new GraphTraversal(
             selectedTargetValue,
             correlation.Constraints,
+            correlation.DeclarationGroupPivotIdentity!,
             correlation.LimitExceeded);
         traversal.Traverse(rootEntries);
-        return traversal.Build();
+
+        // Build() closes the failure tally, so the topology — which carries the same failure
+        // occurrences with their owning node — is read only after it.
+        RestoredProjectGraphResult result = traversal.Build();
+        topology = traversal.BuildTopology();
+        return result;
     }
 
     enum RootCorrelationOutcome
@@ -1219,10 +1344,102 @@ public static class RestoredProjectDependencyFactsQuery
     readonly record struct RootConstraintCorrelation(
         RootCorrelationOutcome Outcome,
         Dictionary<string, List<RootConstraint>> Constraints,
+        string? DeclarationGroupPivotIdentity = null,
         bool LimitExceeded = false);
 
     static Dictionary<string, List<RootConstraint>> EmptyRootConstraints =>
         new(StringComparer.Ordinal);
+
+    static RestoredProjectPackagePruningResult ProjectPackagePruning(
+        JsonElement root,
+        int schemaVersion,
+        TargetCandidate? selectedCandidate)
+    {
+        if (selectedCandidate is not { } candidate)
+            return new RestoredProjectPackagePruningResult.Unavailable();
+
+        RootCorrelationOutcome correlation = CorrelateFrameworkGroup(
+            root,
+            schemaVersion,
+            candidate,
+            out JsonProperty matchedProperty);
+        if (correlation == RootCorrelationOutcome.Unavailable)
+            return new RestoredProjectPackagePruningResult.Unavailable();
+        if (correlation == RootCorrelationOutcome.Ambiguous)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason
+                        .AmbiguousDeclarationGroupAssociation));
+        }
+        if (correlation == RootCorrelationOutcome.InvalidShape)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason.InvalidShape));
+        }
+
+        JsonElement group = matchedProperty.Value;
+        if (!group.TryGetProperty("packagesToPrune", out JsonElement packagesToPrune))
+            return new RestoredProjectPackagePruningResult.Unavailable();
+        if (packagesToPrune.ValueKind != JsonValueKind.Object)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason.InvalidShape));
+        }
+
+        int scanned = 0;
+        int invalid = 0;
+        foreach (JsonProperty rule in EnumeratePropertiesInCanonicalOrder(packagesToPrune))
+        {
+            if (++scanned > MaxPackagePruningRules)
+            {
+                return new RestoredProjectPackagePruningResult.Failed(
+                    new RestoredProjectPackagePruningFailure(
+                        RestoredProjectPackagePruningFailureReason.ConfiguredLimitExceeded));
+            }
+
+            string rawPackageId = rule.Name;
+            if (rawPackageId.Length == 0
+                || rawPackageId.Length > MaxScalarCharacters
+                || !PackageCoordinateResolver.IsCanonicalPackageId(rawPackageId)
+                || rule.Value.ValueKind != JsonValueKind.String)
+            {
+                invalid++;
+                continue;
+            }
+
+            string? rawVersionRange = rule.Value.GetString();
+            if (rawVersionRange is not { Length: > 0 }
+                || rawVersionRange.Length > MaxScalarCharacters
+                || !VersionRange.TryParse(rawVersionRange, out _))
+            {
+                invalid++;
+            }
+        }
+
+        if (invalid > 0)
+        {
+            return new RestoredProjectPackagePruningResult.Failed(
+                new RestoredProjectPackagePruningFailure(
+                    RestoredProjectPackagePruningFailureReason.InvalidRule,
+                    invalid));
+        }
+
+        string rawPivot = matchedProperty.Name;
+        bool recognized = NuGetTargetFrameworkIdentity.TryNormalize(
+            rawPivot,
+            out string normalizedTfm);
+        string pivotIdentity = DeclarationPivotIdentity(
+            rawPivot,
+            recognized,
+            normalizedTfm);
+
+        return new RestoredProjectPackagePruningResult.Available(
+            new RestoredProjectPackagePruningEvidence(
+                new RestoredProjectDeclarationGroupIdentity(default!, pivotIdentity)));
+    }
 
     /// <summary>
     /// Finds the single <c>project.frameworks</c> group corresponding to the selected target and
@@ -1234,39 +1451,30 @@ public static class RestoredProjectDependencyFactsQuery
         int schemaVersion,
         TargetCandidate candidate)
     {
-        if (!root.TryGetProperty("project", out JsonElement project)
-            || project.ValueKind != JsonValueKind.Object
-            || !project.TryGetProperty("frameworks", out JsonElement frameworks)
-            || frameworks.ValueKind != JsonValueKind.Object)
-        {
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Unavailable, EmptyRootConstraints);
-        }
+        RootCorrelationOutcome correlation = CorrelateFrameworkGroup(
+            root,
+            schemaVersion,
+            candidate,
+            out JsonProperty matchedProperty);
+        if (correlation != RootCorrelationOutcome.Correlated)
+            return new RootConstraintCorrelation(correlation, EmptyRootConstraints);
 
-        JsonElement? matched = null;
-        foreach (JsonProperty pivot in EnumeratePropertiesInCanonicalOrder(frameworks))
-        {
-            if (pivot.Name.Length == 0
-                || pivot.Name.Length > MaxScalarCharacters
-                || !CorrelatesWithPivot(pivot.Name, schemaVersion, candidate))
-            {
-                continue;
-            }
-
-            if (matched is not null)
-                return new RootConstraintCorrelation(RootCorrelationOutcome.Ambiguous, EmptyRootConstraints);
-
-            matched = pivot.Value;
-        }
-
-        if (matched is not { } group)
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Unavailable, EmptyRootConstraints);
-
-        if (group.ValueKind != JsonValueKind.Object)
-            return new RootConstraintCorrelation(RootCorrelationOutcome.InvalidShape, EmptyRootConstraints);
+        JsonElement group = matchedProperty.Value;
+        string rawPivot = matchedProperty.Name;
+        bool recognized = NuGetTargetFrameworkIdentity.TryNormalize(
+            rawPivot,
+            out string normalizedTfm);
+        string declarationGroupPivotIdentity =
+            DeclarationPivotIdentity(rawPivot, recognized, normalizedTfm);
 
         var constraints = new Dictionary<string, List<RootConstraint>>(StringComparer.Ordinal);
         if (!group.TryGetProperty("dependencies", out JsonElement dependencies))
-            return new RootConstraintCorrelation(RootCorrelationOutcome.Correlated, constraints);
+        {
+            return new RootConstraintCorrelation(
+                RootCorrelationOutcome.Correlated,
+                constraints,
+                declarationGroupPivotIdentity);
+        }
 
         if (dependencies.ValueKind != JsonValueKind.Object)
             return new RootConstraintCorrelation(RootCorrelationOutcome.InvalidShape, EmptyRootConstraints);
@@ -1316,7 +1524,51 @@ public static class RestoredProjectDependencyFactsQuery
                 occurrences.Add(constraint);
         }
 
-        return new RootConstraintCorrelation(RootCorrelationOutcome.Correlated, constraints, limitExceeded);
+        return new RootConstraintCorrelation(
+            RootCorrelationOutcome.Correlated,
+            constraints,
+            declarationGroupPivotIdentity,
+            limitExceeded);
+    }
+
+    static RootCorrelationOutcome CorrelateFrameworkGroup(
+        JsonElement root,
+        int schemaVersion,
+        TargetCandidate candidate,
+        out JsonProperty matchedProperty)
+    {
+        matchedProperty = default;
+        if (!root.TryGetProperty("project", out JsonElement project)
+            || project.ValueKind != JsonValueKind.Object
+            || !project.TryGetProperty("frameworks", out JsonElement frameworks)
+            || frameworks.ValueKind != JsonValueKind.Object)
+        {
+            return RootCorrelationOutcome.Unavailable;
+        }
+
+        JsonProperty? matched = null;
+        foreach (JsonProperty pivot in EnumeratePropertiesInCanonicalOrder(frameworks))
+        {
+            if (pivot.Name.Length == 0
+                || pivot.Name.Length > MaxScalarCharacters
+                || !CorrelatesWithPivot(pivot.Name, schemaVersion, candidate))
+            {
+                continue;
+            }
+
+            if (matched is not null)
+                return RootCorrelationOutcome.Ambiguous;
+
+            matched = pivot;
+        }
+
+        if (matched is not { } correlated)
+            return RootCorrelationOutcome.Unavailable;
+        if (correlated.Value.ValueKind != JsonValueKind.Object)
+            return RootCorrelationOutcome.InvalidShape;
+
+        matchedProperty = correlated;
+        return RootCorrelationOutcome.Correlated;
     }
 
     /// <summary>
@@ -1365,6 +1617,7 @@ public static class RestoredProjectDependencyFactsQuery
     {
         readonly JsonElement _selectedTarget;
         readonly Dictionary<string, List<RootConstraint>> _rootConstraints;
+        readonly string _rootDeclarationGroupPivotIdentity;
         readonly Dictionary<string, string> _uniqueKeyByName = new(StringComparer.OrdinalIgnoreCase);
         readonly HashSet<string> _ambiguousNames = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, RestoredProjectPackageNodeIdentity> _packageNodes = new(StringComparer.Ordinal);
@@ -1372,26 +1625,47 @@ public static class RestoredProjectDependencyFactsQuery
         readonly HashSet<PackageSourceCoordinate> _directPackages = new();
         readonly Dictionary<EdgeKey, RestoredProjectGraphEdge> _edges = new();
         readonly HashSet<EdgeKey> _conflictedEdges = new();
+        readonly Dictionary<string, RestoredProjectProjectNodeEvidence> _projectNodes = new(StringComparer.Ordinal);
+        readonly Dictionary<ProjectRelationshipKey, RestoredProjectProjectRelationshipEvidence>
+            _projectRelationships = new();
+        readonly List<RestoredProjectGraphFailureOccurrence> _failureOccurrences = new();
         readonly FailureTally<RestoredProjectGraphFailureReason> _failures = new();
         readonly Stack<PendingNode> _pending = new();
         int _edgeOccurrenceCount;
+        int _projectRelationshipOccurrenceCount;
+        bool _projectRelationshipLimitExceeded;
         bool _limitExceeded;
 
         public GraphTraversal(
             JsonElement selectedTarget,
             Dictionary<string, List<RootConstraint>> rootConstraints,
+            string rootDeclarationGroupPivotIdentity,
             bool rootConstraintLimitExceeded)
         {
             _selectedTarget = selectedTarget;
             _rootConstraints = rootConstraints;
+            _rootDeclarationGroupPivotIdentity = rootDeclarationGroupPivotIdentity;
             if (rootConstraintLimitExceeded)
-                _failures.Add(RestoredProjectGraphFailureReason.ConfiguredLimitExceeded);
+                Fail(RestoredProjectGraphFailureReason.ConfiguredLimitExceeded, ownerNodeKey: null);
             IndexTargetNodes();
         }
 
         readonly record struct PendingNode(string Key, RestoredProjectGraphParentIdentity Parent);
 
         readonly record struct EdgeKey(string ParentKey, string PackageId, string PackageVersion);
+
+        readonly record struct ProjectRelationshipKey(string ParentKey, string DependencyKey);
+
+        /// <summary>
+        /// Records one graph-phase failure in the published tally and, beside it, the node whose
+        /// expansion produced it. The owning node is never published by the facts owner; it lets
+        /// the traversal owner decide whether a failure lies inside a requested depth boundary.
+        /// </summary>
+        void Fail(RestoredProjectGraphFailureReason reason, string? ownerNodeKey)
+        {
+            _failures.Add(reason);
+            _failureOccurrences.Add(new RestoredProjectGraphFailureOccurrence(reason, ownerNodeKey));
+        }
 
         /// <summary>
         /// Indexes the selected target once, bounding it by <see cref="MaxGraphNodes"/>. Every
@@ -1442,7 +1716,7 @@ public static class RestoredProjectDependencyFactsQuery
 
                 if (rootEntry.ValueKind != JsonValueKind.String)
                 {
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedRootEntry);
+                    Fail(RestoredProjectGraphFailureReason.UnresolvedRootEntry, RestoredProjectNodeKey.Root);
                     continue;
                 }
 
@@ -1452,7 +1726,7 @@ public static class RestoredProjectDependencyFactsQuery
                     || entryText.Length > MaxScalarCharacters
                     || !TryReadRootEntryName(entryText, out string rootName))
                 {
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedRootEntry);
+                    Fail(RestoredProjectGraphFailureReason.UnresolvedRootEntry, RestoredProjectNodeKey.Root);
                     continue;
                 }
 
@@ -1484,7 +1758,7 @@ public static class RestoredProjectDependencyFactsQuery
             if (!TryResolveNode(rootName, out string? matchedKey, out string? nodeType, out _))
             {
                 if (!_limitExceeded)
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedRootEntry);
+                    Fail(RestoredProjectGraphFailureReason.UnresolvedRootEntry, RestoredProjectNodeKey.Root);
                 return;
             }
 
@@ -1492,10 +1766,14 @@ public static class RestoredProjectDependencyFactsQuery
             {
                 if (!TryBuildProjectParent(matchedKey!, out RestoredProjectGraphParentIdentity projectParent))
                 {
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedRootEntry);
+                    Fail(RestoredProjectGraphFailureReason.UnresolvedRootEntry, RestoredProjectNodeKey.Root);
                     return;
                 }
 
+                AddProjectRelationship(
+                    RestoredProjectGraphParentIdentity.CreateRoot(),
+                    RestoredProjectNodeKey.Root,
+                    projectParent);
                 Push(matchedKey!, projectParent);
                 return;
             }
@@ -1503,14 +1781,14 @@ public static class RestoredProjectDependencyFactsQuery
             if (!string.Equals(nodeType, "package", StringComparison.OrdinalIgnoreCase)
                 || !TryBuildPackageIdentity(matchedKey!, out RestoredProjectPackageNodeIdentity packageIdentity))
             {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedRootEntry);
+                Fail(RestoredProjectGraphFailureReason.UnresolvedRootEntry, RestoredProjectNodeKey.Root);
                 return;
             }
 
             if (!_rootConstraints.TryGetValue(rootName.ToLowerInvariant(), out List<RootConstraint>? constraints)
                 || constraints.Count == 0)
             {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedRootEntry);
+                Fail(RestoredProjectGraphFailureReason.UnresolvedRootEntry, RestoredProjectNodeKey.Root);
                 _directPackages.Add(packageIdentity.Coordinate);
                 Push(matchedKey!, RestoredProjectGraphParentIdentity.CreatePackageParent(packageIdentity));
                 return;
@@ -1525,7 +1803,8 @@ public static class RestoredProjectDependencyFactsQuery
                     "",
                     packageIdentity,
                     constraint.CanonicalConstraint,
-                    constraint.SourceSpelling);
+                    constraint.SourceSpelling,
+                    _rootDeclarationGroupPivotIdentity);
             }
 
             _directPackages.Add(packageIdentity.Coordinate);
@@ -1551,7 +1830,7 @@ public static class RestoredProjectDependencyFactsQuery
                 if (!_selectedTarget.TryGetProperty(pending.Key, out JsonElement nodeValue)
                     || nodeValue.ValueKind != JsonValueKind.Object)
                 {
-                    _failures.Add(RestoredProjectGraphFailureReason.InvalidNodeShape);
+                    Fail(RestoredProjectGraphFailureReason.InvalidNodeShape, ParentKeyText(pending.Parent));
                     continue;
                 }
 
@@ -1562,7 +1841,7 @@ public static class RestoredProjectDependencyFactsQuery
 
                 if (dependencies.ValueKind != JsonValueKind.Object)
                 {
-                    _failures.Add(RestoredProjectGraphFailureReason.InvalidNodeShape);
+                    Fail(RestoredProjectGraphFailureReason.InvalidNodeShape, ParentKeyText(pending.Parent));
                     continue;
                 }
 
@@ -1584,13 +1863,13 @@ public static class RestoredProjectDependencyFactsQuery
         {
             if (dependency.Name.Length == 0 || dependency.Name.Length > MaxScalarCharacters)
             {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                Fail(RestoredProjectGraphFailureReason.UnresolvedDependency, parentKey);
                 return;
             }
 
             if (dependency.Value.ValueKind != JsonValueKind.String)
             {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                Fail(RestoredProjectGraphFailureReason.UnresolvedDependency, parentKey);
                 return;
             }
 
@@ -1599,14 +1878,14 @@ public static class RestoredProjectDependencyFactsQuery
                 || rawConstraint.Length > MaxScalarCharacters
                 || !VersionRange.TryParse(rawConstraint, out VersionRange? range))
             {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                Fail(RestoredProjectGraphFailureReason.UnresolvedDependency, parentKey);
                 return;
             }
 
             if (!TryResolveNode(dependency.Name, out string? matchedKey, out string? nodeType, out _))
             {
                 if (!_limitExceeded)
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                    Fail(RestoredProjectGraphFailureReason.UnresolvedDependency, parentKey);
                 return;
             }
 
@@ -1614,10 +1893,11 @@ public static class RestoredProjectDependencyFactsQuery
             {
                 if (!TryBuildProjectParent(matchedKey!, out RestoredProjectGraphParentIdentity projectParent))
                 {
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                    Fail(RestoredProjectGraphFailureReason.UnresolvedDependency, parentKey);
                     return;
                 }
 
+                AddProjectRelationship(parent, parentKey, projectParent);
                 Push(matchedKey!, projectParent);
                 return;
             }
@@ -1625,7 +1905,7 @@ public static class RestoredProjectDependencyFactsQuery
             if (!string.Equals(nodeType, "package", StringComparison.OrdinalIgnoreCase)
                 || !TryBuildPackageIdentity(matchedKey!, out RestoredProjectPackageNodeIdentity packageIdentity))
             {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                Fail(RestoredProjectGraphFailureReason.UnresolvedDependency, parentKey);
                 return;
             }
 
@@ -1634,7 +1914,8 @@ public static class RestoredProjectDependencyFactsQuery
                 parentKey,
                 packageIdentity,
                 range.ToNormalizedString(),
-                new InertString(TextPolicy.Field, rawConstraint, MaxScalarCharacters));
+                new InertString(TextPolicy.Field, rawConstraint, MaxScalarCharacters),
+                declarationGroupPivotIdentity: null);
             Push(matchedKey!, RestoredProjectGraphParentIdentity.CreatePackageParent(packageIdentity));
         }
 
@@ -1648,7 +1929,8 @@ public static class RestoredProjectDependencyFactsQuery
             string parentKey,
             RestoredProjectPackageNodeIdentity dependency,
             string canonicalConstraint,
-            InertString sourceConstraint)
+            InertString sourceConstraint,
+            string? declarationGroupPivotIdentity)
         {
             if (++_edgeOccurrenceCount > MaxGraphEdges)
             {
@@ -1676,7 +1958,7 @@ public static class RestoredProjectDependencyFactsQuery
 
                 _edges.Remove(key);
                 _conflictedEdges.Add(key);
-                _failures.Add(RestoredProjectGraphFailureReason.ConflictingEdgeConstraint);
+                Fail(RestoredProjectGraphFailureReason.ConflictingEdgeConstraint, parentKey);
                 return;
             }
 
@@ -1689,7 +1971,12 @@ public static class RestoredProjectDependencyFactsQuery
                 dependency,
                 canonicalConstraint,
                 sourceConstraint,
-                role));
+                role,
+                declarationGroupPivotIdentity is null
+                    ? null
+                    : new RestoredProjectDeclarationGroupIdentity(
+                        default!,
+                        declarationGroupPivotIdentity)));
         }
 
         bool TryBuildPackageIdentity(string matchedKey, out RestoredProjectPackageNodeIdentity identity)
@@ -1723,7 +2010,12 @@ public static class RestoredProjectDependencyFactsQuery
             }
         }
 
-        static bool TryBuildProjectParent(
+        /// <summary>
+        /// Resolves one project node's identity and retains its exact authored target-entry
+        /// spelling as contained text. The opaque digest remains the only public identity; the
+        /// spelling is never repaired, parsed, or promoted into identity.
+        /// </summary>
+        bool TryBuildProjectParent(
             string matchedKey,
             out RestoredProjectGraphParentIdentity parent)
         {
@@ -1738,7 +2030,36 @@ public static class RestoredProjectDependencyFactsQuery
 
             parent = RestoredProjectGraphParentIdentity.CreateProjectParent(
                 RestoredProjectIdentityText.Opaque(matchedKey));
+            var identity = ((RestoredProjectGraphParentIdentity.Project)parent).Identity;
+            _projectNodes.TryAdd(
+                matchedKey,
+                new RestoredProjectProjectNodeEvidence(
+                    identity,
+                    new InertString(TextPolicy.Field, matchedKey, MaxScalarCharacters)));
             return true;
+        }
+
+        /// <summary>
+        /// Records one project-resolving relationship. Occurrences coalesce by parent and
+        /// dependency exactly as package edges do, and the relationship count is bounded
+        /// independently so a project-dense document cannot change published facts completion.
+        /// </summary>
+        void AddProjectRelationship(
+            RestoredProjectGraphParentIdentity parent,
+            string parentKey,
+            RestoredProjectGraphParentIdentity dependency)
+        {
+            if (++_projectRelationshipOccurrenceCount
+                > RestoredProjectDependencyTraversalQuery.MaxProjectRelationships)
+            {
+                _projectRelationshipLimitExceeded = true;
+                return;
+            }
+
+            var identity = ((RestoredProjectGraphParentIdentity.Project)dependency).Identity;
+            _projectRelationships.TryAdd(
+                new ProjectRelationshipKey(parentKey, RestoredProjectNodeKey.ForProject(identity)),
+                new RestoredProjectProjectRelationshipEvidence(parent, identity));
         }
 
         bool TryResolveNode(string name, out string? matchedKey, out string? nodeType, out JsonElement nodeValue)
@@ -1771,19 +2092,13 @@ public static class RestoredProjectDependencyFactsQuery
             return true;
         }
 
-        static string ParentKeyText(RestoredProjectGraphParentIdentity parent) => parent switch
-        {
-            RestoredProjectGraphParentIdentity.Root => "",
-            RestoredProjectGraphParentIdentity.Package p =>
-                $"pkg:{p.Identity.Coordinate.PackageId}/{p.Identity.Coordinate.Version}",
-            RestoredProjectGraphParentIdentity.Project p => $"proj:{p.Identity.SourceIdentity}",
-            _ => "?",
-        };
+        static string ParentKeyText(RestoredProjectGraphParentIdentity parent) =>
+            RestoredProjectNodeKey.For(parent);
 
         public RestoredProjectGraphResult Build()
         {
             if (_limitExceeded)
-                _failures.Add(RestoredProjectGraphFailureReason.ConfiguredLimitExceeded);
+                Fail(RestoredProjectGraphFailureReason.ConfiguredLimitExceeded, ownerNodeKey: null);
 
             ImmutableArray<RestoredProjectPackageNode> packages =
                 [.. _packageNodes.Values
@@ -1814,6 +2129,20 @@ public static class RestoredProjectDependencyFactsQuery
                     ? RestoredProjectPhaseCompletion.Complete
                     : RestoredProjectPhaseCompletion.Incomplete);
         }
+
+        /// <summary>
+        /// The internal project-relationship topology of the same walk. Call after
+        /// <see cref="Build"/> so the failure occurrences match the published tally exactly.
+        /// </summary>
+        public RestoredProjectGraphTopology BuildTopology() =>
+            new(
+                [.. _projectNodes.Values.OrderBy(node => node.Identity.SourceIdentity, StringComparer.Ordinal)],
+                [.. _projectRelationships
+                    .OrderBy(entry => entry.Key.ParentKey, StringComparer.Ordinal)
+                    .ThenBy(entry => entry.Key.DependencyKey, StringComparer.Ordinal)
+                    .Select(entry => entry.Value)],
+                [.. _failureOccurrences],
+                _projectRelationshipLimitExceeded);
     }
 
     // ---- Rescoping identities with the final selection identity ---------
@@ -1833,6 +2162,21 @@ public static class RestoredProjectDependencyFactsQuery
             _ => declaration,
         };
 
+    static RestoredProjectPackagePruningResult RescopePackagePruning(
+        RestoredProjectPackagePruningResult packagePruning,
+        RestoredProjectSelectionIdentity selection) =>
+        packagePruning switch
+        {
+            RestoredProjectPackagePruningResult.Available available =>
+                new RestoredProjectPackagePruningResult.Available(
+                    new RestoredProjectPackagePruningEvidence(
+                        available.Evidence.DeclarationGroup with
+                        {
+                            Selection = selection,
+                        })),
+            _ => packagePruning,
+        };
+
     static RestoredProjectGraphResult RescopeGraph(
         RestoredProjectGraphResult graph,
         RestoredProjectRootIdentity root)
@@ -1843,32 +2187,54 @@ public static class RestoredProjectDependencyFactsQuery
         RestoredProjectPackageNodeIdentity Rescope(RestoredProjectPackageNodeIdentity identity) =>
             new(root.Selection, identity.Coordinate);
 
-        RestoredProjectGraphParentIdentity RescopeParent(RestoredProjectGraphParentIdentity parent) => parent switch
-        {
-            RestoredProjectGraphParentIdentity.Root => new RestoredProjectGraphParentIdentity.Root(root),
-            RestoredProjectGraphParentIdentity.Package p => new RestoredProjectGraphParentIdentity.Package(Rescope(p.Identity)),
-            RestoredProjectGraphParentIdentity.Project p => new RestoredProjectGraphParentIdentity.Project(
-                p.Identity with { Selection = root.Selection }),
-            _ => parent,
-        };
-
         ImmutableArray<RestoredProjectPackageNode> packages =
             [.. available.Packages.Select(p => p with { Identity = Rescope(p.Identity) })];
         ImmutableArray<RestoredProjectGraphEdge> edges =
             [.. available.Edges.Select(e =>
             {
-                RestoredProjectGraphParentIdentity parent = RescopeParent(e.Parent);
+                RestoredProjectGraphParentIdentity parent = RescopeNode(e.Parent, root);
                 RestoredProjectPackageNodeIdentity dependency = Rescope(e.Dependency);
-                return e with
-                {
-                    Identity = new RestoredProjectEdgeIdentity(parent, dependency),
-                    Parent = parent,
-                    Dependency = dependency,
-                };
+                return new RestoredProjectGraphEdge(
+                    new RestoredProjectEdgeIdentity(parent, dependency),
+                    parent,
+                    dependency,
+                    e.CanonicalVersionConstraint,
+                    e.SourceVersionConstraintSpelling,
+                    e.Role,
+                    e.DeclarationAssociation is { } association
+                        ? association with { Selection = root.Selection }
+                        : null);
             })];
 
         return new RestoredProjectGraphResult.Available(packages, edges, available.Failures, available.Completion);
     }
+
+    /// <summary>Rescopes one closed graph node identity into the final selection identity.</summary>
+    static RestoredProjectGraphParentIdentity RescopeNode(
+        RestoredProjectGraphParentIdentity node,
+        RestoredProjectRootIdentity root) => node switch
+        {
+            RestoredProjectGraphParentIdentity.Root => new RestoredProjectGraphParentIdentity.Root(root),
+            RestoredProjectGraphParentIdentity.Package p => new RestoredProjectGraphParentIdentity.Package(
+                new RestoredProjectPackageNodeIdentity(root.Selection, p.Identity.Coordinate)),
+            RestoredProjectGraphParentIdentity.Project p => new RestoredProjectGraphParentIdentity.Project(
+                p.Identity with { Selection = root.Selection }),
+            _ => node,
+        };
+
+    static RestoredProjectGraphTopology RescopeTopology(
+        RestoredProjectGraphTopology topology,
+        RestoredProjectRootIdentity root) =>
+        new(
+            [.. topology.ProjectNodes.Select(node => node with
+            {
+                Identity = node.Identity with { Selection = root.Selection },
+            })],
+            [.. topology.ProjectRelationships.Select(relationship => new RestoredProjectProjectRelationshipEvidence(
+                RescopeNode(relationship.Parent, root),
+                relationship.Dependency with { Selection = root.Selection }))],
+            topology.FailureOccurrences,
+            topology.RelationshipLimitExceeded);
 
     // ---- Facts digest -----------------------------------------------------
 
@@ -1882,12 +2248,14 @@ public static class RestoredProjectDependencyFactsQuery
     static string ComputeFactsDigest(
         string targetIdentity,
         RestoredProjectDeclarationResult declaration,
+        RestoredProjectPackagePruningResult packagePruning,
         RestoredProjectGraphResult graph)
     {
         var text = new StringBuilder();
-        Field(text, "rpdf/1");
+        Field(text, "rpdf/2");
         Field(text, targetIdentity);
         AppendDeclaration(text, declaration);
+        AppendPackagePruning(text, packagePruning);
         AppendGraph(text, graph);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
     }
@@ -1938,6 +2306,30 @@ public static class RestoredProjectDependencyFactsQuery
         }
     }
 
+    static void AppendPackagePruning(
+        StringBuilder text,
+        RestoredProjectPackagePruningResult packagePruning)
+    {
+        switch (packagePruning)
+        {
+            case RestoredProjectPackagePruningResult.Available available:
+                Field(text, "package-pruning.available");
+                Field(text, available.Evidence.DeclarationGroup.PivotIdentity);
+                break;
+            case RestoredProjectPackagePruningResult.Unavailable:
+                Field(text, "package-pruning.unavailable");
+                break;
+            case RestoredProjectPackagePruningResult.Failed failed:
+                Field(text, "package-pruning.failed");
+                Count(text, (int)failed.Failure.Reason);
+                Count(text, failed.Failure.Count);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown package-pruning result: {packagePruning.GetType().FullName}");
+        }
+    }
+
     static void AppendGraph(StringBuilder text, RestoredProjectGraphResult graph)
     {
         switch (graph)
@@ -1961,6 +2353,7 @@ public static class RestoredProjectDependencyFactsQuery
                     Field(text, edge.Dependency.Coordinate.Version);
                     Field(text, edge.CanonicalVersionConstraint);
                     Count(text, (int)edge.Role);
+                    Field(text, edge.DeclarationAssociation?.PivotIdentity ?? "");
                 }
 
                 Count(text, available.Failures.Length);

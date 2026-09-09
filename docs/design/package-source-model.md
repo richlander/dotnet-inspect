@@ -10,6 +10,11 @@ The owner composes policy and evidence. It does not infer authority from a
 transport URL, producer label, display string, cache hit, or successful
 response.
 
+The higher [PackageHouse Composition](package-house.md) owner consumes these
+results as its source-authority and payload-settlement capability. That facade
+does not transfer or redefine this document's authority, candidate,
+completeness, deadline, failure, or payload-lifetime contracts.
+
 ## Boundary
 
 The package source model consumes these owner-issued inputs:
@@ -481,7 +486,8 @@ gates named throughout this document remain the implementation evidence.
 
 ## Implementation boundary
 
-Desktop adoption is staged. Ordinary online
+Desktop adoption is staged and remains transitional under the
+[PackageHouse adoption plan](package-house.md#adoption-plan). Ordinary online
 `package <id> --versions` is the first package-owned consumer: it resolves
 configured authorities, creates one association per authority and one
 plugin-authentication context per configurable V3 authority, uses the

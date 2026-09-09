@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
+  output now shows only section name, summary, and value count; `-D` lists
+  sections without category doors; exact names, stable section IDs, and globs
+  replace category selectors such as `@Decompiler`. Structured vocabulary
+  schema version 2 removes each section's `categories` member (#6404).
+- Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
+  grouping identical rendered Kind/Match values with occurrence counts.
+  `Body Shapes` retains individual member/token/rendered-C# locations.
+  Column projection remains presentational; summary row limits select groups
+  without truncating their counts. Type `--member` filters now bound both
+  summary and occurrence evidence before rendering (#6186).
+- **Breaking:** Zero-arity CLI options now consistently reject supplied
+  values, including attached Boolean forms previously accepted by the parser.
+  For example, `package System.CommandLine --versions 2` reports
+  `--versions does not accept a value`; use `--versions -n 2` instead.
+  Valid positional arguments after flags and optional-valued Boolean options
+  keep their existing behavior (#6173).
 - Online single-package inspection now selects latest and wildcard versions
   from configured local and HTTP authorities, including `--preview`.
   Selection requires fresh, complete discovery and acquires only from sources

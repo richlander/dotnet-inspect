@@ -3100,8 +3100,16 @@ public static class CompileBackSourceComposer
             });
         if (printOutcome is CSharpTypePrintOutcome.NotRendered notRendered)
         {
+            var refusals = new List<string>();
+            if (!notRendered.SelfNameFailures.IsEmpty)
+                refusals.Add($"{notRendered.SelfNameFailures.Length} exact declared-type self-name(s)");
+            if (!notRendered.MemorySafetyFailures.IsEmpty)
+                refusals.Add($"{notRendered.MemorySafetyFailures.Length} memory-safety declaration(s)");
             throw new NotSupportedException(
-                $"C# type printing refused {notRendered.SelfNameFailures.Length} exact declared-type self-name(s).");
+                $"C# type printing refused {string.Join(" and ", refusals)}."
+                + (notRendered.MemorySafetyFailures.IsEmpty
+                    ? ""
+                    : " " + string.Join(" ", notRendered.MemorySafetyFailures.Select(failure => failure.Message))));
         }
         var rendered = ((CSharpTypePrintOutcome.Printed)printOutcome).Result;
         var enrichedPlan = plan with

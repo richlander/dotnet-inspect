@@ -21,20 +21,25 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="ILInspector.SourceLink" />
+    <AssemblyMetadata Include="D3FixtureProducerSdk" Value="$(NETCoreSdkVersion)" />
+    <EmbeddedResource Include="Corpus/custom-attribute-d3.json" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/NuGetFetch/NuGetFetch.csproj" />
     <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
     <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
-    <ProjectReference Include="../../src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures/DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
       <Aliases>extensionold</Aliases>
     </ProjectReference>

@@ -1,4 +1,22 @@
 import type { MemberDetailInspectionState, MemberFacts } from "./member-detail-inspection.ts";
+import type {
+  BrowserMemberFindingFact,
+} from "./facades/inspect-web-source.d.ts";
+
+type MemberFactsRenderState = Pick<
+  MemberDetailInspectionState,
+  | "memberFacts"
+  | "memberFactsLoading"
+  | "memberFactsError"
+  | "memberAnnotatedLoading"
+  | "memberAnnotatedError"
+  | "memberFindingInteraction"
+  | "memberFindingSelectionError"
+>;
+
+export interface MemberFactsBindingActions {
+  onSelectFinding(receipt: string, instanceKey: number): void;
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -10,11 +28,34 @@ function escapeHtml(value: unknown) {
 }
 
 export function renderMemberFacts(
-  state: Pick<
-    MemberDetailInspectionState,
-    "memberFacts" | "memberFactsLoading" | "memberFactsError"
-  >,
+  state: MemberFactsRenderState,
 ) {
+  return `
+    ${renderAnalysisFacts(state)}
+    ${renderFindingFacts(state)}`;
+}
+
+export function bindMemberFacts(
+  root: ParentNode,
+  actions: MemberFactsBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-finding-instance]").forEach(
+    element => {
+      element.addEventListener("click", event => {
+        const target = event.currentTarget;
+        if (!(target instanceof HTMLElement)) return;
+        const receipt = target.dataset.findingReceipt;
+        const instanceKey = Number(target.dataset.findingInstance);
+        if (!receipt || !Number.isSafeInteger(instanceKey) || instanceKey <= 0) {
+          return;
+        }
+        actions.onSelectFinding(receipt, instanceKey);
+      });
+    },
+  );
+}
+
+function renderAnalysisFacts(state: MemberFactsRenderState): string {
   if (state.memberFactsLoading) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing method…</h2><p>Decoding the selected overload and deriving method evidence and performance opportunities.</p></section>`;
   }
@@ -56,20 +97,82 @@ export function renderMemberFacts(
     ${renderCallFacts(facts.calls)}
     ${renderSafetyFacts(facts.safety)}
     ${renderExceptionRegions(facts.exceptionRegions)}
-    <section class="document-section performance-facts">
-      <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
-      ${facts.performanceOpportunities.length
-        ? facts.performanceOpportunities.map(opportunity => `
-          <article class="performance-opportunity">
-            <div><strong>${escapeHtml(opportunity.shape)}</strong><span class="confidence ${escapeHtml(opportunity.confidence)}">${escapeHtml(opportunity.confidence)}</span>${opportunity.offset ? `<code>${escapeHtml(opportunity.offset)}</code>` : ""}</div>
-            <p>${escapeHtml(opportunity.evidence)}</p>
-            <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
-          </article>`).join("")
-        : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>
-    ${facts.diagnostics.length
-      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
-      : ""}`;
+    ${renderPerformanceOpportunities(facts.performanceOpportunities)}
+    ${renderAnalysisDiagnostics(facts.diagnostics)}`;
+}
+
+function renderFindingFacts(state: MemberFactsRenderState): string {
+  if (state.memberAnnotatedLoading) {
+    return `<section class="document-section source-progress finding-facts-progress"><span class="loader"></span><h2>Collecting Findings…</h2><p>Projecting one identity-preserving Finding census for Facts and Annotated Source.</p></section>`;
+  }
+  const interaction = state.memberFindingInteraction;
+  if (!interaction) {
+    return `<section class="document-section finding-facts-failure" role="alert"><h2>Finding census failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No Finding census result was returned.")}</p></section>`;
+  }
+
+  const facts = interaction.census.facts;
+  const receipt = interaction.census.factCensusReceipt;
+  const selectionError = state.memberFindingSelectionError
+    ? `<p class="finding-selection-error" role="alert">${escapeHtml(state.memberFindingSelectionError)}</p>`
+    : "";
+  return `
+    <section class="finding-facts" aria-labelledby="finding-facts-title">
+      <header><h2 id="finding-facts-title">Findings</h2><span>${facts.length} ${facts.length === 1 ? "finding" : "findings"}</span></header>
+      <p class="finding-context">Research observations for this member. Body findings can open their exact occurrence in Annotated Source.</p>
+      ${selectionError}
+      ${facts.length
+        ? `<ol class="finding-rows">${facts.map(fact =>
+            renderFindingFact(
+              fact,
+              receipt,
+              interaction.selectedInstanceKey,
+            )).join("")}</ol>`
+        : '<p class="finding-empty">No Research findings were reported for this member.</p>'}
+    </section>`;
+}
+
+function renderFindingFact(
+  fact: BrowserMemberFindingFact,
+  receipt: string,
+  selectedInstanceKey: number | null,
+): string {
+  const selected =
+    fact.instanceKey !== null && fact.instanceKey === selectedInstanceKey;
+  const content = `
+    <span class="finding-location">
+      ${fact.ilOffset === null
+        ? '<span>Member</span>'
+        : `<code>${escapeHtml(`IL_${fact.ilOffset.toString(16).padStart(4, "0").toUpperCase()}`)}</code>`}
+      ${fact.cSharpLine === null
+        ? ""
+        : `<span>line ${escapeHtml(fact.cSharpLine)}</span>`}
+    </span>
+    <span class="finding-main">
+      <code class="finding-id">${escapeHtml(fact.id)}</code>
+      ${fact.detail
+        ? `<span class="finding-detail">${escapeHtml(fact.detail)}</span>`
+        : ""}
+      <span class="finding-properties">
+        <span class="finding-property"><span class="finding-property-label">Category</span><code>${escapeHtml(fact.category)}</code></span>
+        <span class="finding-property"><span class="finding-property-label">Conditionality</span><code>${escapeHtml(fact.conditionality)}</code></span>
+        <span class="finding-property"><span class="finding-property-label">Anchor</span><code>${escapeHtml(fact.anchor)}</code></span>
+      </span>
+    </span>
+    ${fact.instanceKey === null
+      ? '<span class="finding-source-unavailable">No annotated source target</span>'
+      : `<span class="finding-source-action">${selected
+          ? '<span class="finding-selected-label">Selected</span><span aria-hidden="true">·</span>'
+          : ""}<span>Annotated source</span><span aria-hidden="true">→</span></span>`}`;
+  return fact.instanceKey === null
+    ? `<li class="finding-row finding-row-unkeyed"><div>${content}</div></li>`
+    : `<li class="finding-row${selected ? " selected" : ""}">
+        <button type="button"
+          data-finding-instance="${fact.instanceKey}"
+          data-finding-receipt="${escapeHtml(receipt)}"
+          aria-pressed="${selected}">
+          ${content}
+        </button>
+      </li>`;
 }
 
 function renderAllocationFacts(allocations: MemberFacts["allocations"]) {
@@ -160,6 +263,54 @@ function renderExceptionRegions(regions: MemberFacts["exceptionRegions"]) {
           </div>
         </li>`).join("")}</ol>`
       : '<p class="exception-empty">No exception regions were found in this method.</p>'}
+  </section>`;
+}
+
+function renderPerformanceOpportunities(
+  opportunities: MemberFacts["performanceOpportunities"],
+) {
+  return `<section class="performance-facts" aria-labelledby="performance-facts-title">
+    <header><h2 id="performance-facts-title">Performance opportunities</h2><span>${opportunities.length} ${opportunities.length === 1 ? "opportunity" : "opportunities"}</span></header>
+    ${opportunities.length
+      ? `<ol class="performance-rows">${opportunities.map(opportunity => `
+        <li class="performance-row">
+          <div class="performance-identity">${opportunity.offset == null
+            ? '<span class="performance-no-offset">No IL offset</span>'
+            : `<code class="performance-offset">${escapeHtml(opportunity.offset)}</code>`}<code class="performance-shape">${escapeHtml(opportunity.shape)}</code></div>
+          <div class="performance-main">
+            <p class="performance-evidence">${escapeHtml(opportunity.evidence)}</p>
+            <dl class="performance-properties">
+              <div><dt>Confidence</dt><dd><code>${escapeHtml(opportunity.confidence)}</code></dd></div>
+              <div><dt>In loop</dt><dd><code>${opportunity.inLoop ? "yes" : "no"}</code></dd></div>
+              <div><dt>Provenance</dt><dd><code>${escapeHtml(opportunity.provenance)}</code></dd></div>
+              <div><dt>Finding</dt><dd>${opportunity.finding == null
+                ? '<span class="performance-unavailable">not supplied</span>'
+                : `<code>${escapeHtml(opportunity.finding)}</code>`}</dd></div>
+            </dl>
+            <dl class="performance-guidance">
+              <div><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd></div>
+              <div><dt>Caveat</dt><dd>${opportunity.caveat == null
+                ? '<span class="performance-unavailable">not supplied</span>'
+                : escapeHtml(opportunity.caveat)}</dd></div>
+            </dl>
+          </div>
+        </li>`).join("")}</ol>`
+      : '<p class="performance-empty">No curated performance opportunities were found for this method.</p>'}
+  </section>`;
+}
+
+function renderAnalysisDiagnostics(
+  diagnostics: MemberFacts["diagnostics"],
+) {
+  if (!diagnostics.length) return "";
+  return `<section class="analysis-diagnostics" aria-labelledby="analysis-diagnostics-title">
+    <header><h2 id="analysis-diagnostics-title">Analysis diagnostics</h2><span>${diagnostics.length} ${diagnostics.length === 1 ? "diagnostic" : "diagnostics"}</span></header>
+    <p class="analysis-diagnostics-context">Some method analysis could not complete. Available evidence remains shown above.</p>
+    <ol class="analysis-diagnostic-rows">${diagnostics.map((diagnostic, index) => `
+      <li class="analysis-diagnostic-row">
+        <span class="analysis-diagnostic-label">Diagnostic ${index + 1}</span>
+        <code class="analysis-diagnostic-value">${escapeHtml(diagnostic)}</code>
+      </li>`).join("")}</ol>
   </section>`;
 }
 

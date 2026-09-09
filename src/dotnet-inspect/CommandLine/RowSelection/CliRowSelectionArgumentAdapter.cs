@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using static DotnetInspector.CommandLine.CliArgumentOwnership;
 
 namespace DotnetInspector.CommandLine;
 
@@ -878,27 +879,6 @@ internal static class CliRowSelectionArgumentAdapter
             .ToArray();
     }
 
-    private static IReadOnlyList<OptionResult> GetOptionResults(
-        ParseResult parseResult)
-    {
-        var results =
-            new List<OptionResult>();
-        for (SymbolResult? scope = parseResult.CommandResult;
-            scope is not null;
-            scope = scope.Parent)
-        {
-            if (scope is not CommandResult command)
-            {
-                continue;
-            }
-
-            results.AddRange(
-                command.Children.OfType<OptionResult>());
-        }
-
-        return results;
-    }
-
     private static bool IsOwnedOptionToken(
         ParsedArgument argument,
         string alias) =>
@@ -917,147 +897,6 @@ internal static class CliRowSelectionArgumentAdapter
         // Token equality includes the bound symbol identity, including repeats.
         var expected = new Token(alias, TokenType.Option, option);
         return argument.Tokens.Contains(expected);
-    }
-
-    private static ParsedArgument[] MapArguments(
-        ParseResult parseResult,
-        IReadOnlyList<string> arguments)
-    {
-        IReadOnlyList<Token> tokens =
-            parseResult.Tokens;
-        var result =
-            new ParsedArgument[arguments.Count];
-        var commandScopes =
-            new Dictionary<Token, CommandResult>(ReferenceEqualityComparer.Instance);
-        CommandResult activeScope = parseResult.CommandResult;
-        for (CommandResult? scope = parseResult.CommandResult;
-            scope is not null;
-            scope = scope.Parent as CommandResult)
-        {
-            activeScope = scope;
-            if (scope.IdentifierToken is { } identifier)
-            {
-                commandScopes.Add(identifier, scope);
-            }
-        }
-        int tokenIndex = 0;
-
-        for (int argumentIndex = 0;
-            argumentIndex < arguments.Count;
-            argumentIndex++)
-        {
-            int start = tokenIndex;
-            if (tokenIndex < tokens.Count)
-            {
-                string argument =
-                    arguments[argumentIndex];
-                Token token =
-                    tokens[tokenIndex];
-                if (argument.Equals(
-                        token.Value,
-                        StringComparison.Ordinal))
-                {
-                    tokenIndex++;
-                }
-                else if (!TryConsumeAttachedArgument(
-                    argument,
-                    tokens,
-                    ref tokenIndex))
-                {
-                    tokenIndex++;
-                }
-            }
-
-            Token[] mappedTokens = tokens.Skip(start).Take(tokenIndex - start).ToArray();
-            foreach (Token mappedToken in mappedTokens)
-            {
-                if (commandScopes.TryGetValue(mappedToken, out CommandResult? scope))
-                {
-                    activeScope = scope;
-                }
-            }
-
-            result[argumentIndex] = new(mappedTokens, activeScope);
-        }
-
-        return result;
-    }
-
-    private static bool TryConsumeAttachedArgument(
-        string argument,
-        IReadOnlyList<Token> tokens,
-        ref int tokenIndex)
-    {
-        Token option =
-            tokens[tokenIndex];
-        if (option.Type != TokenType.Option)
-        {
-            return false;
-        }
-
-        if (TryGetDelimitedValue(
-                argument,
-                option.Value,
-                out string? attachedValue))
-        {
-            tokenIndex++;
-            ConsumeMatchingArgument(
-                tokens,
-                ref tokenIndex,
-                attachedValue!);
-            return true;
-        }
-
-        if (IsShortAlias(option.Value)
-            && argument.Length > option.Value.Length
-            && argument.StartsWith(option.Value, StringComparison.Ordinal)
-            && tokenIndex + 1 < tokens.Count
-            && tokens[tokenIndex + 1].Type == TokenType.Argument
-            && tokens[tokenIndex + 1].Value.Equals(
-                argument[option.Value.Length..],
-                StringComparison.Ordinal))
-        {
-            tokenIndex += 2;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryGetDelimitedValue(
-        string argument,
-        string alias,
-        out string? value)
-    {
-        if (argument.Length > alias.Length
-            && argument.StartsWith(
-                alias,
-                StringComparison.Ordinal)
-            && argument[alias.Length] is '=' or ':')
-        {
-            value =
-                argument[(alias.Length + 1)..];
-            return true;
-        }
-
-        value = null;
-        return false;
-    }
-
-    private static void ConsumeMatchingArgument(
-        IReadOnlyList<Token> tokens,
-        ref int tokenIndex,
-        string value)
-    {
-        if (tokenIndex < tokens.Count
-            && tokens[tokenIndex].Type
-                == TokenType.Argument
-            && tokens[tokenIndex].Value.Equals(
-                value,
-                StringComparison.Ordinal))
-        {
-            tokenIndex++;
-        }
     }
 
     private static CliRowSelectionArgumentFailure[]
@@ -1550,16 +1389,9 @@ internal static class CliRowSelectionArgumentAdapter
         }
     }
 
-    private static bool IsShortAlias(string alias) =>
-        alias is ['-', not '-'];
-
     private readonly record struct NormalizedArguments(
         string[] Arguments,
         int[] Positions);
-
-    private readonly record struct ParsedArgument(
-        Token[] Tokens,
-        CommandResult Scope);
 
     private readonly record struct BoundOption(
         Option Option,

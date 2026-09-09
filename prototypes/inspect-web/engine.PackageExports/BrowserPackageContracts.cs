@@ -121,10 +121,10 @@ public sealed record BrowserTypeSurface(
     string? PlatformPack);
 
 /// <summary>
-/// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>, and
-/// <see cref="CanonicalSignature"/> are the product's member anchor; <see cref="GraphSelectorKey"/>
-/// and <see cref="BodySelectors"/> are the product's opaque call-graph correspondence. The host
-/// transports them and never parses them.
+/// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>,
+/// <see cref="CanonicalSignature"/>, and <see cref="AnchorTypeFullName"/> are the product's
+/// member anchor; <see cref="GraphSelectorKey"/> and <see cref="BodySelectors"/> are the product's
+/// opaque call-graph correspondence. The host transports them and never parses them.
 /// </summary>
 public sealed record BrowserMemberSurface(
     string Name,
@@ -149,6 +149,7 @@ public sealed record BrowserMemberSurface(
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
+    string AnchorTypeFullName,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 
@@ -232,6 +233,7 @@ public enum BrowserPackageQueryFacetTier
     Nuspec,
     PackageContent,
     SearchMetadata,
+    Assembly,
 }
 
 public sealed record BrowserPackageQueryFacetDescriptor(
@@ -247,6 +249,13 @@ public sealed record BrowserPackageQueryFacetDescriptor(
 
 public sealed record BrowserPackageQueryFacetCatalog(
     BrowserPackageQueryFacetDescriptor[] Facets);
+
+public sealed record BrowserPackageAssemblyQueryPattern(
+    string Id,
+    string Label,
+    string Summary,
+    int MaximumOperandLength,
+    int MaximumPackages);
 
 public sealed record BrowserGalleryPackageTypeSuggestion(
     string Value,
@@ -292,7 +301,8 @@ public sealed record BrowserPackageQueryRow(
     long? TotalDownloads,
     bool? Verified,
     string Producer,
-    string? Description = null);
+    string? Description = null,
+    string? RootRequest = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
 public enum BrowserPackageQueryFailureKind
@@ -304,6 +314,8 @@ public enum BrowserPackageQueryFailureKind
     InvalidManifest,
     PackageContentAcquisition,
     PackageContentEvaluation,
+    AssemblyAcquisition,
+    AssemblyEvaluation,
 }
 
 public sealed record BrowserPackageQueryFailure(
@@ -319,6 +331,7 @@ public enum BrowserPackageQueryProgressPhase
     Search,
     Manifest,
     PackageContent,
+    Assembly,
 }
 
 public sealed record BrowserPackageQueryProgress(
@@ -337,6 +350,7 @@ public enum BrowserPackageQueryCompletionKind
     Failed,
     GalleryResponseComplete,
     ExactPackageComplete,
+    ExplicitCandidatesComplete,
 }
 
 public sealed record BrowserPackageQueryCompletion(
@@ -349,7 +363,25 @@ public sealed record BrowserPackageQueryCompletion(
     int Failures,
     BrowserPackageQueryCompletionKind Kind,
     int? SourceCandidates = null,
-    long? EstimatedTotalHits = null);
+    long? EstimatedTotalHits = null,
+    int? SemanticMisses = null,
+    int? NotApplicable = null,
+    string? Scope = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblyAssessmentKind>))]
+public enum BrowserPackageAssemblyAssessmentKind
+{
+    NoMatch,
+    NotApplicable,
+}
+
+public sealed record BrowserPackageAssemblyAssessment(
+    string PackageId,
+    string Version,
+    BrowserPackageAssemblyAssessmentKind Disposition,
+    string Message,
+    string? AssetPath,
+    string RootRequest);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
 public enum BrowserPackageQueryEventKind
@@ -358,6 +390,7 @@ public enum BrowserPackageQueryEventKind
     Match,
     Failure,
     Completed,
+    Assessment,
 }
 
 public sealed record BrowserPackageQueryEvent(
@@ -365,7 +398,122 @@ public sealed record BrowserPackageQueryEvent(
     BrowserPackageQueryRow? Row,
     BrowserPackageQueryFailure? Failure,
     BrowserPackageQueryCompletion? Completion,
-    BrowserPackageQueryProgress? Progress = null);
+    BrowserPackageQueryProgress? Progress = null,
+    BrowserPackageAssemblyAssessment? Assessment = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryResultKind>))]
+public enum BrowserPackageQueryResultKind
+{
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryOperationFailureKind>))]
+public enum BrowserPackageQueryOperationFailureKind
+{
+    Expected,
+    Unexpected,
+}
+
+public sealed record BrowserPackageQueryResult(
+    int Version,
+    BrowserPackageQueryResultKind Kind,
+    BrowserPackageQueryEvent? Value,
+    BrowserPackageQueryOperationFailureKind? FailureKind,
+    string? Error,
+    string? Diagnostic,
+    string? Reason)
+{
+    internal static BrowserPackageQueryResult From(
+        BrowserManagedOperationResult<
+            BrowserPackageQueryEvent,
+            string,
+            string> result) =>
+        result switch
+        {
+            BrowserManagedOperationResult<
+                BrowserPackageQueryEvent,
+                string,
+                string>.Succeeded succeeded =>
+                new(1, BrowserPackageQueryResultKind.Succeeded,
+                    succeeded.Value, null, null, null, null),
+            BrowserManagedOperationResult<
+                BrowserPackageQueryEvent,
+                string,
+                string>.Failed failed =>
+                new(1, BrowserPackageQueryResultKind.Failed, null,
+                    failed.FailureKind switch
+                    {
+                        BrowserManagedOperationFailureKind.Expected =>
+                            BrowserPackageQueryOperationFailureKind.Expected,
+                        BrowserManagedOperationFailureKind.Unexpected =>
+                            BrowserPackageQueryOperationFailureKind.Unexpected,
+                        _ => throw new ArgumentOutOfRangeException(nameof(result)),
+                    },
+                    failed.Error, failed.Diagnostic, null),
+            BrowserManagedOperationResult<
+                BrowserPackageQueryEvent,
+                string,
+                string>.Canceled canceled =>
+                new(1, BrowserPackageQueryResultKind.Canceled,
+                    null, null, null, null,
+                    BrowserManagedOperationCancelReasons.Format(canceled.Reason)),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryCancellationKind>))]
+public enum BrowserPackageQueryCancellationKind
+{
+    Requested,
+    AlreadyRequested,
+    NotActive,
+}
+
+public sealed record BrowserPackageQueryCancellation(
+    BrowserPackageQueryCancellationKind Kind,
+    string? Reason)
+{
+    internal static BrowserPackageQueryCancellation From(
+        BrowserManagedCancellationRequestResult result) =>
+        result switch
+        {
+            BrowserManagedCancellationRequestResult.Requested requested =>
+                new(BrowserPackageQueryCancellationKind.Requested,
+                    BrowserManagedOperationCancelReasons.Format(requested.Reason)),
+            BrowserManagedCancellationRequestResult.AlreadyRequested requested =>
+                new(BrowserPackageQueryCancellationKind.AlreadyRequested,
+                    BrowserManagedOperationCancelReasons.Format(requested.Reason)),
+            BrowserManagedCancellationRequestResult.NotActive =>
+                new(BrowserPackageQueryCancellationKind.NotActive, null),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryMatchCreditKind>))]
+public enum BrowserPackageQueryMatchCreditKind
+{
+    Granted,
+    NotActive,
+}
+
+public sealed record BrowserPackageQueryMatchCreditResponse(
+    BrowserPackageQueryMatchCreditKind Kind,
+    int? AdditionalMatchCredit)
+{
+    internal static BrowserPackageQueryMatchCreditResponse From(
+        BrowserPackageQueryMatchCreditRequestResult result) =>
+        result switch
+        {
+            BrowserPackageQueryMatchCreditRequestResult.Granted granted =>
+                new(BrowserPackageQueryMatchCreditKind.Granted,
+                    granted.AdditionalMatchCredit),
+            BrowserPackageQueryMatchCreditRequestResult.NotActive =>
+                new(BrowserPackageQueryMatchCreditKind.NotActive, null),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+}
 
 /// <summary>
 /// Declared package dependency groups and one selected assembly's direct references. Dependency
@@ -378,10 +526,14 @@ public sealed record BrowserPackageDependencies(
     string ActiveFramework,
     string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
-    BrowserAssemblyReference[] AssemblyReferences,
+    BrowserAssemblyReferenceResult AssemblyReferences,
     string? DependencyGroupError,
-    string? AssemblyReferenceError,
     BrowserCompileLibraryAvailability CompileLibrary);
+
+public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
+
+public sealed record BrowserAssemblyReferenceList(
+    BrowserAssemblyReference[] References);
 
 public sealed record BrowserPackageDependencyGroup(
     int Index,
@@ -438,8 +590,12 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
+[JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserGalleryDiscoveryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
+[JsonSerializable(typeof(BrowserPackageQueryResult))]
+[JsonSerializable(typeof(BrowserPackageQueryCancellation))]
+[JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceView))]

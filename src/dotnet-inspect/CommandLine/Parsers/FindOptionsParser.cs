@@ -4,6 +4,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 
@@ -34,7 +35,11 @@ public static class FindOptionsParser
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
-        Option<bool> MembersOption);
+        Option<bool> MembersOption,
+        Option<string?> LiteralOption,
+        Option<int?> CandidatesOption,
+        Option<int?> MatchesOption,
+        Option<bool> PackageContentOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -45,6 +50,8 @@ public static class FindOptionsParser
     /// Indicates help with tips should be shown (no pattern provided).
     /// </summary>
     public record ShowHelpWithTips : FindParseResult;
+
+    public record Invalid : FindParseResult;
 
     /// <summary>
     /// Successfully parsed options ready for execution.
@@ -60,13 +67,54 @@ public static class FindOptionsParser
         FindCommandArgs args)
     {
         var pattern = parseResult.GetValue(args.PatternArg);
+        var literal = parseResult.GetValue(args.LiteralOption);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
+        string[] where = parseResult.GetValue(opts.RowWhere) ?? [];
+        int? candidates = parseResult.GetValue(args.CandidatesOption);
+        int? matches = parseResult.GetValue(args.MatchesOption);
+        bool packageContent = parseResult.GetValue(args.PackageContentOption);
+        bool queryRequested = where.Length > 0
+            || candidates is not null || matches is not null
+            || parseResult.GetResult(args.PackageContentOption) is { Implicit: false };
+        string[]? select = opts.ParseSelect(parseResult);
+        bool selectSpecified = parseResult.GetResult(opts.Select) is { Implicit: false };
+        if ((queryRequested || selectSpecified)
+            && (!string.IsNullOrEmpty(pattern) || !packagePrefixSpecified))
+        {
+            CommandError.Write(
+                "Package Query options and -S data selection require patternless find --package-prefix; use -Q <section> for query discovery.");
+            return new Invalid();
+        }
+        if (select is not null)
+        {
+            SelectResult sectionSelection = SelectResolver.ResolveSelectAsSections(
+                select, [PackageProfileSections.Packages],
+                categories: new Dictionary<string, string[]>());
+            if (SelectOutput.WriteUnresolved(sectionSelection))
+                return new Invalid();
+            if (sectionSelection.Sections?.Contains(PackageProfileSections.Packages) != true)
+            {
+                CommandError.Write("A package-prefix data selection must include Packages.");
+                return new Invalid();
+            }
+        }
+        PackageQueryOptions? packageQuery = null;
+        if (queryRequested && !PackageQueryOptions.TryCreate(
+            packagePrefix ?? "", where, packageContent, candidates, matches,
+            parseResult.GetValue(opts.Count),
+            parseResult.GetValue(args.TypeFilterOption),
+            out packageQuery, out var queryError))
+        {
+            CommandError.Write(queryError);
+            return new Invalid();
+        }
 
         if (string.IsNullOrEmpty(pattern)
-            && !packagePrefixSpecified)
+            && !packagePrefixSpecified
+            && literal is null)
             return new ShowHelpWithTips();
 
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
@@ -74,12 +122,16 @@ public static class FindOptionsParser
         AssemblySetRequest sources;
         SearchSourceSelection? selection = null;
         bool profileHasGroupScope = false;
-        if (string.IsNullOrEmpty(pattern))
+        if (literal is not null || string.IsNullOrEmpty(pattern))
         {
             // Profiles have their own grammar and reject API scopes before acquisition.
-            profileHasGroupScope = parseResult.GetValue(args.PlatformOption)
-                || parseResult.GetValue(args.ExtensionsOption)
-                || parseResult.GetValue(args.AspNetCoreOption);
+            // Literal assembly queries read the declared sources the same way: the shared
+            // planner needs the caller's exact ordered selection, including duplicates it
+            // rejects itself, so source normalization must not silently remove them.
+            profileHasGroupScope = literal is null
+                && (parseResult.GetValue(args.PlatformOption)
+                    || parseResult.GetValue(args.ExtensionsOption)
+                    || parseResult.GetValue(args.AspNetCoreOption));
             sources = new()
             {
                 Packages = parseResult.GetValue(args.PackageOption) ?? [],
@@ -99,9 +151,11 @@ public static class FindOptionsParser
                 intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
         }
 
+        var verbosity = opts.ParseVerbosity(parseResult);
         var options = new FindOptions
         {
             Pattern = pattern ?? "",
+            Literal = literal,
             SourceSelection = selection,
             Packages = [.. sources.Packages],
             Assemblies = [.. sources.Assemblies],
@@ -127,9 +181,12 @@ public static class FindOptionsParser
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = verbosity,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Discover = opts.ParseDiscover(parseResult),
+            Select = select,
+            PackageQuery = packageQuery,
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             PackagePrefixSpecified = packagePrefixSpecified,
@@ -137,8 +194,7 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsPackageProfile || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.Literal is not null || options.IsPackageProfile || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

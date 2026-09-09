@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using CSharpText;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -31,6 +31,8 @@ internal sealed record CSharpDeclarationOptions
     public IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalKnownNamespaces = [];
+    public CSharpMemorySafetyLanguage? MemorySafetyLanguage;
+    public bool IsExtern;
     public CSharpDeclaredTypeSelfNameAdmission.Admitted? DeclaredTypeSelfName { get; init; }
     public string? LegacyDeclaredTypeIdentifier { get; init; }
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
@@ -106,7 +108,12 @@ internal static class CSharpDeclarationWriter
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
             synthesizedAttributeReferences);
-        var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
+        var declaration = RenderMemberDeclarationCore(
+            type,
+            member,
+            options,
+            methodParameters,
+            isStandaloneMember: true);
         declaration = plan.Apply(declaration);
 
         if (options.TerminateMemberDeclaration && NeedsTerminator(declaration))
@@ -163,7 +170,8 @@ internal static class CSharpDeclarationWriter
             member,
             options,
             methodParameters,
-            parameterNames);
+            parameterNames,
+            isStandaloneMember: true);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
             ? declaration + ";"
@@ -179,6 +187,7 @@ internal static class CSharpDeclarationWriter
         options ??= new CSharpDeclarationOptions { NamespaceMode = CSharpNamespaceMode.FileScoped };
         var memberList = members?.ToList() ?? type.Members;
         var parameters = primaryConstructorParameters ?? [];
+        CheckMemorySafetyType(type, options, parameters.Count);
         var attributeReferences = CollectAttributeTypeReferences(type.Attributes)
             .Concat(memberList.SelectMany(member => CollectAttributeTypeReferences(
                 member.Attributes,
@@ -281,6 +290,7 @@ internal static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         var parameters = primaryConstructorParameters ?? [];
+        CheckMemorySafetyType(type, options, parameters.Count);
         if (delegateInvoke is not null)
         {
             if (delegateInvoke.SignatureModel is not { } signature)
@@ -1035,10 +1045,18 @@ internal static class CSharpDeclarationWriter
             declaration += " : " + string.Join(", ", bases);
 
         declaration = AppendTypeParameterConstraints(declaration, type.TypeParameters);
-        if (!options.IncludeCustomAttributes || type.Attributes.Count == 0)
+        List<string> attributeLines = [];
+        if (CSharpMemorySafetySpelling.TypeLayoutAttribute(
+                type,
+                options.MemorySafetyLanguage) is { } layoutAttribute)
+        {
+            attributeLines.Add($"[{layoutAttribute}]");
+        }
+        if (options.IncludeCustomAttributes)
+            attributeLines.AddRange(type.Attributes.Select(attribute => $"[{attribute}]"));
+        if (attributeLines.Count == 0)
             return declaration;
-        return string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]"))
-            + "\n" + declaration;
+        return string.Join("\n", attributeLines) + "\n" + declaration;
     }
 
     static bool NeedsTerminator(string declaration)
@@ -1049,8 +1067,19 @@ internal static class CSharpDeclarationWriter
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null,
-        IReadOnlyList<string>? parameterNames = null)
+        IReadOnlyList<string>? parameterNames = null,
+        bool isStandaloneMember = false)
     {
+        var safety = CSharpMemorySafetySpelling.Member(
+            type,
+            member,
+            options.MemorySafetyLanguage,
+            options.IsExtern,
+            options.ForceUnsafe,
+            isStandaloneMember);
+        if (safety.Failure is { } failure)
+            throw new NotSupportedException(failure);
+
         string signature;
         var renderedFromModel = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -1162,6 +1191,15 @@ internal static class CSharpDeclarationWriter
             signature = EscapeParameterLists(signature);
 
         List<string> attributeLines = [];
+        bool hasLayoutAttribute = false;
+        if (CSharpMemorySafetySpelling.FieldLayoutAttribute(
+                type,
+                member,
+                options.MemorySafetyLanguage) is { } fieldLayoutAttribute)
+        {
+            attributeLines.Add($"[{fieldLayoutAttribute}]");
+            hasLayoutAttribute = true;
+        }
         if (options.IncludeCustomAttributes)
         {
             foreach (var attribute in member.Attributes)
@@ -1178,8 +1216,6 @@ internal static class CSharpDeclarationWriter
         if (member.Name == ".cctor")
         {
             modifiers.Add("static");
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
         else if (member.IsFinalizer)
         {
@@ -1190,8 +1226,6 @@ internal static class CSharpDeclarationWriter
             // `public`/`virtual` would misrepresent it as a new virtual slot
             // (CS0465) rather than the object-finalizer override it is, so keep
             // the fallback modifier-free too.
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
         else if (member.Kind != "explicit-interface-implementation")
         {
@@ -1216,19 +1250,20 @@ internal static class CSharpDeclarationWriter
                 else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
                     modifiers.Add("virtual");
             }
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
         else
         {
             // Explicit interface implementations omit the access modifier but must still
             // carry `static` (C# 11 static-abstract interface members implemented explicitly)
-            // and `unsafe`. Order mirrors the .cctor branch: static then unsafe.
+            // and their safety modifier.
             if (member.IsStatic)
                 modifiers.Add("static");
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
+
+        if (safety.Modifier is { } safetyModifier)
+            modifiers.Add(safetyModifier);
+        if (options.IsExtern)
+            modifiers.Add("extern");
 
         if ((options.ForceAsync || member.IsAsync)
             && !member.IsFinalizer
@@ -1247,7 +1282,9 @@ internal static class CSharpDeclarationWriter
         // the full type printer) each leading attribute goes on its own line, as is
         // idiomatic C#. Single-line/table contexts (which never emit custom
         // attributes) keep obsolete/return attributes inline so the row stays intact.
-        string separator = options.IncludeCustomAttributes ? "\n" : " ";
+        string separator = options.IncludeCustomAttributes || hasLayoutAttribute
+            ? "\n"
+            : " ";
         return string.Join(separator, attributeLines) + separator + declarationLine;
     }
 
@@ -1259,6 +1296,19 @@ internal static class CSharpDeclarationWriter
                 && (!parameter.HasDefault
                     || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
             && model.Accessors.All(accessor => accessor.ReturnAttributes.Count == 0);
+
+    static void CheckMemorySafetyType(
+        ApiType type,
+        CSharpDeclarationOptions options,
+        int primaryConstructorParameterCount)
+    {
+        if (options.MemorySafetyLanguage is { } language
+            && CSharpMemorySafetySpelling.TypeFailure(
+                type, language, primaryConstructorParameterCount) is { } failure)
+        {
+            throw new NotSupportedException(failure);
+        }
+    }
 
     static IEnumerable<string> CollectTypeReferences(ApiType type)
     {

@@ -137,6 +137,10 @@ public static class LibrarySections
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
+            .Add<BodyShapeSummary>(
+                BodyShapesQuery.Definition,
+                HasMethodBodies)
+            .Add<CloneCandidates>()
             .Add<PerformanceBoxing>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -392,7 +396,7 @@ public static class LibrarySections
         ResourceTriageResult result = ExecuteResourceTriageQuery(
             context.MetadataContext?.HasMetadata != false,
             context.BodyIndex,
-            new ILInspector.Findings.FindingSubject(
+            new Inspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
         if (result is ResourceTriageResult.Available)
@@ -403,7 +407,7 @@ public static class LibrarySections
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         bool hasMetadata,
         Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
-        ILInspector.Findings.FindingSubject subject)
+        Inspector.Findings.FindingSubject subject)
     {
         ArgumentNullException.ThrowIfNull(acquireIndex);
         ArgumentNullException.ThrowIfNull(subject);
@@ -424,7 +428,7 @@ public static class LibrarySections
         catch (Exception ex)
         {
             return new ResourceTriageResult.Failed(
-                new ILInspector.Findings.InspectionError(
+                new Inspector.Findings.InspectionError(
                     subject,
                     ILInspector.Analysis.AnalysisFindings
                         .ResourceLifecycleDescriptor,
@@ -584,6 +588,17 @@ public static class LibrarySections
                 "SourceLink query execution requires a SourceLink query context.");
 
     // ===== Primary section =====
+
+    public sealed class CloneCandidates
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.CloneCandidates;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
 
     public sealed class LibraryInfo : ISectionDescriptor<LibraryInspection>
     {
@@ -943,6 +958,17 @@ public static class LibrarySections
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.BodyShapes;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.EffectiveBodyShapeSearchResult is not null;
+    }
+
+    public sealed class BodyShapeSummary : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.BodyShapeSummary;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;

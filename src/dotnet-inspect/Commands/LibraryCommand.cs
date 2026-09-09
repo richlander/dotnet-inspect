@@ -32,10 +32,20 @@ namespace DotnetInspector.Commands;
 public class LibraryCommand
 {
     internal static DocumentSchema CreateStructuralSchema()
-        => MetadataSectionNames.AugmentSchema(
+    {
+        DocumentSchema schema = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default
                 .GetSchemaInfo<LibraryInspectionView>()!
                 .ToDocumentSchema());
+        AddCloneCandidateSchema(schema);
+        return schema;
+    }
+
+    internal static void AddCloneCandidateSchema(DocumentSchema schema)
+        => schema.Add(
+            SectionNames.CloneCandidates,
+            "column",
+            CloneCandidatesCommand.CandidateColumnNames);
 
     internal static StructuralSectionInput GetStructuralSectionInput(
         string section)
@@ -47,9 +57,9 @@ public class LibraryCommand
                 MetadataSectionNames.Heap,
                 StringComparison.OrdinalIgnoreCase)
                 ? StructuralSectionInput.HeapCoordinate
-                : section.Equals(
-                    SectionNames.BodyShapes,
-                    StringComparison.OrdinalIgnoreCase)
+                : BodyKindQueryOptions.Sections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase)
                     ? StructuralSectionInput.BodyKindFilter
                     : StructuralSectionInput.None;
 
@@ -137,10 +147,12 @@ public class LibraryCommand
     {
         if (options.IntegrationQuery.HasFilter
             && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
-                || options.PerformanceTriage.HasRanking))
+                || options.PerformanceTriage.HasRanking
+                || options.CloneCandidateQuery.HasPredicates))
         {
             CommandError.Write(
-                "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+                "Integration ecosystem queries cannot be combined with Clone Candidates, "
+                + "Body Shapes, or Performance Triage predicates/ranking.");
             return 1;
         }
         if (options.IntegrationQuery.HasFilter
@@ -305,6 +317,18 @@ public class LibraryCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
+        var cloneSelection = SelectResolver.NormalizeExactOnlySection(
+            options.Select,
+            options.IncludeSections,
+            options.ExactIncludeSections,
+            sections.SelectableSectionNames,
+            SectionNames.CloneCandidates);
+        if (cloneSelection.Error is not null)
+        {
+            CommandError.Write(cloneSelection.Error);
+            return 1;
+        }
+        options = options with { IncludeSections = cloneSelection.Sections };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -333,8 +357,7 @@ public class LibraryCommand
                     return 1;
                 }
             }
-            bool bodyShapesSelected =
-                options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
+            bool bodyShapesSelected = BodyKindQueryOptions.IsSelected(options.IncludeSections);
             if (options.BodyKindQuery.HasFilter
                 && options.PerformanceTriage.HasRanking)
             {
@@ -362,15 +385,43 @@ public class LibraryCommand
             if (options.BodyKindQuery.HasFilter && !bodyShapesSelected)
             {
                 CommandError.Write(
-                    $"--where Kind=... targets section '{SectionNames.BodyShapes}'. "
-                    + $"Omit -S or include -S \"{SectionNames.BodyShapes}\".");
+                    $"--where Kind=... targets section '{SectionNames.BodyShapes}' "
+                    + $"or '{SectionNames.BodyShapeSummary}'. Omit -S or select one of these sections.");
                 return 1;
             }
             if (bodyShapesSelected && !options.BodyKindQuery.HasFilter)
             {
                 CommandError.Write(
-                    $"Section '{SectionNames.BodyShapes}' requires "
+                    $"Section '{options.IncludeSections!.First(section => BodyKindQueryOptions.Sections.Contains(
+                        section, StringComparer.OrdinalIgnoreCase))}' requires "
                     + "--where \"Kind=<C# Body Kinds ID>\".");
+                return 1;
+            }
+            bool cloneCandidatesSelected =
+                CloneCandidatesCommand.IsSelected(
+                    options.IncludeSections);
+            if (options.CloneCandidateQuery.HasPredicates
+                && options.IncludeSections is not { Count: > 0 })
+            {
+                options = options with
+                {
+                    IncludeSections =
+                    [
+                        SectionNames.CloneCandidates,
+                    ],
+                    ExactIncludeSectionsOverride =
+                    [
+                        SectionNames.CloneCandidates,
+                    ],
+                };
+                cloneCandidatesSelected = true;
+            }
+            if (options.CloneCandidateQuery.HasPredicates
+                && !cloneCandidatesSelected)
+            {
+                CommandError.Write(
+                    $"--where Breadth=... and Discovery=... target section '{SectionNames.CloneCandidates}'. "
+                    + "Omit -S or select that section.");
                 return 1;
             }
         }
@@ -556,6 +607,8 @@ public class LibraryCommand
                 || options.Columns is { Length: > 0 })
             && options.Discover == null
             && projectionSections is { Count: > 0 }
+            && !CloneCandidatesCommand.IsSelected(
+                options.IncludeSections)
             && !ProjectionDiagnostics.ValidateProjection(
                 schemaMap,
                 projectionSections,
@@ -740,6 +793,14 @@ public class LibraryCommand
                         integrations?.AssemblyForInspection(resolvedPath!));
                 if (subject is null)
                     return 1;
+                if (CloneCandidatesCommand.IsSelected(
+                        options.IncludeSections))
+                {
+                    return await ExecuteCloneCandidatesAsync(
+                        subject,
+                        options,
+                        rootPackageDirectory: null);
+                }
 
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
@@ -897,6 +958,23 @@ public class LibraryCommand
                     subjectSelections
                         .OfType<LibraryInspectionSubjectSelection.Ready>()
                         .FirstOrDefault();
+                if (CloneCandidatesCommand.IsSelected(
+                        options.IncludeSections))
+                {
+                    if (subjectSelections.Count != 1
+                        || primaryReady is null)
+                    {
+                        CommandError.Write(
+                            $"Section '{SectionNames.CloneCandidates}' requires one exact library. "
+                            + "Name the assembly within the package.");
+                        return 1;
+                    }
+
+                    return await ExecuteCloneCandidatesAsync(
+                        primaryReady.Subject,
+                        options,
+                        extractPath);
+                }
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
@@ -1108,6 +1186,14 @@ public class LibraryCommand
                         integrations?.AssemblyForInspection(assemblyPath!));
                 if (subject is null)
                     return 1;
+                if (CloneCandidatesCommand.IsSelected(
+                        options.IncludeSections))
+                {
+                    return await ExecuteCloneCandidatesAsync(
+                        subject,
+                        options,
+                        rootPackageDirectory: null);
+                }
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
@@ -1361,6 +1447,31 @@ public class LibraryCommand
             path,
             ((LibraryInspectionSubjectSelection.Rejected)selection).Failure);
         return null;
+    }
+
+    private static Task<int> ExecuteCloneCandidatesAsync(
+        LibraryInspectionSubject subject,
+        LibraryOptions options,
+        string? rootPackageDirectory)
+    {
+        if (subject.AssemblyReference is not { } assembly)
+        {
+            CommandError.Write(
+                $"Section '{SectionNames.CloneCandidates}' requires a managed assembly with a readable identity.");
+            return Task.FromResult(1);
+        }
+
+        return CloneCandidatesCommand.ExecuteAsync(
+            assembly,
+            subject.Path,
+            new StructuralCloneSearchSeed.Library(),
+            options.CloneCandidateQuery,
+            CloneCandidateOutputOptions.From(options),
+            new CloneCandidateWorkspaceOptions(
+                rootPackageDirectory,
+                ProjectAssetsPath: null,
+                options.Tfm,
+                options.SourceOptions));
     }
 
     private static async Task<int> WriteILCoordinateBatchAsync(
@@ -1639,7 +1750,9 @@ public class LibraryCommand
         var heapCoordinateRequired =
             $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
         var bodyKindRequired =
-            $"\"{SectionNames.BodyShapes}\" requires --where \"Kind=<C# Body Kinds ID>\".";
+            $"\"{sections.FirstOrDefault(section => BodyKindQueryOptions.Sections.Contains(
+                section, StringComparer.OrdinalIgnoreCase)) ?? SectionNames.BodyShapes}\" "
+            + "requires --where \"Kind=<C# Body Kinds ID>\".";
         var removedILCoordinateSections = false;
         var removedHeapSection = false;
         var removedBodyShapesSection = false;
@@ -1677,12 +1790,13 @@ public class LibraryCommand
             }
         }
 
-        if (sections.Contains(SectionNames.BodyShapes)
+        if (BodyKindQueryOptions.IsSelected(sections)
             && !options.BodyKindQuery.HasFilter)
         {
-            if (!selectResult.ExactSections.Contains(SectionNames.BodyShapes))
+            if (!BodyKindQueryOptions.IsSelected(selectResult.ExactSections))
             {
-                removedBodyShapesSection = sections.Remove(SectionNames.BodyShapes);
+                sections.ExceptWith(BodyKindQueryOptions.Sections);
+                removedBodyShapesSection = true;
             }
             else if (options.Discover == null)
             {
@@ -2246,8 +2360,8 @@ public class LibraryCommand
         }
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
-        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetcher = new SourceFetch(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var fetch = await PdbSourceHouse.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,
             result.SourceChecksumAlgorithm,
@@ -3061,6 +3175,12 @@ public class LibraryCommand
     {
         if (failureSection.Equals(section, StringComparison.OrdinalIgnoreCase))
             return true;
+
+        if (failureSection.Equals(SectionNames.BodyShapes, StringComparison.OrdinalIgnoreCase)
+            && section.Equals(SectionNames.BodyShapeSummary, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
 
         if (failureSection.Equals(MetadataSectionNames.Image, StringComparison.Ordinal)
             && MetadataSectionNames.IsMetadataSection(section))

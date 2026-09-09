@@ -1,5 +1,3 @@
-using SLF = SourceLinkFetch;
-
 namespace ILInspector.SourceLink;
 
 /// <summary>
@@ -8,7 +6,7 @@ namespace ILInspector.SourceLink;
 /// <remarks>
 /// The SourceLink document-map rule — key conformance, specificity ordering, case-insensitive
 /// comparison, wildcard substitution and percent-encoding — has one owner,
-/// <see cref="SLF.SourceLinkResolver"/>. This type adds only the path canonicalization the
+/// <see cref="SourceLinkDocumentMap"/>. This type adds only the path canonicalization the
 /// metadata layer needs on top of that match, and must not re-derive the matching rule: a second
 /// implementation of a shared rule is a defect (docs/design/inspection-layers.md, seam rule 6),
 /// and the two implementations this replaced disagreed on six of nine measured cases.
@@ -54,19 +52,19 @@ internal static class SourceDocumentPath
 
 internal sealed class SourceDocumentPathResolver
 {
-    public static SourceDocumentPathResolver Empty { get; } = new(SLF.SourceLinkResolver.Empty);
+    public static SourceDocumentPathResolver Empty { get; } = new(SourceLinkDocumentMap.Empty);
 
-    private readonly SLF.SourceLinkResolver _map;
+    private readonly SourceLinkDocumentMap _map;
 
-    private SourceDocumentPathResolver(SLF.SourceLinkResolver map)
+    private SourceDocumentPathResolver(SourceLinkDocumentMap map)
     {
         _map = map;
     }
 
     public static SourceDocumentPathResolver Create(string? sourceLinkJson)
-        => new(SLF.SourceLinkResolver.Parse(sourceLinkJson));
+        => new(SourceLinkDocumentMap.Parse(sourceLinkJson));
 
-    internal static SourceDocumentPathResolver Create(SLF.SourceLinkResolver map)
+    internal static SourceDocumentPathResolver Create(SourceLinkDocumentMap map)
         => new(map);
 
     public SourceDocumentPathResolution Resolve(string filePath)
@@ -74,9 +72,9 @@ internal sealed class SourceDocumentPathResolver
         if (string.IsNullOrWhiteSpace(filePath))
             throw new BadImageFormatException("A portable-PDB source document has an empty path.");
 
-        SLF.SourceLinkResolutionStatus status =
+        SourceLinkResolutionStatus status =
             _map.Resolve(filePath, out var resolution);
-        if (status == SLF.SourceLinkResolutionStatus.Resolved)
+        if (status == SourceLinkResolutionStatus.Resolved)
         {
             // The canonical path is whatever the key did not cover, which is the
             // repository-relative path for a conventional "/_/*" map; its leading separator is
@@ -100,7 +98,7 @@ internal sealed class SourceDocumentPathResolver
         return new SourceDocumentPathResolution(
             SourceDocumentPath.TrimSyntheticRoot(SourceDocumentPath.NormalizeSeparators(filePath)),
             ResolvedUrl: null,
-            status == SLF.SourceLinkResolutionStatus.Rejected
+            status == SourceLinkResolutionStatus.Rejected
                 ? SourceDocumentResolutionStatus.Rejected
                 : SourceDocumentResolutionStatus.Unmapped);
     }

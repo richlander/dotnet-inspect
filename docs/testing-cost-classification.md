@@ -33,7 +33,7 @@ Tag a test `Speed=Slow` when it does one of the following:
   guess — measure with a real xUnit XML timing report:
 
   ```sh
-  dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+  dotnet run --project tests/dotnet-inspect.Tests -c Release -- \
     --filter-not-trait "Speed=Slow" --report-xunit \
     --report-xunit-filename fast-tests.xml --results-directory /tmp
   ```
@@ -71,14 +71,18 @@ public void SomeExpensiveTheory(string assemblyName)
 ## Existing consumers (no workflow changes needed to add a tag)
 
 - `ci.yml`'s PR-blocking fast leg runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"`
+  `dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"`
   — a newly tagged test is automatically excluded.
 - `deep-inspect.yml`'s nightly `dotnet-inspect.Tests` step runs fully
   unfiltered — a newly tagged test automatically keeps running nightly.
+- The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
+  selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
+  its full suite, including the pinned custom-attribute package gate, and
+  retains that gate's per-platform evidence report.
 - The decompiler suite uses the same trait, but its native xUnit console
   runner takes a different flag spelling than the CLI suite's Microsoft
   Testing Platform runner: `dotnet run --project
-  src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
+  tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
   (fast) vs. `-trait "Speed=Slow"` (slow-only). See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its

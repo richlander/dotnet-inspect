@@ -1,7 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Core;
 using ILInspector.CSharp;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
@@ -2554,6 +2554,10 @@ public static class ApiOutputFormatter
         view.BodyShapeRows =
         [
             .. result.Matches.Select(ApiBodyShapeRow.FromMatch),
+        ];
+        view.BodyShapeSummaryRows =
+        [
+            .. BodyShapeSummary.FromMatches(result.Matches).Select(ApiBodyShapeSummaryRow.FromSummary),
         ];
 
         if (result.Failures.Count == 0)

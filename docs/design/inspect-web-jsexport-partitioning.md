@@ -4,7 +4,8 @@ Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 The [page-facing engine client](#page-facing-engine-client) is **partially
 implemented**: startup reads, home-demo resolution, and dependency-coordinate
-matching have Promise-valued main-thread bindings.
+matching have Promise-valued main-thread bindings, and the Worker-only host has
+a typed Type Source producer adapter with no production caller.
 The single-runtime Worker cutover remains unimplemented, tracked by
 [#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
 consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
@@ -188,7 +189,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 54 `[JSExport]` methods.
+The seven rooted export assemblies contain 57 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -212,17 +213,19 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 19 exports
+### Package facade: 22 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
 - `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
 - `ListGalleryDiscoveryCatalog`
+- `ListPackageAssemblyQueryPatterns`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
 - `LoadRuntimePackAssembly`
 - `MatchPackageDependencyCoordinate`
+- `OpenPackageAssemblyQueryResult`
 - `PackageCacheStats`
 - `QueryMemberDocumentation`
 - `QueryPackage`
@@ -231,6 +234,7 @@ deployment smoke's deterministic awaited operation.
 - `QueryWorkspacePackageOccurrences`
 - `RequestPackageQueryMatches`
 - `ResolvePackageDependencyVersion`
+- `RunPackageAssemblyQuery`
 - `RunPackageQuery`
 - `SearchTypes`
 
@@ -258,8 +262,9 @@ member surface selected from graph navigation. It consumes package or platform
 coordinates through `InspectWeb.Engine.Core`; it does not acquire artifacts
 independently.
 
-### Analysis facade: 7 exports
+### Analysis facade: 8 exports
 
+- `QueryCloneCandidates`
 - `QueryMemberFacts`
 - `QueryPackageIntegrations`
 - `QueryPackageOpportunities`
@@ -270,6 +275,9 @@ independently.
 
 The explicitly unavailable platform-performance operation stays in this facade
 so absence remains a visible capability result rather than a missing binding.
+`QueryCloneCandidates` belongs here because it adapts the Workspace structural
+Clone query and portable Presentation result without transferring candidate
+ranking or coverage semantics into the browser host.
 The module does not combine Analysis with call-graph topology; graph traversal
 has its own facade and product owner.
 
@@ -314,8 +322,8 @@ it projects one API member after navigation rather than expanding topology.
 
 The catalog facade adapts product-owned static vocabulary and demo definitions
 plus product-owned workspace-share transport. `RunHomeDemo` may call shared
-package/workspace services through `InspectWeb.Engine.Core`; it does not call the
-package facade or reuse that facade's wire DTOs.
+package or Platform workspace services through `InspectWeb.Engine.Core`; it
+does not call sibling facades or reuse their wire DTOs.
 
 ## Managed assembly contract
 
@@ -549,7 +557,7 @@ catalog handoff; the historical counts in this migration snapshot exclude it.
 | Synchronous startup data | 4 | `buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets` | Await acquisition; supply typed catalog data to existing readers. |
 | Synchronous computed results | 5 | `decodeWorkspaceShareState`, `encodeWorkspaceShareState`, `resolveHomeDemo`, `matchPackageDependencyCoordinate`, `searchTypes` | Await the real result in navigation/share, demo resolution, dependency matching, and Spotlight owners. |
 | Synchronous stateful operations | 3 | `activateWorkspacePackageOccurrence`, `clearWorkspacePackageOccurrences`, `packageCacheStats` | Await activation/clear completion or a current stats result; retain the UI owner's ordering and invalidation. |
-| Synchronous controls | 4 | `cancelPackageQuery`, `cancelSourceQuery`, `cancelTypeSourceQuery`, `requestPackageQueryMatches` | Preserve existing targeting and real acknowledgment; logical cancellation stays with its existing feature/operation authority. |
+| Synchronous controls | 4 | `cancelPackageQuery`, `cancelSourceQuery`, `cancelTypeSourceQuery`, `requestPackageQueryMatches` | Preserve exact operation targeting and real acknowledgment; Package Query and Type Source are already keyed, while remaining singleton controls require focused adoption. Logical cancellation stays with its existing feature/operation authority. |
 | Callback stream | 1 | `runPackageQuery` | Worker-local callback adapter, durable delivery, terminal ordering, and existing match-credit behavior. |
 | Authority-governed Source | 1 | `queryTypeSource` | Direct Worker producer adapter; consume the existing keyed managed bridge and generated terminal DTO. |
 | Other Promise-returning calls | 30 | Package: 9; Metadata: 8; Analysis: 7; Source: 3; Call graph: 2; Catalog: `runHomeDemo` | Preserve generated inputs, results, and failures through typed bindings; placement alone does not complete lifecycle adoption. |
@@ -596,6 +604,33 @@ production caller with delayed success/failure, a newer saved-workspace open,
 and the call-graph handoff. Other computed callers, mutable/control calls,
 and Worker activation remain outstanding.
 
+The first Worker-only client slice binds exactly five startup reads:
+`buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets`,
+and `listGalleryDiscoveryCatalog`. It consumes the corresponding `EngineClient`
+subset in the separately published Worker client entry, not the production
+page bootstrap. All calls share the existing full-facade and managed-reporter
+readiness barrier. Concurrent calls, including repeated calls to one method,
+have independent operation sessions and cannot supersede each other. An
+individual managed rejection does not fail neighboring reads. Disposal and
+epoch loss reject outstanding reads; a client cannot follow a replacement
+epoch. Promise completion does not assert physical quiescence.
+
+Each read has a closed Worker operation and consumes the generated function
+and result type. Its JSON-representable result uses a transport JSON string,
+limited to 1,048,576 UTF-16 code units before parsing and checked against the
+generated DTO shape. This deliberate transport encoding bounds decoding by
+text length without adding a recursive object-budget framework; it does not
+replace generated managed serialization. Extra JSON properties and the
+vocabulary's generated `unknown` values are preserved. Oversized results,
+invalid shapes, managed exceptions, and Worker failures remain visible.
+
+`test/engine-worker-startup.test.ts` gates generated-shaped result forwarding,
+shared readiness, independent calls, rejection, disposal, and epoch binding
+using the actual host, realm, and operation authority. The existing published
+Worker gate compares all five client results with the actual generated facade
+results in the same Worker. This is the first portion of milestone 4 below,
+not production activation, Source adoption, or managed-work responsiveness.
+
 Dependency-coordinate matching uses the package group without moving NuGet
 selection into JavaScript. Dependency lists await results before enabling
 open/load actions; graph construction awaits the same matcher before Mermaid
@@ -623,7 +658,8 @@ is the production-host adoption and retirement path under #5418 and #5420:
    existing single page runtime.
 3. Consume the separately owned durable Worker event prerequisite in #5418.
 4. Prepare typed Worker bindings and the Source producer adapter in a
-   Worker-only host, without activating them alongside the production runtime.
+   Worker-only host, without activating them alongside the production runtime
+   (**implemented**).
 5. Switch production bootstrap and all required bindings together, retire the
    temporary page client/direct managed calls, and complete the Source demo.
 
@@ -634,12 +670,82 @@ Worker scope; it is not a CLI runtime migration. Feature-specific lifecycle
 adoption may continue after placement, but direct page managed dispatch does
 not.
 
-All new runtime claims are **unverified** until implementation. Extend the
-existing published facade-composition gate to exercise the actual client
-bootstrap, one SDK creation across the page/Worker composition, all required
-bindings, and visible startup failure. Its neighboring case uses package and
-metadata through the same runtime. This is behavioral evidence for that
-consumer path, not a repository-wide source absence audit.
+The Type Source portion of milestone 4 registers the generated Source facade
+in the Worker catalog and exposes its operation-authority-compatible producer
+adapter from the page-facing Worker entry. The adapter projects the six
+clone-safe Source fields, validates bounded Source and terminal DTOs, forwards
+keyed cancellation, preserves expected versus unexpected failure, rejects
+progress, and declares unbounded liveness.
+`test/engine-worker-source.test.ts`, included in
+`inspect-web-worker-protocol`, exercises the real host, realm, catalog, and
+operation-authority path plus malformed boundary data. The published Firefox
+Worker gate additionally returns decompiled Source from a deterministic local
+package through the generated facade. The production `source-inspection.ts`
+adapter and `dotnet-inspect.ts` dependencies remain unchanged.
+
+The Package Query portion of milestone 4 composes the already landed durable
+event, acknowledged control, and operation-keyed managed boundaries in a
+Worker-only adapter. `engine-worker-package-query.ts` projects the existing
+`QueryRequest` into one closed prefix-or-assembly input while preserving the
+page authority's operation ID for Worker correlation and generated managed
+admission. It rejects a callback `Completed` event, publishes the four
+nonterminal generated event kinds as ordered durable events, and accepts
+completion only from the versioned managed terminal result. Expected and
+unexpected failures retain their classification and diagnostic; cancellation
+retains its authoritative reason.
+
+Callback rejection remains a managed bridge boundary failure. The generated
+Promise rejects only after managed release, and the Worker runtime therefore
+enters unexpected epoch draining rather than manufacturing a Package Query
+terminal result. Operation-local containment applies to an invalid fulfilled
+managed terminal DTO, whose validation maps it to an unexpected feature
+failure while the realm remains usable.
+
+The same adapter routes cancellation to the exact generated operation ID.
+Positive match credit uses the Worker control channel and becomes granted only
+after `Granted` returns the exact requested amount and the correlated Worker
+acknowledgment reaches the page. `NotActive` remains `not-active`; malformed or
+mismatched managed responses fail visibly. Settlement closes later control
+admission while the Worker runtime retains the response obligation for a
+control posted before settlement.
+
+Request and event payloads allow at most 1,048,576 UTF-16 code units and 4,096
+total collection entries. Error and diagnostic text allows 65,536 code units.
+All DTO readers require closed own data properties and reject accessors. The
+Worker bootstrap awaits both the generated Source and Package facades before
+advertising readiness. `test/engine-worker-package-query.test.ts`, also in
+`inspect-web-worker-protocol`, exercises the actual fake host, realm, catalog,
+operation authority, durable-event path, and controlled adapter. Its cases
+cover both request forms, exact identity, event order, all terminal mappings,
+keyed cancellation, exact and inactive credit, overlap rejection, delayed
+credit acknowledgment across settlement, terminal-callback rejection entering
+Worker draining, malformed fulfilled results, payload bounds, and continued
+realm health after an operation-local result failure.
+
+This is preparation, not production activation. The production
+`PackageQueryDataSource`, `dotnet-inspect.ts` Package facade binding, UI
+generation policy, credit thresholds, batching, rendering, Worker protocol,
+managed bridge, and TLA+ models remain unchanged. Package Query's remaining
+production path has four total steps:
+
+1. Worker operation-addressed controls, completed through #6376 and #6385.
+2. Operation-keyed managed controls, completed through #6390 and #6393.
+3. The typed Worker adapter with durable events and acknowledged credit,
+   implemented here.
+4. Atomic activation of the single Worker runtime, retirement of direct page
+   managed dispatch, and the #5816 responsiveness evidence.
+
+Milestone 5 still owns lifecycle composition, production bootstrap, all
+required neighboring bindings, direct page-runtime retirement, and the
+real-browser Source and Package Query responsiveness demonstrations.
+
+Outstanding production-runtime and responsiveness claims remain **unverified**
+until milestone 5. Extend the existing published facade-composition gate to
+exercise the actual client bootstrap, one SDK creation across the page/Worker
+composition, all required bindings, and visible startup failure. Its
+neighboring case uses package and metadata through the same runtime. This is
+behavioral evidence for that consumer path, not a repository-wide source
+absence audit.
 
 Worker protocol/lifecycle and durable ordering remain covered by their owner's
 gates; managed lifetime remains covered by #5419. Consumer adoption gates must
@@ -755,18 +861,14 @@ summary but does not establish graph equality. Their lowering counts remain the
 expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
 
-CoreCLR staging follows only the highest-run-number successful `main`/`push`
-run of the compiler-async staging workflow. A successful completion is a
-wakeup, not deployment authority: after entering one static job-level
-concurrency group, the atomic build-and-deploy job resolves the current highest
-successful run and uses that run's exact artifact and head SHA. It checks the
-selected identity again immediately before deployment. A later rerun of an
-older successful staging run may restart the job, but the restarted job still
-builds and deploys the current highest successful run instead of the older
-wakeup. A newer failed, cancelled, or in-progress run does not make older
-successful evidence false; its later successful completion supplies the
-superseding wakeup. Failed, cancelled, manual, and non-`main` completions do
-not enter the group.
+CoreCLR staging follows production promotion rather than every compiler-async
+staging build. After production deploys successfully, the promotion workflow
+calls the CoreCLR workflow with the exact validated product SHA, staging run
+ID, and staged artifact ID that it promoted. The CoreCLR build checks out that
+SHA and compares against that exact compiler-async artifact; it never resolves
+a newer staging run independently. The promotion concurrency group serializes
+the production and CoreCLR deployments, and the CoreCLR deployment does not
+start before production succeeds.
 
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes

@@ -366,16 +366,27 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(integrationError);
                 return 1;
             }
+            if (!CloneCandidateQueryOptions.TryExtract(
+                    nonIntegrationWhere,
+                    out var cloneCandidateQuery,
+                    out var nonCloneWhere,
+                    out var cloneCandidateError))
+            {
+                CommandError.Write(cloneCandidateError);
+                return 1;
+            }
             var independentTriage = opts.ParsePerformanceTriageOptions(parseResult, []);
             if (integrationQuery.HasFilter
-                && (nonIntegrationWhere.Length > 0
+                && (cloneCandidateQuery.HasPredicates
+                    || nonCloneWhere.Length > 0
                     || independentTriage.HasFilters
                     || independentTriage.HasRanking
                     // Count mode suppresses Top, but the explicit option is still incompatible.
                     || parseResult.GetValue(opts.PerformanceTriageTop) is not null))
             {
                 CommandError.Write(
-                    "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+                    "Integration ecosystem queries cannot be combined with Clone Candidates, "
+                    + "Body Shapes, or Performance Triage predicates/ranking.");
                 return 1;
             }
             var source = parseResult.GetValue(assemblyPathArg);
@@ -445,7 +456,7 @@ public static class InspectionCommandDefinitions
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
             if (!BodyKindQueryOptions.TryExtract(
-                    nonIntegrationWhere,
+                    nonCloneWhere,
                     out var bodyKindQuery,
                     out var performanceWhere,
                     out var bodyKindError))
@@ -468,6 +479,16 @@ public static class InspectionCommandDefinitions
                     + "but not --top or --order-by. Use --rows to limit rendered matches.");
                 return 1;
             }
+            if ((cloneCandidateQuery.HasPredicates
+                    || CloneCandidatesCommand.IsSelected(select))
+                && (bodyKindQuery.HasFilter
+                    || performanceTriage.HasFilters
+                    || performanceTriage.HasRanking))
+            {
+                CommandError.Write(
+                    "Clone Candidates predicates cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
+                return 1;
+            }
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
             if (bodyKindQuery.HasFilter
@@ -475,6 +496,12 @@ public static class InspectionCommandDefinitions
                 && !hasExplicitSelect)
             {
                 select = [.. select ?? [], SectionNames.BodyShapes];
+            }
+            if (cloneCandidateQuery.HasPredicates
+                && !opts.IsDiscoveryMode(parseResult)
+                && !hasExplicitSelect)
+            {
+                select = [.. select ?? [], SectionNames.CloneCandidates];
             }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
@@ -574,6 +601,7 @@ public static class InspectionCommandDefinitions
                 Rows = opts.ParseRows(parseResult),
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
+                CloneCandidateQuery = cloneCandidateQuery,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
