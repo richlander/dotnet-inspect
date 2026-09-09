@@ -124,7 +124,7 @@ tests/ILInspector.JsExportSurface.AsyncDelegateCompileNegative
 tests/ILInspector.JsExportSurface.Tests
 tests/ILInspector.Metadata.Tests
 tests/ILInspector.MetadataPrimitives.PlatformProbe
-tests/ILInspector.Text.Tests
+tests/Inspector.Text.Tests
 tests/InertText.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions

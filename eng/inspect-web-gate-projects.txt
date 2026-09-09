@@ -14,6 +14,7 @@ src/DotnetInspector.Services
 src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
 src/Inspector.Findings
+src/Inspector.Text
 src/ILInspector.Analysis
 src/ILInspector.CallGraph
 src/ILInspector.ControlFlow
@@ -26,7 +27,6 @@ src/ILInspector.Metadata
 src/ILInspector.MetadataPrimitives
 src/ILInspector.Research
 src/ILInspector.SourceLink
-src/ILInspector.Text
 src/ILInspector.TypeScriptGeneration
 src/InertText
 src/NuGetFetch

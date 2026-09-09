@@ -306,7 +306,7 @@ public class MemberSourceDiffPresentationTests
         string before,
         string after)
         => MemberSourceDiffStatistics.Create(
-            ILInspector.Text.TextFindings.CreateAnalysisDiff(
+            Inspector.Text.TextFindings.CreateAnalysisDiff(
                 before,
                 after,
                 new FindingSubject(

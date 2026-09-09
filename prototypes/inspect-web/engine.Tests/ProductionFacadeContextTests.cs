@@ -285,6 +285,7 @@ public sealed class ProductionFacadeContextTests
                 Assert.False(
                     declaring.StartsWith("ILInspector.", StringComparison.Ordinal)
                     || declaring.StartsWith("DotnetInspector.", StringComparison.Ordinal)
+                    || declaring.StartsWith("Inspector.", StringComparison.Ordinal)
                     || declaring.StartsWith("CSharpText", StringComparison.Ordinal),
                     $"{owner} serializes product-owned type '{type.FullName}'.");
             }
