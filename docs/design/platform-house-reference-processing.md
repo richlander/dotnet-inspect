@@ -77,9 +77,9 @@ result must preserve at the shared Library inspection handoff.
 > plan, one closed platform operation, and finite operation work, settle the
 > demand to one exact `PlatformFamilyTarget`, then compose
 > source candidates and owner-issued platform facts into one typed settlement
-> that preserves the request, any selected exact target, selection evidence, source,
-> reference-contract, implementation-supplier, forwarding, documentation
-> provenance, completion, and failure evidence.
+> that preserves the request, any selected exact target, selection evidence,
+> source, reference-contract, implementation-supplier, forwarding,
+> documentation provenance, completion, and failure evidence.
 
 It owns:
 
