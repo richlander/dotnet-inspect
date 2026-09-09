@@ -851,7 +851,8 @@ internal static class LibraryMetadataService
         int depth = 0,
         bool deduplicate = false,
         int? maxDepth = null,
-        bool failOnReadError = false)
+        bool failOnReadError = false,
+        bool preserveSharedEdges = false)
     {
         string fullAssemblyPath = Path.GetFullPath(assemblyPath);
         StringComparer pathComparer = ReferenceTreePathComparer(
@@ -878,7 +879,8 @@ internal static class LibraryMetadataService
                 logger,
                 depth,
                 maxDepth,
-                failOnReadError);
+                failOnReadError,
+                preserveSharedEdges);
         }
 
         return BuildTransitiveReferences(
@@ -949,7 +951,8 @@ internal static class LibraryMetadataService
             VerboseLogger logger,
             int depth,
             int? maxDepth,
-            bool failOnReadError)
+            bool failOnReadError,
+            bool preserveSharedEdges)
     {
         List<DeduplicatedReferenceNode> roots = [];
         var seen = new HashSet<AssemblyReferenceTraversalKey>(
@@ -974,6 +977,7 @@ internal static class LibraryMetadataService
             {
                 Name = reference.Name,
                 Version = reference.Version?.ToString() ?? "",
+                Culture = reference.Culture,
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = next.Depth,
             };
@@ -1040,7 +1044,11 @@ internal static class LibraryMetadataService
                     ? visitedPaths.Contains(resolvedPath)
                     : visited.Contains(resolved.Identity.Name));
             if (isRootCycle)
+            {
+                if (preserveSharedEdges)
+                    AddReferenceNode(roots, next.Parent, node);
                 continue;
+            }
 
             AssemblyReferenceTraversalKey traversalKey =
                 resolvedPath is not null
@@ -1049,16 +1057,14 @@ internal static class LibraryMetadataService
                     : AssemblyReferenceTraversalKey.ForReference(
                         reference,
                         next.BindingScope);
-            if (!seen.Add(traversalKey))
+            bool shouldExpand = seen.Add(traversalKey);
+            if (!shouldExpand && !preserveSharedEdges)
                 continue;
 
-            var treeNode = new DeduplicatedReferenceNode(node);
-            if (next.Parent is null)
-                roots.Add(treeNode);
-            else
-                next.Parent.Children.Add(treeNode);
+            DeduplicatedReferenceNode treeNode =
+                AddReferenceNode(roots, next.Parent, node);
 
-            if (resolved is null)
+            if (resolved is null || !shouldExpand)
                 continue;
 
             try
@@ -1134,6 +1140,19 @@ internal static class LibraryMetadataService
         return flattened;
     }
 
+    private static DeduplicatedReferenceNode AddReferenceNode(
+        List<DeduplicatedReferenceNode> roots,
+        DeduplicatedReferenceNode? parent,
+        AssemblyReferenceNode node)
+    {
+        var treeNode = new DeduplicatedReferenceNode(node);
+        if (parent is null)
+            roots.Add(treeNode);
+        else
+            parent.Children.Add(treeNode);
+        return treeNode;
+    }
+
     private static void FlattenDeduplicatedReferenceTree(
         DeduplicatedReferenceNode node,
         List<AssemblyReferenceNode> flattened)
@@ -1163,6 +1182,7 @@ internal static class LibraryMetadataService
             {
                 Name = reference.Name,
                 Version = reference.Version?.ToString() ?? "",
+                Culture = reference.Culture,
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = depth
             };

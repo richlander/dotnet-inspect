@@ -536,10 +536,29 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
         dependsCommand.Options.Add(opts.Markdown);
+        dependsCommand.Options.Add(opts.Tree);
         opts.AddTableOptionsTo(dependsCommand);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
+
+        dependsCommand.Validators.Add(result =>
+        {
+            if (result.GetValue(opts.Tree)
+                && (result.GetValue(opts.Json)
+                    || result.GetValue(opts.Markdown)
+                    || result.GetValue(opts.Mermaid)
+                    || result.GetValue(opts.Table)
+                    || result.GetValue(opts.Tsv)
+                    || result.GetValue(opts.Jsonl)
+                    || result.GetResult(opts.Verbosity)
+                        is { Implicit: false }))
+            {
+                result.AddError(
+                    "--tree is a standalone graph rendering and cannot "
+                    + "combine with another output format.");
+            }
+        });
 
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
@@ -558,6 +577,7 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
                     Format = opts.ResolveFormat(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Rows = opts.ParseRows(parseResult),
@@ -600,6 +620,7 @@ public static class SearchCommandDefinitions
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                Tree = parseResult.GetValue(opts.Tree),
                 Format = opts.ResolveFormat(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Rows = opts.ParseRows(parseResult),
@@ -625,6 +646,7 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
                     Format = opts.ResolveFormat(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Rows = opts.ParseRows(parseResult),

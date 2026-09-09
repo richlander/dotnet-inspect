@@ -15350,6 +15350,7 @@ public partial class CommandExecutionTests
             ["--jsonl"],
             ["--json"],
             ["--mermaid"],
+            ["--tree"],
         ];
 
         foreach (string[] format in formats)
@@ -15373,6 +15374,56 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("IBitwiseOperators", output);
             Assert.DoesNotContain("IMinMaxValue", output);
         }
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--markdown")]
+    [InlineData("--mermaid")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("-v:q")]
+    public async Task Depends_TreeRejectsAnotherOutputFormat(
+        string otherFormat)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "depends",
+            "System.Int128",
+            "--tree",
+            otherFormat,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "--tree is a standalone graph rendering",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Depends_TreeIdentifiesAWindowedFragment()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends",
+            "System.Int128",
+            "--tree",
+            "--rows",
+            "3..4",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Windowed dependency graph fragment",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "IBinaryInteger",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -15403,12 +15454,83 @@ public partial class CommandExecutionTests
             root.GetProperty("edges").EnumerateArray());
         Assert.Equal(1, edge.GetProperty("id").GetInt32());
         Assert.Equal(
-            "System.Numerics.IBinaryInteger`1",
+            "System.Numerics.IBinaryInteger<System.Int128>",
             root.GetProperty("nodes")[1]
                 .GetProperty("identity").GetString());
         Assert.Equal(
-            1,
+            "System.Numerics.IBinaryNumber<System.Int128>",
+            root.GetProperty("nodes")[2]
+                .GetProperty("identity").GetString());
+        Assert.Equal(
+            2,
             edge.GetProperty("minimum_depth").GetInt32());
+    }
+
+    [Fact]
+    public async Task Depends_EmptyGraphRetainsTheExplicitRoot()
+    {
+        var json = await RunAppAsync(
+            "depends",
+            "System.Object",
+            "--json",
+            "--tips",
+            "q");
+        var mermaid = await RunAppAsync(
+            "depends",
+            "System.Object",
+            "--mermaid",
+            "--tips",
+            "q");
+        var count = await RunAppAsync(
+            "depends",
+            "System.Object",
+            "--count",
+            "--tips",
+            "q");
+        var markdown = await RunAppAsync(
+            "depends",
+            "System.Object",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, json.Exit);
+        Assert.Empty(json.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(json.Output);
+        Assert.Single(
+            document.RootElement
+                .GetProperty("root_node_ids")
+                .EnumerateArray());
+        Assert.Single(
+            document.RootElement
+                .GetProperty("nodes")
+                .EnumerateArray());
+        Assert.Empty(
+            document.RootElement
+                .GetProperty("edges")
+                .EnumerateArray());
+
+        Assert.Equal(0, mermaid.Exit);
+        Assert.Empty(mermaid.Error);
+        Assert.Contains(
+            "System.Object",
+            mermaid.Output,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.Equal("0", count.Output.Trim());
+
+        Assert.Equal(0, markdown.Exit);
+        Assert.Empty(markdown.Error);
+        Assert.Contains(
+            "No dependency edges.",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Object",
+            markdown.Output,
+            StringComparison.Ordinal);
     }
 
     [Fact]

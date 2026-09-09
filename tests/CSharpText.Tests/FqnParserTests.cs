@@ -5,6 +5,30 @@ namespace CSharpText.Tests;
 /// </summary>
 public class FqnParserTests
 {
+    [Theory]
+    [InlineData(
+        "Outer<(System.String, System.Int32), System.Byte[]>",
+        "(System.String, System.Int32)",
+        "System.Byte[]")]
+    [InlineData(
+        "Outer<System.Collections.Generic.List<System.String>, System.Int32>",
+        "System.Collections.Generic.List<System.String>",
+        "System.Int32")]
+    [InlineData(
+        "Outer<System.Int32>.Inner<System.String>",
+        "System.Int32",
+        "System.String")]
+    public void TryGetGenericArguments_PreservesNestedTypeSyntax(
+        string typeName,
+        params string[] expected)
+    {
+        Assert.True(
+            FqnParser.TryGetGenericArguments(
+                typeName,
+                out IReadOnlyList<string> arguments));
+        Assert.Equal(expected, arguments);
+    }
+
     // ── Simple type names ────────────────────────────────────────────────
 
     [Theory]

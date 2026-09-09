@@ -63,11 +63,13 @@ dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 `depends Type` walks dependency graphs upward — type hierarchy, library
 references, or package dependencies, depending on scope. Its row currency is
 one directed logical edge across the default Markdown tree, `--mermaid`,
-`--table`, `--tsv`, `--jsonl`, `--json`, `--rows`, and `--count`. Shared
-targets remain in the graph and render as revisits rather than false leaves.
+standalone `--tree`, `--table`, `--tsv`, `--jsonl`, `--json`, `--rows`, and
+`--count`. Shared targets remain in the graph and render as revisits rather
+than false leaves.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
+dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --tree
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 ```

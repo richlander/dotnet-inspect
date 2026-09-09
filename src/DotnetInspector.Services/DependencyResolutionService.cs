@@ -56,7 +56,15 @@ public static class DependencyResolutionService
             ancestry,
             log,
             sourceOptions,
-            preserveSharedEdges: true).ConfigureAwait(false);
+            preserveSharedEdges: true,
+            expanded: new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase),
+            resolutionStates:
+                new Dictionary<
+                    string,
+                    DependencyNodeResolutionState>(
+                    StringComparer.OrdinalIgnoreCase))
+            .ConfigureAwait(false);
 
     private static async Task<List<DependencyNode>>
         ResolveDependencyTreeCoreAsync(
@@ -66,23 +74,43 @@ public static class DependencyResolutionService
             HashSet<string> seen,
             Action<string>? log,
             NuGetSourceOptions? sourceOptions,
-            bool preserveSharedEdges)
+            bool preserveSharedEdges,
+            HashSet<string>? expanded = null,
+            Dictionary<string, DependencyNodeResolutionState>?
+                resolutionStates = null)
     {
         List<DependencyNode> nodes = [];
 
         foreach (var dep in dependencies.OrderBy(d => d.Id))
         {
+            string? resolvedVersion =
+                ResolveVersionFromRange(dep.Version);
+            string identity =
+                PackageTraversalIdentity(
+                    dep.Id,
+                    resolvedVersion ?? dep.Version);
             HashSet<string> branchSeen;
             if (preserveSharedEdges)
             {
-                if (seen.Contains(dep.Id))
+                if (seen.Contains(identity)
+                    || !expanded!.Add(identity))
                 {
                     nodes.Add(
                         new DependencyNode(
                             dep.Id,
                             dep.Version,
                             null,
-                            []));
+                            [])
+                        {
+                            ResolvedVersion = resolvedVersion,
+                            Resolution =
+                                resolutionStates?.GetValueOrDefault(
+                                    identity,
+                                    DependencyNodeResolutionState
+                                        .Resolved)
+                                ?? DependencyNodeResolutionState
+                                    .Resolved,
+                        });
                     continue;
                 }
 
@@ -91,7 +119,7 @@ public static class DependencyResolutionService
                         seen,
                         StringComparer.OrdinalIgnoreCase)
                     {
-                        dep.Id,
+                        identity,
                     };
             }
             else
@@ -104,7 +132,8 @@ public static class DependencyResolutionService
 
             log?.Invoke($"Resolving: {dep.Id} {dep.Version}");
 
-            var (children, author) = await ResolveChildDependenciesAsync(
+            var (children, author, resolution) =
+                await ResolveChildDependenciesAsync(
                 client,
                 dep.Id,
                 dep.Version,
@@ -112,9 +141,22 @@ public static class DependencyResolutionService
                 branchSeen,
                 log,
                 sourceOptions,
-                preserveSharedEdges).ConfigureAwait(false);
+                preserveSharedEdges,
+                expanded,
+                resolutionStates).ConfigureAwait(false);
+            if (resolutionStates is not null)
+                resolutionStates[identity] = resolution;
 
-            nodes.Add(new DependencyNode(dep.Id, dep.Version, author, children));
+            nodes.Add(
+                new DependencyNode(
+                    dep.Id,
+                    dep.Version,
+                    author,
+                    children)
+                {
+                    ResolvedVersion = resolvedVersion,
+                    Resolution = resolution,
+                });
         }
 
         return nodes;
@@ -227,16 +269,29 @@ public static class DependencyResolutionService
                 StringComparison.OrdinalIgnoreCase));
     }
 
-    private static async Task<(List<DependencyNode> Children, string? Author)> ResolveChildDependenciesAsync(
+    private static async Task<(
+        List<DependencyNode> Children,
+        string? Author,
+        DependencyNodeResolutionState Resolution)>
+        ResolveChildDependenciesAsync(
         HttpClient client, string packageId, string versionRange, string tfm,
         HashSet<string> seen, Action<string>? log,
         NuGetSourceOptions? sourceOptions,
-        bool preserveSharedEdges)
+        bool preserveSharedEdges,
+        HashSet<string>? expanded,
+        Dictionary<string, DependencyNodeResolutionState>?
+            resolutionStates)
     {
         try
         {
             string? version = ResolveVersionFromRange(versionRange);
-            if (version == null) return ([], null);
+            if (version == null)
+            {
+                return (
+                    [],
+                    null,
+                    DependencyNodeResolutionState.Unresolved);
+            }
 
             // Resolving the tree only needs each package's dependency groups, so fetch just the
             // nuspec (from cache or the flat-container endpoint) instead of downloading and
@@ -247,14 +302,32 @@ public static class DependencyResolutionService
                 version,
                 log,
                 sourceOptions).ConfigureAwait(false);
-            if (nuspecXml == null) return ([], null);
+            if (nuspecXml == null)
+            {
+                return (
+                    [],
+                    null,
+                    DependencyNodeResolutionState.Unresolved);
+            }
 
             var nuspec = NuspecParser.ParseContent(nuspecXml);
 
-            if (nuspec.DependencyGroups is not { Count: > 0 }) return ([], nuspec.Authors);
+            if (nuspec.DependencyGroups is not { Count: > 0 })
+            {
+                return (
+                    [],
+                    nuspec.Authors,
+                    DependencyNodeResolutionState.Resolved);
+            }
 
             var selection = SelectDependencyGroup(nuspec.DependencyGroups, tfm);
-            if (selection.Group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
+            if (selection.Group?.Dependencies is not { Count: > 0 })
+            {
+                return (
+                    [],
+                    nuspec.Authors,
+                    DependencyNodeResolutionState.Resolved);
+            }
 
             var children = await ResolveDependencyTreeCoreAsync(
                 client,
@@ -263,8 +336,13 @@ public static class DependencyResolutionService
                 seen,
                 log,
                 sourceOptions,
-                preserveSharedEdges).ConfigureAwait(false);
-            return (children, nuspec.Authors);
+                preserveSharedEdges,
+                expanded,
+                resolutionStates).ConfigureAwait(false);
+            return (
+                children,
+                nuspec.Authors,
+                DependencyNodeResolutionState.Resolved);
         }
         catch (NuspecParseException)
         {
@@ -277,9 +355,24 @@ public static class DependencyResolutionService
         catch (Exception ex)
         {
             log?.Invoke($"Error resolving dependencies: {ex.Message}");
-            return ([], null);
+            return (
+                [],
+                null,
+                DependencyNodeResolutionState.Unresolved);
         }
     }
+
+    public static string PackageTraversalIdentity(
+        string packageId,
+        string version) =>
+        $"{packageId}@{NormalizePackageVersion(version)}";
+
+    public static string NormalizePackageVersion(string version) =>
+        NuGet.Versioning.NuGetVersion.TryParse(
+            version,
+            out NuGet.Versioning.NuGetVersion? parsed)
+            ? parsed.ToNormalizedString()
+            : version;
 
     public static string? ResolveVersionFromRange(string versionRange)
     {

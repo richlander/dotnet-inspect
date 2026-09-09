@@ -49,14 +49,16 @@ public class DependencyGraphOutputAdapterTests
             [
                 Reference("Left", directory, depth: 0),
                 Reference("Shared", directory, depth: 1),
+                UnresolvedReference("Missing", depth: 2),
                 Reference("Right", directory, depth: 0),
                 Reference("Shared", directory, depth: 1),
+                UnresolvedReference("Missing", depth: 2),
             ]);
 
         DependencyGraphDocument document =
             DependencyGraphProjection.FromLibrary(graph);
 
-        Assert.Equal(4, document.Edges.Length);
+        Assert.Equal(5, document.Edges.Length);
         DependencyGraphNode shared = Assert.Single(
             document.Nodes,
             node => node.Label.StartsWith(
@@ -66,6 +68,37 @@ public class DependencyGraphOutputAdapterTests
             2,
             document.Edges.Count(
                 edge => edge.ToNodeId == shared.Id));
+        DependencyGraphNode missing = Assert.Single(
+            document.Nodes,
+            node => node.Label.StartsWith(
+                "Missing ",
+                StringComparison.Ordinal));
+        Assert.Single(
+            document.Edges,
+            edge => edge.FromNodeId == shared.Id
+                && edge.ToNodeId == missing.Id);
+    }
+
+    [Fact]
+    public void LibraryProjection_CoalescesNeutralCultureSpellings()
+    {
+        string directory = Path.GetTempPath();
+        var graph = new LibraryDependencyGraphResult.Graph(
+            "Root",
+            Path.Combine(directory, "Root.dll"),
+            [
+                UnresolvedReference("Missing", depth: 0),
+                UnresolvedReference(
+                    "Missing",
+                    depth: 0,
+                    culture: "neutral"),
+            ]);
+
+        DependencyGraphDocument document =
+            DependencyGraphProjection.FromLibrary(graph);
+
+        Assert.Equal(2, document.Nodes.Length);
+        Assert.Single(document.Edges);
     }
 
     [Fact]
@@ -98,6 +131,130 @@ public class DependencyGraphOutputAdapterTests
             2,
             document.Edges.Count(
                 edge => edge.ToNodeId == sharedNode.Id));
+    }
+
+    [Fact]
+    public void PackageProjection_DistinguishesCoordinatesAndResolution()
+    {
+        var graph = new PackageDependencyGraphResult.Graph(
+            "Root",
+            "1.0.0",
+            "Root",
+            "1.0.0",
+            [
+                new DependencyNode("Shared", "[1.0.0]", null, [])
+                {
+                    ResolvedVersion = "1.0.0",
+                },
+                new DependencyNode("Shared", "[2.0.0]", null, [])
+                {
+                    ResolvedVersion = "2.0.0",
+                    Resolution = DependencyNodeResolutionState.Unresolved,
+                },
+            ]);
+
+        DependencyGraphDocument document =
+            DependencyGraphProjection.FromPackage(graph);
+
+        DependencyGraphNode[] sharedNodes =
+        [
+            .. document.Nodes.Where(node =>
+                node.Kind == DependencyGraphNodeKind.Package
+                && node.Identity.StartsWith(
+                    "Shared@",
+                    StringComparison.Ordinal)),
+        ];
+        Assert.Equal(2, sharedNodes.Length);
+        Assert.Contains(
+            sharedNodes,
+            node => node.Identity == "Shared@1.0.0"
+                && node.Resolution
+                    == DependencyGraphResolutionState.Resolved);
+        Assert.Contains(
+            sharedNodes,
+            node => node.Identity == "Shared@2.0.0"
+                && node.Resolution
+                    == DependencyGraphResolutionState.Unresolved);
+    }
+
+    [Fact]
+    public void PackageProjection_CoalescesEquivalentVersionSpellings()
+    {
+        var graph = new PackageDependencyGraphResult.Graph(
+            "Root",
+            "1.0",
+            "Root",
+            "1.0",
+            [
+                new DependencyNode("Root", "[1.0.0]", null, [])
+                {
+                    ResolvedVersion = "1.0.0",
+                },
+            ]);
+
+        DependencyGraphDocument document =
+            DependencyGraphProjection.FromPackage(graph);
+
+        Assert.Single(document.Nodes);
+        DependencyGraphEdge edge =
+            Assert.Single(document.Edges);
+        Assert.Equal(edge.FromNodeId, edge.ToNodeId);
+    }
+
+    [Fact]
+    public void Builder_ComputesRootRelativeDepthFromShortestSourcePath()
+    {
+        var builder = new DependencyGraphBuilder(
+            "Root",
+            DependencyGraphNodeKind.Type,
+            "Root",
+            "Root");
+        int branch = builder.AddNode(
+            DependencyGraphNodeKind.Type,
+            "Branch",
+            "Branch",
+            DependencyGraphResolutionState.Resolved);
+        int shared = builder.AddNode(
+            DependencyGraphNodeKind.Type,
+            "Shared",
+            "Shared",
+            DependencyGraphResolutionState.Resolved);
+        builder.AddEdge(
+            builder.RootNodeId,
+            branch,
+            "interface",
+            depth: 9);
+        builder.AddEdge(
+            branch,
+            shared,
+            "interface",
+            depth: 9);
+        builder.AddEdge(
+            builder.RootNodeId,
+            shared,
+            "interface",
+            depth: 9);
+
+        DependencyGraphDocument document = builder.Build();
+
+        Assert.Equal(
+            1,
+            Assert.Single(
+                document.Edges,
+                edge => edge.FromNodeId == builder.RootNodeId
+                    && edge.ToNodeId == branch).MinimumDepth);
+        Assert.Equal(
+            2,
+            Assert.Single(
+                document.Edges,
+                edge => edge.FromNodeId == branch
+                    && edge.ToNodeId == shared).MinimumDepth);
+        Assert.Equal(
+            1,
+            Assert.Single(
+                document.Edges,
+                edge => edge.FromNodeId == builder.RootNodeId
+                    && edge.ToNodeId == shared).MinimumDepth);
     }
 
     [Fact]
@@ -170,6 +327,8 @@ public class DependencyGraphOutputAdapterTests
         int depth) =>
         new(
             source,
+            source,
+            target,
             target,
             TypeDependencyRelationshipKind.Interface,
             depth,
@@ -186,6 +345,21 @@ public class DependencyGraphOutputAdapterTests
             PublicKeyToken = "0000000000000000",
             Path = Path.Combine(directory, $"{name}.dll"),
             Depth = depth,
+        };
+
+    private static AssemblyReferenceNode UnresolvedReference(
+        string name,
+        int depth,
+        string? culture = null) =>
+        new()
+        {
+            Name = name,
+            Version = "1.0.0.0",
+            Culture = culture,
+            PublicKeyToken = "0000000000000000",
+            Depth = depth,
+            ResolutionFailure =
+                AssemblyReferenceResolutionFailure.Unavailable,
         };
 
     private static DependencyGraphDocument FourEdgeDocument()

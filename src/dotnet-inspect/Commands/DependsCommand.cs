@@ -71,19 +71,6 @@ public class DependsCommand
                 return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
             }
 
-            if (result.Relationships.Count == 0)
-            {
-                if (options.Count)
-                {
-                    WriteCount(0);
-                    return Certified(0, uncertified);
-                }
-
-                CommandError.WriteLine(
-                    $"Type '{ContainLabel(result.MatchedType ?? options.TargetType)}' has no type dependencies beyond System.Object.");
-                return Certified(0, uncertified);
-            }
-
             DependencyGraphOutputAdapter.Write(
                 DependencyGraphProjection.FromType(result),
                 options);
@@ -116,13 +103,9 @@ public class DependsCommand
             }
             if (result is LibraryDependencyGraphResult.Empty empty)
             {
-                if (options.Count)
-                {
-                    WriteCount(0);
-                    return 0;
-                }
-
-                CommandError.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
+                DependencyGraphOutputAdapter.Write(
+                    DependencyGraphProjection.FromLibrary(empty),
+                    options);
                 return 0;
             }
 
@@ -160,13 +143,9 @@ public class DependsCommand
             }
             if (result is PackageDependencyGraphResult.Empty empty)
             {
-                if (options.Count)
-                {
-                    WriteCount(0);
-                    return 0;
-                }
-
-                CommandError.WriteLine(empty.Message);
+                DependencyGraphOutputAdapter.Write(
+                    DependencyGraphProjection.FromPackage(empty),
+                    options);
                 return 0;
             }
 
@@ -216,6 +195,4 @@ public class DependsCommand
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);
 
-    private static void WriteCount(int count) =>
-        CountOutput.WriteCount(count);
 }

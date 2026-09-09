@@ -110,10 +110,19 @@ internal static class DependencyGraphService
             var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
             if (refs.Count == 0)
-                return new LibraryDependencyGraphResult.Empty(assemblyName);
+            {
+                return new LibraryDependencyGraphResult.Empty(
+                    assemblyName,
+                    assemblyPath);
+            }
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { assemblyName };
             var refNodes = LibraryMetadataService.BuildTransitiveReferences(
-                refs, assemblyPath, visited, logger, deduplicate: false);
+                refs,
+                assemblyPath,
+                visited,
+                logger,
+                deduplicate: true,
+                preserveSharedEdges: true);
 
             return new LibraryDependencyGraphResult.Graph(
                 assemblyName,
@@ -193,7 +202,9 @@ internal static class DependencyGraphService
 
         var ancestry = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            resolution.ManifestPackageName,
+            DependencyResolutionService.PackageTraversalIdentity(
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion),
         };
         var depNodes = await DependencyResolutionService.ResolveDependencyGraphAsync(
             httpClient,
@@ -607,7 +618,9 @@ internal abstract record LibraryDependencyGraphResult
         string AssemblyName,
         string AssemblyPath,
         List<AssemblyReferenceNode> References) : LibraryDependencyGraphResult;
-    public sealed record Empty(string AssemblyName) : LibraryDependencyGraphResult;
+    public sealed record Empty(
+        string AssemblyName,
+        string AssemblyPath) : LibraryDependencyGraphResult;
     /// <summary>
     /// A resolution failure whose message embeds the caller's subject.
     /// </summary>

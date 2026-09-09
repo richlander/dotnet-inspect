@@ -16,6 +16,176 @@ namespace DotnetInspector.Tests;
 public class AssemblyReferenceTreeResolutionTests
 {
     [Fact]
+    public void SharedEdgeTraversal_PreservesIncomingAndCycleClosingEdges()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly("Owner", "Left", "Right"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Left.dll"),
+                BuildAssembly("Left", "Owner", "Shared"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Right.dll"),
+                BuildAssembly("Right", "Shared"));
+            File.WriteAllBytes(
+                Path.Combine(root, "Shared.dll"),
+                BuildAssembly("Shared"));
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            List<AssemblyReferenceNode> nodes =
+                LibraryMetadataService.BuildTransitiveReferences(
+                    references,
+                    ownerPath,
+                    new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "Owner"
+                    },
+                    new VerboseLogger(enabled: false),
+                    deduplicate: true,
+                    maxDepth: 3,
+                    preserveSharedEdges: true);
+
+            Assert.Equal(
+                2,
+                nodes.Count(node =>
+                    node.Name == "Shared"
+                    && node.Depth == 1));
+            Assert.Single(
+                nodes,
+                node => node.Name == "Owner"
+                    && node.Depth == 1);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UnresolvedCultureDistinctReferencesRemainDistinctGraphEdges()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Example.resources",
+                        new Version(1, 0, 0, 0),
+                        "de",
+                        null),
+                    new AssemblyReferenceIdentity(
+                        "Example.resources",
+                        new Version(1, 0, 0, 0),
+                        "fr",
+                        null)));
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            List<AssemblyReferenceNode> nodes =
+                LibraryMetadataService.BuildTransitiveReferences(
+                    references,
+                    ownerPath,
+                    new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "Owner"
+                    },
+                    new VerboseLogger(enabled: false),
+                    deduplicate: true,
+                    preserveSharedEdges: true);
+            DependencyGraphDocument document =
+                DependencyGraphProjection.FromLibrary(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        ownerPath,
+                        nodes));
+
+            Assert.Equal(
+                ["de", "fr"],
+                nodes.Select(node => node.Culture));
+            Assert.Equal(2, document.Edges.Length);
+            Assert.Equal(
+                2,
+                document.Edges
+                    .Select(edge => edge.ToNodeId)
+                    .Distinct()
+                    .Count());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UnresolvedCultureEquivalentReferencesShareOneGraphEdge()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Example.resources",
+                        new Version(1, 0, 0, 0),
+                        "fr-FR",
+                        null),
+                    new AssemblyReferenceIdentity(
+                        "example.resources",
+                        new Version(1, 0, 0, 0),
+                        "fr-fr",
+                        null)));
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            List<AssemblyReferenceNode> nodes =
+                LibraryMetadataService.BuildTransitiveReferences(
+                    references,
+                    ownerPath,
+                    new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "Owner"
+                    },
+                    new VerboseLogger(enabled: false),
+                    deduplicate: true,
+                    preserveSharedEdges: true);
+            DependencyGraphDocument document =
+                DependencyGraphProjection.FromLibrary(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        ownerPath,
+                        nodes));
+
+            Assert.Equal(2, nodes.Count);
+            Assert.Single(document.Edges);
+            Assert.Equal(2, document.Nodes.Length);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory()
     {
         string root = Directory.CreateTempSubdirectory(

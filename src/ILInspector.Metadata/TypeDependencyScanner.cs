@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.ExceptionServices;
 using System.Reflection.PortableExecutable;
@@ -24,7 +25,9 @@ public enum TypeDependencyRelationshipKind
 /// One directed logical relationship in a type dependency graph.
 /// </summary>
 public sealed record TypeDependencyRelationship(
+    string SourceTypeIdentity,
     string SourceTypeName,
+    string TargetTypeIdentity,
     string TargetTypeName,
     TypeDependencyRelationshipKind Kind,
     int Depth,
@@ -94,6 +97,11 @@ public sealed class AllCandidatesRejectedException : AggregateException
 public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode> Tree)
 {
     public bool Found => MatchedType != null;
+
+    /// <summary>
+    /// The metadata identity of <see cref="MatchedType"/>.
+    /// </summary>
+    public string? MatchedTypeIdentity { get; init; }
 
     /// <summary>
     /// The directed logical relationships reachable from the matched type.
@@ -175,15 +183,20 @@ public static class TypeDependencyScanner
                         foreach (var typeDefHandle in mdReader.TypeDefinitions)
                         {
                             var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
-                            if (!typeDef.IsPublic)
+                            TypeAttributes visibility =
+                                typeDef.Attributes
+                                & TypeAttributes.VisibilityMask;
+                            if (visibility
+                                is not TypeAttributes.Public
+                                and not TypeAttributes.NestedPublic)
                                 continue;
 
                             var name = mdReader.GetString(typeDef.Name);
                             if (TypeFilters.IsCompilerGenerated(name))
                                 continue;
 
-                            var ns = mdReader.GetString(typeDef.Namespace);
-                            var fullName = TypeResolver.GetFullName(ns, name);
+                            string fullName =
+                                mdReader.GetFullTypeName(typeDef);
 
                             // Decode the relationship facts the tree will need
                             // while still inside this participant's rejection
@@ -331,6 +344,7 @@ public static class TypeDependencyScanner
                     match.MdReader,
                     match.TypeDef,
                     typeIndex),
+                MatchedTypeIdentity = matchKey,
                 Rejections = rejections,
             };
         }
@@ -443,13 +457,14 @@ public static class TypeDependencyScanner
                 string Target,
                 TypeDependencyRelationshipKind Kind), int>();
         BuildRelationships(
+            matchedTypeIdentity,
             matchedType,
             reader,
             typeDef,
             typeIndex,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                FqnParser.NormalizeTypeName(matchedTypeIdentity),
+                matchedTypeIdentity,
             },
             depth: 0,
             relationships,
@@ -458,6 +473,7 @@ public static class TypeDependencyScanner
     }
 
     private static void BuildRelationships(
+        string sourceTypeIdentity,
         string sourceTypeName,
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -465,7 +481,7 @@ public static class TypeDependencyScanner
             PEReader PeReader,
             MetadataReader MdReader,
             TypeDefinition TypeDef)> typeIndex,
-        HashSet<string> ancestry,
+        HashSet<string> expanded,
         int depth,
         List<TypeDependencyRelationship> relationships,
         Dictionary<(
@@ -475,39 +491,41 @@ public static class TypeDependencyScanner
             relationshipIndexes)
     {
         foreach (DirectTypeDependency dependency
-            in GetDirectDependencies(reader, typeDef, typeIndex))
+            in GetDirectDependencies(
+                reader,
+                typeDef,
+                typeIndex,
+                sourceTypeIdentity))
         {
             string normalized =
                 FqnParser.NormalizeTypeName(dependency.TypeName);
             string? matchKey =
                 ResolveTransitiveKey(typeIndex, normalized);
+            string targetTypeIdentity = dependency.TypeName;
             AddRelationship(
                 relationships,
                 relationshipIndexes,
                 new TypeDependencyRelationship(
+                    sourceTypeIdentity,
                     sourceTypeName,
+                    targetTypeIdentity,
                     dependency.TypeName,
                     dependency.Kind,
                     depth,
                     matchKey is not null));
 
-            if (matchKey is null || ancestry.Contains(normalized))
+            if (matchKey is null
+                || !expanded.Add(targetTypeIdentity))
                 continue;
 
-            var branchAncestry =
-                new HashSet<string>(
-                    ancestry,
-                    StringComparer.OrdinalIgnoreCase)
-                {
-                    normalized,
-                };
             var match = typeIndex[matchKey];
             BuildRelationships(
+                targetTypeIdentity,
                 dependency.TypeName,
                 match.MdReader,
                 match.TypeDef,
                 typeIndex,
-                branchAncestry,
+                expanded,
                 depth + 1,
                 relationships,
                 relationshipIndexes);
@@ -524,10 +542,8 @@ public static class TypeDependencyScanner
         TypeDependencyRelationship relationship)
     {
         var key = (
-            FqnParser.NormalizeTypeName(
-                relationship.SourceTypeName).ToUpperInvariant(),
-            FqnParser.NormalizeTypeName(
-                relationship.TargetTypeName).ToUpperInvariant(),
+            relationship.SourceTypeIdentity.ToUpperInvariant(),
+            relationship.TargetTypeIdentity.ToUpperInvariant(),
             relationship.Kind);
         if (relationshipIndexes.TryGetValue(key, out int existingIndex))
         {
@@ -551,9 +567,14 @@ public static class TypeDependencyScanner
         Dictionary<string, (
             PEReader PeReader,
             MetadataReader MdReader,
-            TypeDefinition TypeDef)> typeIndex)
+            TypeDefinition TypeDef)> typeIndex,
+        string? constructedTypeIdentity = null)
     {
-        var context = GenericContext.ForType(reader, typeDef);
+        GenericContext context =
+            ContextForTypeIdentity(
+                reader,
+                typeDef,
+                constructedTypeIdentity);
         var allDependencies = new List<DirectTypeDependency>();
 
         if (!typeDef.BaseType.IsNil)
@@ -609,8 +630,7 @@ public static class TypeDependencyScanner
         [
             .. allDependencies.Where(dependency =>
                 !transitivelyReachable.Contains(
-                    FqnParser.NormalizeTypeName(
-                        dependency.TypeName))),
+                    dependency.TypeName)),
         ];
     }
 
@@ -628,16 +648,17 @@ public static class TypeDependencyScanner
         HashSet<string> result,
         HashSet<string> visited)
     {
-        var normalized = FqnParser.NormalizeTypeName(typeName);
-        if (!visited.Add(normalized))
+        if (!visited.Add(typeName))
             return;
 
+        var normalized = FqnParser.NormalizeTypeName(typeName);
         var matchKey = ResolveTransitiveKey(typeIndex, normalized);
         if (matchKey == null)
             return;
 
         var (_, mdReader, typeDef) = typeIndex[matchKey];
-        var context = GenericContext.ForType(mdReader, typeDef);
+        GenericContext context =
+            ContextForTypeIdentity(mdReader, typeDef, typeName);
 
         // Base type
         if (!typeDef.BaseType.IsNil)
@@ -645,7 +666,7 @@ public static class TypeDependencyScanner
             var baseTypeName = TypeResolver.GetTypeName(mdReader, typeDef.BaseType, context);
             if (baseTypeName != null && !IsSystemRoot(baseTypeName))
             {
-                result.Add(FqnParser.NormalizeTypeName(baseTypeName));
+                result.Add(baseTypeName);
                 CollectTransitive(baseTypeName, typeIndex, result, visited);
             }
         }
@@ -657,10 +678,28 @@ public static class TypeDependencyScanner
             var ifaceName = TypeResolver.GetTypeName(mdReader, iface.Interface, context);
             if (ifaceName != null)
             {
-                result.Add(FqnParser.NormalizeTypeName(ifaceName));
+                result.Add(ifaceName);
                 CollectTransitive(ifaceName, typeIndex, result, visited);
             }
         }
+    }
+
+    private static GenericContext ContextForTypeIdentity(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string? constructedTypeIdentity)
+    {
+        if (constructedTypeIdentity is not null
+            && FqnParser.TryGetGenericArguments(
+                constructedTypeIdentity,
+                out IReadOnlyList<string> arguments)
+            && arguments.Count
+                == typeDef.GetGenericParameters().Count)
+        {
+            return new GenericContext(arguments, []);
+        }
+
+        return GenericContext.ForType(reader, typeDef);
     }
 
     private static List<TypeDependencyNode> ResolveChildren(

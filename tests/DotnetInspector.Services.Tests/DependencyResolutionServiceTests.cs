@@ -221,6 +221,7 @@ public class DependencyResolutionServiceTests
         Assert.Equal(
             sharedId,
             Assert.Single(result[1].Children).PackageId);
+        Assert.Equal(1, handler.NuspecRequestCount(sharedId));
     }
 
     [Fact]
@@ -265,6 +266,174 @@ public class DependencyResolutionServiceTests
         DependencyNode cycle = Assert.Single(right.Children);
         Assert.Equal(leftId, cycle.PackageId);
         Assert.Empty(cycle.Children);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_ReportsMissingManifestAsUnresolved()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string suffix = Guid.NewGuid().ToString("N");
+        string leftId = $"Left.Missing.{suffix}";
+        string rightId = $"Right.Missing.{suffix}";
+        string missingId = $"Missing.Package.{suffix}";
+        string index = $"https://missing.example/{suffix}/index.json";
+        string flat =
+            $"https://missing.example/{suffix}/v3-flatcontainer/";
+        var handler = new GraphNuspecHandler(
+            index,
+            flat,
+            new Dictionary<string, string[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [leftId] = [missingId],
+                [rightId] = [missingId],
+            });
+        using var client = new HttpClient(handler);
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                [
+                    new PackageDependency
+                    {
+                        Id = leftId,
+                        Version = "1.0.0",
+                    },
+                    new PackageDependency
+                    {
+                        Id = rightId,
+                        Version = "1.0.0",
+                    },
+                ],
+                "net10.0",
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase),
+                log: null,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index],
+                });
+
+        Assert.Equal(2, result.Count);
+        foreach (DependencyNode parent in result)
+        {
+            DependencyNode missing =
+                Assert.Single(parent.Children);
+            Assert.Equal(missingId, missing.PackageId);
+            Assert.Equal("1.0.0", missing.ResolvedVersion);
+            Assert.Equal(
+                DependencyNodeResolutionState.Unresolved,
+                missing.Resolution);
+            Assert.Empty(missing.Children);
+        }
+        Assert.Equal(1, handler.NuspecRequestCount(missingId));
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_DistinguishesPackageVersions()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string suffix = Guid.NewGuid().ToString("N");
+        string leftId = $"Left.Version.{suffix}";
+        string rightId = $"Right.Version.{suffix}";
+        string sharedId = $"Shared.Version.{suffix}";
+        string index = $"https://versions.example/{suffix}/index.json";
+        string flat =
+            $"https://versions.example/{suffix}/v3-flatcontainer/";
+        var handler = new GraphNuspecHandler(
+            index,
+            flat,
+            new Dictionary<string, string[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [leftId] = [$"{sharedId}@1.0.0"],
+                [rightId] = [$"{sharedId}@2.0.0"],
+                [$"{sharedId}@1.0.0"] = [],
+                [$"{sharedId}@2.0.0"] = [],
+            });
+        using var client = new HttpClient(handler);
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                [
+                    new PackageDependency
+                    {
+                        Id = leftId,
+                        Version = "1.0.0",
+                    },
+                    new PackageDependency
+                    {
+                        Id = rightId,
+                        Version = "1.0.0",
+                    },
+                ],
+                "net10.0",
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase),
+                log: null,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index],
+                });
+
+        Assert.Equal(
+            "1.0.0",
+            Assert.Single(result[0].Children).ResolvedVersion);
+        Assert.Equal(
+            "2.0.0",
+            Assert.Single(result[1].Children).ResolvedVersion);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_NormalizesRootCycleCoordinate()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string suffix = Guid.NewGuid().ToString("N");
+        string rootId = $"Root.Version.{suffix}";
+        string childId = $"Child.Version.{suffix}";
+        string index =
+            $"https://root-version.example/{suffix}/index.json";
+        string flat =
+            $"https://root-version.example/{suffix}/v3-flatcontainer/";
+        var handler = new GraphNuspecHandler(
+            index,
+            flat,
+            new Dictionary<string, string[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [childId] = [$"{rootId}@1.0.0"],
+            });
+        using var client = new HttpClient(handler);
+
+        List<DependencyNode> result =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                [new PackageDependency
+                {
+                    Id = childId,
+                    Version = "1.0.0",
+                }],
+                "net10.0",
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    DependencyResolutionService
+                        .PackageTraversalIdentity(
+                            rootId,
+                            "1.0"),
+                },
+                log: null,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index],
+                });
+
+        DependencyNode rootCycle =
+            Assert.Single(Assert.Single(result).Children);
+        Assert.Equal(rootId, rootCycle.PackageId);
+        Assert.Empty(rootCycle.Children);
+        Assert.Equal(0, handler.NuspecRequestCount(rootId));
     }
 
     [Fact]
@@ -789,11 +958,20 @@ public class DependencyResolutionServiceTests
         IReadOnlyDictionary<string, string[]> dependencies)
         : HttpMessageHandler
     {
+        private readonly List<string> requested = [];
+
+        public int NuspecRequestCount(string packageId) =>
+            requested.Count(url =>
+                url.EndsWith(
+                    $"/{packageId.ToLowerInvariant()}.nuspec",
+                    StringComparison.Ordinal));
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.ToString();
+            requested.Add(url);
             string? body = url == index
                 ? $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"{{flat}}"}]}"""
                 : Nuspec(url);
@@ -813,8 +991,12 @@ public class DependencyResolutionServiceTests
         {
             foreach (var entry in dependencies)
             {
+                var (packageId, version) =
+                    ParseCoordinate(entry.Key);
+                string normalizedId =
+                    packageId.ToLowerInvariant();
                 if (!url.EndsWith(
-                    $"/{entry.Key.ToLowerInvariant()}.nuspec",
+                    $"/{normalizedId}/{version}/{normalizedId}.nuspec",
                     StringComparison.Ordinal))
                 {
                     continue;
@@ -822,14 +1004,19 @@ public class DependencyResolutionServiceTests
 
                 string dependencyElements = string.Join(
                     Environment.NewLine,
-                    entry.Value.Select(id =>
-                        $"<dependency id=\"{id}\" version=\"1.0.0\" />"));
+                    entry.Value.Select(coordinate =>
+                    {
+                        var (id, dependencyVersion) =
+                            ParseCoordinate(coordinate);
+                        return $"<dependency id=\"{id}\" "
+                            + $"version=\"{dependencyVersion}\" />";
+                    }));
                 return
                     $"""
                     <package>
                       <metadata>
-                        <id>{entry.Key}</id>
-                        <version>1.0.0</version>
+                        <id>{packageId}</id>
+                        <version>{version}</version>
                         <authors>Test</authors>
                         <dependencies>
                           <group targetFramework="net10.0">
@@ -842,6 +1029,17 @@ public class DependencyResolutionServiceTests
             }
 
             return null;
+        }
+
+        private static (string PackageId, string Version)
+            ParseCoordinate(string coordinate)
+        {
+            int separator = coordinate.LastIndexOf('@');
+            return separator > 0
+                ? (
+                    coordinate[..separator],
+                    coordinate[(separator + 1)..])
+                : (coordinate, "1.0.0");
         }
     }
 }

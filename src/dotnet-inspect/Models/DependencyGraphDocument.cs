@@ -123,8 +123,68 @@ internal sealed class DependencyGraphBuilder
                 depth));
     }
 
-    public DependencyGraphDocument Build() =>
-        new(_title, [RootNodeId], [.. _nodes], [.. _edges]);
+    public DependencyGraphDocument Build()
+    {
+        NormalizeMinimumDepths();
+        return new(
+            _title,
+            [RootNodeId],
+            [.. _nodes],
+            [.. _edges]);
+    }
+
+    private void NormalizeMinimumDepths()
+    {
+        var distances = new int[_nodes.Count];
+        Array.Fill(distances, int.MaxValue);
+        distances[RootNodeId] = 0;
+        var queue = new Queue<int>();
+        queue.Enqueue(RootNodeId);
+        var outgoing = _edges
+            .GroupBy(edge => edge.FromNodeId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(edge => edge.Id).ToArray());
+        for (int i = 0; i < _edges.Count; i++)
+        {
+            _edges[i] =
+                _edges[i] with { MinimumDepth = int.MaxValue };
+        }
+
+        while (queue.TryDequeue(out int sourceId))
+        {
+            if (!outgoing.TryGetValue(
+                sourceId,
+                out int[]? edgeIds))
+            {
+                continue;
+            }
+
+            int edgeDepth = distances[sourceId] + 1;
+            foreach (int edgeId in edgeIds)
+            {
+                DependencyGraphEdge edge = _edges[edgeId];
+                if (edgeDepth < edge.MinimumDepth)
+                {
+                    _edges[edgeId] =
+                        edge with { MinimumDepth = edgeDepth };
+                }
+
+                if (edgeDepth >= distances[edge.ToNodeId])
+                    continue;
+
+                distances[edge.ToNodeId] = edgeDepth;
+                queue.Enqueue(edge.ToNodeId);
+            }
+        }
+
+        if (_edges.Any(edge =>
+            edge.MinimumDepth == int.MaxValue))
+        {
+            throw new InvalidOperationException(
+                "Every dependency edge must be reachable from a root.");
+        }
+    }
 
     private static string CanonicalIdentity(
         DependencyGraphNodeKind kind,

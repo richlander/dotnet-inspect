@@ -80,10 +80,9 @@ internal static class DependencyGraphOutputAdapter
                     new MermaidFormatter());
                 break;
             case OutputFormat.PlainText:
-                WriteGraph(
+                WritePlainText(
                     document,
-                    selectedEdges,
-                    new PlainTextFormatter());
+                    selectedEdges);
                 break;
             default:
                 WriteMarkdown(
@@ -181,7 +180,12 @@ internal static class DependencyGraphOutputAdapter
             Console.Out,
             new MarkdownFormatter());
         headingWriter.WriteHeading(1, document.Title);
-        if (selectedEdges.Count != document.Edges.Length)
+        if (document.Edges.Length == 0)
+        {
+            headingWriter.WriteParagraph(
+                "No dependency edges.");
+        }
+        else if (selectedEdges.Count != document.Edges.Length)
         {
             headingWriter.WriteParagraph(
                 "Windowed dependency graph fragment; only the selected "
@@ -203,6 +207,27 @@ internal static class DependencyGraphOutputAdapter
         var writer = new MarkoutWriter(Console.Out, formatter);
         writer.WriteGraph(ToGraph(document, selectedEdges));
         writer.Flush();
+    }
+
+    private static void WritePlainText(
+        DependencyGraphDocument document,
+        IReadOnlyList<DependencyGraphEdge> selectedEdges)
+    {
+        if (document.Edges.Length == 0)
+        {
+            Console.WriteLine("No dependency edges.");
+        }
+        else if (selectedEdges.Count != document.Edges.Length)
+        {
+            Console.WriteLine(
+                "Windowed dependency graph fragment; only the selected "
+                + "logical edges are shown.");
+        }
+
+        WriteGraph(
+            document,
+            selectedEdges,
+            new PlainTextFormatter());
     }
 
     private static void WriteTable(

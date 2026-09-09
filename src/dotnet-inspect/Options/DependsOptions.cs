@@ -76,6 +76,11 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public bool EmbeddedMermaid { get; init; }
 
     /// <summary>
+    /// Render the graph as a standalone plain-text tree.
+    /// </summary>
+    public bool Tree { get; init; }
+
+    /// <summary>
     /// Selected output format.
     /// </summary>
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
@@ -101,7 +106,9 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public bool Verbose { get; init; }
 
     public OutputFormat EffectiveFormat =>
-        JsonOutput
+        Tree
+            ? OutputFormat.PlainText
+            : JsonOutput
             ? OutputFormat.Json
             : MermaidOutput
                 ? OutputFormat.Mermaid

@@ -1,4 +1,5 @@
 using CSharpText;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -9,9 +10,15 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public class TypeDependencyScannerTests
 {
-    private static readonly string[] RefAssemblies = GetRefAssemblyPaths();
+    private static readonly string[] RefAssemblies =
+        GetRefAssemblyPaths("Microsoft.NETCore.App.Ref");
+    private static readonly string[] AspNetCoreRefAssemblies =
+    [
+        .. RefAssemblies,
+        .. GetRefAssemblyPaths("Microsoft.AspNetCore.App.Ref"),
+    ];
 
-    private static string[] GetRefAssemblyPaths()
+    private static string[] GetRefAssemblyPaths(string packName)
     {
         // Find the ref pack directory for the current runtime
         var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
@@ -29,7 +36,11 @@ public class TypeDependencyScannerTests
             root = Path.GetFullPath(Path.Combine(sharedDir, "..", ".."));
         }
 
-        var refDir = Directory.GetDirectories(Path.Combine(root, "packs", "Microsoft.NETCore.App.Ref"))
+        string packRoot = Path.Combine(root, "packs", packName);
+        if (!Directory.Exists(packRoot))
+            return [];
+
+        var refDir = Directory.GetDirectories(packRoot)
             .OrderByDescending(d => d)
             .FirstOrDefault();
 
@@ -164,13 +175,69 @@ public class TypeDependencyScannerTests
             result.Relationships
                 .GroupBy(relationship =>
                     (
-                        Source: FqnParser.NormalizeTypeName(
-                            relationship.SourceTypeName),
-                        Target: FqnParser.NormalizeTypeName(
-                            relationship.TargetTypeName),
+                        Source: relationship.SourceTypeIdentity,
+                        Target: relationship.TargetTypeIdentity,
                         relationship.Kind),
                     new RelationshipKeyComparer()),
             group => group.Count() > 1);
+        Assert.Contains(
+            result.Relationships,
+            relationship =>
+                relationship.SourceTypeIdentity
+                    == "System.Numerics.IBinaryInteger<System.Int128>"
+                && relationship.TargetTypeIdentity
+                    == "System.Numerics.IBinaryNumber<System.Int128>");
+    }
+
+    [Fact]
+    public void StringValues_PreservesDistinctConstructedInterfaceEdges()
+    {
+        var result = TypeDependencyScanner.BuildDependencyTree(
+            "Microsoft.Extensions.Primitives.StringValues",
+            AspNetCoreRefAssemblies);
+
+        string[] equatableIdentities =
+        [
+            .. result.Relationships
+                .Where(relationship =>
+                    relationship.SourceTypeName
+                        == "Microsoft.Extensions.Primitives.StringValues"
+                    && relationship.TargetTypeIdentity.StartsWith(
+                        "System.IEquatable<",
+                        StringComparison.Ordinal))
+                .Select(relationship =>
+                    relationship.TargetTypeIdentity),
+        ];
+
+        Assert.Equal(3, equatableIdentities.Length);
+        Assert.Equal(
+            3,
+            equatableIdentities
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+    }
+
+    [Fact]
+    public void NestedConstructedType_PreservesDeclaringAndLeafArguments()
+    {
+        string fixtureAssembly =
+            typeof(TypeDependencyNestedRoot).Assembly.Location;
+        var result = TypeDependencyScanner.BuildDependencyTree(
+            typeof(TypeDependencyNestedRoot).FullName!,
+            [fixtureAssembly, .. RefAssemblies]);
+
+        Assert.Contains(
+            result.Relationships,
+            relationship =>
+                relationship.SourceTypeIdentity.Contains(
+                    "TypeDependencyOuter<int>",
+                    StringComparison.Ordinal)
+                && relationship.SourceTypeIdentity.Contains(
+                    "Inner<string>",
+                    StringComparison.Ordinal)
+                && relationship.TargetTypeIdentity
+                    == "DotnetInspector.Fixtures."
+                        + "TypeDependencyPair<int, string>");
     }
 
     [Fact]

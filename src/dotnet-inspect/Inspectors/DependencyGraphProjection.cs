@@ -18,7 +18,7 @@ internal static class DependencyGraphProjection
         var builder = new DependencyGraphBuilder(
             CSharpIdentifier.ContainRenderedText(root),
             DependencyGraphNodeKind.Type,
-            TypeIdentity(root),
+            result.MatchedTypeIdentity ?? root,
             CSharpIdentifier.ContainRenderedText(root));
 
         foreach (TypeDependencyRelationship relationship
@@ -26,13 +26,13 @@ internal static class DependencyGraphProjection
         {
             int sourceId = builder.AddNode(
                 DependencyGraphNodeKind.Type,
-                TypeIdentity(relationship.SourceTypeName),
+                relationship.SourceTypeIdentity,
                 CSharpIdentifier.ContainRenderedText(
                     relationship.SourceTypeName),
                 DependencyGraphResolutionState.Resolved);
             int targetId = builder.AddNode(
                 DependencyGraphNodeKind.Type,
-                TypeIdentity(relationship.TargetTypeName),
+                relationship.TargetTypeIdentity,
                 CSharpIdentifier.ContainRenderedText(
                     relationship.TargetTypeName),
                 relationship.TargetResolved
@@ -67,8 +67,11 @@ internal static class DependencyGraphProjection
         {
             [-1] = builder.RootNodeId,
         };
-        int unresolvedOccurrence = 0;
-
+        var unresolvedIdentities =
+            new Dictionary<
+                UnresolvedLibraryReferenceKey,
+                string>(
+                UnresolvedLibraryReferenceKeyComparer.Instance);
         foreach (AssemblyReferenceNode reference in graph.References)
         {
             if (!parentIdsByDepth.TryGetValue(
@@ -81,8 +84,10 @@ internal static class DependencyGraphProjection
 
             string identity = reference.Path is { } path
                 ? Path.GetFullPath(path)
-                : $"unresolved:{parentId}:{reference.Name}:"
-                    + unresolvedOccurrence++;
+                : UnresolvedLibraryIdentity(
+                    parentId,
+                    reference,
+                    unresolvedIdentities);
             int targetId = builder.AddNode(
                 DependencyGraphNodeKind.Library,
                 identity,
@@ -116,6 +121,17 @@ internal static class DependencyGraphProjection
         return builder.Build();
     }
 
+    public static DependencyGraphDocument FromLibrary(
+        LibraryDependencyGraphResult.Empty empty) =>
+        new DependencyGraphBuilder(
+            CSharpIdentifier.ContainRenderedText(
+                empty.AssemblyName),
+            DependencyGraphNodeKind.Library,
+            Path.GetFullPath(empty.AssemblyPath),
+            CSharpIdentifier.ContainRenderedText(
+                empty.AssemblyName))
+        .Build();
+
     public static DependencyGraphDocument FromPackage(
         PackageDependencyGraphResult.Graph graph)
     {
@@ -125,7 +141,9 @@ internal static class DependencyGraphProjection
         var builder = new DependencyGraphBuilder(
             CSharpIdentifier.ContainRenderedText(graph.Title),
             DependencyGraphNodeKind.Package,
-            PackageIdentity(graph.ManifestPackageName),
+            PackageIdentity(
+                graph.ManifestPackageName,
+                graph.ManifestVersion),
             rootLabel);
         AddPackageDependencies(
             builder,
@@ -135,6 +153,22 @@ internal static class DependencyGraphProjection
         return builder.Build();
     }
 
+    public static DependencyGraphDocument FromPackage(
+        PackageDependencyGraphResult.Empty empty) =>
+        new DependencyGraphBuilder(
+            CSharpIdentifier.ContainRenderedText(
+                PackageTitle(
+                    empty.PackageName,
+                    empty.Version)),
+            DependencyGraphNodeKind.Package,
+            PackageIdentity(
+                empty.ManifestPackageName,
+                empty.ManifestVersion),
+            PackageLabel(
+                empty.ManifestPackageName,
+                empty.ManifestVersion))
+        .Build();
+
     private static void AddPackageDependencies(
         DependencyGraphBuilder builder,
         int parentId,
@@ -143,14 +177,22 @@ internal static class DependencyGraphProjection
     {
         foreach (DependencyNode dependency in dependencies)
         {
+            string version =
+                dependency.ResolvedVersion
+                ?? dependency.Version;
             int targetId = builder.AddNode(
                 DependencyGraphNodeKind.Package,
-                PackageIdentity(dependency.PackageId),
+                PackageIdentity(dependency.PackageId, version),
                 PackageLabel(
                     dependency.PackageId,
-                    dependency.Version,
+                    version,
                     dependency.Author),
-                DependencyGraphResolutionState.Resolved);
+                dependency.Resolution switch
+                {
+                    DependencyNodeResolutionState.Unresolved =>
+                        DependencyGraphResolutionState.Unresolved,
+                    _ => DependencyGraphResolutionState.Resolved,
+                });
             builder.AddEdge(
                 parentId,
                 targetId,
@@ -164,11 +206,12 @@ internal static class DependencyGraphProjection
         }
     }
 
-    private static string TypeIdentity(string typeName) =>
-        FqnParser.NormalizeTypeName(typeName);
-
-    private static string PackageIdentity(string packageId) =>
-        packageId;
+    private static string PackageIdentity(
+        string packageId,
+        string version) =>
+        DependencyResolutionService.PackageTraversalIdentity(
+            packageId,
+            version);
 
     private static string PackageLabel(
         string packageName,
@@ -180,4 +223,62 @@ internal static class DependencyGraphProjection
                 : string.IsNullOrWhiteSpace(author)
                     ? $"{packageName} {version}"
                     : $"{packageName} {version} [{author}]");
+
+    private static string PackageTitle(
+        string packageName,
+        string version) =>
+        string.IsNullOrWhiteSpace(version)
+            ? packageName
+            : $"{packageName} ({version})";
+
+    private static string UnresolvedLibraryIdentity(
+        int parentId,
+        AssemblyReferenceNode reference,
+        Dictionary<UnresolvedLibraryReferenceKey, string>
+            identities)
+    {
+        var key = new UnresolvedLibraryReferenceKey(
+            parentId,
+            new AssemblyReferenceIdentity(
+                reference.Name,
+                Version.TryParse(
+                    reference.Version,
+                    out Version? version)
+                    ? version
+                    : null,
+                reference.Culture,
+                reference.PublicKeyToken));
+        if (identities.TryGetValue(key, out string? identity))
+            return identity;
+
+        identity = $"unresolved:{identities.Count}";
+        identities.Add(key, identity);
+        return identity;
+    }
+
+    private readonly record struct UnresolvedLibraryReferenceKey(
+        int ParentId,
+        AssemblyReferenceIdentity Reference);
+
+    private sealed class UnresolvedLibraryReferenceKeyComparer :
+        IEqualityComparer<UnresolvedLibraryReferenceKey>
+    {
+        public static UnresolvedLibraryReferenceKeyComparer Instance
+            { get; } = new();
+
+        public bool Equals(
+            UnresolvedLibraryReferenceKey x,
+            UnresolvedLibraryReferenceKey y) =>
+            x.ParentId == y.ParentId
+            && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                x.Reference,
+                y.Reference);
+
+        public int GetHashCode(
+            UnresolvedLibraryReferenceKey obj) =>
+            HashCode.Combine(
+                obj.ParentId,
+                AssemblyReferenceIdentity.EquivalentComparer.GetHashCode(
+                    obj.Reference));
+    }
 }
