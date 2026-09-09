@@ -230,6 +230,9 @@ substrates, and inspection producers that will extend that space.
   owns the managed Source-facade envelope that carries one Research-issued
   receipt and its Facts/document instance-key mappings without reconstructing
   identity in the host.
+  Its [ReadyToRun browser projection](design/readytorun-browser-projection.md)
+  carries Metadata-owned ReadyToRun facts and root-scoped metadata operations
+  through the managed facade into Package Metadata and Metadata Explorer.
 - [Workspace registration and call-graph focal
   length](design/workspace-registration-and-call-graph-scope.md) is the
   operator-approved cross-owner target experience for inert registration,
