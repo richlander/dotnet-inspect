@@ -2023,6 +2023,57 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void Select_DesignatedTieRetainsInstalledPlatformShadow()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-designated-tie-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string secondDesignatedPath = Path.Combine(
+                root,
+                Path.GetFileName(platformPath));
+            File.Copy(platformPath, secondDesignatedPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths =
+                        [platformPath, secondDesignatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var ambiguous =
+                Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+                    resolver.Select(request).Selection);
+
+            Assert.Equal(2, ambiguous.Assemblies.Length);
+            ResolvedAssemblyReference shadow =
+                Assert.Single(ambiguous.ShadowedAssemblies);
+            Assert.Equal(platformPath, shadow.Path);
+            Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                shadow.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Select_UnreadableNonEligibleOverlayDoesNotVetoPlatform()
     {
         string root = Directory.CreateTempSubdirectory(

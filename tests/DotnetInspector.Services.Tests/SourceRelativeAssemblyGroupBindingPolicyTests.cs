@@ -116,6 +116,79 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_DesignatedAmbiguityPreservesRootInactiveEvidence()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "root inactive evidence"));
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.Found(first));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+                (platform, (IAssemblyBindingPolicy)policy),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Same(platform, Assert.Single(ambiguous.ShadowedAssemblies));
+    }
+
+    [Fact]
+    public void Select_NestedDesignatedAmbiguityPreservesDelegatedInactiveEvidence()
+    {
+        var owner = NamedDescriptor("Owner");
+        var first = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("first overlay"));
+        var second = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Designated("second overlay"),
+            new Version(2, 0, 0, 0));
+        var platform = NamedDescriptor(
+            "Platform.Library",
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "delegated inactive evidence"));
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.Found(first));
+        var inner = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+                (platform, (IAssemblyBindingPolicy)policy),
+            ]);
+        var outer = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)inner),
+                (first, (IAssemblyBindingPolicy)inner),
+            ]);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            outer.Select(Request(first, owner)).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Same(platform, Assert.Single(ambiguous.ShadowedAssemblies));
+    }
+
+    [Fact]
     public void Select_RejectsForeignAndStaleContinuations()
     {
         var owner = NamedDescriptor("Owner");
@@ -177,6 +250,35 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
                 AssemblyBindingTarget.CoreLibrary(),
                 AssemblyBindingOrigin.FromOccurrence(occurrence),
                 AssemblyResolutionScope.Any));
+    }
+
+    [Fact]
+    public void Select_RoutingOnlyIntrinsicContinuationUsesCanonicalRouteOccurrence()
+    {
+        string corePath = typeof(object).Assembly.Location;
+        ResolvedAssemblyReference source = Descriptor(corePath);
+        var snapshot = Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+            AssemblyImageSnapshot.FromRetainedContent(
+                source,
+                [.. File.ReadAllBytes(corePath)])).Snapshot;
+        ResolvedAssemblyReference retained =
+            snapshot.RetainAssemblyReference(source);
+        var policy = new SelectionPolicy(_ =>
+            AssemblyBindingSelection.Found(source));
+        var group =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                [(retained, (IAssemblyBindingPolicy)policy)]);
+        var selectedCore = Selected(group, Request(source, retained));
+
+        var intrinsic = Selected(
+            group,
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromOccurrence(
+                    selectedCore.Occurrence),
+                AssemblyResolutionScope.Any));
+
+        Assert.Same(retained, intrinsic.Assembly);
     }
 
     [Fact]
@@ -344,12 +446,25 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
             AssemblyResolutionProvenance.Local("resolver-lineage fixture"));
 
     static ResolvedAssemblyReference NamedDescriptor(string name) =>
+        NamedDescriptor(
+            name,
+            AssemblyResolutionProvenance.Local(
+                "resolver-lineage selection"));
+
+    static ResolvedAssemblyReference NamedDescriptor(
+        string name,
+        AssemblyResolutionProvenance provenance,
+        Version? version = null) =>
         ResolvedAssemblyReference.Create(
-            new AssemblyReferenceIdentity(name, new Version(1, 0, 0, 0), null, null),
+            new AssemblyReferenceIdentity(
+                name,
+                version ?? new Version(1, 0, 0, 0),
+                null,
+                null),
             name + ".dll",
             static () => throw new InvalidOperationException(
                 "Descriptor-only selection must not open an assembly."),
-            AssemblyResolutionProvenance.Local("resolver-lineage selection"));
+            provenance);
 
     static AssemblyBindingRequest Request(
         ResolvedAssemblyReference target,

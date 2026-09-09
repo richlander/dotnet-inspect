@@ -387,16 +387,10 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         candidate.Provenance
                             is AssemblyResolutionProvenance
                                 .DesignatedAsset)));
-        IEnumerable<ResolvedAssemblyReference> policyShadows =
-            policySelection
-                is AssemblyBindingSelection.Selected selectedWithShadows
-                    ? selectedWithShadows.ShadowedAssemblies
-                    : [];
-        IEnumerable<ResolvedAssemblyReference> designatedShadows =
-            designated
-                is AssemblyBindingSelection.Selected selectedDesignated
-                    ? selectedDesignated.ShadowedAssemblies
-                    : [];
+        ImmutableArray<ResolvedAssemblyReference> policyShadows =
+            ShadowedCandidates(policySelection);
+        ImmutableArray<ResolvedAssemblyReference> designatedShadows =
+            ShadowedCandidates(designated);
         ImmutableArray<ResolvedAssemblyReference> platforms =
             DistinctRegistrations(
                 designatedShadows
@@ -421,8 +415,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         return policySelection
                 is AssemblyBindingSelection.Selected delegated
             && ReferenceEquals(
-                chosen.Registration,
-                delegated.Assembly.Registration)
+                chosen,
+                delegated.Assembly)
                 ? domain.Finalize(delegated.Occurrence)
                 : domain.Finalize([chosen]);
     }
@@ -442,6 +436,17 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                             is AssemblyResolutionProvenance
                                 .DesignatedAsset),
                 ],
+            _ => [],
+        };
+
+    static ImmutableArray<ResolvedAssemblyReference> ShadowedCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                selected.ShadowedAssemblies,
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.ShadowedAssemblies,
             _ => [],
         };
 
@@ -577,12 +582,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 selected.Assembly.Registration,
                 requesting.Assembly.Registration))
         {
+            ResolvedAssemblyReference canonical =
+                requestingOccurrence.Assembly;
             return IssueSelection(
                 state,
                 route,
                 AssemblyBindingCandidateDomain.Create(
                     [
-                        selected.Assembly,
+                        canonical,
                         .. selected.ShadowedAssemblies,
                     ]).Finalize(requestingOccurrence));
         }

@@ -63,6 +63,29 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         Assert.Equal(0, peer.SourceOpens);
     }
 
+    [Fact]
+    public void CreateClosedWorld_DesignatedCompositionUsesCanonicalRetainedOccurrence()
+    {
+        var root = Named("Root");
+        var candidate = new RetainedImage(
+            FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath(),
+            AssemblyResolutionProvenance.Designated(
+                "closed-world designated composition"));
+        var select = new Policy(_ =>
+            AssemblyBindingSelection.Found(candidate.Source));
+        var policy = SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+            [(root, select), (candidate.Retained, select)]);
+
+        var selected = Selected(
+            policy,
+            Request(
+                candidate.Source.Identity,
+                AssemblyBindingOrigin.FromAssembly(root)));
+
+        Assert.Same(candidate.Retained, selected.Assembly);
+        Assert.Equal(0, candidate.SourceOpens);
+    }
+
     [Theory]
     [InlineData("selected")]
     [InlineData("ambiguous")]
@@ -271,7 +294,9 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
 
     sealed class RetainedImage
     {
-        internal RetainedImage(string fixture)
+        internal RetainedImage(
+            string fixture,
+            AssemblyResolutionProvenance? provenance = null)
         {
             byte[] bytes = File.ReadAllBytes(fixture);
             using var pe = new PEReader(new MemoryStream(bytes, writable: false));
@@ -282,7 +307,9 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
                     SourceOpens++;
                     throw new InvalidOperationException("Selection must use the canonical retained image.");
                 },
-                AssemblyResolutionProvenance.Local("closed-world retained gate"));
+                provenance
+                    ?? AssemblyResolutionProvenance.Local(
+                        "closed-world retained gate"));
             var snapshot = Assert.IsType<AssemblyImageSnapshotResult.Ready>(
                 AssemblyImageSnapshot.FromRetainedContent(Source, [.. bytes])).Snapshot;
             Retained = snapshot.RetainAssemblyReference(Source);

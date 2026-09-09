@@ -544,16 +544,26 @@ public sealed partial class AssemblyDependencyResolver :
                 && identity.MatchesCandidate(
                     assembly.Identity,
                     _options.AllowPlatformAssemblyVersionRollForward,
-                    _options.IgnoreAssemblyVersion)
-                && selection
-                    is AssemblyBindingSelection.Selected selected)
+                    _options.IgnoreAssemblyVersion))
             {
-                selection = AssemblyBindingCandidateDomain.Create(
-                    [
-                        selected.Assembly,
-                        .. selected.ShadowedAssemblies,
-                        assembly,
-                    ]).Finalize(selected.Occurrence);
+                ImmutableArray<ResolvedAssemblyReference> active =
+                    ActiveCandidates(selection);
+                ImmutableArray<ResolvedAssemblyReference> inactive =
+                    ShadowedCandidates(selection);
+                if (!active.IsEmpty
+                    && !active.Concat(inactive).Any(candidate =>
+                        ReferenceEquals(
+                            candidate.Registration,
+                            assembly.Registration)))
+                {
+                    AssemblyBindingCandidateDomain domain =
+                        AssemblyBindingCandidateDomain.Create(
+                            [.. active, .. inactive, assembly]);
+                    selection = selection
+                            is AssemblyBindingSelection.Selected selected
+                        ? domain.Finalize(selected.Occurrence)
+                        : domain.Finalize(active);
+                }
             }
         }
 
@@ -574,6 +584,28 @@ public sealed partial class AssemblyDependencyResolver :
             _ => null,
         };
     }
+
+    static ImmutableArray<ResolvedAssemblyReference> ActiveCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                [selected.Assembly],
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.Assemblies,
+            _ => [],
+        };
+
+    static ImmutableArray<ResolvedAssemblyReference> ShadowedCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                selected.ShadowedAssemblies,
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                ambiguous.ShadowedAssemblies,
+            _ => [],
+        };
 
     AssemblyDescriptorResolution? InstalledPlatformDescriptor(
         AssemblyReferenceIdentity identity)
