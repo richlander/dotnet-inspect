@@ -215,7 +215,7 @@ public class CommandErrorOwnershipTests
     public void ConsoleCaptureProjectIsAnalyzedForStdoutRedirection()
     {
         string root = RepositoryRoot();
-        string projectDirectory = Path.Combine(root, "src", "dotnet-inspect.Tests");
+        string projectDirectory = Path.Combine(root, "tests", "dotnet-inspect.Tests");
         string project = Path.Combine(
             projectDirectory,
             "dotnet-inspect.Tests.csproj");

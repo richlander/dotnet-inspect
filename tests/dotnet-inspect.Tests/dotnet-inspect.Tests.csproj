@@ -30,17 +30,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
-    <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
-    <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
-    <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\..\src\dotnet-inspect\dotnet-inspect.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.HostileNameFixtures\DotnetInspector.HostileNameFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.CloneSearchFixtures\DotnetInspector.CloneSearchFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.SourceDiff.V1\DotnetInspector.SourceDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.SourceDiff.V2\DotnetInspector.SourceDiff.V2.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\Inspector.Artifacts\Inspector.Artifacts.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\Inspector.Artifacts\Inspector.Artifacts.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkMalformedFixtures\DotnetInspector.SourceLinkMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkNormalizedFixtures\DotnetInspector.SourceLinkNormalizedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkVisualBasicFixtures\DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" ReferenceOutputAssembly="false" />
@@ -49,9 +49,9 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.InstallScriptFixture\DotnetInspector.InstallScriptFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.AssemblyOnlyHost.Fixture\DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
+    <ProjectReference Include="..\DotnetInspector.AssemblyOnlyHost.Fixture\DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <ProjectReference Include="..\..\fixtures\shared\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
 </Project>

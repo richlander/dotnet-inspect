@@ -21,7 +21,7 @@
 # In each case PATH looks plausible, the oracles are missing, and the suites
 # report a green run that proved nothing -- the exact failure restore-iltools.sh
 # exists to prevent. This file is that assembly, written once and enforced by
-# IlToolsActivationTests in src/dotnet-inspect.Tests, so the failure modes stay
+# IlToolsActivationTests in tests/dotnet-inspect.Tests, so the failure modes stay
 # fixed instead of being retyped correctly by every caller.
 #
 # CI does not need this file:
