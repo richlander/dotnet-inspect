@@ -266,6 +266,67 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
+    public void DuplicateForwardersToSameTarget_PreserveTypedOutcomeAndEveryNativeFinding()
+    {
+        byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Terminal",
+            mvid: new("00000000-0000-0000-0000-000000000372"),
+            methodResult: 1);
+        byte[] beforeFacade = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardsTo: WorkspaceResearchTargetFixture.Identity(beforeTerminal),
+            mvid: new("00000000-0000-0000-0000-000000000371"),
+            forwarderCount: 2);
+        byte[] afterTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Terminal",
+            mvid: new("00000000-0000-0000-0000-000000000374"),
+            methodResult: 2);
+        byte[] afterFacade = WorkspaceResearchTargetFixture.BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardsTo: WorkspaceResearchTargetFixture.Identity(afterTerminal),
+            mvid: new("00000000-0000-0000-0000-000000000373"),
+            forwarderCount: 2);
+
+        using var fixture = new WorkspaceResearchTargetFixture(
+            beforeFacade,
+            beforeTerminal,
+            afterFacade,
+            afterTerminal);
+        using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0, 1]);
+        using AssemblyContextGroup afterGroup = fixture.CreateGroup([2, 3]);
+
+        var rejected = Assert.IsType<
+            WorkspaceImplementationComparisonResult.CompositionRejected>(
+                Execute(
+                    fixture,
+                    beforeGroup,
+                    afterGroup,
+                    beforeBindings: [0, 1],
+                    afterBindings: [2, 3]));
+
+        WorkspaceTypeForwarderUse[] beforeUses =
+        [
+            .. rejected.Forwarders.Where(use =>
+                use.Side == QueryComparisonSide.Before),
+        ];
+        ImmutableArray<Finding<TypeForwarderInfo>> native =
+            NativeForwarderFindings(beforeFacade);
+        Assert.Equal(
+            WorkspaceResearchTargetCompositionRejection.RootAttemptMismatch,
+            rejected.Result.Reason);
+        Assert.Equal(QueryComparisonSide.Before, rejected.Side);
+        Assert.Null(rejected.CompletedSide);
+        Assert.Equal(2, native.Length);
+        Assert.All(beforeUses, use => Assert.Equal(0, use.HopIndex));
+        Assert.Equal(
+            native,
+            beforeUses.Select(use => use.Finding));
+        Assert.Equal(2, rejected.Forwarders.Length);
+    }
+
+    [Fact]
     public void MissingTerminalParticipant_RetainsFollowedHopAndCompletedSide()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
@@ -528,6 +589,19 @@ public sealed class WorkspaceImplementationComparisonQueryTests
         byte[] facade,
         string expectedTypeName)
     {
+        Finding<TypeForwarderInfo> native =
+            Assert.Single(NativeForwarderFindings(facade));
+
+        Assert.Equal(expectedTypeName, native.Payload.TypeName);
+        Assert.Equal(native.Subject, use.Finding.Subject);
+        Assert.Same(native.Descriptor, use.Finding.Descriptor);
+        Assert.Equal(native.Key, use.Finding.Key);
+        Assert.Equal(native.Payload, use.Finding.Payload);
+    }
+
+    static ImmutableArray<Finding<TypeForwarderInfo>> NativeForwarderFindings(
+        byte[] facade)
+    {
         AssemblyReferenceIdentity identity =
             WorkspaceResearchTargetFixture.Identity(facade);
         using var peReader = new PEReader(
@@ -538,17 +612,9 @@ public sealed class WorkspaceImplementationComparisonQueryTests
                 new FindingSubject(
                     (identity with { Version = null }).ToString(),
                     identity.Name));
-        Finding<TypeForwarderInfo> native = Assert.IsType<
-            FindingInspection<TypeForwarderInfo>.Complete>(
+        return Assert.IsType<FindingInspection<TypeForwarderInfo>.Complete>(
                 nativeInspection.Value)
-            .Findings
-            .Single();
-
-        Assert.Equal(expectedTypeName, native.Payload.TypeName);
-        Assert.Equal(native.Subject, use.Finding.Subject);
-        Assert.Same(native.Descriptor, use.Finding.Descriptor);
-        Assert.Equal(native.Key, use.Finding.Key);
-        Assert.Equal(native.Payload, use.Finding.Payload);
+            .Findings;
     }
 
 }

@@ -255,7 +255,7 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
         Guid? mvid = null, bool leadingType = false, string methodName = "Value",
         Version? version = null, int methodResult = 42, int typeGenericArity = 0,
-        bool nestedType = false)
+        bool nestedType = false, int forwarderCount = 1)
     {
         string typeName = typeGenericArity == 0
             ? "Type"
@@ -315,17 +315,20 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
         {
             AssemblyReferenceHandle reference = metadata.AddAssemblyReference(
                 metadata.GetOrAddString(forwardsTo.Name), forwardsTo.Version!, default, default, default, default);
-            ExportedTypeHandle outerType = metadata.AddExportedType(
-                TypeAttributes.Public | (TypeAttributes)0x00200000,
-                metadata.GetOrAddString("N"), metadata.GetOrAddString(typeName), reference, 0);
-            if (nestedType)
+            for (int index = 0; index < forwarderCount; index++)
             {
-                metadata.AddExportedType(
-                    TypeAttributes.NestedPublic,
-                    default,
-                    metadata.GetOrAddString("Inner"),
-                    outerType,
-                    0);
+                ExportedTypeHandle outerType = metadata.AddExportedType(
+                    TypeAttributes.Public | (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("N"), metadata.GetOrAddString(typeName), reference, 0);
+                if (nestedType)
+                {
+                    metadata.AddExportedType(
+                        TypeAttributes.NestedPublic,
+                        default,
+                        metadata.GetOrAddString("Inner"),
+                        outerType,
+                        0);
+                }
             }
         }
         var builder = new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(),

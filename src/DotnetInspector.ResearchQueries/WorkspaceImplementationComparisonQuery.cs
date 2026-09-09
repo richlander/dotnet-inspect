@@ -583,8 +583,7 @@ public static class WorkspaceImplementationComparisonQuery
             return [];
         ImmutableArray<WorkspaceMetadataEvidence.Hop> hops =
             available.Outcome.Hops;
-        var uses = ImmutableArray.CreateBuilder<WorkspaceTypeForwarderUse>(
-            hops.Length);
+        var uses = ImmutableArray.CreateBuilder<WorkspaceTypeForwarderUse>();
         for (int index = 0; index < hops.Length; index++)
         {
             WorkspaceMetadataEvidence.Hop hop = hops[index];
@@ -601,28 +600,29 @@ public static class WorkspaceImplementationComparisonQuery
             ImplementationComparisonBinding binding = population.Inputs
                 .Single(candidate => ReferenceEquals(candidate.Id, input))
                 .Binding;
+            ImmutableArray<TypeForwarderInfo> native =
+                NativeForwarders(binding.Assembly, hop.Declarations);
             FindingInspection<TypeForwarderInfo> inspection =
                 MetadataFindings.InspectTypeForwarders(
-                    [NativeForwarder(binding.Assembly, hop.Declarations)],
+                    native,
                     new FindingSubject(
                         (identity with { Version = null }).ToString(),
                         identity.Name));
             if (inspection.Value is not
-                    FindingInspection<TypeForwarderInfo>.Complete
-                    {
-                        Findings.Length: 1,
-                    } complete)
+                    FindingInspection<TypeForwarderInfo>.Complete complete
+                || complete.Findings.Length != native.Length)
             {
                 throw new InvalidOperationException(
-                    "Metadata did not issue exactly one Finding for a followed forwarding hop.");
+                    "Metadata did not issue one Finding per followed forwarding declaration.");
             }
 
-            uses.Add(new(side, index, input, complete.Findings[0]));
+            foreach (Finding<TypeForwarderInfo> finding in complete.Findings)
+                uses.Add(new(side, index, input, finding));
         }
         return uses.ToImmutable();
     }
 
-    static TypeForwarderInfo NativeForwarder(
+    static ImmutableArray<TypeForwarderInfo> NativeForwarders(
         ResolvedAssemblyReference assembly,
         ImmutableArray<WorkspaceMetadataEvidence.ExportToken> declarations)
     {
@@ -635,7 +635,7 @@ public static class WorkspaceImplementationComparisonQuery
         }
         MetadataReader reader =
             MetadataFormatAdmission.GetMetadataReader(peReader);
-        TypeForwarderInfo? native = null;
+        var native = ImmutableArray.CreateBuilder<TypeForwarderInfo>();
         foreach (WorkspaceMetadataEvidence.ExportToken declaration in declarations)
         {
             EntityHandle entity = MetadataTokens.EntityHandle(declaration.Value);
@@ -649,19 +649,16 @@ public static class WorkspaceImplementationComparisonQuery
                 AssemblyDetailScanner.ScanTypeForwarder(
                     reader,
                     (ExportedTypeHandle)entity);
-            if (candidate is null)
-                continue;
-            if (native is not null)
-            {
-                throw new InvalidOperationException(
-                    "A forwarding hop must identify exactly one native declaration.");
-            }
-            native = candidate;
+            if (candidate is not null)
+                native.Add(candidate);
         }
 
-        return native
-            ?? throw new InvalidOperationException(
-                "A forwarding hop must identify one native declaration.");
+        if (native.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "A forwarding hop must identify at least one native declaration.");
+        }
+        return native.ToImmutable();
     }
 
     static void EnsurePublishedPair(
