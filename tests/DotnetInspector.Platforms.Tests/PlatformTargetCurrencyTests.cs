@@ -236,6 +236,10 @@ public sealed class PlatformTargetCurrencyTests
 
         Assert.Throws<ArgumentException>(() => new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("11.0.0")));
+        Assert.Throws<ArgumentException>(() => new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
             framework,
             PlatformVersion.Parse("11.1.0")));
         Assert.Throws<ArgumentOutOfRangeException>(() => new PlatformFamilyTarget(
