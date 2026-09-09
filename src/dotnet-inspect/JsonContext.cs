@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.Commands;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Views;
 
 namespace DotnetInspector;
@@ -135,6 +137,26 @@ internal partial class MatchDiscoveryDocumentJsonContext : JsonSerializerContext
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(MatchDiscoveryDocument))]
 internal partial class MatchDiscoveryDocumentCompactJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(CloneCandidateOutputDocument))]
+internal partial class CloneCandidateOutputJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(CloneCandidateOutputDocument))]
+internal partial class CloneCandidateOutputCompactJsonContext : JsonSerializerContext
 {
 }
 

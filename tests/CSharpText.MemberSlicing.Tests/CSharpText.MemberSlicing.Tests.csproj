@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
+    <ProjectReference Include="../../src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <!-- The corpus gate drives PdbContext end to end over real assemblies. -->
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />

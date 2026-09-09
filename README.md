@@ -143,6 +143,7 @@ stderr rather than mixed into structured output.
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
+| Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
@@ -174,7 +175,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `workspace` | Render the committed ordered package Roots of one runtime Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
+| `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -418,6 +419,35 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Te
 ```
 
 ### Structural matching
+
+Use the `Clone Candidates` section for a globally ranked search from an exact
+Library, Type, or logical Member seed. Breadth and candidate admission are
+independent; the default is `Everything` plus `SimilarNames`.
+
+```bash
+dotnet-inspect type Cases.Widget --library ./app.dll -S "Clone Candidates"
+dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
+  -S "Clone Candidates" \
+  --where "Breadth=Self" \
+  --where "Discovery=All"
+dotnet-inspect type -Q "Clone Candidates"
+```
+
+`Breadth` accepts `Self`, `SelfAndRegisteredEcosystems`, or `Everything`;
+`Discovery` accepts `SimilarNames` or `All`. The current CLI supplies the
+selected exact library as its finite Workspace participant snapshot and
+discloses that scope in tabular diagnostics and structured coverage. It does
+not infer registered-ecosystem membership or silently narrow the requested
+breadth.
+
+Rows are retrieval candidates, not checked clone relations. They retain rank,
+both exact method endpoints, the 0-10,000 total and component scores, and the
+optional type/member name-similarity evidence. Plain `--json` also retains the
+portable seed, participant identity and provenance, coverage, failures, limits,
+and work receipt. `--rows`, `--columns`, `--fields`, `--count`, `--table`,
+`--tsv`, and `--jsonl` operate at the declared candidate-row output seam.
+
+Pairwise `match` remains the checked comparison path:
 
 ```bash
 dotnet-inspect match Left.Compute Right.Compute --library ./app.dll
