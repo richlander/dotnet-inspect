@@ -3992,8 +3992,8 @@ for (const cutoff of [
   test(`deferred ${cutoff.name} during control encoding prevents the post`, async () => {
     const settlement = deferred<TestSettlement>();
     let applyCutoff: (() => void) | null = null;
-    let controlResult:
-      ReturnType<TestAdapter["requestControl"]> | null = null;
+    const controlResults:
+      Array<ReturnType<TestAdapter["requestControl"]>> = [];
     let harness: TestHarness;
     harness = createHarness({
       invoke: () => settlement.promise,
@@ -4009,7 +4009,9 @@ for (const cutoff of [
     const sink: OperationProducerSink<string, string, string> = {
       reportProgress: () => {
         harness.workers[0]!.emitHeartbeat();
-        controlResult = harness.adapter.requestControl(identity.id, "more");
+        controlResults.push(
+          harness.adapter.requestControl(identity.id, "more"),
+        );
         return undefined;
       },
       reportDurable: () => undefined,
@@ -4039,10 +4041,7 @@ for (const cutoff of [
       payload: "progress",
     }));
 
-    assert.notEqual(controlResult, null);
-    if (controlResult === null)
-      throw new Error("Expected a reentrant control request.");
-    assert.deepEqual(await controlResult, { kind: "not-active" });
+    assert.deepEqual(await controlResults[0]!, { kind: "not-active" });
     assert.equal(
       operationMessages(harness.workers[0]!)
         .filter(kind => kind === "control").length,
