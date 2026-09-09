@@ -1588,6 +1588,49 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await expect(page.locator("#type-list")).toContainText("SecondWidget");
 });
 
+test("browser history from before reload reuses the active Workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+
+  const previousSession = await page.evaluate(
+    () => history.state?.inspectWorkspaceSession);
+  await page.reload();
+  await expect.poll(() => page.evaluate(
+    () => history.state?.inspectWorkspaceSession)).not.toBe(previousSession);
+  const reloadedWorkspace = await page.evaluate(
+    () => ({
+      id: history.state?.inspectWorkspaceId,
+      session: history.state?.inspectWorkspaceSession,
+    }));
+  await page.goBack();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+  await expect.poll(() => page.evaluate(() => ({
+    id: history.state?.inspectWorkspaceId,
+    session: history.state?.inspectWorkspaceSession,
+  }))).toEqual(reloadedWorkspace);
+
+  await page.goForward();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect.poll(() => page.evaluate(() => ({
+    id: history.state?.inspectWorkspaceId,
+    session: history.state?.inspectWorkspaceSession,
+  }))).toEqual(reloadedWorkspace);
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator(".workspace-card")).toHaveCount(1);
+  await expect(page.locator(".query-notice-text", {
+    hasText: "Workspace limit reached",
+  })).toHaveCount(0);
+});
+
 for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
   test(`the type command enters the target Library from ${startingSubject}`, async ({ page }) => {
     await installFacades(page);

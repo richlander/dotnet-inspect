@@ -1479,6 +1479,13 @@ product demos, external-package Spotlight selection, and CLI canonical replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
 
+Browser history identifies retained Workspaces only within one loaded page
+session. An entry stamped by an earlier page load is an ordinary location, not
+a reference to a deleted Workspace in the current retained collection. After a
+reload, Back and Forward restore such locations into the active Workspace (or
+construct the first Workspace when none exists); they do not consume additional
+retained-Workspace capacity.
+
 A packet or definition remains inert data and cannot authorize acquisition.
 Restoration consumes the current owner-authorized activation demand required
 by each coordinate realizer and query owner. The coordinator carries that

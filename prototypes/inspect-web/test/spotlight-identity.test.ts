@@ -3521,7 +3521,7 @@ test("browser history reuses available identities and publishes only unavailable
     /historyWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     history,
-    /const restoreHistoryWorkspace = \(\) => historyWorkspaceAvailable\s*\? restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)\s*: restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)[\s\S]*!workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)[\s\S]*restoreHistoryWorkspace\(\)/);
+    /const restoreHistoryWorkspace = \(\) => historyWorkspaceAvailable\s*\? restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)\s*: historyWorkspaceReferenced\s*\|\| retainedWorkspaces\.activeWorkspaceId === null\s*\? restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)\s*: restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)[\s\S]*!workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)[\s\S]*restoreHistoryWorkspace\(\)/);
   assert.match(
     history,
     /const target = loc\.package\s*\? state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)\s*: null;\s*if \(loc\.tabs\?\.length && !target\) \{[\s\S]*restoreHistoryWorkspace\(\)[\s\S]*\}\s*if \(target\) \{\s*activatePackage\(target, \{ resetAccessibility: true \}\)/);
@@ -3539,7 +3539,7 @@ test("browser history reuses available identities and publishes only unavailable
     /const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,\s*retryAction: null,\s*queryNoticeRetryAction: null,\s*\}/);
   assert.match(
     appSource,
-    /retainedWorkspaceHistorySessionId = crypto\.randomUUID\(\)[\s\S]*historyState\[retainedWorkspaceHistorySessionKey\]\s*!== retainedWorkspaceHistorySessionId\) return null/);
+    /retainedWorkspaceHistorySessionId = crypto\.randomUUID\(\)[\s\S]*historyState\[retainedWorkspaceHistorySessionKey\]\s*!== retainedWorkspaceHistorySessionId\) return null;[\s\S]*function historyReferencesRetainedWorkspace\(historyState: unknown\): boolean \{\s*return retainedWorkspaceIdFromHistory\(historyState\) !== null;/);
   assert.match(
     appSource,
     /function rebindActiveWorkspaceHistory\(\): void \{\s*workspaceLocation\.replace\(\s*activeWorkspaceUrl \?\? \(state\.package \? location\.href : "\/demos"\),\s*history\.state\)/);

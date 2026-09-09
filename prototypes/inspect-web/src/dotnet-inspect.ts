@@ -2210,8 +2210,7 @@ function retainedWorkspaceIdFromHistory(historyState: unknown): string | null {
 }
 
 function historyReferencesRetainedWorkspace(historyState: unknown): boolean {
-  return isRecord(historyState)
-    && typeof historyState[retainedWorkspaceHistoryKey] === "string";
+  return retainedWorkspaceIdFromHistory(historyState) !== null;
 }
 
 function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
@@ -14208,13 +14207,6 @@ async function bootstrap() {
     }
     state.engineReady = true;
     state.engineStatus = "";
-    if (historyReferencesRetainedWorkspace(history.state)
-      && !retainedWorkspaceIdFromHistory(history.state)
-      && (state.home
-        || state.packageQueryOpen
-        || isProductHomeDemosPath(location.pathname))) {
-      publishFreshEmptyWorkspaceFromHistory(location.href);
-    }
     if (state.home) {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
@@ -15152,7 +15144,10 @@ window.addEventListener("popstate", () => {
   const deep = loc;
   const restoreHistoryWorkspace = () => historyWorkspaceAvailable
     ? restoreRetainedWorkspaceFromHistory(loc, navigationSeq)
-    : restoreFreshWorkspaceFromHistory(loc, navigationSeq);
+    : historyWorkspaceReferenced
+      || retainedWorkspaces.activeWorkspaceId === null
+      ? restoreFreshWorkspaceFromHistory(loc, navigationSeq)
+      : restoreRetainedWorkspaceFromHistory(loc, navigationSeq);
   if (!state.package) {
     observeAsync(
       restoreHistoryWorkspace(),
