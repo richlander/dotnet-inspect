@@ -717,6 +717,42 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInExternalDependencyRuleCoversInspectorFamily()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "product-libraries-use-repository-and-platform-assemblies");
+        string[] inspectorProjects = Directory
+            .EnumerateFiles(
+                Path.Combine(repository, "src"),
+                "Inspector.*.csproj",
+                SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.NotEmpty(inspectorProjects);
+        Assert.All(
+            inspectorProjects,
+            path =>
+            {
+                string projectName = Path.GetFileNameWithoutExtension(path);
+                string projectPath = Path
+                    .GetRelativePath(repository, path)
+                    .Replace('\\', '/');
+                Assert.True(
+                    DependencyPattern.Selects(
+                        rule,
+                        projectName,
+                        projectPath),
+                    $"{rule.Id} does not select {projectName}.");
+            });
+    }
+
+    [Fact]
     public void CheckedInEcosystemRuleCoversEverySourceProductExceptTheCli()
     {
         string repository = FindRepositoryRoot();

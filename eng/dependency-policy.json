@@ -80,6 +80,7 @@
         "CSharpText",
         "DotnetInspector.*",
         "ILInspector.*",
+        "Inspector.*",
         "InertText",
         "TsJsExport.Contracts"
       ],
