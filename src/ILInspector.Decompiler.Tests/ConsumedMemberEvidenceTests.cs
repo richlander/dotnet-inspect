@@ -90,4 +90,20 @@ public class ConsumedMemberEvidenceTests
         Assert.Contains(evidence, item => item.Field == field);
         Assert.Contains(evidence, item => item.Method == patternAccessor);
     }
+
+    [Fact]
+    public void FixedBufferAddress_RetainsSourceFieldEvidence()
+    {
+        var field = new FieldRef(Type, "Buffer", Int);
+        var address = new FixedBufferElementAddress(
+            field,
+            Int,
+            new LoadArgument(0, "value", Type),
+            new Constant(0, Int));
+        var evidence = new List<ConsumedMemberEvidence>();
+
+        ConsumedMemberEvidence.AddFrom(address, evidence);
+
+        Assert.Contains(evidence, item => item.Field == field);
+    }
 }

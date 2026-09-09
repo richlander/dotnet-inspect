@@ -105,6 +105,94 @@ public class FidelityRemarksTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
+    [Theory]
+    [InlineData(MemorySafetyRulesState.Unsupported, false, false)]
+    [InlineData(MemorySafetyRulesState.Malformed, false, false)]
+    [InlineData(MemorySafetyRulesState.Conflicting, false, true)]
+    [InlineData(MemorySafetyRulesState.Updated, false, true)]
+    [InlineData(null, true, true)]
+    public void Collect_InvalidFieldMemorySafetyRules_ReportsDec0015(
+        MemorySafetyRulesState? rulesState,
+        bool rulesUnavailable,
+        bool contractUnavailable)
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var field = new FieldRef(
+            TypeRef.Definition("Dependency", "Fixtures", "Library"),
+            "Risky",
+            i32)
+        {
+            MemorySafetyRulesState = rulesState,
+            MemorySafetyRulesUnavailable = rulesUnavailable,
+            MemorySafetyContractUnavailable = contractUnavailable,
+        };
+        var container = new BlockContainer();
+        var entry = new Block(0x00);
+        entry.Add(new Return(new LoadField(field, instance: null)));
+        container.Add(entry);
+        var function = new IrFunction(
+            "Read",
+            TypeRef.Definition("Consumer", "Fixtures", "Consumer"),
+            new MethodSignature(
+                i32,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var cause = Assert.Single(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Code
+                == DiagnosticIds.InvalidCalleeMemorySafetyRules);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.InvalidCalleeMemorySafetyRules,
+            cause.Discriminator);
+        Assert.Contains("consumes field", cause.Reason);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Theory]
+    [InlineData(MemorySafetyRulesState.Unsupported)]
+    [InlineData(MemorySafetyRulesState.Malformed)]
+    [InlineData(MemorySafetyRulesState.Conflicting)]
+    public void Collect_ResolvedInvalidFieldRules_RemainVisibleForLegacyCaller(
+        MemorySafetyRulesState rulesState)
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var field = new FieldRef(
+            TypeRef.Definition("Dependency", "Fixtures", "Library"),
+            "Risky",
+            i32)
+        {
+            HasNormalizedMemorySafetyContract = true,
+            MemorySafetyRulesState = rulesState,
+        };
+        var container = new BlockContainer();
+        var entry = new Block(0x00);
+        entry.Add(new Return(new LoadField(field, instance: null)));
+        container.Add(entry);
+        var function = new IrFunction(
+            "Read",
+            TypeRef.Definition("Consumer", "Fixtures", "Consumer"),
+            new MethodSignature(
+                i32,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Code
+                == DiagnosticIds.InvalidCalleeMemorySafetyRules);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
     [Fact]
     public void Collect_UnrepresentableMetadataName_ReportsDec0009()
     {

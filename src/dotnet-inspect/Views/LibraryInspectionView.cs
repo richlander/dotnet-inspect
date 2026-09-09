@@ -2020,7 +2020,10 @@ public sealed record ReadyToRunImageRow
 {
     public required string Role { get => field; init => field = LibraryViewText.Contain(value); }
     public required string Advertisements { get => field; init => field = LibraryViewText.Contain(value); }
+
+    [MarkoutPropertyName("R2R Format Version")]
     public required string Version { get => field; init => field = LibraryViewText.Contain(value); }
+
     public required string Flags { get => field; init => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Header RVA")]

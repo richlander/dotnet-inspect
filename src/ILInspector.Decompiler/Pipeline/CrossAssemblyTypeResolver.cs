@@ -91,8 +91,11 @@ internal sealed class CrossAssemblyTypeResolver
         return result;
     }
 
-    public FieldRef Upgrade(FieldRef field)
+    public FieldRef Upgrade(
+        FieldRef field,
+        bool resolveMemorySafety = false)
     {
+        FieldRef resolutionField = UpgradeTypeReferences(field);
         if (field.DeclaringTypeCompilerGenerated == MetadataFactState.Unknown && field.DeclaringType is { Assembly: not null })
         {
             var dtType = NamedDefinition(field.DeclaringType);
@@ -112,10 +115,13 @@ internal sealed class CrossAssemblyTypeResolver
             && IsObjectArray(field.Type);
         bool needsBackingProperty = field.BackingPropertyName is null
             && CSharpNaming.BackingFieldProperty(field.Name) is not null;
-        if (!needsDynamic && !needsArrayElementDynamic && !needsBackingProperty)
+        bool needsMemorySafety = resolveMemorySafety
+            && !field.HasNormalizedMemorySafetyContract;
+        if (!needsDynamic && !needsArrayElementDynamic && !needsBackingProperty
+            && !needsMemorySafety)
             return field;
 
-        var type = NamedDefinition(field.DeclaringType);
+        var type = NamedDefinition(resolutionField.DeclaringType);
         if (type is null || string.IsNullOrEmpty(type.Assembly))
             return field;
         if (IsSelf(type))
@@ -124,13 +130,32 @@ internal sealed class CrossAssemblyTypeResolver
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
             return field;
         var facts = _fieldFactCache.GetOrAdd(
-            (field, coordinates),
+            (resolutionField, coordinates),
             entry => ResolveFieldFacts(entry.Field, type));
         if (facts is not { } resolved)
             return field;
 
         return field with
         {
+            HasNormalizedMemorySafetyContract =
+                needsMemorySafety
+                    ? resolved.HasNormalizedMemorySafetyContract
+                    : field.HasNormalizedMemorySafetyContract,
+            RequiresUnsafe = needsMemorySafety
+                ? resolved.RequiresUnsafe
+                : field.RequiresUnsafe,
+            RequiresUnsafeFact = needsMemorySafety
+                ? resolved.RequiresUnsafeFact
+                : field.RequiresUnsafeFact,
+            MemorySafetyRulesState = needsMemorySafety
+                ? resolved.MemorySafetyRulesState
+                : field.MemorySafetyRulesState,
+            MemorySafetyRulesUnavailable = needsMemorySafety
+                ? resolved.MemorySafetyRulesUnavailable
+                : field.MemorySafetyRulesUnavailable,
+            MemorySafetyContractUnavailable = needsMemorySafety
+                ? resolved.MemorySafetyContractUnavailable
+                : field.MemorySafetyContractUnavailable,
             BackingPropertyName = needsBackingProperty && resolved.BackingPropertyName is { } property
                 ? property
                 : field.BackingPropertyName,
@@ -142,6 +167,16 @@ internal sealed class CrossAssemblyTypeResolver
                 : field.ArrayElementIsDynamic,
         };
     }
+
+    FieldRef UpgradeTypeReferences(FieldRef field)
+        => field with
+        {
+            DeclaringType = UpgradeTypeReference(field.DeclaringType),
+            Type = UpgradeTypeReference(field.Type),
+            DefinitionType = field.DefinitionType is { } definitionType
+                ? UpgradeTypeReference(definitionType)
+                : null,
+        };
 
     /// <summary>
     /// Returns <paramref name="callee"/> with cross-assembly MethodDef facts
@@ -991,16 +1026,47 @@ internal sealed class CrossAssemblyTypeResolver
 
                 var declaredFieldType = GuardedDecode.FieldType(reader, candidate, typeScope);
                 var fieldType = declaredFieldType.Instantiate(typeArguments, []);
-                if (!SameSignatureType(
+                var canonicalSelf = TypeRefDecoder.CanonicalSelf(reader);
+                var assemblyIdentity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+                bool definitionMatches =
+                    field.DefinitionType is { } definitionType
+                    && SameSignatureType(
+                        declaredFieldType,
+                        definitionType,
+                        allowCoreLibraryAliases,
+                        canonicalSelf,
+                        assemblyIdentity,
+                        type.ResolutionAssembly,
+                        (resolved, expected) => SameBoundDefinition(
+                            resolved,
+                            expected,
+                            definition.Assembly.Assembly));
+                bool effectiveMatches = SameSignatureType(
                     fieldType,
                     field.Type,
                     allowCoreLibraryAliases,
-                    TypeRefDecoder.CanonicalSelf(reader),
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                    type.ResolutionAssembly))
+                    canonicalSelf,
+                    assemblyIdentity,
+                    type.ResolutionAssembly,
+                    (resolved, expected) => SameBoundDefinition(
+                        resolved,
+                        expected,
+                        definition.Assembly.Assembly));
+                if (!definitionMatches && !effectiveMatches)
                     continue;
 
+                RequiresUnsafeContractResult contract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        assembly.MemorySafety,
+                        fieldHandle);
                 return new ResolvedFieldFacts(
+                    contract.HasNormalizedContract,
+                    contract.IsExplicit,
+                    contract.State,
+                    contract.RulesState,
+                    contract.RulesUnavailable,
+                    contract.ContractUnavailable,
                     MethodDefinitionFacts.FieldDynamicFact(
                         reader,
                         candidate,
@@ -1955,6 +2021,12 @@ internal sealed class CrossAssemblyTypeResolver
         AccessorKind AccessorKind);
 
     readonly record struct ResolvedFieldFacts(
+        bool HasNormalizedMemorySafetyContract,
+        bool RequiresUnsafe,
+        MetadataFactState RequiresUnsafeFact,
+        MemorySafetyRulesState? MemorySafetyRulesState,
+        bool MemorySafetyRulesUnavailable,
+        bool MemorySafetyContractUnavailable,
         MetadataFactState DynamicFact,
         MetadataFactState ArrayElementIsDynamic,
         string? BackingPropertyName);
