@@ -31,23 +31,50 @@ public static class TimelineCommand
         var context = new CommandContext(options.Verbose);
         try
         {
-            var vector = await PackageVersionVector.ResolveAsync(
-                context.HttpClient,
-                range!,
-                options.SourceOptions,
-                context.Logger.Log,
-                options.IncludePrerelease);
+            string workingDirectory = Directory.GetCurrentDirectory();
+            await using PackageRangeExtraction? rangeExtraction = Core.HttpClientFactory.IsOffline
+                ? null
+                : await PackageExtractor.OpenPackageRangeAsync(
+                    context.HttpClient, range!, context.Logger.Log, "inspect-timeline",
+                    options.SourceOptions, options.IncludePrerelease,
+                    context.CreatePackageSourceComposition);
+            var vector = rangeExtraction?.Vector ?? await PackageVersionVector.ResolveAsync(
+                context.HttpClient, range!, options.SourceOptions,
+                context.Logger.Log, options.IncludePrerelease);
             if (!TrySelectAddresses(vector, options.At, out var selectedAddresses, out error))
             {
                 CommandError.Write($"{error}");
                 return 1;
             }
 
+            string replayArguments = "";
+            if (rangeExtraction is not null && selectedAddresses.Length < vector.Addresses.Length)
+            {
+                NuGetSourceOptions sourceOptions = options.SourceOptions ?? NuGetSourceOptions.Default;
+                if (sourceOptions.ConfigFile is null)
+                    sourceOptions = sourceOptions with { ConfigDirectory = sourceOptions.ConfigDirectory ?? workingDirectory };
+                if (!PackageReplaySourceArguments.TryCreate(
+                        sourceOptions, Name, out PackageReplaySources? replaySources,
+                        out error, workingDirectory: workingDirectory))
+                {
+                    CommandError.Write(error!);
+                    return 1;
+                }
+                replayArguments = PackageReplaySourceArguments.Format(replaySources);
+                if (options.Tfm is not null)
+                    replayArguments += $" --tfm {ShellCommandText.Quote(options.Tfm)}";
+                if (options.IncludePrerelease)
+                    replayArguments += " --preview";
+                if (options.IncludeAll)
+                    replayArguments += " --all";
+            }
+
             var evaluations = await EvaluateAsync(
                 context,
                 vector.PackageId,
                 selectedAddresses,
-                options);
+                options,
+                rangeExtraction);
             try
             {
                 if (!TryResolveTypeName(options.TypeName, evaluations, out var typeFullName, out error))
@@ -64,6 +91,8 @@ public static class TimelineCommand
                     selectedSections,
                     options.MemberName,
                     options.IncludeAll);
+                if (view.Recommendation is not null && replayArguments.Length > 0)
+                    view.Recommendation += " " + replayArguments.TrimStart();
                 return Write(view, options, selectedSections);
             }
             finally
@@ -1017,10 +1046,22 @@ public static class TimelineCommand
         CommandContext context,
         string packageId,
         ImmutableArray<PackageVersionAddress> addresses,
-        TimelineOptions options)
+        TimelineOptions options,
+        PackageRangeExtraction? rangeExtraction)
         => await EvaluateCellsAsync(addresses, async address =>
         {
             context.Logger.Log($"Evaluating {packageId}@{address.Version.ToNormalizedString()} ({address.Selector})");
+            if (rangeExtraction is not null)
+            {
+                PackageExtractionOutcome outcome = await rangeExtraction.ExtractAsync(address.Selector);
+                if (!outcome.IsSuccess)
+                    return (null, outcome.ErrorMessage, (ApiSurfaceEndpoint?)null);
+
+                var acquired = ApiSurfaceEndpointResolver.Resolve(
+                    outcome.Result!, options.Tfm, options.IncludeAll, context.Logger);
+                return (acquired.Endpoint?.Surface, acquired.Error, acquired.Endpoint);
+            }
+
             var result = await ApiSurfaceEndpointResolver.ResolveAsync(
                 context.HttpClient,
                 new AssemblySetRequest
