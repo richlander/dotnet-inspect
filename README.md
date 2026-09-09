@@ -553,6 +553,7 @@ dotnet-inspect member JsonConvert \
   --share url
 dotnet-inspect skill list
 dotnet-inspect demo list
+dotnet-inspect demo list -n 3 --json
 ```
 
 `workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`

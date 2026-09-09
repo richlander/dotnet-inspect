@@ -32,6 +32,10 @@
     <Project Path="fixtures/cli/DotnetInspector.CallerBinding.Facade/DotnetInspector.CallerBinding.Facade.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Decoy/DotnetInspector.MatchBinding.Decoy.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Dependency/DotnetInspector.MatchBinding.Dependency.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Facade/DotnetInspector.MatchBinding.Facade.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Implementation/DotnetInspector.MatchBinding.Implementation.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.AuthoredRebuild/ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />

@@ -39,7 +39,7 @@ public class SharedOptions
     public Option<int?> Limit { get; }
     public Option<string?> Rows { get; } = new("--rows")
     {
-        Description = "Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); package version lenses accept only range forms and use -n for counts",
+        Description = "Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts",
         Arity = ArgumentArity.ExactlyOne
     };
     public Option<bool> Head { get; } = new("--head") { Description = "Take the count from the start (the default direction)" };

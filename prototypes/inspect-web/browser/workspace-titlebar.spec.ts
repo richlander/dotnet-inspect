@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SlideStripPolicy } from "../src/slide-strip.ts";
-import { callFactsFixture, exceptionRegionsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 
 async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
@@ -553,6 +553,7 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".performance-empty"))
         .toHaveText("No curated performance opportunities were found for this method.");
       await expect(page.locator(".performance-row")).toHaveCount(0);
+      await expect(page.locator(".analysis-diagnostics")).toHaveCount(0);
     } else {
       await expect(page.locator(".facts-summary")).toHaveCount(0);
       await expect(page.locator(".allocation-facts")).toHaveCount(0);
@@ -560,6 +561,7 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".safety-facts")).toHaveCount(0);
       await expect(page.locator(".exception-regions")).toHaveCount(0);
       await expect(page.locator(".performance-facts")).toHaveCount(0);
+      await expect(page.locator(".analysis-diagnostics")).toHaveCount(0);
       await expect(page.getByRole("heading", {
         name: mode === "loading" ? "Analyzing method…" : "Facts query failed",
         exact: true,
@@ -930,6 +932,73 @@ test("Member Facts performance rows reflow by pane width without hiding long val
         "exact-with-an-intentionally-long-provenance-value",
         "analysis.allocation.with-an-intentionally-long-descriptor-for-containment",
       ]);
+  }
+});
+
+test("Member Facts diagnostics preserve complete opaque strings in returned order", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&analysis-diagnostics=populated");
+  const facts = analysisDiagnosticsFixture();
+  await expect(page.locator(".analysis-diagnostics > header > span"))
+    .toHaveText("2 diagnostics");
+  await expect(page.locator(".analysis-diagnostics-context")).toHaveText(
+    "Some method analysis could not complete. Available evidence remains shown above.",
+  );
+  await expect(page.locator(".analysis-diagnostic-row")).toHaveCount(2);
+  for (const [index, diagnostic] of facts.diagnostics.entries()) {
+    const row = page.locator(".analysis-diagnostic-row").nth(index);
+    await expect(row.locator(".analysis-diagnostic-label"))
+      .toHaveText(`Diagnostic ${index + 1}`);
+    await expect(row.locator(".analysis-diagnostic-value"))
+      .toHaveText(diagnostic);
+  }
+  await expect(page.locator(
+    ".analysis-diagnostics a, .analysis-diagnostics button, .analysis-diagnostics details",
+  )).toHaveCount(0);
+  await expect(page.locator(".analysis-diagnostics + .finding-facts"))
+    .toHaveCount(1);
+  const diagnostics = await box(page, ".analysis-diagnostics");
+  const performance = await box(page, ".performance-facts");
+  expect(diagnostics.width).toBeCloseTo(performance.width, 0);
+  expect(diagnostics.height).toBeLessThanOrEqual(180);
+  expect(diagnostics.y - (performance.y + performance.height))
+    .toBeCloseTo(20, 0);
+});
+
+test("Member Facts diagnostics reflow by pane width without hiding long values", async ({
+  page,
+}) => {
+  const facts = analysisDiagnosticsFixture("long");
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1200 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&analysis-diagnostics=long");
+    const label = await box(
+      page,
+      ".analysis-diagnostic-row:first-child .analysis-diagnostic-label",
+    );
+    const value = await box(
+      page,
+      ".analysis-diagnostic-row:first-child .analysis-diagnostic-value",
+    );
+    if (width === 900 || width === 360) {
+      expect(value.y).toBeGreaterThanOrEqual(label.y + label.height);
+      expect(value.x).toBeCloseTo(label.x, 0);
+    } else {
+      expect(value.x).toBeGreaterThan(label.x + label.width);
+    }
+    for (const selector of [
+      ".analysis-diagnostics", ".analysis-diagnostics-context",
+      ".analysis-diagnostic-row", ".analysis-diagnostic-label",
+      ".analysis-diagnostic-value", ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".analysis-diagnostic-value"))
+      .toHaveText(facts.diagnostics);
   }
 });
 
