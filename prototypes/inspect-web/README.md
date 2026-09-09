@@ -1822,6 +1822,16 @@ The `eng/CiChangeDetection` gate, invoked through
 
 ## Interaction model
 
+Inspect Web retains up to four Workspaces in the current browser session and
+identifies one as active.
+Opening an external package from Spotlight or Package Query, opening a saved
+definition, or opening a demo constructs and activates a new Workspace while
+keeping earlier Workspaces available. The Workspace subject lists every live
+Workspace; inactive rows expose **Activate**, and each row has a trailing
+**x** that deletes that Workspace. Deleting the active Workspace selects the
+next row, then the previous row, or leaves no active Workspace when the
+collection becomes empty.
+
 On Workspace, **Add package** opens package search as a focused picker. Choose a
 NuGet or recent result to append its resolved coordinate while staying on
 Workspace; existing packages and the active inspection are retained. Already
@@ -1834,12 +1844,13 @@ Version/framework editing and prefixes are separate from this focused
 The Workspace page offers **Save Workspace** for the current nonempty scope.
 Enter a unique name to save its canonical packet locally on this browser;
 resolved versions and frameworks are pinned without changing the live share
-intent. **Open** on a saved entry replaces the live Workspace through the
-existing transactional restoration path. The trailing **x** forgets only the
-saved definition and leaves the live Workspace unchanged. Saving does not
-copy to the clipboard or change the URL. Storage and projection failures stay
-visible, and failed opening retains the previous Workspace and URL.
-Names are unique case-insensitively; saving does not overwrite an existing name.
+intent. **Open** on a saved entry constructs and activates a new live Workspace
+through the existing transactional restoration path. The trailing **x**
+forgets only the saved definition and leaves every retained Workspace
+unchanged. Saving does not copy to the clipboard or change the URL. Storage and
+projection failures stay visible, and failed opening retains the previous
+Workspace and URL. Names are unique case-insensitively; saving does not
+overwrite an existing name.
 These origin-local entries survive refresh, not browser-data deletion, and do
 not provide cloud synchronization. The focused contract is
 [Saved Workspaces](../../docs/design/inspect-web-saved-workspaces.md).

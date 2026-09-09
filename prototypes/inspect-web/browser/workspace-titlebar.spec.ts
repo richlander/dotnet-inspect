@@ -2672,7 +2672,7 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   }
 });
 
-test("Workspace keeps the singular Workspace visible and menu fixed", async ({
+test("Workspace keeps its retained collection visible and menu fixed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -2857,7 +2857,7 @@ test("Workspace selection is observational and occurrence activation executes", 
 }) => {
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const workspace = page.locator("[data-workspace-default]");
+  const workspace = page.locator("[data-workspace-select]");
   await expect(workspace).toHaveCount(1);
   const href = page.url();
   await workspace.click();
