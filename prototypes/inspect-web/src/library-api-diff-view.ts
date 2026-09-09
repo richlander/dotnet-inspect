@@ -10,9 +10,6 @@ import type {
 import type { EscapeHtml } from "./csharp-highlighting.ts";
 import type { LibraryApiDiffState } from "./library-api-diff.ts";
 
-export const LIBRARY_API_DIFF_CHANGE_TARGET_SELECTOR =
-  '[data-library-api-diff-action="change-target"]';
-
 export interface LibraryApiDiffViewOptions {
   readonly libraryName: string;
   readonly assemblyIdentity: string;
