@@ -263,6 +263,35 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void PackageRootBinding_CompatibleSelectionPreservesAcquisitionTarget()
+    {
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("compatible.sample", "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(("lib/net6.0/Compatible.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                "net8.0");
+
+        Assert.Equal("net8.0", binding.Coordinate.Framework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.Selected,
+            binding.Root.AssetSelection.Status);
+        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal("net6.0", binding.Root.AssetSelection.TargetFramework);
+        PackageRootReacquisitionRequest reacquisition =
+            binding.CreateReacquisitionRequest();
+        Assert.Equal("net8.0", reacquisition.Coordinate.Framework);
+        Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
+    }
+
+    [Fact]
     public void PackageRootSelectionIdentity_SelectionSequencesAreImmutable()
     {
         PackageSourceCoordinate coordinate =

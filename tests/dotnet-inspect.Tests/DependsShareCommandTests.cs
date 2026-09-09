@@ -42,6 +42,34 @@ public partial class CommandExecutionTests
         Assert.Empty(packet.Libraries);
     }
 
+    [Fact]
+    public async Task DependsShare_PacketPreservesCompatibleRequestedFramework()
+    {
+        var result = await RunAppAsync(
+            "depends",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal("Newtonsoft.Json", tab.Source);
+        Assert.Equal("13.0.4", tab.Version);
+        Assert.Equal("net8.0", tab.Framework);
+        Assert.Equal("dependencies", packet.Lens);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("url")]

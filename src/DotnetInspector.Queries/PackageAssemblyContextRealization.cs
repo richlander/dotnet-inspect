@@ -129,6 +129,46 @@ public sealed class PackageRootBinding
             runtimeIdentifier);
     }
 
+    /// <summary>
+    /// Binds a source payload for a requested framework, selecting a compatible
+    /// implementation universe only when exact compile selection has no match.
+    /// </summary>
+    public static PackageRootBinding CreateFromSourceWithCompatibleSelection(
+        AcquiredPackageSourcePayload payload,
+        string requestedTargetFramework,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        PackageRootBinding exact = CreateFromSource(
+            payload,
+            requestedTargetFramework,
+            displayPackageId: displayPackageId);
+        if (exact.Root.AssetSelection.Status
+                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            || PackageAssetSelector.Select(payload.Content, requestedTargetFramework)
+                is not PackageAssetSelection.Selected compatible)
+        {
+            return exact;
+        }
+
+        string? acquisitionFramework =
+            SourceAcquisitionFramework(requestedTargetFramework);
+        if (acquisitionFramework is null)
+            return exact;
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            acquisitionFramework,
+            compatible.Universe.TargetFramework,
+            runtimeIdentifier: null);
+    }
+
     internal static PackageRootBinding CreateFromReacquiredSource(
         AcquiredPackageSourcePayload payload,
         PackageRootReacquisitionRequest request)
@@ -165,6 +205,36 @@ public sealed class PackageRootBinding
             payload.Coordinate.Framework,
             selectionTargetFramework ?? payload.Coordinate.Framework,
             payload.Coordinate.RuntimeIdentifier);
+    }
+
+    /// <summary>
+    /// Binds a resolved payload for a requested framework, selecting a
+    /// compatible implementation universe only when exact compile selection
+    /// has no match.
+    /// </summary>
+    public static PackageRootBinding CreateFromResolvedWithCompatibleSelection(
+        AcquiredPackagePayload payload,
+        string requestedTargetFramework,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        PackageRootBinding exact = CreateFromResolved(
+            payload,
+            requestedTargetFramework,
+            displayPackageId);
+        if (exact.Root.AssetSelection.Status
+                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            || PackageAssetSelector.Select(payload.Content, requestedTargetFramework)
+                is not PackageAssetSelection.Selected compatible)
+        {
+            return exact;
+        }
+
+        return CreateFromResolved(
+            payload,
+            compatible.Universe.TargetFramework,
+            displayPackageId);
     }
 
     static PackageRootBinding Create(

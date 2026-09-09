@@ -4356,6 +4356,78 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageDependencies_UsesCompatibleAssetsWithoutChangingRequestedFramework()
+    {
+        const string packageId = "Browser.Dependency.Compatible";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net6.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework=".NETStandard2.0">
+                     <dependency id="Browser.Dependency.Child" version="[2.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                await PackageExports.QueryPackage(
+                    packageId,
+                    "1.0.0",
+                    "net8.0"),
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Equal("net8.0", surface.ActiveFramework);
+        Assert.Contains("net8.0", surface.Frameworks);
+        Assert.Contains("net6.0", surface.Frameworks);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.Selected,
+            surface.CompileLibrary.Status);
+        Assert.Equal("net6.0", surface.CompileLibrary.TargetFramework);
+
+        BrowserPackageDependencies dependencies =
+            Assert.IsType<BrowserPackageDependencies>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageDependencies(
+                        packageId,
+                        "1.0.0",
+                        "net8.0",
+                        $"{packageId}.dll"),
+                    BrowserPackageJsonContext.Default.BrowserPackageDependencies));
+
+        Assert.Equal("net8.0", dependencies.ActiveFramework);
+        BrowserPackageDependencyGroup group =
+            Assert.Single(dependencies.DependencyGroups);
+        Assert.Equal(".NETStandard2.0", group.Framework);
+        Assert.True(group.IsActive);
+        Assert.Equal(
+            "Browser.Dependency.Child",
+            Assert.Single(group.Dependencies).Id);
+        Assert.Null(dependencies.DependencyGroupError);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.Selected,
+            dependencies.CompileLibrary.Status);
+        Assert.Equal(
+            "net6.0",
+            dependencies.CompileLibrary.TargetFramework);
+    }
+
+    [Fact]
     public async Task PackageDependencies_BlankDeclaredFrameworkDoesNotAbortProjection()
     {
         string packageId = $"Blank.Dependency.Framework.{Guid.NewGuid():N}";
