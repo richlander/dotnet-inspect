@@ -178,21 +178,30 @@ public static class EcosystemCommand
             defaultSelection || options.SelectDefault || selected.Length > 1;
         string title = focus?.Title ?? "Ecosystem Catalog";
         string description = focus?.Summary ?? CatalogDescription;
+        bool structuredEmptyRows = options.Format
+            is OutputFormat.Table
+                or OutputFormat.Tsv
+                or OutputFormat.Jsonl
+                or OutputFormat.Json;
+        EcosystemSection[] rendered = PrepareRenderSections(
+            selected,
+            options.Rows,
+            structuredEmptyRows);
 
         if (options.Format == OutputFormat.Json)
         {
             OutputFormatter.WriteProjectedJson(
                 Console.Out,
-                options.Columns,
-                options.Fields,
+                projectedColumns,
+                fields: null,
                 (writer, formatter, writerOptions) =>
                     WriteDocument(
                         new MarkoutWriter(writer, formatter, writerOptions),
                         title,
                         description,
-                        selected,
+                        rendered,
                         includeDocumentHeading),
-                maxRows: options.Rows);
+                maxRows: null);
             return 0;
         }
 
@@ -201,14 +210,14 @@ public static class EcosystemCommand
                 or OutputFormat.Tsv
                 or OutputFormat.Jsonl)
         {
-            EcosystemSection section = selected[0];
+            EcosystemSection section = rendered[0];
             OutputFormatter.WriteProjectedTable(
                 Console.Out,
                 showHeader: !options.NoHeader,
                 tsv: options.Format == OutputFormat.Tsv,
                 jsonl: options.Format == OutputFormat.Jsonl,
-                options.Columns,
-                options.Fields,
+                projectedColumns,
+                fields: null,
                 (writer, formatter, writerOptions) =>
                 {
                     var markout =
@@ -216,14 +225,14 @@ public static class EcosystemCommand
                     WriteTable(markout, section);
                     markout.Flush();
                 },
-                options.Rows);
+                maxRows: null);
             return 0;
         }
 
         var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
-            options.Columns,
-            options.Fields,
-            options.Rows);
+            projectedColumns,
+            fields: null,
+            null);
         var document = new MarkoutWriter(
             Console.Out,
             options.Format == OutputFormat.PlainText
@@ -234,7 +243,7 @@ public static class EcosystemCommand
             document,
             title,
             description,
-            selected,
+            rendered,
             includeDocumentHeading);
         document.Flush();
         return 0;
@@ -405,6 +414,7 @@ public static class EcosystemCommand
         bool includeEcosystem)
     {
         var rows = new List<string[]>();
+        string[]? structuredEmptyRow = null;
         foreach (EcosystemPackDescriptor pack in packs)
         {
             ImmutableArray<IntegrationConceptDescriptor> concepts =
@@ -413,14 +423,14 @@ public static class EcosystemCommand
             {
                 if (!includeEcosystem)
                 {
-                    rows.Add(
+                    structuredEmptyRow =
                     [
                         "(none configured)",
                         "",
                         "",
                         "not configured",
                         UnboundKnowledgeScope,
-                    ]);
+                    ];
                 }
                 continue;
             }
@@ -494,7 +504,8 @@ public static class EcosystemCommand
                     "knowledge_scope",
                 ],
             [.. rows],
-            UnboundKnowledgeScope);
+            UnboundKnowledgeScope,
+            structuredEmptyRow);
     }
 
     private static EcosystemSection CreateDemosSection(
@@ -580,6 +591,26 @@ public static class EcosystemCommand
         ];
     }
 
+    private static EcosystemSection[] PrepareRenderSections(
+        IEnumerable<EcosystemSection> sections,
+        RowWindow? rows,
+        bool structuredEmptyRows) =>
+        [
+            .. sections.Select(section =>
+            {
+                string[][] renderedRows =
+                    [.. RowWindow.Apply(rows, section.Rows)];
+                if (structuredEmptyRows
+                    && section.Rows.Length == 0
+                    && section.StructuredEmptyRow is { } emptyRow)
+                {
+                    renderedRows = [emptyRow];
+                }
+
+                return section with { Rows = renderedRows };
+            }),
+        ];
+
     private static void WriteDocument(
         MarkoutWriter writer,
         string title,
@@ -619,5 +650,6 @@ public static class EcosystemCommand
         string[] Labels,
         string[] Ids,
         string[][] Rows,
-        string EmptyText);
+        string EmptyText,
+        string[]? StructuredEmptyRow = null);
 }

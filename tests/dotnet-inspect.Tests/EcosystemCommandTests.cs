@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -171,6 +172,94 @@ public sealed class EcosystemCommandTests
         Assert.Contains(
             "This does not mean the external ecosystem has no integrations.",
             result.Output);
+    }
+
+    [Fact]
+    public async Task UnboundIntegrations_CountLogicalConceptsNotEmptyState()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "microsoft-extensions",
+            Select = ["Integrations"],
+            Count = true,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("0", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task UnboundIntegrations_RowWindowDoesNotRemoveEmptyState()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "microsoft-extensions",
+            Select = ["Integrations"],
+            Rows = RowWindow.Range(2, 2),
+            Format = OutputFormat.Jsonl,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("\"binding\":\"not configured\"", result.Output);
+        Assert.Contains(
+            "This does not mean the external ecosystem has no integrations.",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task FieldsProjectTableColumnsForEcosystemSections()
+    {
+        var jsonl = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Select = ["Integrations"],
+            Fields = ["Binding"],
+            Format = OutputFormat.Jsonl,
+        });
+        var json = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Select = ["Integrations"],
+            Fields = ["Binding"],
+            Format = OutputFormat.Json,
+        });
+
+        Assert.Equal(0, jsonl.ExitCode);
+        Assert.Empty(jsonl.Error);
+        Assert.Equal(
+            """{"binding":"configured"}""",
+            jsonl.Output.Trim());
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        JsonElement row = Assert.Single(
+            document.RootElement
+                .GetProperty("known_integrations")
+                .EnumerateArray());
+        JsonProperty property = Assert.Single(row.EnumerateObject());
+        Assert.Equal("binding", property.Name);
+        Assert.Equal("configured", property.Value.GetString());
+    }
+
+    [Fact]
+    public async Task RowWindowIsAppliedBeforeTableRendering()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspnetcore",
+            Select = ["Core Packages"],
+            Rows = RowWindow.Range(2, 2),
+            Format = OutputFormat.Tsv,
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            "package\nMicrosoft.AspNetCore.Authentication.JwtBearer",
+            result.Output.Trim());
     }
 
     [Fact]
