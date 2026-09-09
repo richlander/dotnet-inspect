@@ -156,10 +156,13 @@ substrates, and inspection producers that will extend that space.
   identities. Source adapters, PlatformHouse composition, and host adoption
   remain separately staged under #6361, #6301, #6335, and #6228.
 - The target
-  [PlatformHouse Reference Processing](design/platform-house-reference-processing.md)
-  owner defines the sole product-facing platform reference-processing facade:
-  exact-target source settlement, pruning composition, and transparent
-  .NET Standard forwarding through Metadata. It also settles independent
+  [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md)
+  owner defines the sole product-facing platform realization and
+  reference-processing facade: explicit target/version settlement,
+  exact-target source realization,
+  provenance-retaining bare-library handoff, and transparent .NET Standard
+  forwarding through Metadata. Package-reference processing and pruning
+  remain upstream in the package domain. The House also settles independent
   reference-view XML and implementation-view PDB/SourceLink documentation
   evidence against the same target and view correspondence. XML, PDB,
   SourceLink, and source-comment algorithms, Workspace admission, the
