@@ -29,7 +29,6 @@ import {
   type QueryFacetTerm,
   type QueryRequest,
   type QueryResultRow,
-  type QuerySourceCatalog,
   type QuerySourceSelection,
 } from "../src/package-query.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -80,30 +79,6 @@ const FACETS: readonly QueryFacetTerm[] = [
   SKILL_FACET,
 ];
 
-const SOURCE_CATALOG: QuerySourceCatalog = {
-  packageType: {
-    id: "producer.package-type",
-    label: "Producer package type",
-    summary: "Select a type from source metadata.",
-    suggestions: [
-      { value: "Producer.Tool", label: "Producer tools" },
-      { value: "Producer.Template", label: "Producer templates" },
-    ],
-  },
-  orders: [
-    {
-      id: "producer.order.first",
-      label: "Producer first order",
-      summary: "First producer ordering description.",
-    },
-    {
-      id: "producer.order.second",
-      label: "Producer second order",
-      summary: "Second producer ordering description.",
-    },
-  ],
-};
-
 const ASSEMBLY_PATTERNS: readonly QueryAssemblyPatternDescriptor[] = [{
   id: "package.query.assembly.ldstr-contains",
   label: "Decoded string literal contains",
@@ -144,58 +119,47 @@ test("an unstarted query renders the composing empty state", () => {
 
   assert.match(html, /Select package input/);
   assert.match(html, /Package ID or prefix/);
-  assert.match(html, /Feeling lucky/);
   assert.match(html, /terminal <code>\*<\/code>/);
+  assert.doesNotMatch(html, /Feeling lucky|Gallery filters|package-query-discover/);
   assert.doesNotMatch(html, /maxlength=/);
 });
 
-test("prerelease remains available while Gallery controls require explicit discovery", () => {
-  for (const sourceCatalog of [undefined, null]) {
+test("package options retain prerelease without Gallery controls", () => {
+  for (const request of [
+    null,
+    createQueryRequest("Newtonsoft.Json"),
+    createQueryRequest("", "gallery"),
+  ]) {
     const html = renderPackageQueryView({
-      state: initialQueryState(),
+      state: {
+        request,
+        outcome: emptyOutcome(),
+      },
       availableFacets: FACETS,
-      ...(sourceCatalog === undefined ? {} : { sourceCatalog }),
       escapeHtml,
     });
-    assert.doesNotMatch(html, /id="package-query-(type|order)"/);
+    assert.match(html, /<h2>Package options<\/h2>/);
     assert.match(html, /id="package-query-prerelease"/);
     assert.match(html, /<h2>Inspection facets<\/h2>/);
+    assert.doesNotMatch(
+      html,
+      /Feeling lucky|Gallery filters|package-query-(discover|type|order)/);
   }
-  const packageHtml = renderPackageQueryView({
-    state: {
-      request: createQueryRequest("Newtonsoft.Json"),
-      outcome: emptyOutcome(),
-    },
-    availableFacets: FACETS,
-    sourceCatalog: SOURCE_CATALOG,
-    escapeHtml,
-  });
-  assert.match(packageHtml, /<h2>Package options<\/h2>/);
-  assert.match(packageHtml, /Feeling lucky/);
-  assert.match(packageHtml, /id="package-query-prerelease"/);
-  assert.doesNotMatch(packageHtml, /id="package-query-(type|order)"/);
 
   const html = renderPackageQueryView({
     state: {
-      request: createQueryRequest("", "gallery"),
+      request: {
+        ...createQueryRequest("Newtonsoft.Json"),
+        includePrerelease: true,
+      },
       outcome: emptyOutcome(),
     },
     availableFacets: FACETS,
-    sourceCatalog: SOURCE_CATALOG,
     escapeHtml,
   });
-
-  assert.match(html, /aria-label="Package query options"/);
-  assert.match(html, /<h2>Gallery filters<\/h2>/);
-  assert.match(html, /Producer package type/);
-  assert.match(html, /Select a type from source metadata/);
-  assert.match(html, /<option value="" selected>All package types<\/option>/);
-  assert.match(html, /<option value="" selected>Automatic<\/option>/);
-  assert.match(html, /value="Producer.Tool">Producer tools<\/option>/);
-  assert.match(html, /value="producer.order.second" title="Second producer ordering description.">Producer second order<\/option>/);
-  assert.match(html, /id="package-query-prerelease" type="checkbox" \/>/);
-  assert.match(html, /Gallery discovery is a separate explicit action/);
-  assert.match(html, /manifests and package content are acquired only with inspection facets/);
+  assert.match(
+    html,
+    /id="package-query-prerelease" type="checkbox" checked/);
   assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facets</h2>"));
 });
 
@@ -266,54 +230,6 @@ test("exact package input accepts bounded ID@VERSION lines without normalizing c
     "Enter one exact ID@VERSION package per line.");
 });
 
-test("source selections render from request identity without changing inspection facets", () => {
-  const state: PackageQueryState = {
-    request: {
-      ...withFacet(
-        createQueryRequest(" hosting libraries ", "gallery"),
-        NUSPEC_FACET),
-      packageType: "Producer.Template",
-      sourceOrderId: "producer.order.second",
-      includePrerelease: true,
-    },
-    outcome: emptyOutcome(),
-  };
-  const html = renderPackageQueryView({
-    state,
-    availableFacets: FACETS,
-    sourceCatalog: SOURCE_CATALOG,
-    escapeHtml,
-  });
-
-  assert.match(html, /value=" hosting libraries "/);
-  assert.match(html, /value="Producer.Template" selected>Producer templates<\/option>/);
-  assert.match(html, /value="producer.order.second"[^>]* selected>Producer second order<\/option>/);
-  assert.match(html, /id="package-query-prerelease" type="checkbox" checked/);
-  assert.match(html, /data-query-facet="tfm-out-of-support"[\s\S]*aria-pressed="true"/);
-  assert.match(html, /id="package-query-order-description">Second producer ordering description./);
-});
-
-test("existing custom type and unavailable order stay visible rather than silently resetting", () => {
-  const html = renderPackageQueryView({
-    state: {
-      request: {
-        ...createQueryRequest("", "gallery"),
-        packageType: "Producer.Custom",
-        sourceOrderId: "producer.order.unavailable",
-      },
-      outcome: emptyOutcome(),
-    },
-    availableFacets: FACETS,
-    sourceCatalog: SOURCE_CATALOG,
-    escapeHtml,
-  });
-
-  assert.match(html, /value="Producer.Custom" selected>Producer.Custom<\/option>/);
-  assert.match(html, /value="producer.order.unavailable" selected>producer.order.unavailable \(unavailable\)<\/option>/);
-  assert.match(html, /Unavailable source order: producer.order.unavailable/);
-  assert.doesNotMatch(html, /value="" selected>/);
-});
-
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [
     null,
@@ -329,7 +245,7 @@ test("candidate and local match bounds are independently disclosed before and du
     assert.ok(html.includes(`Candidate bound K: ${request?.requestedLimit ?? 200}`));
     assert.match(html, /exact IDs use one candidate/);
     assert.ok(html.includes(`Maximum matches N: ${request?.requestedMatchLimit ?? 100}`));
-    assert.match(html, /The match limit does not change prefix or Gallery capacity/);
+    assert.match(html, /The match limit does not change prefix capacity/);
     assert.match(html, /Content facets download up to 20 candidate package archives/);
     assert.match(html, /Match counts and lifetime downloads describe a bounded response, not global top-N/);
   }
@@ -475,7 +391,7 @@ test("an exact zero-result completion states that no fallback search was used", 
   });
 
   assert.match(html, /No package selected/);
-  assert.match(html, /No prefix or Gallery search fallback was used/);
+  assert.match(html, /No fallback search was used/);
   assert.doesNotMatch(html, /Try a broader search/);
 });
 
@@ -494,7 +410,7 @@ test("exact inspection failure is not presented as a confirmed empty result", ()
   assert.match(html, /Exact package inspection incomplete/);
   assert.match(html, /not a confirmed empty result/);
   assert.match(html, /The package manifest could not be acquired/);
-  assert.match(html, /No prefix or Gallery search fallback was used/);
+  assert.match(html, /No fallback search was used/);
   assert.doesNotMatch(html, /<h2>No package selected<\/h2>/);
 });
 
@@ -1110,11 +1026,6 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({}, "package-query-discover"),
-      selector: "#package-query-discover",
-      replacement: new FakeElement({}, "package-query-discover"),
-    },
-    {
       active: new FakeElement({}, "package-query-product"),
       selector: "#package-query-product",
       replacement: new FakeElement({}, "package-query-product"),
@@ -1124,11 +1035,11 @@ test("query focus snapshots restore semantic controls after a full render", () =
       selector: "#package-query-back",
       replacement: new FakeElement({}, "package-query-back"),
     },
-    ...["type", "order", "prerelease"].map(control => ({
-      active: new FakeElement({}, `package-query-${control}`),
-      selector: `#package-query-${control}`,
-      replacement: new FakeElement({}, `package-query-${control}`),
-    })),
+    {
+      active: new FakeElement({}, "package-query-prerelease"),
+      selector: "#package-query-prerelease",
+      replacement: new FakeElement({}, "package-query-prerelease"),
+    },
     {
       active: new FakeElement({}, "package-query-assembly-operand"),
       selector: "#package-query-assembly-operand",
@@ -1207,8 +1118,7 @@ test("a vanished query control reports prefix fallback", () => {
       queryRowOpen: "Vanished.Package",
       queryRowVersion: "1.0.0",
     }),
-    ...["type", "order", "prerelease"].map(
-      control => new FakeElement({}, `package-query-${control}`)),
+    new FakeElement({}, "package-query-prerelease"),
   ];
 
   for (const active of cases) {
@@ -1282,10 +1192,9 @@ test("query prefix focus preserves its selection across a full render", () => {
   assert.deepEqual(replacement.selectionRange, [3, 8]);
 });
 
-test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", () => {
+test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
   const root = new FakeRoot();
   const [back] = root.add("#package-query-back", new FakeElement());
-  const [discover] = root.add("#package-query-discover", new FakeElement());
   const [open] = root.add("[data-query-row-open]", new FakeElement({ queryRowOpen: "A", queryRowVersion: "1.0.0" }));
   const [facet] = root.add("[data-query-facet]", new FakeElement({ queryFacet: "tfm-out-of-support" }));
   const [cancel] = root.add("[data-query-cancel]", new FakeElement());
@@ -1294,7 +1203,6 @@ test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", 
   const actions: PackageQueryBindingActions = {
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
-    onDiscover: () => calls.push("discover"),
     onFacetToggle: key => calls.push(`facet:${key}`),
     onPrefixInput: () => {},
     onResultPressure: () => calls.push("pressure"),
@@ -1306,14 +1214,12 @@ test("bindPackageQueryView wires back, discovery, row-open, facet, and cancel", 
   bindPackageQueryView(fakeDom.parentNode(root), actions);
 
   back?.dispatch("click");
-  discover?.dispatch("click");
   open?.dispatch("click");
   facet?.dispatch("click");
   cancel?.dispatch("click");
 
   assert.deepEqual(calls, [
     "back",
-    "discover",
     "open:A:1.0.0",
     "facet:tfm-out-of-support",
     "cancel",
@@ -1347,7 +1253,6 @@ test("bindPackageQueryView clears corrected assembly input and preserves the ope
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
     onAssemblyRun: request => requests.push(request),
     onFacetToggle: () => {},
     onPrefixInput: () => {},
@@ -1396,7 +1301,6 @@ test("assembly row binding forwards the exact opaque Root request", () => {
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1413,15 +1317,11 @@ test("assembly row binding forwards the exact opaque Root request", () => {
   ]]);
 });
 
-test("source control changes forward the complete selection and current unmodified search text", () => {
+test("prerelease changes forward the selection and current unmodified package text", () => {
   const root = new FakeRoot();
   const input = new FakeElement({}, "package-query-prefix");
-  const packageType = new FakeElement({}, "package-query-type");
-  const order = new FakeElement({}, "package-query-order");
   const prerelease = new FakeElement({}, "package-query-prerelease");
   root.add("#package-query-prefix", input);
-  root.add("#package-query-type", packageType);
-  root.add("#package-query-order", order);
   root.add("#package-query-prerelease", prerelease);
   const calls: {
     selection: Partial<QuerySourceSelection>;
@@ -1430,7 +1330,6 @@ test("source control changes forward the complete selection and current unmodifi
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
     onFacetToggle: () => assert.fail("source controls are not inspection facets"),
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1439,31 +1338,13 @@ test("source control changes forward the complete selection and current unmodifi
     onSourceChange: (selection, searchText) => calls.push({ selection, searchText }),
   });
 
-  packageType.value = "Producer.CustomType";
-  packageType.dispatch("change");
   input.value = " hosting libraries * ";
-  order.value = "producer.order.custom";
-  order.dispatch("change");
   prerelease.checked = true;
   prerelease.dispatch("change");
-  packageType.value = "";
-  order.value = "";
   prerelease.checked = false;
-  order.dispatch("change");
+  prerelease.dispatch("change");
 
   assert.deepEqual(calls, [
-    {
-      selection: {
-        packageType: "Producer.CustomType", sourceOrderId: null, includePrerelease: false,
-      },
-      searchText: "",
-    },
-    {
-      selection: {
-        packageType: "Producer.CustomType", sourceOrderId: "producer.order.custom", includePrerelease: false,
-      },
-      searchText: " hosting libraries * ",
-    },
     {
       selection: {
         includePrerelease: true,
@@ -1472,27 +1353,24 @@ test("source control changes forward the complete selection and current unmodifi
     },
     {
       selection: {
-        packageType: null, sourceOrderId: null, includePrerelease: false,
+        includePrerelease: false,
       },
       searchText: " hosting libraries * ",
     },
   ]);
 });
 
-test("query form submits package text while Feeling lucky is a separate action", () => {
+test("query form submits package text without a Gallery action", () => {
   const root = new FakeRoot();
   const form = new FakeElement({}, "package-query-form");
   const input = new FakeElement({}, "package-query-prefix");
-  const discover = new FakeElement({}, "package-query-discover");
   root.add("#package-query-form", form);
   root.add("#package-query-prefix", input);
-  root.add("#package-query-discover", discover);
   const calls: string[] = [];
   let prevented = 0;
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => calls.push("gallery:"),
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1506,13 +1384,10 @@ test("query form submits package text while Feeling lucky is a separate action",
       preventDefault() { prevented++; },
     }));
   }
-  discover.dispatch("click");
-
   assert.deepEqual(calls, [
     "",
     " hosting libraries ",
     "System.*",
-    "gallery:",
   ]);
   assert.equal(prevented, 3);
 });
@@ -1540,7 +1415,6 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   const binding = bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onDiscover: () => {},
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
@@ -1583,7 +1457,6 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
     {
       onBack: () => {},
       onCancel: () => {},
-      onDiscover: () => {},
       onFacetToggle: () => {},
       onPrefixInput: () => {},
       onResultPressure: () => { pressure++; },
