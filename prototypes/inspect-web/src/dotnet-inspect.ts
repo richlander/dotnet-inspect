@@ -8714,6 +8714,7 @@ function executeCommand(
       : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
         || pkg.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
+      navigationSequence.begin();
       enterTypeSubject(match);
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";

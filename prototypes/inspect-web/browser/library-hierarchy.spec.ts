@@ -817,6 +817,44 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
 });
 
+test("pending Platform catalog cannot overwrite a loaded Type selected through Commands", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", { catalogPending: true });
+  await page.goto(root);
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("[data-sl-load-runtime]").click();
+  await expect(page.locator('[data-scope="platform"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator(".type-browser .nav-back-row").click();
+  await expect(page.locator('[data-scope="platform"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-catalog-request",
+    JSON.stringify(["net11.0", alternatePlatformVersion]),
+  );
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator('[data-sl-scope="commands"]').click();
+  await page.locator("#spotlight-input").fill("type Widget");
+  await expect(page.locator("#spotlight-results")).toContainText("type Widget");
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+
+  await page.evaluate(() => document.dispatchEvent(new Event("finish-platform-catalog")));
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
+});
+
 for (const destination of ["Type", "Member"] as const) {
   test(`pending Platform Library cannot overwrite a loaded ${destination} selected through Spotlight`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
