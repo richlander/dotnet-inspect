@@ -1,5 +1,7 @@
 using System.Reflection.Metadata.Ecma335;
 
+using DotnetInspector.Fixtures;
+
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -74,6 +76,20 @@ public class DecompilerFieldMemorySafetyTests
             nameof(ChainB.ReadSafeField));
 
         Assert.DoesNotContain("unsafe", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+    }
+
+    [Fact]
+    public void CrossAssemblyFieldContract_MatchesForwardedSignatureType()
+    {
+        using var deployment = new ForwardedFieldDeployment();
+
+        DecompilerResult result = Decompile(
+            deployment.CallerPath,
+            "ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.FieldCaller",
+            "Read");
+
+        Assert.Contains("return Holder.Self", UnsafeBlockBody(result.Output!));
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
     }
 
@@ -338,6 +354,33 @@ public class DecompilerFieldMemorySafetyTests
         }
         throw new Xunit.Sdk.XunitException(
             "unbalanced unsafe block:\n" + output);
+    }
+
+    sealed class ForwardedFieldDeployment : IDisposable
+    {
+        readonly string _directory =
+            Directory.CreateTempSubdirectory("forwarded-field-").FullName;
+
+        internal ForwardedFieldDeployment()
+        {
+            CallerPath = Copy(FixtureCatalog.DecompilerForwardedFieldCaller);
+            Copy(FixtureCatalog.DecompilerForwardedFieldTargetDeployment);
+            Copy(FixtureCatalog.ServicesRouteLearningMiddle);
+            Copy(FixtureCatalog.ServicesRouteLearningBase);
+        }
+
+        internal string CallerPath { get; }
+
+        string Copy(FixtureDefinition fixture)
+        {
+            string destination = Path.Combine(
+                _directory,
+                fixture.AssemblyFileName);
+            File.Copy(fixture.AssemblyPath(), destination);
+            return destination;
+        }
+
+        public void Dispose() => Directory.Delete(_directory, recursive: true);
     }
 
 }

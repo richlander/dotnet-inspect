@@ -39,6 +39,9 @@
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync/ILInspector.Decompiler.Fixtures.RuntimeAsync.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldCaller/ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference/ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines/ILInspector.Decompiler.Fixtures.ClassicStateMachines.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.Ladder/ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />

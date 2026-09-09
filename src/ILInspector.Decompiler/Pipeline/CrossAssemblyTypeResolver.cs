@@ -1037,14 +1037,22 @@ internal sealed class CrossAssemblyTypeResolver
                         allowCoreLibraryAliases,
                         canonicalSelf,
                         assemblyIdentity,
-                        type.ResolutionAssembly);
+                        type.ResolutionAssembly,
+                        (resolved, expected) => SameBoundDefinition(
+                            resolved,
+                            expected,
+                            definition.Assembly.Assembly));
                 bool effectiveMatches = SameSignatureType(
                     fieldType,
                     field.Type,
                     allowCoreLibraryAliases,
                     canonicalSelf,
                     assemblyIdentity,
-                    type.ResolutionAssembly);
+                    type.ResolutionAssembly,
+                    (resolved, expected) => SameBoundDefinition(
+                        resolved,
+                        expected,
+                        definition.Assembly.Assembly));
                 if (!definitionMatches && !effectiveMatches)
                     continue;
 
