@@ -84,6 +84,11 @@ substrates, and inspection producers that will extend that space.
   package dependency routes without mutating a sealed assembly-context group.
   The source query owns a Decompiler fallback over retained assembly content;
   the
+  [authored project dependency facts](design/authored-project-dependency-facts.md)
+  owner projects bounded exact project XML into literal target observations,
+  package declarations, target-condition association, and typed incomplete
+  evidence without evaluating MSBuild;
+  the
   proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The proposed
@@ -160,6 +165,14 @@ substrates, and inspection producers that will extend that space.
   package-neutral family, target-framework, exact version, and family-target
   identities. Source adapters, PlatformHouse composition, and host adoption
   remain separately staged under #6361, #6301, #6335, and #6228.
+- The target
+  [PackageHouse Composition](design/package-house.md) owner defines the sole
+  product-facing package settlement facade over typed package demands,
+  owner-issued source/input plans, version and pruning decisions, payload and
+  asset realization, target-aware dependency-edge correspondence, and
+  provenance-retaining Workspace, library, and platform-delegation handoffs.
+  Focused owner algorithms remain outside the House; adoption and retirement
+  are tracked by #6426.
 - The target
   [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md)
   owner defines the sole product-facing platform realization and
@@ -388,7 +401,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
 - [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
-  committed logical Root membership and order, closed-by-default selective
+  committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete
   scope-operation results.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
@@ -508,7 +521,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   population, and Integration contributions, typed projection outcomes, and
   one shared Platform/ASP.NET Core/Microsoft.Extensions default sequence.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
   reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
@@ -597,6 +610,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   decision guidance and evidence, including API combinations and first/last
   requested-result costs. This is not a new runtime selector; source, query,
   and host contracts remain with their focused owners.
+- [NuGet Catalog acquisition](design/nuget-catalog-acquisition.md): bounded,
+  incremental `NuGetFetch` acquisition of advertised Catalog event windows,
+  preserving source identity, observed horizon, completion, and typed failure.
+  Ecosystem scope, security meaning, report selection, cursors, leaf
+  enrichment, and host adoption remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific

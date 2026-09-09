@@ -220,6 +220,18 @@ unfiltered. These paths reuse the pinned outcome-level host gate without
 changing the suite's separately compiled non-friend evidence or combining it
 with the dedicated catalog suite.
 
+`Inspector.Artifacts.Tests` is the twelfth migrated adopter. Its required PR,
+Deep Inspect platform, and developer commands remain unfiltered. These paths
+reuse the pinned outcome-level host gate without changing the suite's artifact
+access, local admission, workspace-session, digest, or cleanup evidence.
+
+`CSharpText.Tests` is the thirteenth migrated adopter. Its required PR, Deep
+Inspect platform, and developer commands remain unfiltered. These paths reuse
+the pinned outcome-level host gate without changing the suite's identifier,
+signature, declaration, conditional-recovery, or layout evidence. Manual
+decompiler fixture probes continue to inspect the built test assembly rather
+than invoke its test host.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

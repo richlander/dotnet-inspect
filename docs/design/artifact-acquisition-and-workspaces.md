@@ -39,7 +39,7 @@ single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [workspace-scope-and-expansion.md](workspace-scope-and-expansion.md) owns
-committed logical Root membership, occurrence order, selective dependency
+committed logical Package membership, occurrence order, selective dependency
 expansion, scope revisions, and scope-operation results, and
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
 subjects and relationships.
@@ -130,8 +130,8 @@ package dependency closure.
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
 | Root scope projection | Resource-free facts about one admitted or replacing Root | logical correspondence, current-generation freshness, typed realization status | logical membership, Root order, scope policy, or physical access authority |
 | Root preparation receipt | One complete provisional physical Root batch | prepared resources, candidate correspondence, budget reservation, one-shot publication or release | logical membership, order, expansion policy, Navigation, or portable state |
-| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
-| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
+| Workspace | One live physical inspection composition | process-local identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Package membership, dependency-expansion eligibility, or scope-operation policy |
+| Workspace scope | One committed logical inspection scope | [Package membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or Workspace lifetime |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
@@ -3258,6 +3258,61 @@ occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
 eligibility, closure evidence, Navigation focus, browser history, packet
 schema, source authorization, or a new preparation/adoption transaction.
 
+### Scoped execution over a committed package Root
+
+Issue [#6168](https://github.com/richlander/dotnet-inspect/issues/6168) exposes
+`InspectionWorkspace.ExecutePackageRootQueryAsync` for ordinary consumers of
+the existing Package producer. This owner makes one claim:
+
+> A consumer may execute against one exact committed package Root generation
+> while the Workspace holds its existing query lease for the complete awaited
+> operation.
+
+The operation consumes the existing package correspondence, generation
+freshness precondition, and optional expected surface binding-policy version.
+The receiving Workspace's ordinary admission gate remains authoritative:
+generation mismatch precedes policy mismatch, closing/closed outcomes remain
+distinct, and a rejected admission does not invoke the consumer. No acquisition
+or new realization is requested by this operation.
+
+The consumer borrows the existing `PackageAssemblyContextRealization` only
+during its callback. It may choose the appropriate existing role and run
+ordinary typed group queries; it neither disposes nor retains the realization
+or groups as a Workspace handle. Returned values are materialized query
+results, not borrowed resource access. Root-only and explicit-empty packages
+still admit a callback with no assembly contexts. The query owner decides the
+meaning of that disposition; this boundary does not substitute an empty group
+or conflate it with an unavailable Root.
+
+Removal or replacement stops new admission without retracting an admitted
+callback's lease. Existing group-close semantics still apply: retaining a
+Root lease is not permission to start new group work after Workspace close
+begins. Close waits for the callback to return or fail before releasing its
+Root resources. Consumer exceptions propagate unchanged; cancellation can
+interrupt admission and is passed through for cooperative use during the
+callback. Cancellation after a successful callback does not retroactively
+discard its result.
+
+This scoped borrowing follows the existing guarded-content callback and
+group-query conventions. It adds no query-selection policy, Workspace-wide
+snapshot transaction, population union, or alternative lease protocol.
+
+The Release gate is `WorkspaceRootQueryTests`, including an ordinary
+non-friend consumer in `tests/DotnetInspector.Queries.Consumer`. Its cases
+cover real committed package queries and provenance, shared/separate roles,
+no-assembly dispositions, admission rejection, callback failure and
+cancellation, and removal/close while a callback is admitted. The existing
+`ArtifactRootPublicationTests` and `WorkspaceScopeTests` remain the adjacent
+owner regression gates.
+
+The immediate production consumer is the four-command configured-Workspace
+search adoption in [#6170](https://github.com/richlander/dotnet-inspect/issues/6170).
+Parent [#6167](https://github.com/richlander/dotnet-inspect/issues/6167) counts
+four delivery milestones, including the separate dependency query and
+Browser/Wasm adoption. This access slice supplies the shared prerequisite;
+its consumer harness does not complete CLI or Browser production adoption.
+Ordinary source-option acquisition remains unchanged.
+
 ### Artifact Root preparation and scope publication
 
 Artifact Acquisition owns one focused handoff from provisional physical Root
@@ -4217,7 +4272,7 @@ workspace roles remain unverified.
 - Replacing assembly context groups with artifact sets; artifact lifetime and
   assembly binding remain separate axes.
 - Requiring every workspace artifact to be an assembly.
-- Defining logical Root membership, selective dependency expansion, scope
+- Defining logical Package membership, selective dependency expansion, scope
   revisions, or scope-operation results.
 - Scraping arbitrary deployed Wasm applications for runtime assemblies. A
   cooperating application may supply an explicit manifest or adapter, but

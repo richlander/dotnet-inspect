@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "decoded-literal-five-packages-v1",
+  "literal": "Unexpected end when reading JSON",
+  "targetFramework": "net6.0",
+  "packages": [
+    "Newtonsoft.Json@13.0.3",
+    "System.Text.Json@8.0.5",
+    "Serilog@4.3.0",
+    "Microsoft.Extensions.Logging@8.0.1",
+    "Microsoft.Extensions.Primitives@8.0.0"
+  ],
+  "limits": {
+    "maximumPackages": 5,
+    "maximumEntryBytes": 16777216,
+    "maximumRetainedImageBytes": 33554432,
+    "maximumMethods": 50000,
+    "maximumMethodBodyBytes": 1000000,
+    "maximumMethodBodyBytesVisited": 16000000,
+    "maximumInstructions": 4000000,
+    "maximumDecodedUserStringCharacters": 4000000,
+    "maximumOccurrences": 10000,
+    "maximumDurationSeconds": 60
+  },
+  "expected": {
+    "candidates": [
+      {
+        "package": "newtonsoft.json",
+        "version": "13.0.3",
+        "outcome": "matched",
+        "asset": "lib/net6.0/Newtonsoft.Json.dll",
+        "target_framework": "net6.0",
+        "detail": "3 literal uses; 0 sibling assemblies not evaluated."
+      },
+      {
+        "package": "system.text.json",
+        "version": "8.0.5",
+        "outcome": "no-match",
+        "asset": "lib/net6.0/System.Text.Json.dll",
+        "target_framework": "net6.0",
+        "detail": "The selected implementation assembly has no matching decoded ldstr use after 3525 method bodies."
+      },
+      {
+        "package": "serilog",
+        "version": "4.3.0",
+        "outcome": "no-match",
+        "asset": "lib/net6.0/Serilog.dll",
+        "target_framework": "net6.0",
+        "detail": "The selected implementation assembly has no matching decoded ldstr use after 1123 method bodies."
+      },
+      {
+        "package": "microsoft.extensions.logging",
+        "version": "8.0.1",
+        "outcome": "no-match",
+        "asset": "lib/net6.0/Microsoft.Extensions.Logging.dll",
+        "target_framework": "net6.0",
+        "detail": "The selected implementation assembly has no matching decoded ldstr use after 246 method bodies."
+      },
+      {
+        "package": "microsoft.extensions.primitives",
+        "version": "8.0.0",
+        "outcome": "no-match",
+        "asset": "lib/net6.0/Microsoft.Extensions.Primitives.dll",
+        "target_framework": "net6.0",
+        "detail": "The selected implementation assembly has no matching decoded ldstr use after 240 method bodies."
+      }
+    ],
+    "matches": [
+      {
+        "package": "newtonsoft.json",
+        "version": "13.0.3",
+        "assembly": "Newtonsoft.Json.dll",
+        "method": "0x0600010C",
+        "offset": "IL_0001",
+        "literal": "Unexpected end when reading JSON."
+      },
+      {
+        "package": "newtonsoft.json",
+        "version": "13.0.3",
+        "assembly": "Newtonsoft.Json.dll",
+        "method": "0x0600011B",
+        "offset": "IL_0009",
+        "literal": "Unexpected end when reading JSON."
+      },
+      {
+        "package": "newtonsoft.json",
+        "version": "13.0.3",
+        "assembly": "Newtonsoft.Json.dll",
+        "method": "0x0600011C",
+        "offset": "IL_000B",
+        "literal": "Unexpected end when reading JSON."
+      }
+    ]
+  }
+}

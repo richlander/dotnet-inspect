@@ -7,6 +7,8 @@
   sections without category doors; exact names, stable section IDs, and globs
   replace category selectors such as `@Decompiler`. Structured vocabulary
   schema version 2 removes each section's `categories` member (#6404).
+- Lists verbs alphabetically in root CLI help while preserving authored
+  ordering within nested commands (#6413).
 - Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
   grouping identical rendered Kind/Match values with occurrence counts.
   `Body Shapes` retains individual member/token/rendered-C# locations.

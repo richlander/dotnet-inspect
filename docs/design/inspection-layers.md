@@ -274,7 +274,7 @@ coordinate, no package archive requests, one registry materialization reused by
 subsequent reads, and exactly 25 projected rows. Run it with:
 
 ```bash
-dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+dotnet run --project tests/dotnet-inspect.Tests -c Release -- \
   --filter-method '*PackageProfileDefaultScale*'
 ```
 

@@ -850,6 +850,12 @@ visibly unavailable. Settings are not included in shared links. The first
 version-selector adopter is the existing Gallery path, not custom sources or
 platform inputs.
 
+Package Overview presents the two settings as task rows: each row keeps its
+label, available-width native selector, effective state, and recovery action
+together. At narrow widths the row stacks without changing focus order. One
+shared note explains that target selection is session-local and does not run a
+comparison.
+
 These controls prepare targets only: the Library Diff/Clone result inspectors
 remain follow-on work under #5083. The owner is
 [Browser Diff targets](../../docs/design/inspect-web-diff-targets.md) for the
@@ -2245,19 +2251,22 @@ inspector.
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) and that list's markup, including its
 open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
-sequence-guarded async load/close lifecycle, visible failure, and frontmatter
-projection.
+closed/loading/ready/failed feature state, current-loading publication guard,
+snapshot settlement, visible failure, and frontmatter projection.
 `dotnet-inspect.ts` validates the selected package document and supplies the
-engine, sanitized Markdown-rendering, state, and render ports.
-`test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
-error presentation, the
+engine, sanitized Markdown-rendering, state, and render ports, consuming the
+typed open-state predicate for modal, focus, keyboard, and graph-explorer
+composition. `test/doc-viewer.test.ts` gates loading and failed presentation,
+including the empty-failure fallback, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
 escaping, package-document list output, open dispatch, and button/backdrop
 close dispatch;
 `test/document-inspection.test.ts` gates exact request coordinates,
 frontmatter projection, stale-stage suppression, visible failures, and close
-invalidation (the rendered document body is trusted, pre-sanitized Markdown
-HTML and is not escaped).
+invalidation; `test/saved-workspace-navigation.test.ts` gates loading-snapshot
+settlement (the rendered document body is trusted, pre-sanitized Markdown HTML
+and is not escaped). The focused state contract is
+[Inspect Web Document Viewer State](../../docs/design/inspect-web-document-viewer-state.md).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node), including its rendered close and bare-backdrop

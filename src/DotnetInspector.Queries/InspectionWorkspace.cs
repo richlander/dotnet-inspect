@@ -1489,6 +1489,7 @@ public sealed partial class InspectionWorkspace :
                     group.CloseAdmissionFromWorkspace(
                         captureFailure: true);
                 }
+                CloseArtifactRootGroupAdmission();
 
                 _groups.Clear();
                 startClose = true;
