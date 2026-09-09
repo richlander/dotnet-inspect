@@ -1033,6 +1033,9 @@ jobs:
       - name: Exercise Catalog research probe (offline)
         run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
 
+      - name: Exercise package assembly-query benchmark (offline)
+        run: dotnet run tools/PackageAssemblyQueryBenchmark.cs -c Release -- --self-test
+
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
       # round-trip — so they run unconditionally rather than behind a path filter.
