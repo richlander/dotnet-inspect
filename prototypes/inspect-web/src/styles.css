@@ -228,8 +228,8 @@ body {
   height: 100%;
   overflow: hidden;
 }
-.subject-inspector-region.expanded-inspector-inventory {
-  --shell-subject-preferred-width: 800px;
+.titlebar.expanded-inspector-inventory {
+  --shell-subject-preferred-width: 920px;
 }
 .application-scope-region {
   flex: 0 1 154px;

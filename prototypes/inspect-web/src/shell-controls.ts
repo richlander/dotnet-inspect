@@ -47,12 +47,12 @@ export function workbenchShellHtml(
   options: WorkbenchShellHtmlOptions,
 ): string {
   return `
-      <header class="titlebar">
+      <header class="titlebar${options.expandedInspectorInventory ? " expanded-inspector-inventory" : ""}">
         ${renderBrand()}
         <div class="application-scope-region">
           ${options.applicationScopeHtml}
         </div>
-        <div class="subject-inspector-region${options.expandedInspectorInventory ? " expanded-inspector-inventory" : ""}">
+        <div class="subject-inspector-region">
           ${options.subjectInspectorHtml}
         </div>
         ${options.titleNavigationHtml}
