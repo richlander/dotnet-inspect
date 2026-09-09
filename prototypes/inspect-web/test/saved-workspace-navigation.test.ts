@@ -482,6 +482,9 @@ function harness() {
       assert.ok(isCapturedWorkspaceUrlState(result));
       return result;
     },
+    applyView: (loc: Partial<ParsedWorkspaceLocation>): void => {
+      runInNewContext("applyLocationView(loc)", { ...context, loc });
+    },
     share: async (): Promise<void> => {
       await runInNewContext("share()", context);
     },
@@ -571,6 +574,21 @@ test("Share copies canonical package Dependencies and refuses a non-active group
   assert.equal(copied.searchParams.get("package"), sourcePackage.id);
   assert.equal(copied.searchParams.get("w"), packet);
   assert.deepEqual(h.toasts, ["selection link copied"]);
+});
+
+test("canonical package Dependencies restoration clears a resident group override", () => {
+  const h = harness();
+  h.state.dependenciesGroupIndex = 1;
+
+  h.applyView({
+    hasWorkspaceState: true,
+    atPackageRoot: true,
+    packageLens: "dependencies",
+  });
+
+  assert.equal(h.state.dependenciesGroupIndex, null);
+  assert.equal(h.state.atPackageRoot, true);
+  assert.equal(h.state.packageLens, "dependencies");
 });
 
 test("capture uses the original share projection and retains Workspace presentation without effects", () => {

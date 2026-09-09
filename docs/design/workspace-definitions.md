@@ -2028,13 +2028,15 @@ Definition records and product demos (this slice):
   restores its package Dependencies lens and lazily computes the graph from the
   exact coordinate and framework. Browser capture refuses an explicitly
   selected dependency group that differs from the active framework because
-  format 1 cannot preserve that override. The Browser Share action uses this
-  canonical capture path even though ordinary package-root address-bar state
-  retains its simpler route form. The producer performs no package acquisition
-  or graph traversal, requires a valid exact version and framework, and refuses
-  local archives, configured sources, floating versions, the Browser-reserved
-  `Microsoft.NETCore.App` Platform pseudo-package, row windows, counts, and
-  competing output formats before packet emission.
+  format 1 cannot preserve that override, and canonical Dependencies
+  restoration clears any prior Browser-local group override before rendering.
+  The Browser Share action uses this canonical capture path even though
+  ordinary package-root address-bar state retains its simpler route form. The
+  producer performs no package acquisition or graph traversal, requires a
+  valid exact version and framework, and refuses local archives, configured
+  sources, floating versions, the Browser-reserved `Microsoft.NETCore.App`
+  Platform pseudo-package, row windows, counts, and competing output formats
+  before packet emission.
   `DependsShare_PacketProjectsExactPackageDependencyView`,
   `DependsShare_UrlWrapsCanonicalPacket`,
   `DependsShare_RequiresExactCoordinateBeforeAcquisition`,
@@ -2046,8 +2048,9 @@ Definition records and product demos (this slice):
   `canonical package views reject contradictory structural selection`,
   `capture projects package Dependencies through the packet lens`,
   `capture refuses a non-active package dependency group`, and
-  `Share copies canonical package Dependencies and refuses a non-active group`
-  gate the Browser adapter;
+  `Share copies canonical package Dependencies and refuses a non-active group`,
+  and `canonical package Dependencies restoration clears a resident group
+  override` gate the Browser adapter;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;

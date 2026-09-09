@@ -13149,6 +13149,11 @@ function failCanonicalWorkspaceRestore(
 function applyLocationView(loc: ParsedLocation) {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
+  if (loc.hasWorkspaceState
+    && state.atPackageRoot
+    && loc.packageLens === "dependencies") {
+    state.dependenciesGroupIndex = null;
+  }
   state.atLibraryRoot = !state.atPackageRoot
     && (loc.atLibraryRoot || false);
   state.workspaceSubjectOpen =
