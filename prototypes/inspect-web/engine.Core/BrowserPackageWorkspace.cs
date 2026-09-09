@@ -2878,10 +2878,23 @@ internal sealed class BrowserPackage
 
     internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
         _acquiredPayload is not null
-            ? PackageRootBinding.CreateFromSource(
-                _acquiredPayload, targetFramework, displayPackageId: PackageId)
+            ? string.IsNullOrWhiteSpace(targetFramework)
+                ? PackageRootBinding.CreateFromSource(
+                    _acquiredPayload,
+                    displayPackageId: PackageId)
+                : PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                    _acquiredPayload,
+                    targetFramework,
+                    displayPackageId: PackageId)
             : _resolvedPayload is not null
-                ? PackageRootBinding.CreateFromResolved(_resolvedPayload, targetFramework)
+                ? string.IsNullOrWhiteSpace(targetFramework)
+                    ? PackageRootBinding.CreateFromResolved(
+                        _resolvedPayload,
+                        displayPackageId: PackageId)
+                    : PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                        _resolvedPayload,
+                        targetFramework,
+                        displayPackageId: PackageId)
                 : throw new InvalidOperationException(
                     "Only an acquisition-issued Browser package can create a bound package Root.");
 
@@ -3101,8 +3114,9 @@ internal sealed class BrowserPackageCoordinate
     public string Version => Package.Version;
 
     public string Framework =>
-        Selection.TargetFramework
+        Binding?.Coordinate.Framework
         ?? Root.RequestedTargetFramework
+        ?? Selection.TargetFramework
         ?? "";
 
     /// <summary>

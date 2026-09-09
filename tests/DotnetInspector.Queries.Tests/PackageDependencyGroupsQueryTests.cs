@@ -243,6 +243,32 @@ public sealed class PackageDependencyGroupsQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_CanSelectACompatibleFramework()
+    {
+        InMemoryPackageContent content = Content(
+            ("Example.Package.nuspec", Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Dependency" version="1.0.0" />
+                </group>
+                """)));
+
+        PackageDependencyGroups result = Available(
+            await ExecuteAsync(
+                content,
+                "Example.Package",
+                "net9.0",
+                allowCompatibleFallbackForRequestedTfm: true));
+
+        Assert.Equal(
+            PackageDependencyGroupSelectionStatus.Selected,
+            result.SelectionStatus);
+        Assert.Equal("net9.0", result.RequestedTargetFramework);
+        Assert.Equal("net8.0", result.SelectedTargetFramework);
+        Assert.Equal(0, result.SelectedGroupIndex);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DistinguishesMissingManifestFromNoDependencies()
     {
         PackageDependencyGroupsResult missing =
@@ -462,13 +488,15 @@ public sealed class PackageDependencyGroupsQueryTests
         IPackageContent content,
         string packageId,
         string? requestedTargetFramework = null,
-        string packageVersion = "1.0.0")
+        string packageVersion = "1.0.0",
+        bool allowCompatibleFallbackForRequestedTfm = false)
         => PackageDependencyGroupsQuery.ExecuteAsync(
             content,
             packageId,
             packageVersion,
             requestedTargetFramework,
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken,
+            allowCompatibleFallbackForRequestedTfm);
 
     static Exception Failed(PackageDependencyGroupsResult result) =>
         FailedResult(result).Error;

@@ -3,6 +3,7 @@ using System.Net;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Tests;
@@ -39,6 +40,34 @@ public partial class CommandExecutionTests
         Assert.Null(packet.MemberSignature);
         Assert.Null(packet.Section);
         Assert.Empty(packet.Libraries);
+    }
+
+    [Fact]
+    public async Task DependsShare_PacketPreservesCompatibleRequestedFramework()
+    {
+        var result = await RunAppAsync(
+            "depends",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal("Newtonsoft.Json", tab.Source);
+        Assert.Equal("13.0.4", tab.Version);
+        Assert.Equal("net8.0", tab.Framework);
+        Assert.Equal("dependencies", packet.Lens);
     }
 
     [Theory]
@@ -91,6 +120,10 @@ public partial class CommandExecutionTests
                     PackageName = packageId + versionSelector,
                     Tfm = "net8.0",
                     ShareFormat = WorkspaceShareFormat.Packet,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = ["https://api.nuget.org/v3/index.json"],
+                    },
                 },
                 httpClient,
                 new VerboseLogger(enabled: false),
@@ -167,7 +200,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task DependsShare_RejectsConfiguredSource()
+    public async Task DependsShare_RejectsNonNuGetOrgSource()
     {
         var result = await RunAppAsync(
             "depends",
@@ -184,7 +217,97 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
-        Assert.Contains("cannot be combined with source configuration", result.Error);
+        Assert.Contains(
+            "authorize exactly one NuGet.org source",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task DependsShare_AcceptsExplicitNuGetOrgSource()
+    {
+        var result = await RunAppAsync(
+            "depends",
+            "--package",
+            "Example.Package@1.0.0",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Output.Trim(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("Example.Package", Assert.Single(packet.Tabs).Source);
+    }
+
+    [Fact]
+    public async Task DependsShare_RejectsMappedPrivateEffectiveSource()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-share-source-policy-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(
+            Path.Combine(root, "NuGet.Config"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+                <add key="private" value="https://feed.example.test/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="nuget.org">
+                  <package pattern="Public.*" />
+                </packageSource>
+                <packageSource key="private">
+                  <package pattern="Example.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """,
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            using var handler =
+                new ShareVersionHandler("Example.Private", "1.0.0");
+            using var client = new HttpClient(handler);
+            var options = new DependsOptions
+            {
+                PackageName = "Example.Private@1.0.0",
+                Tfm = "net8.0",
+                ShareFormat = WorkspaceShareFormat.Packet,
+                SourceOptions = new NuGetSourceOptions
+                {
+                    ConfigDirectory = root,
+                },
+            };
+
+            var result = await ConsoleCapture.RunAsync(() =>
+                DependsShareProjection.WriteAsync(
+                    options,
+                    client,
+                    new VerboseLogger(enabled: false)));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "authorize exactly one NuGet.org source",
+                result.Error);
+            Assert.Empty(handler.Requests);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -241,6 +364,10 @@ public partial class CommandExecutionTests
     [InlineData("--mermaid")]
     [InlineData("--count")]
     [InlineData("--rows", "5")]
+    [InlineData("-n", "1")]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    [InlineData("--tail", "-n", "0")]
     public async Task DependsShare_RejectsConflictingOutput(
         params string[] conflicting)
     {

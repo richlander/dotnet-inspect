@@ -279,9 +279,15 @@ Overview subset. The Package Dependencies adoption in #6394 completes them for
 one exact NuGet.org package coordinate, target framework, and package-root
 Dependencies facet. An unversioned package or `@latest` is resolved and pinned
 before projection; no package body or dependency graph is acquired by the CLI.
-Type, package, library, call-graph, and later operation/query adoptions remain
-separate slices under #6150; a command exposes `--share` only when its first
-useful scenario closes through the receiving host.
+The receiving host preserves the requested framework as the scenario and
+dependency-selection target. When the package has no exact compile group but
+does have a compatible implementation universe, the host may materialize that
+compatible compile universe without rewriting the requested framework in the
+packet, active coordinate, or Dependencies query. Type, package, library,
+call-graph, and later operation/query adoptions remain separate slices under
+[#6150](https://github.com/richlander/dotnet-inspect/issues/6150); a command
+exposes `--share` only when its first useful scenario closes
+through the receiving host.
 
 ## Pathological and neighboring cases
 
@@ -362,18 +368,23 @@ Each adoption must add focused Release gates proving:
 
 The existing `MemberShare_*` tests gate the narrower member subset.
 `DependsShare_PacketProjectsExactPackageDependencyView`,
+`DependsShare_PacketPreservesCompatibleRequestedFramework`,
 `DependsShare_UrlWrapsCanonicalPacket`,
 `DependsShare_FloatingVersionResolvesWithoutPackageAcquisition`,
 `DependsShare_RejectsNonProjectableCoordinate`,
 `DependsShare_RejectsLocalPackage`,
-`DependsShare_RejectsConfiguredSource`,
+`DependsShare_RejectsNonNuGetOrgSource`,
+`DependsShare_AcceptsExplicitNuGetOrgSource`,
+`DependsShare_RejectsMappedPrivateEffectiveSource`,
 `DependsShare_RejectsBrowserPlatformPackageId`, and
 `DependsShare_RejectsConflictingOutput` gate the CLI package Dependencies
-projection. `canonical package dependency views restore the package root
-lens`, `canonical package views reject contradictory structural selection`,
-`capture projects package Dependencies through the packet lens`, `capture
-refuses a non-active package dependency group`, `Share copies canonical
-package Dependencies and refuses a non-active group`, and `canonical package
+projection.
+`PackageDependencies_UsesCompatibleAssetsWithoutChangingRequestedFramework`,
+`canonical package dependency views restore the package root lens`,
+`canonical package views reject contradictory structural selection`, `capture
+projects package Dependencies through the packet lens`, `capture refuses a
+non-active package dependency group`, `Share copies canonical package
+Dependencies and refuses a non-active group`, and `canonical package
 Dependencies restoration clears a resident group override` gate the Browser
 adapter.
 `WorkspaceSharePacketTransposerTests` and codec vectors remain authoritative

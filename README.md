@@ -580,10 +580,11 @@ projects the package Dependencies view without acquiring the package or
 traversing the graph in the CLI. An omitted version or `latest` is resolved
 from NuGet.org and pinned before emission; the published browser then acquires
 that exact coordinate and lazily computes the dependency graph for the
-selected target framework. Local archives, configured sources, wildcard,
-range, or build-metadata versions, omitted frameworks, the Browser-reserved
-`Microsoft.NETCore.App` Platform id, row windows, counts, and other rendering
-formats fail visibly rather than producing a non-reproducible link.
+selected target framework. Local archives, effective source policies that do
+not authorize exactly one NuGet.org source, wildcard, range, or build-metadata
+versions, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
+Platform id, row windows, counts, and other rendering formats fail visibly
+rather than producing a non-reproducible link.
 
 ## Requirements
 

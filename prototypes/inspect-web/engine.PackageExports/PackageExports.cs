@@ -69,7 +69,7 @@ public static partial class PackageExports
 
     /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
-    /// Package parsing and exact-framework selection belong to
+    /// Package parsing and compatible dependency-group selection belong to
     /// <see cref="PackageDependencyGroupsQuery"/>; the assembly-context query owns the metadata
     /// session. This method only adapts their typed results for the browser.
     /// </summary>
@@ -112,7 +112,8 @@ public static partial class PackageExports
                 coordinate.Package.Content,
                 coordinate.PackageId,
                 coordinate.Version,
-                coordinate.Framework);
+                coordinate.Framework,
+                allowCompatibleFallbackForRequestedTfm: true);
         PackageDependencyGroups dependencies = dependencyResult switch
         {
             PackageDependencyGroupsResult.Available available => available.Value,
