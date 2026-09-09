@@ -1887,6 +1887,9 @@ gates inactive ambiguous evidence through interning and frozen reuse.
 `AssemblyDependencyResolverTests` gates the existing designated/platform
 arbitration owner consuming the domain without registration-order precedence
 and retaining lower-precedence platform evidence beneath a designated tie.
+`SourceRelativeAssemblyGroupBindingPolicyTests.Select_DesignatedPrecedenceFinalizesCompositionHandoff`
+gates the adjacent source-relative arbitration owner consuming a compatible
+handoff and finalizing its exact designated contenders before Metadata.
 `SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
 gates
 foreign-snapshot exclusion before a transforming composite can inspect the
