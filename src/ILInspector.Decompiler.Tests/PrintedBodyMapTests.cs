@@ -810,6 +810,87 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void UnsafeExpressionPreservesOperandAndWrapperKinds()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures.DerefPointer));
+        Assert.NotNull(function);
+        var dereference = Assert.Single(function!.Descendants.OfType<LoadIndirect>());
+
+        CSharpPrinter.PrintRaised(function, out var ranges);
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [dereference] = [new Annotation(Alloc, 0)],
+            });
+
+        var operand = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "IndirectAccessExpression"
+                && Text(map, node.Extent) == "*(int*)(&value)");
+        _ = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "UnsafeExpression"
+                && Text(map, node.Extent) == "unsafe(*(int*)(&value))");
+        Assert.True(
+            SlotOf(ranges, dereference)
+            < SlotOf(ranges, ContextualRoot(
+                ranges,
+                "unsafe(*(int*)(&value))",
+                "UnsafeExpression")));
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(operand.Id, fact.NodeId);
+        Assert.Equal("IndirectAccessExpression", fact.Kind);
+    }
+
+    [Fact]
+    public void UnsafeExpressionPreservesNestedConversionWrapper()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var intPointer = TypeRef.Pointer(int32);
+        var bytePointer = TypeRef.Pointer(byteType);
+        var bytePointerPointer = TypeRef.Pointer(bytePointer);
+        var dereference = new LoadIndirect(
+            bytePointer,
+            new LoadArgument(0, "pointer", bytePointerPointer));
+        var block = new Block();
+        block.Add(new Return(dereference));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "Holder"),
+            new MethodSignature(
+                intPointer,
+                [new Parameter("pointer", bytePointerPointer)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        CSharpPrinter.PrintRaised(function, out var ranges);
+        var map = PrintedBodyMap.Create(ranges);
+
+        _ = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "ConversionExpression"
+                && Text(map, node.Extent) == "(int*)(*pointer)");
+        _ = Assert.Single(
+            map.Nodes,
+            node => node.Kind == "UnsafeExpression"
+                && Text(map, node.Extent) == "unsafe((int*)(*pointer))");
+    }
+
+    [Fact]
     public void CoercedJoinArmPreservesLiteralAndConversionKinds()
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);

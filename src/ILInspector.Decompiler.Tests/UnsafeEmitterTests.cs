@@ -26,9 +26,10 @@ namespace ILInspector.Decompiler.Tests;
 /// IL; the only difference the decompiler can observe is the new-rules module's
 /// <c>MemorySafetyRulesAttribute</c>. The printer uses that signal to wrap
 /// unsafe operations in explicit, minimally scoped <c>unsafe { }</c> blocks for
-/// a new-rules module, and to emit none for a legacy module (whose member
-/// <c>unsafe</c> modifier — rendered at the signature, not by this body printer
-/// — still supplies the context).
+/// a new-rules module when one expression cannot contain the obligation, and in
+/// <c>unsafe(expr)</c> otherwise. Legacy modules emit neither form because their
+/// member <c>unsafe</c> modifier — rendered at the signature, not by this body
+/// printer — still supplies the context.
 /// </summary>
 public class UnsafeEmitterTests
 {
@@ -106,20 +107,21 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_PointerDeref_WrapsInUnsafeBlock()
+    public void NewRulesModule_PointerDeref_UsesUnsafeExpression()
     {
         var output = DecompileNew(nameof(NewFixtures.DerefPointer));
 
-        Assert.Contains("unsafe", output);
-        Assert.Contains("*", FirstUnsafeBlockBody(output));
+        Assert.Contains("return unsafe(*(int*)(&value));", output);
+        Assert.DoesNotContain("unsafe\n{", output);
     }
 
     [Fact]
-    public void NewRulesModule_FunctionPointerInvoke_WrapsInUnsafeBlock()
+    public void NewRulesModule_FunctionPointerInvoke_UsesUnsafeExpression()
     {
         var output = DecompileNew(nameof(NewFixtures.InvokeFunctionPointer));
 
-        Assert.Contains("callback(x)", FirstUnsafeBlockBody(output));
+        Assert.Contains("return unsafe(callback(x));", output);
+        Assert.DoesNotContain("unsafe\n{", output);
     }
 
     [Fact]
@@ -165,29 +167,25 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_SingleUnsafeExpressionStatement_NotFlaggedExpressionBody()
+    public void NewRulesModule_VoidUnsafeInvocation_FallsBackToBlock()
     {
-        // GPT review of #3146: a void member whose one statement needs an unsafe
-        // context wraps as `unsafe { <stmt>; }` under the new rules — a multi-line
-        // body ending in `}`, not `;`. The multi-line expression-body extractor
-        // rejects it (it requires a trailing `;`), so the typed
-        // BodyIsSingleExpressionBody signal must agree and stay false; otherwise a
-        // consumer trusting the flag without re-running the extractor would fold a
-        // body the extractor cannot supply. Output is a brace block either way;
-        // this locks the flag/extractor agreement (co-gating invariant).
+        // An unsafe expression is not itself a legal statement expression, and
+        // a void invocation cannot be assigned to a discard. The block is
+        // therefore the smallest valid context and cannot become an
+        // expression-bodied member.
         var result = DecompileResult(
             typeof(NewFixtures).Assembly.Location,
             typeof(NewFixtures).FullName!,
             nameof(NewFixtures.FreePointer));
 
         Assert.NotNull(result.Output);
-        Assert.Contains("unsafe", result.Output);
+        Assert.Contains("unsafe\n{", result.Output);
         Assert.EndsWith("}", result.Output!.TrimEnd());
         Assert.False(result.BodyIsSingleExpressionBody);
     }
 
     [Fact]
-    public void NewRulesModule_UnsafeCatchFilter_WrapsWholeTryCatch()
+    public void NewRulesModule_UnsafeCatchFilter_UsesUnsafeExpression()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
         var voidType = TypeRef.CoreLib("System", "Void");
@@ -220,21 +218,209 @@ public class UnsafeEmitterTests
         var result = CSharpPrinter.Print(function);
 
         Assert.NotNull(result.Output);
-        Assert.Contains("unsafe", result.Output);
-        Assert.Contains("when", FirstUnsafeBlockBody(result.Output!));
+        Assert.Contains("catch (Exception) when (unsafe((*p) != 0))", result.Output);
+        Assert.DoesNotContain("unsafe\n{", result.Output);
+        AssertNoWarningsOrErrors(
+            Recompile("static void M(int* p)", result.Output!),
+            result.Output!);
+    }
+
+    [Theory]
+    [InlineData("if", true)]
+    [InlineData("while", true)]
+    [InlineData("do", true)]
+    [InlineData("catch", true)]
+    [InlineData("lock", true)]
+    [InlineData("using", true)]
+    [InlineData("fixed", true)]
+    [InlineData("for", false)]
+    [InlineData("foreach", false)]
+    [InlineData("switch", false)]
+    public void NewRulesModule_RequiresUnsafePropertyHeader_UsesCompilerSupportedForm(
+        string position,
+        bool expectsBlock)
+    {
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var @object = TypeRef.CoreLib("System", "Object");
+        var disposable = TypeRef.CoreLib("System", "IDisposable");
+        var intArray = TypeRef.SzArray(int32);
+        var owner = TypeRef.Definition("Synthetic", "", "Holder");
+        TypeRef propertyType = position switch
+        {
+            "lock" => @object,
+            "using" => disposable,
+            "fixed" or "foreach" => intArray,
+            "switch" => int32,
+            _ => boolean,
+        };
+        string propertyName = position switch
+        {
+            "lock" => "RiskyObject",
+            "using" => "RiskyDisposable",
+            "fixed" or "foreach" => "RiskyArray",
+            "switch" => "RiskyInt",
+            _ => "Risky",
+        };
+        var getter = new MethodRef(
+            owner,
+            $"get_{propertyName}",
+            propertyType,
+            [],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            RequiresUnsafe = true,
+        };
+        LoadProperty Property() => new(getter, instance: null, []);
+        Block EmptyBlock() => new();
+        BlockContainer EmptyContainer()
+        {
+            var empty = new BlockContainer();
+            empty.Add(new Block());
+            return empty;
+        }
+        Block ForBody()
+        {
+            var body = new Block();
+            body.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+            return body;
+        }
+        BlockContainer SwitchBody()
+        {
+            var body = new BlockContainer();
+            var block = new Block();
+            block.Add(new Break());
+            body.Add(block);
+            return body;
+        }
+
+        IrNode statement = position switch
+        {
+            "if" => new IfStatement(Property(), EmptyBlock(), elseArm: null),
+            "while" => new WhileLoop(Property(), EmptyBlock()),
+            "do" => new DoWhileLoop(EmptyContainer(), Property()),
+            "catch" => new TryCatch(
+                EmptyContainer(),
+                [new CatchClause(
+                    TypeRef.CoreLib("System", "Exception"),
+                    EmptyContainer(),
+                    Property())]),
+            "lock" => new ILInspector.Decompiler.Pipeline.Lock(
+                Property(),
+                EmptyContainer()),
+            "using" => new UsingStatement(
+                localIndex: 0,
+                disposable,
+                Property(),
+                EmptyContainer()),
+            "fixed" => new Fixed(
+                int32,
+                localIndex: 0,
+                Property(),
+                EmptyContainer(),
+                sourceIsAddress: false),
+            "for" => new ForLoop(
+                new StoreLocal(0, int32, new Constant(0, int32)),
+                Property(),
+                new StoreLocal(0, int32, new Constant(1, int32)),
+                ForBody()),
+            "foreach" => new ForeachStatement(
+                localIndex: 0,
+                int32,
+                Property(),
+                EmptyBlock()),
+            "switch" => new Switch(
+                Property(),
+                [new SwitchSection([], isDefault: true, SwitchBody())]),
+            _ => throw new ArgumentOutOfRangeException(nameof(position)),
+        };
+        var block = new Block();
+        block.Add(statement);
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        ImmutableArray<TypeRef> locals = position switch
+        {
+            "using" => [disposable],
+            "fixed" => [TypeRef.Pointer(int32)],
+            "for" or "foreach" => [int32],
+            _ => [],
+        };
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "__Gate"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            locals,
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var body = CSharpPrinter.Print(function).Output!;
+
+        if (expectsBlock)
+        {
+            Assert.Contains("unsafe\n{", body);
+            Assert.DoesNotContain($"unsafe(Holder.{propertyName})", body);
+        }
+        else
+        {
+            Assert.DoesNotContain("unsafe\n{", body);
+            Assert.Contains($"unsafe(Holder.{propertyName})", body);
+        }
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "static void M()",
+                body,
+                """
+                public sealed class Resource : IDisposable { public void Dispose() { } }
+                public static class Holder
+                {
+                    public static bool Risky { unsafe get => true; }
+                    public static object RiskyObject { unsafe get => new object(); }
+                    public static IDisposable RiskyDisposable { unsafe get => new Resource(); }
+                    public static int[] RiskyArray { unsafe get => new int[1]; }
+                    public static int RiskyInt { unsafe get => 1; }
+                }
+                """),
+            body);
     }
 
     [Fact]
-    public void NewRulesModule_PointerElementAccessInLoop_WrapsMinimally()
+    public void NewRulesModule_FixedAddressInitializer_RetainsUnsafeBlock()
+    {
+        var body = Decompile(
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).Assembly.Location,
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.ReadAtThroughFixedAddress));
+
+        Assert.Contains("unsafe\n{", body);
+        Assert.Contains("fixed (int* ", body);
+        Assert.Contains(" = &Data[index])", body);
+        Assert.DoesNotContain("unsafe(&Data[index])", body);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "public int M(int index)",
+                body,
+                containingTypeHeader: "public struct __Gate",
+                typeMembers: "public fixed int Data[4];"),
+            body);
+    }
+
+    [Fact]
+    public void NewRulesModule_PointerElementAccessInLoop_UsesUnsafeExpression()
     {
         // The pointer element access is one statement inside the loop body, so
         // the unsafe block must wrap only that statement — not the surrounding
         // loop control. A whole-loop wrap would swallow the increment.
         var output = DecompileNew(nameof(NewFixtures.SumPinned));
-        var block = FirstUnsafeBlockBody(output);
-
-        Assert.Contains("sum +=", block);
-        Assert.DoesNotContain("i++", block);
+        Assert.Contains("sum += unsafe(p[i]);", output);
+        Assert.DoesNotContain("unsafe\n{", output);
         Assert.Contains("i++", output);
     }
 
@@ -257,18 +443,19 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_RequiresUnsafeCall_WrapsInUnsafeBlock()
+    public void NewRulesModule_RequiresUnsafeCall_UsesUnsafeExpression()
     {
         // Risky() has no pointers but is declared `unsafe`, so the compiler
         // stamps it requires-unsafe. Every call site needs an unsafe context
         // even though no pointer crosses the boundary.
         var output = DecompileNew(nameof(NewFixtures.CallRisky));
 
-        Assert.Contains("Risky()", FirstUnsafeBlockBody(output));
+        Assert.Contains("return unsafe(Risky());", output);
+        Assert.DoesNotContain("unsafe\n{", output);
     }
 
     [Fact]
-    public void NewRulesModule_CrossAssemblyRequiresUnsafeCall_WrapsInUnsafeBlock()
+    public void NewRulesModule_CrossAssemblyRequiresUnsafeCall_UsesUnsafeExpression()
     {
         // B.M2 calls A.M1 — a pointerless requires-unsafe method in another
         // assembly. The RequiresUnsafeAttribute lives on A.M1's MethodDef, so it
@@ -276,7 +463,8 @@ public class UnsafeEmitterTests
         // wrap is possible only by resolving A cross-assembly (MetadataContext).
         var output = DecompileChainB(nameof(ChainB.M2));
 
-        Assert.Contains("M1()", FirstUnsafeBlockBody(output));
+        Assert.Contains("return unsafe(LibraryA.M1());", output);
+        Assert.DoesNotContain("unsafe\n{", output);
     }
 
     [Fact]
@@ -317,6 +505,25 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_ByRefReturn_UsesUnsafeExpression()
+    {
+        var output = Decompile(
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).Assembly.Location,
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.RefAt));
+
+        Assert.Contains("return ref unsafe(Data[index]);", output);
+        Assert.DoesNotContain("unsafe\n{", output);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "public ref int M(int index)",
+                output,
+                containingTypeHeader: "public struct __Gate",
+                typeMembers: "public fixed int Data[4];"),
+            output);
+    }
+
+    [Fact]
     public void LegacyModule_CompatPointerSignatureCall_EmitsNoUnsafeBlock()
     {
         var output = DecompileLegacy(nameof(LegacyFixtures.FreePointer));
@@ -325,30 +532,19 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_StackAllocSpanSkipInit_WrapsAndHoistsDeclaration()
+    public void NewRulesModule_StackAllocSpanSkipInit_UsesUnsafeInitializer()
     {
-        // stackalloc -> Span under [SkipLocalsInit] is unsafe. The unsafe op is
-        // the initializer of a local used afterwards, so the declaration must be
-        // hoisted out of the block (declared up front, assigned inside) to keep
-        // the variable in scope.
+        // stackalloc -> Span under [SkipLocalsInit] is unsafe. An unsafe
+        // expression keeps the declaration inline and the local in its original
+        // scope, so no forward declaration or explicit scoped modifier is needed.
         var output = DecompileNew(nameof(NewFixtures.StackAllocSkipInit));
 
-        // Raised to the source-level `stackalloc int[n]`, not the lowered
-        // `new Span<int>(stackalloc byte[...], n)` ctor shape (which never compiles).
-        Assert.Contains("stackalloc int[", FirstUnsafeBlockBody(output));
+        Assert.Contains("Span<int> s = unsafe(stackalloc int[n]);", output);
         Assert.DoesNotContain("new Span", output);
         Assert.DoesNotContain("stackalloc byte[", output);
-        // The declaration is hoisted above the unsafe block, the use survives.
-        Assert.True(
-            output.IndexOf("Span<int> s", StringComparison.Ordinal)
-                < output.IndexOf("unsafe", StringComparison.Ordinal),
-            "the span declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.DoesNotContain("scoped Span<int> s", output);
+        Assert.DoesNotContain("unsafe\n{", output);
         Assert.Contains("s.Length", output);
-        // Splitting the declaration from the stackalloc assignment loses the
-        // inline `scoped` inference, so the hoisted declaration must spell
-        // `scoped` to stay clean (otherwise CS9081). A stackalloc result is
-        // always scoped, so this is mode-independent correctness, not a guess.
-        Assert.Contains("scoped Span<int> s", output);
     }
 
     [Fact]
@@ -445,13 +641,17 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_StackAllocPointerInitializer_RequiresUnsafeContext()
+    public void NewRulesModule_StackAllocPointerInitializer_FallsBackToBlock()
     {
         var output = DecompileNewStackalloc(nameof(NewStackallocFixtures.StackallocPointerInitializer));
         var block = FirstUnsafeBlockBody(output);
 
-        Assert.Contains("stackalloc int[] { 1, 2, 3 }", block);
-        Assert.DoesNotContain("S_", block);
+        Assert.Contains("int* values = stackalloc int[] { 1, 2, 3 };", block);
+        Assert.Contains("return *values + values[2];", block);
+        Assert.DoesNotContain("return unsafe(", output);
+
+        var diagnostics = Recompile("static int M()", output);
+        AssertNoWarningsOrErrors(diagnostics, output);
     }
 
     [Fact]
@@ -972,19 +1172,20 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_StackAllocEventData_RendersRawStackallocInUnsafeBlock()
+    public void NewRulesModule_StackAllocEventData_UsesBlockOnlyForDependentStores()
     {
         var output = DecompileNew(nameof(NewFixtures.StackAllocEventData));
         var block = FirstUnsafeBlockBody(output);
 
         Assert.Contains("byte* __stackalloc = stackalloc byte[", block);
-        Assert.Contains("int* values = (int*)__stackalloc;", block);
-        Assert.Contains("*values", block);
+        Assert.Contains("values = (int*)__stackalloc;", block);
+        Assert.Contains("*values = eventId;", block);
         // `values[1]` is byte offset 4. The printer now recognizes the canonical
         // scaled offset and emits element arithmetic instead of the lower-altitude
         // byte-pointer fallback.
         Assert.Contains("*(values + 1)", block);
-        Assert.Contains("values[1]", block);
+        Assert.Contains("return unsafe(*values + values[1]);", output);
+        Assert.DoesNotContain("return", block);
         Assert.DoesNotContain("*(values + 4)", block);
         Assert.DoesNotContain("Span", output);
     }
@@ -1019,18 +1220,19 @@ public class UnsafeEmitterTests
     // ---- Optimistic ("simulate") mode: render new-rules contexts for legacy input ----
 
     [Fact]
-    public void OptimisticMode_LegacyPointerDeref_WrapsInUnsafeBlock()
+    public void OptimisticMode_LegacyPointerDeref_UsesUnsafeExpression()
     {
         // The pointer dereference leaves an IL trace (ldind), so simulate mode can
         // recover the context the new rules would require even though the legacy
         // module carries no MemorySafetyRulesAttribute. Matches conservative(New).
         var output = DecompileLegacySimulate(nameof(LegacyFixtures.DerefPointer));
 
-        Assert.Contains("*", FirstUnsafeBlockBody(output));
+        Assert.Contains("return unsafe(", output);
+        Assert.DoesNotContain("unsafe\n{", output);
     }
 
     [Fact]
-    public void OptimisticMode_LegacyCompatPointerSignatureCall_WrapsInUnsafeBlock()
+    public void OptimisticMode_LegacyCompatPointerSignatureCall_FallsBackToBlock()
     {
         // NativeMemory.Free has a pointer in its signature — recoverable from the
         // MemberRef — so simulate mode wraps the call for legacy input too.
@@ -1052,7 +1254,7 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void OptimisticMode_LegacyCrossAssemblyRequiresUnsafeCall_WrapsInUnsafeBlock()
+    public void OptimisticMode_LegacyCrossAssemblyRequiresUnsafeCall_UsesUnsafeExpression()
     {
         // App C is NOT opted into the new rules, yet it calls A.M1 — a pointerless
         // requires-unsafe method whose attribute lives in opted-in assembly A.
@@ -1062,7 +1264,8 @@ public class UnsafeEmitterTests
         Assert.DoesNotContain("unsafe", conservative);
 
         var optimistic = DecompileSimulate(typeof(ChainC).Assembly.Location, typeof(ChainC).FullName!, nameof(ChainC.CallChain));
-        Assert.Contains("M1()", FirstUnsafeBlockBody(optimistic));
+        Assert.Contains("return unsafe(LibraryB.M2() + LibraryA.M1());", optimistic);
+        Assert.DoesNotContain("unsafe\n{", optimistic);
     }
 
     // ---- Recompile rail: the new-rules output is valid, warning-free C# ----
@@ -1073,26 +1276,228 @@ public class UnsafeEmitterTests
     // ref-safety warnings such as CS9081 remain observable.
 
     [Fact]
-    public void NewRulesModule_StackAllocSkipInit_RecompilesScopedWithoutWarning()
+    public void NewRulesModule_StackAllocSkipInit_UnsafeExpressionRecompilesWithoutWarning()
     {
         var body = DecompileNew(nameof(NewFixtures.StackAllocSkipInit));
-        // The hoisted span needs `scoped`; without it the recompile warns CS9081.
-        Assert.Contains("scoped Span<int> s", body);
+        Assert.Contains("Span<int> s = unsafe(stackalloc int[n]);", body);
+        Assert.DoesNotContain("scoped", body);
 
         var diagnostics = Recompile("[SkipLocalsInit] static int M(int n)", body);
         AssertNoWarningsOrErrors(diagnostics, body);
     }
 
     [Fact]
-    public void OptimisticMode_LegacyStackAllocSkipInit_RecompilesScopedWithoutWarning()
+    public void OptimisticMode_LegacyStackAllocSkipInit_UnsafeExpressionRecompilesWithoutWarning()
     {
-        // Simulate forces the same hoist on legacy input, so the scoped guard must
-        // hold there too.
         var body = DecompileLegacySimulate(nameof(LegacyFixtures.StackAllocSkipInit));
-        Assert.Contains("scoped Span<int> s", body);
+        Assert.Contains("Span<int> s = unsafe(stackalloc int[n]);", body);
+        Assert.DoesNotContain("scoped", body);
 
         var diagnostics = Recompile("[SkipLocalsInit] static int M(int n)", body);
         AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    [Fact]
+    public void NewRulesModule_PointerDeref_UnsafeExpressionRecompilesWithoutWarning()
+    {
+        var body = DecompileNew(nameof(NewFixtures.DerefPointer));
+        Assert.Contains("return unsafe(", body);
+
+        var diagnostics = Recompile("static int M(int value)", body);
+        AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    [Fact]
+    public void NewRulesModule_ByRefPointerDeref_UnsafeExpressionRecompilesWithoutWarning()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var pointer = TypeRef.Pointer(int32);
+        var block = new Block(0);
+        block.Add(new Return(new LoadIndirect(
+            int32,
+            new LoadArgument(0, "pointer", pointer))));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Synthetic", "Owner"),
+            new MethodSignature(
+                TypeRef.ByRef(int32),
+                [new Parameter("pointer", pointer)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var body = CSharpPrinter.Print(function).Output!;
+        Assert.Equal("return ref unsafe(*pointer);\n", body);
+
+        var diagnostics = Recompile("static ref int M(int* pointer)", body);
+        AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    [Fact]
+    public void NewRulesModule_VoidRequiresUnsafeCall_BlockFallbackRecompilesWithoutWarning()
+    {
+        var body = DecompileNew(nameof(NewFixtures.FreePointer));
+        Assert.Contains("unsafe\n{", body);
+
+        var diagnostics = Recompile("static void M(void* p)", body);
+        AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    [Fact]
+    public void NewRulesModule_RequiresUnsafePropertyInLambda_FallsBackToBlock()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var getter = new MethodRef(holder, "get_Risky", int32, [], HasThis: false)
+        {
+            IsSpecialName = true,
+            RequiresUnsafe = true,
+        };
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(new LoadProperty(getter, instance: null, [])));
+        lambdaBody.Add(lambdaBlock);
+        var func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`1"), [int32]);
+        var block = new Block();
+        block.Add(new Return(new Lambda(
+            func,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: true,
+            skipLocalsInit: false,
+            lambdaBody)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "__Gate"),
+            new MethodSignature(
+                func,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var body = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("() =>\n{\n    unsafe", body);
+        Assert.DoesNotContain("=> unsafe(Holder.Risky)", body);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "static Func<int> M()",
+                body,
+                "public static class Holder { public static int Risky { unsafe get => 42; } }"),
+            body);
+    }
+
+    [Fact]
+    public void NewRulesModule_RequiresUnsafePropertyNestedInValue_UsesUnsafeExpression()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var getter = new MethodRef(holder, "get_Risky", int32, [], HasThis: false)
+        {
+            IsSpecialName = true,
+            RequiresUnsafe = true,
+        };
+        var value = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadProperty(getter, instance: null, []),
+            new Constant(1, int32));
+        var block = new Block();
+        block.Add(new Return(value));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "__Gate"),
+            new MethodSignature(
+                int32,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var body = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal("return unsafe(Holder.Risky + 1);\n", body);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "static int M()",
+                body,
+                "public static class Holder { public static int Risky { unsafe get => 42; } }"),
+            body);
+    }
+
+    [Fact]
+    public void NewRulesModule_RequiresUnsafePropertyInLocalFunction_FallsBackToBlock()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var getter = new MethodRef(holder, "get_Risky", int32, [], HasThis: false)
+        {
+            IsSpecialName = true,
+            RequiresUnsafe = true,
+        };
+        var localBody = new BlockContainer();
+        var localBlock = new Block();
+        localBlock.Add(new Return(new LoadProperty(getter, instance: null, [])));
+        localBody.Add(localBlock);
+        var block = new Block();
+        block.Add(new LocalFunctionStatement(
+            "Read",
+            int32,
+            [],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: true,
+            skipLocalsInit: false,
+            localBody));
+        block.Add(new Return(new LocalFunctionInvocation("Read", int32, [])));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "__Gate"),
+            new MethodSignature(
+                int32,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var body = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("static int Read()\n{\n    unsafe", body);
+        Assert.DoesNotContain("Read() => unsafe(Holder.Risky)", body);
+        AssertNoWarningsOrErrors(
+            Recompile(
+                "static int M()",
+                body,
+                "public static class Holder { public static int Risky { unsafe get => 42; } }"),
+            body);
     }
 
     [Fact]
@@ -1110,13 +1515,21 @@ public class UnsafeEmitterTests
     /// actually required, not masked by an outer modifier) with no warning
     /// suppression, so a CS9081 (or any other) warning is observable.
     /// </summary>
-    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body)
+    static ImmutableArray<Diagnostic> Recompile(
+        string methodHeader,
+        string body,
+        string declarations = "",
+        string containingTypeHeader = "static class __Gate",
+        string typeMembers = "")
     {
         string source = $$"""
             using System;
             using System.Runtime.CompilerServices;
-            static class __Gate
+            using System.Runtime.InteropServices;
+            {{declarations}}
+            {{containingTypeHeader}}
             {
+                {{typeMembers}}
                 {{methodHeader}}
                 {
             {{body}}

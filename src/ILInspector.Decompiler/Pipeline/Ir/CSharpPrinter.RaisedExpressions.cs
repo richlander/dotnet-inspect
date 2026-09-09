@@ -129,9 +129,16 @@ public sealed partial class CSharpPrinter
             }
             string expressionText = ExpressionTreeBodyText(lambda, expr);
             if (!lambda.IsExpressionTree
-                && EmitsUnsafeBlocks
+                && EmitsExplicitUnsafeContexts
                 && HasRequiredUnsafeOperation(expr))
             {
+                if (_newMemorySafetyRules
+                    && !lambda.ReturnsVoid
+                    && UnsafeExpressionCompilerSupports(expr))
+                {
+                    expressionText = UnsafeExpressionText(expr, expressionText);
+                    return LambdaConversionText(lambda, $"{parameters} => {expressionText}");
+                }
                 string statementText = lambda.ReturnsVoid
                     ? $"{expressionText};"
                     : $"return {expressionText};";
