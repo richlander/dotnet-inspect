@@ -1001,11 +1001,12 @@ gates reservation ownership.
 
 ### Untrusted JSON rejects duplicate properties
 
-JSON does not define how duplicate object keys resolve, so two readers of one payload can
-disagree. `DotnetInspector.Core.HardenedJson` and SourceLinkFetch's map parser reject duplicate
-properties, while `ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
-persistent type-index cache. Such payloads fail visibly instead of binding one of
-several possible readings.
+JSON does not define how duplicate object keys resolve, so two readers of one
+payload can disagree. `DotnetInspector.Core.HardenedJson` and
+`ILInspector.SourceLink.SourceLinkDocumentMap` rejects duplicate properties, while
+`ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
+persistent type-index cache. Such payloads fail visibly instead of binding one
+of several possible readings.
 
 This is generic hardening, not a fix for a known divergence. The SourceLink
 provenance divergence it does **not** address is closed separately, by the
@@ -1099,9 +1100,9 @@ Reported provenance must describe the origin that source content is actually
 fetched from, for every document the assembly resolves. When that cannot be
 established for all of them, report no repository.
 
-`SourceLinkFetch.SourceLinkProvenance` is the single owner of this rule. It
-resolves every document the assembly declares through
-`SourceLinkFetch.SourceLinkResolver` — the single owner of the mapping rule —
+`ILInspector.SourceLink.SourceLinkProvenance` is the single owner of this rule.
+It resolves every document the assembly declares through
+`ILInspector.SourceLink.SourceLinkDocumentMap` — the single owner of the mapping rule —
 and reads the origin off each **final resolved URL, after wildcard substitution,
 percent-encoding, and `System.Uri` canonicalization**. Never off the mapping
 text, and never off the mapping prefix alone. Agreement is required on the whole
@@ -1398,7 +1399,7 @@ and
 `HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
 Every product consumer that renders or derives output from fetched source now
-uses `PdbSourceAcquisition.FetchVerifiedSourceTextAsync`. PDB Source,
+uses `PdbSourceHouse.FetchVerifiedSourceTextAsync`. PDB Source,
 printed Source Files and Source Locations, IL-offset source lines, and
 documentation/sample enrichment all require the portable-PDB checksum before
 using network content. `SourceAvailabilityService` and
@@ -1411,7 +1412,7 @@ Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
 identity and verify the PDB document path; path-only heuristic projections
 attach a checksum only when that path names one document row. This is gated by
-`PdbSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+`PdbSourceHouseTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
 `...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
 `MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
 
@@ -1421,7 +1422,7 @@ The fetch-origin grammar is gated by
 `...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
 exercises the response boundary, pre-fix cache invalidation, and the
 availability/integrity projections in
-`PdbSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
+`PdbSourceHouseTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
@@ -1460,9 +1461,9 @@ Browser-Wasm cannot perform the DNS-level checks that
 `ISourceFetchPolicy` that authorizes a narrow set of HTTPS source hosts before
 dispatch, omits credentials, and configures Fetch to reject redirects. A
 destination outside that set is a PDB-source acquisition limitation and may
-fall back to decompilation; it is never probed. The shared `SourceFetcher`
+fall back to decompilation; it is never probed. The shared `SourceFetch`
 applies that host policy before its memory or content-store caches and before
-creating the request. `PdbSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
+creating the request. `PdbSourceHouseTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
 and
 `BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects`
 gate those rules.
@@ -1571,7 +1572,7 @@ Limit exhaustion is a visible extraction failure, not an absent declaration.
 token emission boundary, while
 `DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
 pre-allocation line boundary, and
-`PdbSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceHouseTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
 `CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.

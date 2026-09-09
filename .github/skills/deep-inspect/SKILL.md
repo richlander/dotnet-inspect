@@ -13,8 +13,9 @@ Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`,
 and decompiler-corpus jobs run daily to certify a commit for release. Publish
 consumes that certification evidence rather than rerunning the slow suites.
 The `authored-corpus` ratchet runs on a separate daily schedule as a regression
-gate rather than release-certification or publish evidence. All four can be
-dispatched on demand during the day.
+gate rather than release-certification or publish evidence. The comprehensive
+Inspect Web lane is also daily regression evidence rather than release
+certification. Every lane can be dispatched on demand during the day.
 
 ## Lanes
 
@@ -25,8 +26,9 @@ dispatched on demand during the day.
 | `census` | Observational broad signal and triage | Real-world corpus sensor, validity predicate scan, uncapped validity sweep, assertion scan, analysis corpus sensor, paydirt recall. |
 | `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
 | `authored-corpus` | Daily/on-demand regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
+| `inspect-web` | Daily/on-demand comprehensive Browser/Wasm regression evidence | Runs generated-facade version invariance, mutation controls, and Mono/CoreCLR multi-facade and managed-operation canaries. |
 | `nightly` | Opt-in next-SDK/compiler validation | Builds with the .NET daily SDK and checks opt-in compiler lowering drift; intentionally excluded from `all`. |
-| `all` | Release-candidate deep read | The `test`, `platform-test`, decompiler-corpus, `census`, and `authored-corpus` lanes. |
+| `all` | Release-candidate deep read | The `test`, `platform-test`, decompiler-corpus, `census`, `authored-corpus`, and `inspect-web` lanes. |
 
 Run manually:
 
@@ -36,6 +38,7 @@ gh workflow run deep-inspect.yml -f lane=platform-test
 gh workflow run deep-inspect.yml -f lane=census
 gh workflow run deep-inspect.yml -f lane=package-sweep
 gh workflow run deep-inspect.yml -f lane=authored-corpus
+gh workflow run deep-inspect.yml -f lane=inspect-web
 gh workflow run deep-inspect.yml -f lane=nightly
 gh workflow run deep-inspect.yml -f lane=all
 ```
@@ -57,7 +60,7 @@ dotnet build dotnet-inspect.slnx -c Release
 dotnet run --project src/dotnet-inspect.Tests -c Release
 source eng/activate-iltools.sh
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
-dotnet run --project src/ILInspector.Analysis.Tests -c Release
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 bash eng/restore-ilassembler.sh
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
@@ -99,5 +102,8 @@ accepted for ongoing coverage.
 - Treat `census` output as triage signal unless a command exits nonzero by
   design. Compare snapshots against committed baselines and route meaningful
   drift to issues or follow-up PRs.
+- Treat `inspect-web` failures as Browser/Wasm regression blockers. Ordinary
+  PRs run the fast boundary modes; changes to the facade generators, canaries,
+  or managed bridge owners run the complete modes before merge.
 - Do not add broad/corpus-style tests to PR CI. Mark them
   `[Trait("Speed", "Slow")]` and keep them in Deep Inspect / full local runs.

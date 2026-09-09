@@ -129,9 +129,11 @@ export interface BrowserHomeDemoResolved {
 }
 
 export interface BrowserHomeDemoRunActivation {
-  readonly focusPackage: string;
+  readonly focusKind: string;
+  readonly focusId: string;
   readonly focusVersion: string;
   readonly focusFramework: string;
+  readonly focusAssembly: string | null;
   readonly typeId: string;
   readonly section: string;
   readonly memberName: string | null;

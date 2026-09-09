@@ -29,6 +29,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CatchEntryFoldingTests.cs"] = (1, "Product-output validity: compiles synthesized try/catch source per case."),
             ["CharElementStorePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced char-element-store source."),
             ["CoerceChokePointTests.cs"] = (1, "Product-output validity: compiles synthesized coercion source per case."),
+            ["CSharpMemorySafetySpellingCompileTests.cs"] = (1, "Product-output validity: compiles CSharp-produced memory-safety declarations unchanged and re-extracts their contracts."),
             ["CSharpPrinterReceiverTests.cs"] = (1, "Product-output validity: compiles printer receiver-spelling output."),
             ["CSharpPrinterSemanticSpacingTests.cs"] = (1, "Product-output validity: compiles printer-produced nested-function labels and structured-comment lambda bodies."),
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
@@ -145,9 +146,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     retained-snapshot reference contracts.
     //   #6120 adds CompileReferencePlatformPolicyTests.cs (1 site): binds against
     //     the same retained platform images that Metadata resolves.
-    //   Combined: 46 files, 60 sites.
-    const int ExpectedDynamicFiles = 46;
-    const int ExpectedDynamicSites = 60;
+    //   #6105 adds CSharpMemorySafetySpellingCompileTests.cs (1 site): compiles
+    //     CSharp-produced declarations unchanged and re-extracts their contracts.
+    //   Combined: 47 files, 61 sites.
+    const int ExpectedDynamicFiles = 47;
+    const int ExpectedDynamicSites = 61;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

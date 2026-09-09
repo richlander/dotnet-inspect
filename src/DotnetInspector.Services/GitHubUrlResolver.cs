@@ -87,7 +87,7 @@ public static class GitHubUrlResolver
         // matter: a URL that traverses out of the repository it appears to name must not be
         // dressed up as a github.com link. The owner returns null for those, and the passthrough
         // below shows the URL as it is instead.
-        if (SourceLinkFetch.SourceLinkProvenance.BrowseUrl(url) is { } browseUrl)
+        if (ILInspector.SourceLink.SourceLinkProvenance.BrowseUrl(url) is { } browseUrl)
         {
             return browseUrl;
         }

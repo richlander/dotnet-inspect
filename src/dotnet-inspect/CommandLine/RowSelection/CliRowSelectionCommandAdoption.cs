@@ -27,7 +27,7 @@ internal sealed class CliRowSelectionCommandAdoption
     public Func<ParseResult, CliRowSelectionLowering<string>, string?>? ValidateLowering { get; }
 }
 
-internal sealed class CliRowSelectionPreparation
+internal sealed record CliRowSelectionPreparation
 {
     private CliRowSelectionPreparation(
         ParseResult parseResult,
@@ -44,6 +44,12 @@ internal sealed class CliRowSelectionPreparation
     public CliRowSelectionLowering<string>? Lowering { get; }
 
     public string? Error { get; }
+
+    public IReadOnlyList<string>? Arguments { get; init; }
+
+    public IReadOnlyList<Option>? PresenceOptions { get; init; }
+
+    public bool HasCompatibilityError { get; init; }
 
     public bool IsActive => Lowering is not null || Error is not null;
 
@@ -125,6 +131,23 @@ internal static class CliRowSelectionCommandRegistry
                 adoption!.Bindings,
                 adoption.Capabilities);
 
+        return PrepareLowering(result, adoption) with
+        {
+            Arguments = result.Arguments,
+            PresenceOptions =
+            [
+                adoption.Bindings.Head,
+                adoption.Bindings.Tail,
+                adoption.Bindings.Lines,
+                adoption.Bindings.TailLines
+            ]
+        };
+    }
+
+    private static CliRowSelectionPreparation PrepareLowering(
+        CliRowSelectionArgumentResult result,
+        CliRowSelectionCommandAdoption adoption)
+    {
         if (result.HasParseErrors)
             return CliRowSelectionPreparation.Inactive(result.ParseResult);
 
@@ -148,7 +171,12 @@ internal static class CliRowSelectionCommandRegistry
 
         CliRowSelectionLowering<string> lowering = loweringResult.Value!;
         if (adoption.ValidateLowering?.Invoke(result.ParseResult, lowering) is { } error)
-            return CliRowSelectionPreparation.Failed(result.ParseResult, error);
+        {
+            return CliRowSelectionPreparation.Failed(result.ParseResult, error) with
+            {
+                HasCompatibilityError = true
+            };
+        }
 
         Lowerings.Add(result.ParseResult, lowering);
         return CliRowSelectionPreparation.Success(
@@ -192,7 +220,7 @@ internal static class CliRowSelectionCommandRegistry
             CliRowSelectionArgumentFailureReason.MissingValue =>
                 $"{OptionName(failure.OccurrenceKind)} requires a value.",
             CliRowSelectionArgumentFailureReason.AttachedValueOnModifier =>
-                $"{OptionName(failure.OccurrenceKind)} does not accept a value.",
+                CliOptionValueValidation.DoesNotAcceptValue(OptionName(failure.OccurrenceKind)),
             _ => "The row-selection arguments are invalid."
         };
 

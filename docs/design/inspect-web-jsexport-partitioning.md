@@ -4,7 +4,8 @@ Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 The [page-facing engine client](#page-facing-engine-client) is **partially
 implemented**: startup reads, home-demo resolution, and dependency-coordinate
-matching have Promise-valued main-thread bindings.
+matching have Promise-valued main-thread bindings, and the Worker-only host has
+a typed Type Source producer adapter with no production caller.
 The single-runtime Worker cutover remains unimplemented, tracked by
 [#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
 consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
@@ -188,7 +189,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 54 `[JSExport]` methods.
+The seven rooted export assemblies contain 57 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -212,17 +213,19 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 19 exports
+### Package facade: 22 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
 - `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
 - `ListGalleryDiscoveryCatalog`
+- `ListPackageAssemblyQueryPatterns`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
 - `LoadRuntimePackAssembly`
 - `MatchPackageDependencyCoordinate`
+- `OpenPackageAssemblyQueryResult`
 - `PackageCacheStats`
 - `QueryMemberDocumentation`
 - `QueryPackage`
@@ -231,6 +234,7 @@ deployment smoke's deterministic awaited operation.
 - `QueryWorkspacePackageOccurrences`
 - `RequestPackageQueryMatches`
 - `ResolvePackageDependencyVersion`
+- `RunPackageAssemblyQuery`
 - `RunPackageQuery`
 - `SearchTypes`
 
@@ -314,8 +318,8 @@ it projects one API member after navigation rather than expanding topology.
 
 The catalog facade adapts product-owned static vocabulary and demo definitions
 plus product-owned workspace-share transport. `RunHomeDemo` may call shared
-package/workspace services through `InspectWeb.Engine.Core`; it does not call the
-package facade or reuse that facade's wire DTOs.
+package or Platform workspace services through `InspectWeb.Engine.Core`; it
+does not call sibling facades or reuse their wire DTOs.
 
 ## Managed assembly contract
 
@@ -596,6 +600,33 @@ production caller with delayed success/failure, a newer saved-workspace open,
 and the call-graph handoff. Other computed callers, mutable/control calls,
 and Worker activation remain outstanding.
 
+The first Worker-only client slice binds exactly five startup reads:
+`buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets`,
+and `listGalleryDiscoveryCatalog`. It consumes the corresponding `EngineClient`
+subset in the separately published Worker client entry, not the production
+page bootstrap. All calls share the existing full-facade and managed-reporter
+readiness barrier. Concurrent calls, including repeated calls to one method,
+have independent operation sessions and cannot supersede each other. An
+individual managed rejection does not fail neighboring reads. Disposal and
+epoch loss reject outstanding reads; a client cannot follow a replacement
+epoch. Promise completion does not assert physical quiescence.
+
+Each read has a closed Worker operation and consumes the generated function
+and result type. Its JSON-representable result uses a transport JSON string,
+limited to 1,048,576 UTF-16 code units before parsing and checked against the
+generated DTO shape. This deliberate transport encoding bounds decoding by
+text length without adding a recursive object-budget framework; it does not
+replace generated managed serialization. Extra JSON properties and the
+vocabulary's generated `unknown` values are preserved. Oversized results,
+invalid shapes, managed exceptions, and Worker failures remain visible.
+
+`test/engine-worker-startup.test.ts` gates generated-shaped result forwarding,
+shared readiness, independent calls, rejection, disposal, and epoch binding
+using the actual host, realm, and operation authority. The existing published
+Worker gate compares all five client results with the actual generated facade
+results in the same Worker. This is the first portion of milestone 4 below,
+not production activation, Source adoption, or managed-work responsiveness.
+
 Dependency-coordinate matching uses the package group without moving NuGet
 selection into JavaScript. Dependency lists await results before enabling
 open/load actions; graph construction awaits the same matcher before Mermaid
@@ -623,7 +654,8 @@ is the production-host adoption and retirement path under #5418 and #5420:
    existing single page runtime.
 3. Consume the separately owned durable Worker event prerequisite in #5418.
 4. Prepare typed Worker bindings and the Source producer adapter in a
-   Worker-only host, without activating them alongside the production runtime.
+   Worker-only host, without activating them alongside the production runtime
+   (**implemented**).
 5. Switch production bootstrap and all required bindings together, retire the
    temporary page client/direct managed calls, and complete the Source demo.
 
@@ -633,6 +665,21 @@ deferring correctness to a later slice. This uses the approved inspect-web-only
 Worker scope; it is not a CLI runtime migration. Feature-specific lifecycle
 adoption may continue after placement, but direct page managed dispatch does
 not.
+
+Milestone 4 registers the generated Type Source facade in the Worker catalog
+and exposes its operation-authority-compatible producer adapter from the
+page-facing Worker entry. The adapter projects the six clone-safe Source
+fields, validates bounded Source and terminal DTOs, forwards keyed
+cancellation, preserves expected versus unexpected failure, rejects progress,
+and declares unbounded liveness. `test/engine-worker-source.test.ts`, included
+in `inspect-web-worker-protocol`, exercises the real host, realm, catalog, and
+operation-authority path plus malformed boundary data. The published Firefox
+Worker gate additionally returns decompiled Source from a deterministic local
+package through the generated facade. The production `source-inspection.ts`
+adapter and `dotnet-inspect.ts` dependencies remain unchanged. Milestone 5
+still owns lifecycle composition, production bootstrap, all required
+neighboring bindings, direct page-runtime retirement, and the real-browser
+Source responsiveness demonstration.
 
 All new runtime claims are **unverified** until implementation. Extend the
 existing published facade-composition gate to exercise the actual client
@@ -755,18 +802,14 @@ summary but does not establish graph equality. Their lowering counts remain the
 expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
 
-CoreCLR staging follows only the highest-run-number successful `main`/`push`
-run of the compiler-async staging workflow. A successful completion is a
-wakeup, not deployment authority: after entering one static job-level
-concurrency group, the atomic build-and-deploy job resolves the current highest
-successful run and uses that run's exact artifact and head SHA. It checks the
-selected identity again immediately before deployment. A later rerun of an
-older successful staging run may restart the job, but the restarted job still
-builds and deploys the current highest successful run instead of the older
-wakeup. A newer failed, cancelled, or in-progress run does not make older
-successful evidence false; its later successful completion supplies the
-superseding wakeup. Failed, cancelled, manual, and non-`main` completions do
-not enter the group.
+CoreCLR staging follows production promotion rather than every compiler-async
+staging build. After production deploys successfully, the promotion workflow
+calls the CoreCLR workflow with the exact validated product SHA, staging run
+ID, and staged artifact ID that it promoted. The CoreCLR build checks out that
+SHA and compares against that exact compiler-async artifact; it never resolves
+a newer staging run independently. The promotion concurrency group serializes
+the production and CoreCLR deployments, and the CoreCLR deployment does not
+start before production succeeds.
 
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes

@@ -53,7 +53,7 @@ they do not make a repository-wide claim about network use.
 ## Running the focused cases
 
 ```sh
-dotnet run --project src/DotnetInspector.Services.Tests -c Release -- \
+dotnet run --project tests/DotnetInspector.Services.Tests -c Release -- \
   --filter-class '*SignatureVerifierTests'
 ```
 

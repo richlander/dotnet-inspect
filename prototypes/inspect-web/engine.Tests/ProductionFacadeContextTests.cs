@@ -60,10 +60,12 @@ public sealed class ProductionFacadeContextTests
             "ClearWorkspacePackageOccurrences",
             "GetPackageDocument",
             "ListGalleryDiscoveryCatalog",
+            "ListPackageAssemblyQueryPatterns",
             "ListPackageQueryFacets",
             "LoadRuntimePack",
             "LoadRuntimePackAssembly",
             "MatchPackageDependencyCoordinate",
+            "OpenPackageAssemblyQueryResult",
             "PackageCacheStats",
             "QueryMemberDocumentation",
             "QueryPackage",
@@ -72,6 +74,7 @@ public sealed class ProductionFacadeContextTests
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
+            "RunPackageAssemblyQuery",
             "RunPackageQuery",
             "SearchTypes",
         ],
@@ -168,10 +171,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 60 operations, and no operation name in two modules: a move that forgot to delete its
+        // 63 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(60, everyExport.Length);
+        Assert.Equal(63, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

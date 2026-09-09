@@ -11,12 +11,18 @@ recognizes and interprets the SourceLink custom-debug-information document.
 ## PDB source document acquisition
 
 After a Portable PDB maps a member or type to a checksummed source document,
-`PdbSourceAcquisition` looks for the document bytes in this order:
+`PdbSourceHouse` looks for the document bytes in this order:
 
 1. The PDB-recorded local path, when local source reads are enabled.
 2. Each caller-supplied local Git clone, addressed by the revision selector and
    repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
 3. The remote SourceLink URL.
+
+`PdbSourceHouse` is the clearing house for this PDB-provenance-based source
+scenario: it composes the candidate origins, fetch policy, checksum
+verification, source decoding, and typed failure outcomes into one settled
+result. It intentionally does not include decompiler-generated source.
+`AssemblyContextSourceQuery` owns that higher Queries-layer fallback.
 
 Every successful path must satisfy the shared Portable PDB checksum verifier
 (exact or accepted line-ending-normalized correspondence) before its content
