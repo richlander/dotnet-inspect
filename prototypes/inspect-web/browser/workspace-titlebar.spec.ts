@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SlideStripPolicy } from "../src/slide-strip.ts";
-import { callFactsFixture, exceptionRegionsFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
+import { callFactsFixture, exceptionRegionsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 
 async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
@@ -548,12 +548,18 @@ test("Member Facts keeps zero, loading, and failure states distinct", async ({
       await expect(page.locator(".exception-empty"))
         .toHaveText("No exception regions were found in this method.");
       await expect(page.locator(".exception-row")).toHaveCount(0);
+      await expect(page.locator(".performance-facts > header > span"))
+        .toHaveText("0 opportunities");
+      await expect(page.locator(".performance-empty"))
+        .toHaveText("No curated performance opportunities were found for this method.");
+      await expect(page.locator(".performance-row")).toHaveCount(0);
     } else {
       await expect(page.locator(".facts-summary")).toHaveCount(0);
       await expect(page.locator(".allocation-facts")).toHaveCount(0);
       await expect(page.locator(".call-facts")).toHaveCount(0);
       await expect(page.locator(".safety-facts")).toHaveCount(0);
       await expect(page.locator(".exception-regions")).toHaveCount(0);
+      await expect(page.locator(".performance-facts")).toHaveCount(0);
       await expect(page.locator(".member-surface-scroll h2"))
         .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
       if (mode === "error") {
@@ -841,6 +847,85 @@ test("Member Facts exception rows reflow by pane width without hiding long value
         region.filterRange ?? "not supplied",
       ]);
     }
+  }
+});
+
+test("Member Facts performance rows preserve all nine fields and nullable values", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&performance-opportunities=populated");
+  const facts = performanceOpportunitiesFixture();
+  await expect(page.locator(".performance-facts > header > span"))
+    .toHaveText("3 opportunities");
+  await expect(page.locator(".performance-row")).toHaveCount(3);
+  await expect(page.locator(".performance-facts")).not.toContainText("ranked judgments");
+  for (const [index, opportunity] of facts.performanceOpportunities.entries()) {
+    const row = page.locator(".performance-row").nth(index);
+    await expect(row.locator(".performance-identity > :first-child"))
+      .toHaveText(opportunity.offset ?? "No IL offset");
+    await expect(row.locator(".performance-shape")).toHaveText(opportunity.shape);
+    await expect(row.locator(".performance-evidence")).toHaveText(opportunity.evidence);
+    await expect(row.locator(".performance-properties dt"))
+      .toHaveText(["Confidence", "In loop", "Provenance", "Finding"]);
+    await expect(row.locator(".performance-properties dd")).toHaveText([
+      opportunity.confidence,
+      opportunity.inLoop ? "yes" : "no",
+      opportunity.provenance,
+      opportunity.finding ?? "not supplied",
+    ]);
+    await expect(row.locator(".performance-guidance dt"))
+      .toHaveText(["Possible direction", "Caveat"]);
+    await expect(row.locator(".performance-guidance dd"))
+      .toHaveText([opportunity.fix, opportunity.caveat ?? "not supplied"]);
+  }
+  await expect(page.locator(".performance-facts a, .performance-facts button, .performance-facts details"))
+    .toHaveCount(0);
+  const performance = await box(page, ".performance-facts");
+  const regions = await box(page, ".exception-regions");
+  expect(performance.width).toBeCloseTo(regions.width, 0);
+  expect(performance.height).toBeLessThanOrEqual(500);
+  expect(performance.y - (regions.y + regions.height)).toBeCloseTo(20, 0);
+});
+
+test("Member Facts performance rows reflow by pane width without hiding long values", async ({
+  page,
+}) => {
+  const facts = performanceOpportunitiesFixture("long");
+  for (const width of [1440, 900, 600, 360]) {
+    await page.setViewportSize({ width, height: 1200 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&performance-opportunities=long");
+    const identity = await box(page, ".performance-row:first-child .performance-identity");
+    const evidence = await box(page, ".performance-row:first-child .performance-evidence");
+    if (width === 900 || width === 360) {
+      expect(evidence.y).toBeGreaterThanOrEqual(identity.y + identity.height);
+      expect(evidence.x).toBeCloseTo(identity.x, 0);
+    } else {
+      expect(evidence.x).toBeGreaterThan(identity.x + identity.width);
+    }
+    for (const selector of [
+      ".performance-facts", ".performance-row", ".performance-identity",
+      ".performance-identity > *", ".performance-main", ".performance-evidence",
+      ".performance-properties", ".performance-properties > div",
+      ".performance-properties dd", ".performance-guidance",
+      ".performance-guidance > div", ".performance-guidance dd",
+      ".member-surface-scroll",
+    ]) {
+      expect(await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth)),
+      `${selector} at ${width}px`).toBe(true);
+    }
+    await expect(page.locator(".performance-shape").first())
+      .toHaveText(facts.performanceOpportunities[0]!.shape);
+    await expect(page.locator(".performance-evidence").first())
+      .toHaveText(facts.performanceOpportunities[0]!.evidence);
+    await expect(page.locator(".performance-no-offset")).toHaveCount(1);
+    await expect(page.locator(".performance-properties").first().locator("dd"))
+      .toHaveText([
+        "high", "yes",
+        "exact-with-an-intentionally-long-provenance-value",
+        "analysis.allocation.with-an-intentionally-long-descriptor-for-containment",
+      ]);
   }
 });
 

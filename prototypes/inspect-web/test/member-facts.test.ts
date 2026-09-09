@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import type { MemberFacts } from "../src/member-detail-inspection.ts";
-import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, safetyFactsFixture } from "./member-facts-fixture.ts";
+import { allocationFactsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "./member-facts-fixture.ts";
 
 function render(facts: MemberFacts = memberFactsFixture()) {
   return renderMemberFacts({
@@ -16,6 +16,15 @@ function summaryRow(html: string, label: string) {
   const row = html.split(`<dt>${label}</dt>`)[1]?.split("</dd>")[0];
   assert.ok(row, `Summary row ${label} is missing.`);
   return row;
+}
+
+function escaped(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 test("member Facts summary preserves all signals without repeating subject identity", () => {
@@ -78,6 +87,9 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   assert.match(html, /<h2 id="exception-regions-title">Exception regions<\/h2><span>0 regions<\/span>/);
   assert.match(html, /No exception regions were found in this method\./);
   assert.doesNotMatch(html, /<ol class="exception-rows">/);
+  assert.match(html, /<h2 id="performance-facts-title">Performance opportunities<\/h2><span>0 opportunities<\/span>/);
+  assert.match(html, /No curated performance opportunities were found for this method\./);
+  assert.doesNotMatch(html, /<ol class="performance-rows">/);
 
   const loading = renderMemberFacts({
     memberFacts: memberFactsFixture(),
@@ -85,7 +97,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
     memberFactsError: "",
   });
   assert.match(loading, /Analyzing method/);
-  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts|exception-regions/);
+  assert.doesNotMatch(loading, /facts-summary|Metadata token|allocation-facts|call-facts|safety-facts|exception-regions|performance-facts/);
 
   const failure = renderMemberFacts({
     memberFacts: null,
@@ -94,7 +106,7 @@ test("member Facts keeps explicit zero results distinct from loading and failure
   });
   assert.match(failure, /Facts query failed/);
   assert.match(failure, /Could not decode &lt;method&gt;\./);
-  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts|exception-regions/);
+  assert.doesNotMatch(failure, /facts-summary|No direct call sites|allocation-facts|call-facts|safety-facts|exception-regions|performance-facts/);
   assert.match(renderMemberFacts({
     memberFacts: null,
     memberFactsLoading: false,
@@ -290,5 +302,62 @@ test("exception regions preserve supplied numbers, returned order, repeats, and 
   assert.equal(
     (html.match(/<dt>Caught type<\/dt><dd><span class="exception-unavailable">not supplied<\/span>/g) ?? []).length,
     3,
+  );
+});
+
+test("performance opportunities preserve all nine fields and explicit nullable values", () => {
+  const facts = performanceOpportunitiesFixture();
+  const html = render(facts);
+  assert.match(html, /<h2 id="performance-facts-title">Performance opportunities<\/h2><span>3 opportunities<\/span>/);
+  assert.doesNotMatch(html, /ranked judgments/);
+  const rows = [...html.matchAll(/<li class="performance-row">([\s\S]*?)<\/li>/g)]
+    .map(match => match[1]!);
+  assert.equal(rows.length, 3);
+  for (const [index, opportunity] of facts.performanceOpportunities.entries()) {
+    const row = rows[index]!;
+    assert.ok(row.includes(opportunity.offset == null
+      ? '<span class="performance-no-offset">No IL offset</span>'
+      : `<code class="performance-offset">${opportunity.offset}</code>`));
+    assert.ok(row.includes(`<code class="performance-shape">${opportunity.shape}</code>`));
+    assert.ok(row.includes(
+      `<p class="performance-evidence">${escaped(opportunity.evidence)}</p>`,
+    ));
+    for (const [label, value] of [
+      ["Confidence", opportunity.confidence],
+      ["In loop", opportunity.inLoop ? "yes" : "no"],
+      ["Provenance", opportunity.provenance],
+      ["Finding", opportunity.finding ?? "not supplied"],
+      ["Possible direction", opportunity.fix],
+      ["Caveat", opportunity.caveat ?? "not supplied"],
+    ] as const) {
+      assert.ok(
+        summaryRow(row, label).includes(escaped(value)),
+        `${label} did not preserve ${value}.`,
+      );
+    }
+  }
+  assert.doesNotMatch(rows.join(""), /<a\b|<button\b|<details\b/);
+  assert.match(render({
+    ...facts,
+    performanceOpportunities: [facts.performanceOpportunities[0]!],
+  }), /<span>1 opportunity<\/span>/);
+});
+
+test("performance opportunities preserve returned order and repeated records", () => {
+  const facts = performanceOpportunitiesFixture();
+  const performanceOpportunities = [
+    facts.performanceOpportunities[1]!,
+    facts.performanceOpportunities[0]!,
+    facts.performanceOpportunities[1]!,
+  ];
+  const html = render({ ...facts, performanceOpportunities });
+  assert.deepEqual(
+    [...html.matchAll(/class="performance-shape">([^<]+)<\/code>/g)]
+      .map(match => match[1]),
+    performanceOpportunities.map(opportunity => opportunity.shape),
+  );
+  assert.equal(
+    (html.match(/class="performance-no-offset"/g) ?? []).length,
+    0,
   );
 });
