@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Platforms;
 using InertText;
-using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspector.Packages;
@@ -95,16 +94,10 @@ public sealed class PackageHousePruningReceipt
         PackageSourceCoordinate exact,
         PackageHouseTargetContext? target)
     {
-        if (!policy.PackageId.Equals(
-                exact.PackageId,
-                StringComparison.OrdinalIgnoreCase)
-            || policy.Version is null
-            || !NuGetVersion.TryParse(
-                policy.Version,
-                out NuGetVersion? policyVersion)
-            || !policyVersion.ToNormalizedString().Equals(
-                exact.Version,
-                StringComparison.Ordinal))
+        if (policy.Version is null
+            || PackageSourceCoordinate.Create(
+                policy.PackageId,
+                policy.Version) != exact)
         {
             return false;
         }

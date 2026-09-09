@@ -703,7 +703,7 @@ every supported host that uses it.
 | Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence. |
 | Pruning order | `Subsumed` skips payload acquisition and every other pruning state cannot issue platform delegation. |
-| Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt and matches the actual supplier family and exact target version. |
+| Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
 | Selection completion | Selected assets and explicit empty compile groups settle; no-match, ambiguity, and invalid outcomes map to their corresponding terminal arms without losing receipts. |

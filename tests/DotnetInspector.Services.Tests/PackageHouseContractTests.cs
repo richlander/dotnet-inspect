@@ -733,6 +733,39 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void PruningUsesPackageOwnerExactCoordinateNormalization()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                "contoso.json",
+                "4.0.0-RC.1");
+        PlatformFamilyTarget target = PlatformTarget(
+            "net11.0",
+            "11.0.0");
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            PackageHouseTargetContext.Exact(
+                "net11.0",
+                platformTarget: target));
+        PlatformSupplyReceipt policy = PlatformPrunePolicy.Evaluate(
+            PlatformInventory("net11.0", "11.0.0"),
+            new PackageCoordinate(
+                "contoso.json",
+                "4.0.0-RC.1",
+                "net11.0"));
+
+        var pruning = new PackageHousePruningReceipt(
+            request,
+            target,
+            policy);
+
+        Assert.Equal("4.0.0-rc.1", coordinate.Version);
+        Assert.Same(policy, pruning.Policy);
+    }
+
+    [Fact]
     public void PruningRejectsAnotherPolicyCoordinateOrPlatformVersion()
     {
         PlatformFamilyTarget target = PlatformTarget("net11.0", "11.0.0");
