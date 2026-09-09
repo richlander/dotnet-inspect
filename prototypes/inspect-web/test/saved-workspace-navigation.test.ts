@@ -40,10 +40,12 @@ import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
 import {
+  browserCreatedCallGraphTabIds,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  selectedBrowserCallGraphPackageTabIds,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -65,13 +67,16 @@ const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
-  "capturedShareTabs", "resolvedWorkspaceShareTabs", "scope", "syncUrl", "buildStateUrl",
+  "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
+  "selectedCallGraphWorkspacePackages",
+  "workspaceCoordinateCount",
+  "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "openSavedWorkspace", "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
-  "commitDemoNavigation", "cancelDemoNavigation",
+  "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
-  "normalizeWorkspaceAsyncSnapshotState",
+  "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
   "invalidateWorkspaceAsyncOwners",
   "captureWorkspaceConstructionSnapshots", "cancelPendingWorkspaceConstruction",
@@ -83,6 +88,7 @@ const hostNames = new Set([
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "isRecord", "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
+  "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
@@ -189,7 +195,18 @@ function harness() {
   const state = {
     home: false, credits: false, packageQueryOpen: false,
     engineReady: true, loading: false, error: "",
-    workspaceSubjectOpen: true, atPackageRoot: true, packageLens: "overview",
+    workspaceSubjectOpen: true, atPackageRoot: true, atLibraryRoot: false,
+    packageLens: "overview",
+    rootKind: "package" as "package" | "platform",
+    platformSelection: null as {
+      tfm: string;
+      version: string;
+      includeAllLibraries: boolean;
+      filter: string;
+    } | null,
+    platformSlot: -1,
+    platformCatalogStatus: { loading: false, error: "" },
+    platformOpeningStatus: { loading: false, error: "" },
     packages: [sourcePackage], package: sourcePackage as Package | null,
     workspaceShareBasis: null as BrowserWorkspaceShareState | null,
     libraryScope: null as Set<string> | null,
@@ -352,6 +369,7 @@ function harness() {
     pendingWorkspaceConstruction: null,
     activeWorkspaceUrl: null as string | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
+    platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
     spotlightFocusGeneration: 0, documentFocusGeneration: 0, workspaceOccurrenceRevision: 0,
     HTMLElement: class { isContentEditable = false; },
@@ -383,9 +401,15 @@ function harness() {
     retainWorkspacePackage: (
       packages: readonly Package[], active: Package | null,
       packageModel: Package, replacedPackage: Package | null,
+      capacity = MAX_WORKSPACE_PACKAGES,
     ) => {
       retained.push({ packageModel, replacedPackage });
-      return retainWorkspacePackage(packages, active, packageModel, replacedPackage);
+      return retainWorkspacePackage(
+        packages,
+        active,
+        packageModel,
+        replacedPackage,
+        capacity);
     },
     createPackageAcquisition,
     inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
@@ -411,7 +435,9 @@ function harness() {
         state.spotlightOpen = false;
       },
     },
-    typeLensesFor, workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
+    typeLensesFor, browserCreatedCallGraphTabIds,
+    selectedBrowserCallGraphPackageTabIds,
+    workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: decode,
     requestAnimationFrame: (action: () => void) => frames.push(action),
@@ -435,6 +461,7 @@ function harness() {
     retainFailedWorkspaceUrl: () => false,
     packageDisplayName: (pkg: Package) => pkg.id,
     selectedType: () => null,
+    selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
     isRuntimePackId: () => false,
     loadPackage: async (
@@ -502,6 +529,32 @@ function harness() {
       return controls.callGraph();
     },
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
+    platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
+      tab.kind === "group" && tab.source === ":Platform"
+        ? { tfm: tab.framework, version: tab.version }
+        : null,
+    ensurePlatformCatalog: async (tfm: string, version: string) => ({
+      tfm,
+      version,
+      isBundled: true,
+      runtimeIdentifier: "linux-x64",
+      catalog: [],
+    }),
+    installPlatformTarget: (target: { tfm: string; version: string }) => {
+      state.rootKind = "platform";
+      state.platformSelection = {
+        tfm: target.tfm,
+        version: target.version,
+        includeAllLibraries: false,
+        filter: "",
+      };
+      state.package = null;
+      state.home = false;
+      state.atPackageRoot = true;
+      state.atLibraryRoot = false;
+      state.workspaceSubjectOpen = false;
+    },
+    startPlatformTargetWork: () => {},
   };
   runInNewContext(stripTypeScriptTypes(hostDeclarations), context);
   cancelPendingWorkspaceConstruction = () => {
@@ -632,6 +685,42 @@ test("capture settles Spotlight package loading to cache or idle", () => {
   }
 });
 
+test("retained Workspace snapshots make cancelled Platform work retryable", () => {
+  const h = harness();
+  h.state.platformCatalogStatus = { loading: true, error: "" };
+  h.state.platformOpeningStatus = { loading: true, error: "" };
+
+  const snapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(snapshot !== null && typeof snapshot === "object"
+    && "state" in snapshot);
+  const snapshotState = snapshot.state;
+  assert.ok(snapshotState !== null && typeof snapshotState === "object"
+    && "platformCatalogStatus" in snapshotState
+    && "platformOpeningStatus" in snapshotState);
+  const catalogStatus = snapshotState.platformCatalogStatus;
+  const openingStatus = snapshotState.platformOpeningStatus;
+  assert.ok(catalogStatus !== null && typeof catalogStatus === "object"
+    && "loading" in catalogStatus && "error" in catalogStatus);
+  assert.ok(openingStatus !== null && typeof openingStatus === "object"
+    && "loading" in openingStatus && "error" in openingStatus);
+
+  assert.equal(catalogStatus.loading, false);
+  assert.equal(
+    catalogStatus.error,
+    "Platform catalog loading was interrupted.",
+  );
+  assert.equal(openingStatus.loading, false);
+  assert.equal(
+    openingStatus.error,
+    "Platform Library opening was interrupted.",
+  );
+  assert.deepEqual(h.state.platformCatalogStatus, { loading: true, error: "" });
+  assert.deepEqual(h.state.platformOpeningStatus, { loading: true, error: "" });
+});
+
 test("capture uses the original share projection and retains Workspace presentation without effects", () => {
   const h = harness();
   const basis = sharedState();
@@ -711,6 +800,15 @@ for (const platform of [false, true]) {
         source: { kind: "nuget.org" } },
     ];
     h.state.package = h.state.packages[1]!;
+    if (platform) {
+      h.state.platformSelection = {
+        tfm: "net10.0",
+        version: "2.3.4",
+        includeAllLibraries: false,
+        filter: "",
+      };
+      h.state.platformSlot = 0;
+    }
     h.state.workspaceShareBasis = basis;
     const before = structuredClone(h.state);
     h.capture();
@@ -724,6 +822,46 @@ for (const platform of [false, true]) {
     assert.equal(h.writes.length, 0);
   });
 }
+
+test("floating packet coordinates resolve the active package and Call Graph context", () => {
+  const h = harness();
+  const exact = sharedState();
+  const basis: BrowserWorkspaceShareState = {
+    ...exact,
+    tabs: exact.tabs.map(tab => ({
+      ...tab,
+      version: null,
+      framework: null,
+    })),
+    activeTabId: "first",
+  };
+  h.state.packages = exact.tabs.map(tab => {
+    assert.ok(tab.version);
+    assert.ok(tab.framework);
+    return {
+      id: tab.source,
+      version: tab.version,
+      activeFramework: tab.framework,
+      types: [],
+      source: { kind: "nuget.org" as const },
+    };
+  });
+  h.state.package = h.state.packages[0]!;
+  h.state.workspaceShareBasis = basis;
+
+  h.capture();
+  assert.deepEqual(
+    h.encoded[0],
+    {
+      ...basis,
+      tabs: exact.tabs,
+    });
+  const selected: unknown = runInNewContext(
+    "selectedCallGraphWorkspacePackages()",
+    h.context);
+  assert.ok(Array.isArray(selected));
+  assert.deepEqual(selected, h.state.packages);
+});
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
   const h = harness();
@@ -776,6 +914,40 @@ test("saved Open restores into an empty Workspace without a separate loader", as
   assert.deepEqual(h.publications, [null]);
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);
+});
+
+test("saved Platform Open commits its staged URL after Platform selection completes", async () => {
+  const h = harness();
+  h.controls.share = {
+    tabs: [{
+      id: "platform", kind: "group", source: ":Platform",
+      version: "11.0.6", framework: "net11.0", runtimeIdentifier: null,
+    }],
+    contexts: [{ id: "platform-context", tabIds: ["platform"] }],
+    activeTabId: "platform",
+    selectedContextId: "platform-context",
+    view: {
+      lens: null, type: null, memberAnchor: null, memberSignature: null,
+      section: null, libraries: [],
+    },
+  };
+  h.location.href = "https://inspect.test/demos";
+  h.open();
+  await h.settle();
+
+  const pushed = h.writes.filter(write => write.kind === "push");
+  assert.equal(pushed.length, 1);
+  assert.equal(h.location.pathname, "/");
+  assert.equal(h.location.searchParams.get("w"), packet);
+  assert.equal(h.location.hash, "#workspace");
+  assert.equal(h.state.rootKind, "platform");
+  assert.deepEqual(h.state.platformSelection, {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  });
+  assert.equal(h.context.pendingDemoNavigation, null);
+  assert.equal(h.publications.length, 1);
+  assert.notEqual(h.publications[0], null);
 });
 
 function assertRetained(h: ReturnType<typeof harness>, href: string, entryState: unknown) {
@@ -1004,7 +1176,7 @@ test("demo resolution waits before acquisition and commits its complete location
   resolution.resolve(resolvedDemo());
   await h.settle();
   assert.equal(h.navigationSequence.current(), sequence);
-  assert.equal(h.state.package?.id, "Beta");
+  assert.equal(h.state.package?.id, "Beta", h.state.queryNotice);
   assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
   assert.equal(h.location.searchParams.get("w"), packet);
   assert.equal(h.context.pendingDemoNavigation, null);
@@ -1335,6 +1507,131 @@ test("Add at the 12-coordinate cap refuses visibly before querying or evicting",
   assert.equal(h.state.queryNoticeRetryAction, null);
   h.flushFocus();
   assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+});
+
+test("catalog-only Platform consumes one of the 12 Workspace coordinates", async () => {
+  const h = harness();
+  fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
+  h.state.platformSelection = {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  };
+  h.state.platformSlot = 0;
+  const previous = [...h.state.packages];
+
+  await h.add();
+
+  assert.deepEqual(h.queries, []);
+  assert.deepEqual(h.state.packages, previous);
+  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.equal(h.state.queryNoticeRetryAction, null);
+});
+
+test("ordinary package retention reserves the catalog-only Platform coordinate", () => {
+  const h = harness();
+  fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
+  h.state.platformSelection = {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  };
+  const incoming = {
+    ...sourcePackage,
+    id: "Incoming.Package",
+    version: "2.0.0",
+  };
+
+  runInNewContext("retainPackageModel(incoming)", {
+    ...h.context,
+    incoming,
+  });
+
+  assert.equal(h.state.packages.length, MAX_WORKSPACE_PACKAGES - 1);
+  assert.equal(h.state.packages.includes(sourcePackage), true);
+  assert.equal(h.state.packages.includes(incoming), true);
+  assert.equal(h.state.packages.some(pkg => pkg.id === "Resident.0"), false);
+  assert.equal(
+    runInNewContext("workspaceCoordinateCount()", h.context),
+    MAX_WORKSPACE_PACKAGES);
+});
+
+test("ordinary retention preserves the coordinate limit after evicting a realized Platform", () => {
+  const h = harness();
+  const platform = {
+    ...sourcePackage,
+    id: "Microsoft.NETCore.App",
+    version: "11.0.6",
+    activeFramework: "net11.0",
+    isRuntimePack: true,
+    source: { kind: "platform" as const },
+  };
+  const residents = Array.from(
+    { length: MAX_WORKSPACE_PACKAGES - 1 },
+    (_, index) => ({
+      ...sourcePackage,
+      id: `Resident.${index}`,
+    }));
+  const active = residents.at(-1);
+  assert.ok(active);
+  h.state.packages = [platform, ...residents];
+  h.state.package = active;
+  h.state.platformSelection = {
+    tfm: "net11.0", version: "11.0.6",
+    includeAllLibraries: false, filter: "",
+  };
+  const incoming = {
+    ...sourcePackage,
+    id: "Incoming.Package",
+    version: "2.0.0",
+  };
+
+  runInNewContext("retainPackageModel(incoming)", {
+    ...h.context,
+    incoming,
+  });
+
+  assert.equal(h.state.packages.length, MAX_WORKSPACE_PACKAGES - 1);
+  assert.equal(h.state.packages.some(pkg => pkg.source.kind === "platform"), false);
+  assert.equal(h.state.packages.includes(incoming), true);
+  assert.equal(
+    runInNewContext("workspaceCoordinateCount()", h.context),
+    MAX_WORKSPACE_PACKAGES);
+});
+
+test("opening Platform at the coordinate cap refuses before changing subject or loading a catalog", async () => {
+  const h = harness();
+  fillWorkspace(h);
+  const previous = [...h.state.packages];
+
+  await runInNewContext(
+    'openPlatformSubject("net11.0", "11.0.6")',
+    h.context,
+  );
+
+  assert.deepEqual(h.state.packages, previous);
+  assert.equal(h.state.rootKind, "package");
+  assert.equal(h.state.platformSelection, null);
+  assert.deepEqual(h.toasts, [
+    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+  ]);
+});
+
+test("opening a Platform Library in place at the coordinate cap preserves the prior subject", async () => {
+  const h = harness();
+  fillWorkspace(h);
+  const previous = [...h.state.packages];
+
+  await runInNewContext(
+    'openPlatformLibrary("System.Text.Json", "netcore.app", { inPlace: true })',
+    h.context,
+  );
+
+  assert.deepEqual(h.state.packages, previous);
+  assert.equal(h.state.rootKind, "package");
+  assert.equal(h.state.platformSelection, null);
+  assert.equal(h.picker.resets, 0);
+  assert.deepEqual(h.toasts, [
+    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+  ]);
 });
 
 test("Add whose last slot fills during query refuses before retention and preserves the independently admitted member", async () => {
