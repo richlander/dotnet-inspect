@@ -174,6 +174,7 @@ public class AssemblyReferenceTreeResolutionTests
                     new VerboseLogger(enabled: false));
             LibraryMetadataService.AssemblyReferenceRelationship relationship =
                 Assert.Single(graph.Relationships);
+            Assert.True(relationship.IsResolved);
             var target = Assert.IsType<
                 ManagedMetadataIdentity.Assembly>(
                     relationship.Target);
@@ -205,6 +206,54 @@ public class AssemblyReferenceTreeResolutionTests
             Assert.Equal(
                 "Sibling, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
                 row.EvidenceIdentity);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MissingSibling_RemainsAnUnresolvedDeclaration()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-graph-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly("Owner", "MissingSibling"));
+
+            List<AssemblyReferenceIdentity> references =
+                AssemblyInspector.ExtractReferenceIdentities(ownerPath);
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    references,
+                    ownerPath,
+                    AssemblyInspector.ExtractManagedMetadataIdentity(
+                        ownerPath)
+                        ?? throw new InvalidOperationException(
+                            "The fixture must expose managed metadata."),
+                    new VerboseLogger(enabled: false));
+
+            LibraryMetadataService.AssemblyReferenceRelationship relationship =
+                Assert.Single(graph.Relationships);
+            Assert.False(relationship.IsResolved);
+            Assert.Null(relationship.ResolutionFailure);
+
+            DependencyGraphDocument document =
+                DependencyGraphProjection.Library(
+                    new LibraryDependencyGraphResult.Graph(
+                        "Owner",
+                        graph));
+            DependencyGraphEdge edge = Assert.Single(document.Edges);
+            Assert.Equal(
+                DependencyGraphResolutionState.Declared,
+                edge.Resolution);
+            DependencyGraphEdgeRow row = Assert.Single(
+                DependencyGraphOutputAdapter.EdgeRows(document));
+            Assert.Equal("declared", row.Resolution);
         }
         finally
         {

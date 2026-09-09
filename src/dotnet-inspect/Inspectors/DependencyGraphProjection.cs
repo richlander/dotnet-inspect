@@ -78,7 +78,11 @@ internal static class DependencyGraphProjection
                         DependencyGraphResolutionState.Unavailable,
                     AssemblyReferenceResolutionFailure.Rejected =>
                         DependencyGraphResolutionState.Rejected,
-                    _ => DependencyGraphResolutionState.Resolved,
+                    null when relationship.IsResolved =>
+                        DependencyGraphResolutionState.Resolved,
+                    null => DependencyGraphResolutionState.Declared,
+                    _ => throw new InvalidOperationException(
+                        "Unknown assembly reference resolution failure."),
                 },
                 new DependencyGraphEvidenceIdentity.AssemblyReference(
                     relationship.RequestedTarget));

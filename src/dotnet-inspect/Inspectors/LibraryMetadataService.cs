@@ -992,6 +992,7 @@ internal static class LibraryMetadataService
         ManagedMetadataIdentity Source,
         ManagedMetadataIdentity Target,
         AssemblyReferenceIdentity RequestedTarget,
+        bool IsResolved,
         AssemblyReferenceResolutionFailure? ResolutionFailure,
         int Ordinal);
 
@@ -1130,6 +1131,7 @@ internal static class LibraryMetadataService
                         sourceIdentity,
                         targetIdentity,
                         reference,
+                        resolved is not null,
                         node.ResolutionFailure,
                         relationships.Count));
             }
