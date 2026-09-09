@@ -132,7 +132,8 @@ owner; new forwarding-root composition is outside this profile.
 
 The managed feature invokes the shared query once for an accepted comparison,
 requesting both local C# and IL mechanisms. It consumes
-`LocalComparisonQueryResult`; it does not call legacy `CompareMembers`,
+`LocalComparisonQueryResult`; it does not call the retired
+`ImplementationDiff.CompareMembers`,
 reinspect each endpoint, or construct a synthetic `ResearchComparison`.
 The context owner retains acquired input lifetime. Queries and Research retain
 their own access and stage cleanup responsibilities.
